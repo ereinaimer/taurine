@@ -28,16 +28,25 @@ fn test_voice_models_catalog_and_ram_tier() {
     let light = get_model_entry("parakeet-tdt-ctc-110m").expect("110m must be in catalog");
     assert_eq!(light.id, "parakeet-tdt-ctc-110m");
     assert!(light.is_archive);
-    let silero = get_model_entry("silero_vad_v6").expect("silero vad in catalog");
-    assert_eq!(silero.id, "silero_vad_v6");
-    let kws = get_model_entry("kws-zipformer-zh-en-3M").expect("kws in catalog");
-    assert_eq!(kws.id, "kws-zipformer-zh-en-3M");
+    assert_eq!(get_model_entry("silero_vad_v6"), None);
+    assert_eq!(get_model_entry("kws-zipformer-zh-en-3M"), None);
     assert_eq!(get_model_entry("whisper-small-en"), None);
     assert_eq!(get_model_entry("parakeet-tdt-0.6b-v3"), None);
     assert_eq!(get_model_entry("moonshine-base-en"), None);
     assert_eq!(get_model_entry("moonshine-tiny-en"), None);
-    assert_eq!(resolve_model_alias("unified"), "parakeet-unified-en-0.6b");
-    assert_eq!(resolve_model_alias("110m"), "parakeet-tdt-ctc-110m");
+    // Strict canonical names: shorthand aliases are rejected.
+    assert_eq!(get_model_entry("110m"), None);
+    assert_eq!(get_model_entry("unified"), None);
+    assert_eq!(get_model_entry("best"), None);
+    assert_eq!(get_model_entry("fast"), None);
+    assert_eq!(
+        resolve_model_alias("parakeet-unified-en-0.6b"),
+        "parakeet-unified-en-0.6b"
+    );
+    assert_eq!(
+        resolve_model_alias("parakeet-tdt-ctc-110m"),
+        "parakeet-tdt-ctc-110m"
+    );
     assert!(get_system_ram_gb() >= 4);
 }
 

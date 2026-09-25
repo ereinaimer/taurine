@@ -7,20 +7,11 @@ pub fn execute_up(json: bool) -> Result<(), Error> {
         taurine_core::settings::SettingsManager::new(&conn).load_all()
     };
 
-    // Dictation models: both on capable machines, light only under 8 GB total.
+    // Single-model voice engine: download only the configured model.
     // If downloading fails (e.g. offline or network issue), continue starting Taurine
     // without voice capabilities instead of aborting startup.
-    let models_to_ensure: Vec<&str> = if settings.voice_model.trim().eq_ignore_ascii_case("auto") {
-        if taurine_core::voice::get_system_ram_gb() >= 8 {
-            vec!["parakeet-unified-en-0.6b", "parakeet-tdt-ctc-110m"]
-        } else {
-            vec!["parakeet-tdt-ctc-110m"]
-        }
-    } else {
-        vec![taurine_core::voice::resolve_model_alias(
-            &settings.voice_model,
-        )]
-    };
+    let single_model = taurine_core::voice::resolve_configured_model(&settings.voice_model);
+    let models_to_ensure: Vec<&str> = vec![single_model];
 
     for model in models_to_ensure {
         if let Err(e) = ensure_voice_model_downloaded(model, json) {
@@ -31,36 +22,6 @@ pub fn execute_up(json: bool) -> Result<(), Error> {
             if !json {
                 eprintln!(
                     "Warning: Voice model '{model}' is unavailable. Starting Taurine without voice dictation.",
-                );
-            }
-        }
-    }
-
-    // Best-effort cleanup of deprecated voice models
-    let models_dir = taurine_core::voice::models_dir();
-    taurine_core::voice::prune_deprecated_voice_models(&models_dir);
-
-    // If ambient always-on is enabled, also ensure VAD and KWS models are downloaded
-    if settings.voice_always_on {
-        if let Err(e) = ensure_voice_model_downloaded("silero_vad_v6", json) {
-            tracing::warn!(
-                error = %e,
-                "Silero VAD model unavailable; starting Taurine without ambient voice triggers"
-            );
-            if !json {
-                eprintln!(
-                    "Warning: Silero VAD model is unavailable. Ambient voice triggers will be disabled."
-                );
-            }
-        }
-        if let Err(e) = ensure_voice_model_downloaded("kws-zipformer-zh-en-3M", json) {
-            tracing::warn!(
-                error = %e,
-                "Zipformer KWS model unavailable; starting Taurine without ambient voice triggers"
-            );
-            if !json {
-                eprintln!(
-                    "Warning: Zipformer KWS model is unavailable. Ambient voice triggers will be disabled."
                 );
             }
         }

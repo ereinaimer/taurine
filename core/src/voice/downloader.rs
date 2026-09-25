@@ -33,7 +33,6 @@ pub(crate) fn target_subfolder_for_model(canonical: &str) -> &str {
     match canonical {
         "parakeet-unified-en-0.6b" => "parakeet-unified",
         "parakeet-tdt-ctc-110m" => "parakeet-110m",
-        "kws-zipformer-zh-en-3M" => "kws",
         _ => canonical,
     }
 }
@@ -265,12 +264,8 @@ pub fn download_model_with_status(
             &mut on_status,
         )?;
     } else {
-        // Single file download (Silero VAD .onnx)
-        let filename = if canonical == "silero_vad_v6" {
-            "silero_vad.onnx".to_string()
-        } else {
-            format!("{canonical}.bin")
-        };
+        // Single file download fallback
+        let filename = format!("{canonical}.bin");
 
         let target_file = dir.join(&filename);
         let part_file = dir.join(format!("{filename}.part"));

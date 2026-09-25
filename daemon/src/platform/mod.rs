@@ -239,6 +239,9 @@ mod tests {
 
     #[test]
     fn test_read_clipboard_text_returns_string() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let _ = read_clipboard_text();
     }
 

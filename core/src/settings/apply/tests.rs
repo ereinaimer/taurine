@@ -220,7 +220,7 @@ fn test_inline_dictionary_mode_settings() {
 
 #[test]
 fn setting_key_all_has_unique_storage_keys() {
-    assert_eq!(SettingKey::ALL.len(), 44);
+    assert_eq!(SettingKey::ALL.len(), 42);
 
     let mut seen = HashSet::new();
     for key in SettingKey::ALL {
@@ -289,10 +289,8 @@ fn sweep_covers_defaults_set_and_reset_for_all_keys() {
         ("inline_dictionary_mode", "full"),
         ("notify_on_update", "false"),
         ("voice_model", "parakeet-unified-en-0.6b"),
-        ("voice_always_on", "true"),
         ("voice_ptt_hotkey", "ctrl+space"),
         ("voice_handsfree_hotkey", "ctrl+alt+space"),
-        ("voice_dictation_starters", "dictate, take note"),
         ("voice_dictionary", "Rust, Taurine"),
         ("voice_input_device", "External Mic"),
     ];
@@ -341,10 +339,9 @@ fn sweep_covers_defaults_set_and_reset_for_all_keys() {
         inline_dictionary_mode: InlineDictionaryMode::Full,
         notify_on_update: false,
         voice_model: "parakeet-unified-en-0.6b".to_string(),
-        voice_always_on: true,
+        _voice_always_on: None,
         voice_ptt_hotkey: "ctrl+space".to_string(),
         voice_handsfree_hotkey: "ctrl+alt+space".to_string(),
-        voice_dictation_starters: "dictate, take note".to_string(),
         voice_dictionary: "Rust, Taurine".to_string(),
         voice_input_device: Some("External Mic".to_string()),
     };
@@ -594,16 +591,40 @@ fn test_valid_voice_model_aliases() {
     let (_dir, conn) = open_test_db();
     let manager = SettingsManager::new(&conn);
 
-    apply_setting_input_with_manager(&manager, "voice_model", Some("unified")).unwrap();
+    apply_setting_input_with_manager(&manager, "voice_model", Some("auto")).unwrap();
+    assert_eq!(manager.load_all().voice_model, "auto");
+
+    apply_setting_input_with_manager(&manager, "voice_model", Some("parakeet-unified-en-0.6b"))
+        .unwrap();
     assert_eq!(manager.load_all().voice_model, "parakeet-unified-en-0.6b");
 
-    apply_setting_input_with_manager(&manager, "voice_model", Some("110m")).unwrap();
+    apply_setting_input_with_manager(&manager, "voice_model", Some("parakeet-tdt-ctc-110m"))
+        .unwrap();
     assert_eq!(manager.load_all().voice_model, "parakeet-tdt-ctc-110m");
 
+    // Strict canonical names: shorthand aliases are rejected.
+    assert!(apply_setting_input_with_manager(&manager, "voice_model", Some("unified")).is_err());
+    assert!(apply_setting_input_with_manager(&manager, "voice_model", Some("110m")).is_err());
+    assert!(apply_setting_input_with_manager(&manager, "voice_model", Some("best")).is_err());
+    assert!(apply_setting_input_with_manager(&manager, "voice_model", Some("fast")).is_err());
     assert!(apply_setting_input_with_manager(&manager, "voice_model", Some("tiny")).is_err());
     assert!(
         apply_setting_input_with_manager(&manager, "voice_model", Some("whisper-small-en"))
             .is_err()
+    );
+}
+
+#[test]
+fn test_voice_always_on_reports_removal() {
+    let (_dir, conn) = open_test_db();
+    let manager = SettingsManager::new(&conn);
+
+    let err =
+        apply_setting_input_with_manager(&manager, "voice_always_on", Some("true")).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("superseded by on-demand voice hotkeys"),
+        "expected removal message, got: {err}"
     );
 }
 
@@ -620,21 +641,5 @@ fn test_invalid_voice_hotkey_diagnostic() {
     assert!(
         msg.contains("invalid voice_ptt_hotkey"),
         "expected invalid hotkey message, got: {msg}"
-    );
-}
-
-#[test]
-fn test_empty_voice_dictation_starters_diagnostic() {
-    let (_dir, conn) = open_test_db();
-    let manager = SettingsManager::new(&conn);
-
-    let err =
-        apply_setting_input_with_manager(&manager, "voice_dictation_starters", Some("  ,  ,  "))
-            .unwrap_err();
-    let msg = err.to_string();
-
-    assert!(
-        msg.contains("voice_dictation_starters cannot be empty"),
-        "expected empty starters message, got: {msg}"
     );
 }

@@ -51,10 +51,8 @@ impl SettingKeyMeta for SettingKey {
             Self::InlineDictionaryMode => "Inline Dictionary Mode",
             Self::NotifyOnUpdate => "Notify on Update",
             Self::VoiceModel => "Voice Model",
-            Self::VoiceAlwaysOn => "Voice Always On",
             Self::VoicePttHotkey => "Voice Push-to-Talk Hotkey",
             Self::VoiceHandsfreeHotkey => "Voice Hands-free Hotkey",
-            Self::VoiceDictationStarters => "Voice Dictation Starters",
             Self::VoiceDictionary => "Voice Personal Dictionary",
             Self::VoiceInputDevice => "Voice Input Device",
         }
@@ -138,15 +136,9 @@ impl SettingKeyMeta for SettingKey {
             Self::VoiceModel => {
                 "Speech-to-text model identifier for dictation and trigger verification"
             }
-            Self::VoiceAlwaysOn => {
-                "Enable ambient microphone listening for voice wake starters and triggers"
-            }
             Self::VoicePttHotkey => "Hold down to record speech, release to transcribe and type",
             Self::VoiceHandsfreeHotkey => {
                 "Press once to start dictation mode, press again or Escape to stop and type"
-            }
-            Self::VoiceDictationStarters => {
-                "Comma-separated spoken wake phrases that begin dictation mode"
             }
             Self::VoiceDictionary => {
                 "Comma-separated custom vocabulary words for phonetic and fuzzy correction"
@@ -175,8 +167,7 @@ impl SettingKeyMeta for SettingKey {
             | Self::InlineCurrencyToWordsEnabled
             | Self::InlineDictionaryEnabled
             | Self::InlineAiEnabled
-            | Self::NotifyOnUpdate
-            | Self::VoiceAlwaysOn => EditorKind::Toggle,
+            | Self::NotifyOnUpdate => EditorKind::Toggle,
             Self::Wpm
             | Self::AudioVolume
             | Self::ClipboardRestoreDelayMs
@@ -201,7 +192,6 @@ impl SettingKeyMeta for SettingKey {
             | Self::VoiceModel
             | Self::VoicePttHotkey
             | Self::VoiceHandsfreeHotkey
-            | Self::VoiceDictationStarters
             | Self::VoiceDictionary => EditorKind::TextInput,
         }
     }
@@ -265,10 +255,8 @@ impl SettingKeyMeta for SettingKey {
             },
             Self::NotifyOnUpdate => settings.notify_on_update.to_string(),
             Self::VoiceModel => settings.voice_model.clone(),
-            Self::VoiceAlwaysOn => settings.voice_always_on.to_string(),
             Self::VoicePttHotkey => settings.voice_ptt_hotkey.clone(),
             Self::VoiceHandsfreeHotkey => settings.voice_handsfree_hotkey.clone(),
-            Self::VoiceDictationStarters => settings.voice_dictation_starters.clone(),
             Self::VoiceDictionary => {
                 if settings.voice_dictionary.is_empty() {
                     "<empty>".to_string()
@@ -296,7 +284,6 @@ impl SettingKeyMeta for SettingKey {
             Self::VoiceModel => settings.voice_model.clone(),
             Self::VoicePttHotkey => settings.voice_ptt_hotkey.clone(),
             Self::VoiceHandsfreeHotkey => settings.voice_handsfree_hotkey.clone(),
-            Self::VoiceDictationStarters => settings.voice_dictation_starters.clone(),
             Self::VoiceDictionary => settings.voice_dictionary.clone(),
             Self::VoiceInputDevice => settings.voice_input_device.clone().unwrap_or_default(),
             Self::PauseNotificationsEnabled
@@ -323,8 +310,7 @@ impl SettingKeyMeta for SettingKey {
             | Self::InlineCurrencyToWordsEnabled
             | Self::InlineDictionaryEnabled
             | Self::InlineDictionaryMode
-            | Self::NotifyOnUpdate
-            | Self::VoiceAlwaysOn => self.display_value(settings),
+            | Self::NotifyOnUpdate => self.display_value(settings),
             Self::AiTemperature => {
                 optional_value_label(settings.ai_temperature.map(|v| v.to_string()).as_deref())
                     .to_string()

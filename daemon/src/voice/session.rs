@@ -7,6 +7,9 @@ use tracing::{debug, info, warn};
 use taurine_core::voice::{Transcriber, VoiceDictionary, format_transcript};
 
 use super::capture::AudioCapture;
+use super::capture::{
+    normalize_snippet_rms, slice_utterance_with_postroll, trailing_silence_frames,
+};
 use super::factory::create_transcriber;
 use super::modes::VoiceMode;
 
@@ -16,24 +19,21 @@ const MIN_SPEECH_RMS_ENERGY: f32 = 1e-7;
 /// Minimum audio samples required for transcription (100ms at 16kHz = 1600 samples).
 const MIN_SAMPLES_COUNT: usize = 1600;
 
-/// Default inactivity timeout before warm transcriber is dropped from RAM.
-const DEFAULT_INACTIVITY_TTL: Duration = Duration::from_secs(20);
+/// Default inactivity timeout before the voice model is dropped from RAM.
+const DEFAULT_INACTIVITY_TTL: Duration = Duration::from_secs(10);
 
 struct EngineSlot {
     transcriber: Box<dyn Transcriber>,
+    model_id: String,
     last_used: Instant,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum EngineMode {
-    Auto,
-    Pinned(String),
 }
 
 /// Manages the lifecycle of voice recording, dictation sessions, and text injection.
 ///
-/// Keeps the speech recognition model warm in RAM for sub-100ms response during active dictation,
-/// and unloads it after 20 seconds of inactivity to preserve system RAM when idle.
+/// Holds at most one speech recognition model in RAM (the single configured
+/// model), loaded on demand when a Push-to-Talk or Hands-Free session starts
+/// and fully evicted after 10 seconds of inactivity for 0 MB idle voice RAM.
+/// The microphone stream is closed whenever no session is active.
 pub struct VoiceSessionManager {
     mode: Mutex<VoiceMode>,
     capture: Arc<AudioCapture>,
@@ -41,13 +41,9 @@ pub struct VoiceSessionManager {
     model_name: Mutex<String>,
     models_dir: Option<PathBuf>,
     dictionary: Mutex<VoiceDictionary>,
-    /// When true the shared AudioCapture stream is restarted after each PTT/HandsFree
-    /// session ends so that the AlwaysOnVoiceListener ambient loop can continue feeding.
-    always_on_enabled: Arc<AtomicBool>,
-    light: Arc<Mutex<Option<EngineSlot>>>,
-    quality: Arc<Mutex<Option<EngineSlot>>>,
+    engine: Arc<Mutex<Option<EngineSlot>>>,
     generation: Arc<AtomicU64>,
-    engine_mode: Mutex<EngineMode>,
+    loading: Arc<Mutex<Option<(u64, String)>>>,
     ttl: Duration,
 }
 
@@ -62,34 +58,16 @@ impl VoiceSessionManager {
             model_name: Mutex::new("auto".to_string()),
             models_dir,
             dictionary: Mutex::new(VoiceDictionary::default()),
-            always_on_enabled: Arc::new(AtomicBool::new(false)),
-            light: Arc::new(Mutex::new(None)),
-            quality: Arc::new(Mutex::new(None)),
+            engine: Arc::new(Mutex::new(None)),
             generation: Arc::new(AtomicU64::new(0)),
-            engine_mode: Mutex::new(EngineMode::Auto),
+            loading: Arc::new(Mutex::new(None)),
             ttl: DEFAULT_INACTIVITY_TTL,
         }
     }
 
-    /// Mark this session manager as backing an always-on ambient listener.
-    ///
-    /// When enabled, the AudioCapture stream is automatically restarted after every
-    /// PTT, HandsFree, or Escape session ends so the ambient loop can continue feeding.
-    pub fn set_always_on(&self, enabled: bool) {
-        self.always_on_enabled.store(enabled, Ordering::Relaxed);
-    }
-
     /// Builder method to specify the voice model name.
     pub fn with_model_name(self, name: impl Into<String>) -> Self {
-        let name_str = name.into();
-        let mode = if name_str.trim().eq_ignore_ascii_case("auto") {
-            EngineMode::Auto
-        } else {
-            let canonical = taurine_core::voice::resolve_model_alias(&name_str);
-            EngineMode::Pinned(canonical.to_string())
-        };
-        *self.model_name.lock().unwrap_or_else(|p| p.into_inner()) = name_str;
-        *self.engine_mode.lock().unwrap_or_else(|p| p.into_inner()) = mode;
+        *self.model_name.lock().unwrap_or_else(|p| p.into_inner()) = name.into();
         self
     }
 
@@ -126,26 +104,34 @@ impl VoiceSessionManager {
         self.paused.load(Ordering::Relaxed)
     }
 
+    /// Resolve the configured model name to the single model ID to load.
+    ///
+    /// Respects `voice_model`: a pinned canonical name loads exactly that
+    /// model, `auto` loads unified on >= 16 GiB total RAM and 110m below.
+    fn target_model(&self) -> &'static str {
+        let configured = self
+            .model_name
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        taurine_core::voice::resolve_configured_model(&configured)
+    }
+
     /// Update the STT model name. If the model changed, clears the warm cache.
     pub fn set_model_name(&self, name: impl Into<String>) {
         let new_name = name.into();
         let mut model = self.model_name.lock().unwrap_or_else(|p| p.into_inner());
-        let mut mode = self.engine_mode.lock().unwrap_or_else(|p| p.into_inner());
-        let new_mode = if new_name.trim().eq_ignore_ascii_case("auto") {
-            EngineMode::Auto
-        } else {
-            let canonical = taurine_core::voice::resolve_model_alias(&new_name);
-            EngineMode::Pinned(canonical.to_string())
-        };
-
-        if *model != new_name || *mode != new_mode {
+        if *model != new_name {
             *model = new_name;
-            *mode = new_mode;
-            self.generation.fetch_add(1, Ordering::SeqCst);
-            let mut quality = self.quality.lock().unwrap_or_else(|p| p.into_inner());
-            let mut light = self.light.lock().unwrap_or_else(|p| p.into_inner());
-            *quality = None;
-            *light = None;
+            let new_gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+            let mut engine = self.engine.lock().unwrap_or_else(|p| p.into_inner());
+            *engine = None;
+            // Invalidate only loads older than this switch; a trigger that
+            // raced past the bump owns its flag and its generation gate.
+            let mut loading = self.loading.lock().unwrap_or_else(|p| p.into_inner());
+            if matches!(&*loading, Some((g, _)) if *g < new_gen) {
+                *loading = None;
+            }
         }
     }
 
@@ -154,141 +140,131 @@ impl VoiceSessionManager {
         *self.dictionary.lock().unwrap_or_else(|p| p.into_inner()) = dict;
     }
 
-    /// Unloads the warm model from RAM if it has exceeded the inactivity TTL.
-    pub fn clean_expired_transcriber(&self) {
-        let mut quality = self.quality.lock().unwrap_or_else(|p| p.into_inner());
-        let mut light = self.light.lock().unwrap_or_else(|p| p.into_inner());
-        let mut unloaded = false;
-        if let Some(ref slot) = *quality
-            && slot.last_used.elapsed() > self.ttl
-        {
-            *quality = None;
-            unloaded = true;
-        }
-        if let Some(ref slot) = *light
-            && slot.last_used.elapsed() > self.ttl
-        {
-            *light = None;
-            unloaded = true;
-        }
-        if unloaded {
-            debug!("VoiceSessionManager: unloading idle voice model(s) from RAM (TTL exceeded)");
-        }
-    }
-
-    /// Immediately unloads the warm model from RAM.
-    pub fn unload_model(&self) {
-        let mut quality = self.quality.lock().unwrap_or_else(|p| p.into_inner());
-        let mut light = self.light.lock().unwrap_or_else(|p| p.into_inner());
-        *quality = None;
-        *light = None;
-    }
-
-    /// Trigger loading of STT engines in background.
+    /// Unloads the voice model from RAM if it has exceeded the inactivity TTL (10s).
     ///
-    /// In Auto mode, loads the light engine (110M) and, if system RAM allows,
-    /// also loads the quality engine (Unified 0.6B) in parallel.
-    /// In Pinned mode, loads only the pinned engine into the light slot.
+    /// Only evicts while idle: an active recording or transcription pins the
+    /// model so long dictations never pay a mid-session reload. Guarantees
+    /// 0 MB idle voice memory 10 seconds after speech finishes.
+    pub fn clean_expired_transcriber(&self) {
+        if self.is_active() {
+            return;
+        }
+        let mut guard = self.engine.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(ref slot) = *guard
+            && slot.last_used.elapsed() > self.ttl
+        {
+            *guard = None;
+            debug!("VoiceSessionManager: unloading idle voice model from RAM (10s TTL expired)");
+        }
+    }
+
+    /// Refresh the loaded slot so a session starting on a stale-but-fresh
+    /// model does not expire mid-recording.
+    fn touch_loaded_slot(&self) {
+        let mut guard = self.engine.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(ref mut slot) = *guard
+            && slot.last_used.elapsed() <= self.ttl
+        {
+            slot.last_used = Instant::now();
+        }
+    }
+
+    /// Immediately unloads the speech recognition model from RAM and invalidates any in-flight background loaders.
+    pub fn unload_model(&self) {
+        let new_gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        let mut engine = self.engine.lock().unwrap_or_else(|p| p.into_inner());
+        *engine = None;
+        let mut loading = self.loading.lock().unwrap_or_else(|p| p.into_inner());
+        if matches!(&*loading, Some((g, _)) if *g < new_gen) {
+            *loading = None;
+        }
+        debug!("VoiceSessionManager: voice engine unloaded from RAM");
+    }
+
+    /// Trigger loading of the single configured STT engine in the background.
+    ///
+    /// Only the resolved `voice_model` is loaded. A fresh slot whose
+    /// `last_used` is within the TTL is reused; older generation loaders
+    /// are invalidated on model configuration switch.
     pub fn trigger_load_engines(&self) {
-        let cur_gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
-        let engine_mode = self
-            .engine_mode
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .clone();
+        let target = self.target_model().to_string();
+        let fresh = {
+            let guard = self.engine.lock().unwrap_or_else(|p| p.into_inner());
+            match &*guard {
+                Some(slot) => slot.model_id == target && slot.last_used.elapsed() <= self.ttl,
+                None => false,
+            }
+        };
+        if fresh {
+            return;
+        }
+
+        // Single-flight: a second trigger while this target is already
+        // loading waits on the in-flight load instead of spawning another.
+        let cur_gen = {
+            let mut loading = self.loading.lock().unwrap_or_else(|p| p.into_inner());
+            match &*loading {
+                Some((_, in_flight)) if *in_flight == target => return,
+                _ => {
+                    let next = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+                    *loading = Some((next, target.clone()));
+                    next
+                }
+            }
+        };
         let models_dir = self.models_dir.clone();
-        let light = Arc::clone(&self.light);
-        let quality = Arc::clone(&self.quality);
+        let engine = Arc::clone(&self.engine);
         let generation = Arc::clone(&self.generation);
+        let loading = Arc::clone(&self.loading);
         let ttl = self.ttl;
 
         let builder = std::thread::Builder::new().name("taurine-voice-loader".to_string());
+        let failed_target = target.clone();
         let spawn_res = builder.spawn(move || {
-            match engine_mode {
-                EngineMode::Pinned(canonical) => {
-                    let need_load = {
-                        let guard = light.lock().unwrap_or_else(|p| p.into_inner());
-                        match &*guard {
-                            Some(slot) => {
-                                slot.last_used.elapsed() > ttl || slot.transcriber.name() != canonical
-                            }
-                            None => true,
-                        }
-                    };
-                    if need_load {
-                        debug!("taurine-voice-loader: loading pinned voice model '{canonical}' into light slot");
-                        let transcriber = create_transcriber(&canonical, models_dir.as_deref());
-                        if generation.load(Ordering::SeqCst) == cur_gen {
-                            let mut guard = light.lock().unwrap_or_else(|p| p.into_inner());
-                            if generation.load(Ordering::SeqCst) == cur_gen {
-                                *guard = Some(EngineSlot {
-                                    transcriber,
-                                    last_used: Instant::now(),
-                                });
-                            }
-                        }
-                    }
+            let need_load = {
+                let guard = engine.lock().unwrap_or_else(|p| p.into_inner());
+                match &*guard {
+                    Some(slot) => slot.last_used.elapsed() > ttl || slot.model_id != target,
+                    None => true,
                 }
-                EngineMode::Auto => {
-                    let light_model = "parakeet-tdt-ctc-110m";
-                    let need_load_light = {
-                        let guard = light.lock().unwrap_or_else(|p| p.into_inner());
-                        match &*guard {
-                            Some(slot) => {
-                                slot.last_used.elapsed() > ttl || slot.transcriber.name() != light_model
-                            }
-                            None => true,
-                        }
-                    };
-                    if need_load_light {
-                        debug!("taurine-voice-loader: loading light model '{light_model}'");
-                        let transcriber = create_transcriber(light_model, models_dir.as_deref());
-                        if generation.load(Ordering::SeqCst) == cur_gen {
-                            let mut guard = light.lock().unwrap_or_else(|p| p.into_inner());
-                            if generation.load(Ordering::SeqCst) == cur_gen {
-                                *guard = Some(EngineSlot {
-                                    transcriber,
-                                    last_used: Instant::now(),
-                                });
-                            }
-                        } else {
-                            return;
-                        }
-                    }
-
-                    if generation.load(Ordering::SeqCst) == cur_gen
-                        && taurine_core::voice::quality_engine_allowed()
-                    {
-                        let quality_model = "parakeet-unified-en-0.6b";
-                        let need_load_quality = {
-                            let guard = quality.lock().unwrap_or_else(|p| p.into_inner());
-                            match &*guard {
-                                Some(slot) => {
-                                    slot.last_used.elapsed() > ttl
-                                        || slot.transcriber.name() != quality_model
-                                }
-                                None => true,
-                            }
-                        };
-                        if need_load_quality {
-                            debug!("taurine-voice-loader: loading quality model '{quality_model}'");
-                            let transcriber = create_transcriber(quality_model, models_dir.as_deref());
-                            if generation.load(Ordering::SeqCst) == cur_gen {
-                                let mut guard = quality.lock().unwrap_or_else(|p| p.into_inner());
-                                if generation.load(Ordering::SeqCst) == cur_gen {
-                                    *guard = Some(EngineSlot {
-                                        transcriber,
-                                        last_used: Instant::now(),
-                                    });
-                                }
-                            }
-                        }
-                    }
+            };
+            let release = |insert: Option<Box<dyn Transcriber>>| {
+                if generation.load(Ordering::SeqCst) != cur_gen {
+                    return;
                 }
+                let mut guard = engine.lock().unwrap_or_else(|p| p.into_inner());
+                if generation.load(Ordering::SeqCst) != cur_gen {
+                    return;
+                }
+                let mut in_flight = loading.lock().unwrap_or_else(|p| p.into_inner());
+                // Only the loader that owns this (generation, target) pair
+                // may clear it; a newer trigger for any target wins.
+                if *in_flight != Some((cur_gen, target.clone())) {
+                    return;
+                }
+                *in_flight = None;
+                if let Some(transcriber) = insert {
+                    *guard = Some(EngineSlot {
+                        transcriber,
+                        model_id: target.clone(),
+                        last_used: Instant::now(),
+                    });
+                }
+            };
+            if !need_load {
+                release(None);
+                return;
             }
+            debug!("taurine-voice-loader: loading voice model '{target}'");
+            let transcriber = create_transcriber(&target, models_dir.as_deref());
+            release(Some(transcriber));
         });
         if let Err(e) = spawn_res {
             warn!("VoiceSessionManager: failed to spawn loader thread: {e}");
+            let mut in_flight = self.loading.lock().unwrap_or_else(|p| p.into_inner());
+            if *in_flight == Some((cur_gen, failed_target)) {
+                *in_flight = None;
+            }
         }
     }
 
@@ -318,6 +294,8 @@ impl VoiceSessionManager {
         }
 
         *mode = VoiceMode::PushToTalk;
+        drop(mode);
+        self.touch_loaded_slot();
         info!("VoiceSessionManager: Push-To-Talk recording started");
         crate::services::audio::play_voice_start_cue();
         self.trigger_load_engines();
@@ -328,6 +306,7 @@ impl VoiceSessionManager {
     ///
     /// Plays the mic-close (paste) cue immediately on PTT release, before
     /// transcription/paste runs, so feedback lines up with the hotkey.
+    /// The microphone stream is closed immediately.
     pub fn stop_ptt(&self) -> Result<Option<String>, String> {
         {
             let mut mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
@@ -345,7 +324,6 @@ impl VoiceSessionManager {
             let mut mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
             *mode = VoiceMode::Idle;
         }
-        self.restart_capture_if_always_on();
         result
     }
 
@@ -353,6 +331,7 @@ impl VoiceSessionManager {
     ///
     /// If `Idle`, starts capture and transitions to `HandsFree`.
     /// If `HandsFree`, stops capture, processes audio, injects text, and transitions to `Idle`.
+    /// The microphone stream is closed whenever Hands-Free is off.
     pub fn toggle_handsfree(&self) -> Result<(VoiceMode, Option<String>), String> {
         if self.is_paused() {
             debug!("VoiceSessionManager: toggle_handsfree ignored because daemon is paused");
@@ -372,7 +351,6 @@ impl VoiceSessionManager {
                     let mut mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
                     *mode = VoiceMode::Idle;
                 }
-                self.restart_capture_if_always_on();
                 Ok((VoiceMode::Idle, result))
             }
             VoiceMode::Idle => {
@@ -382,6 +360,8 @@ impl VoiceSessionManager {
                     return Err(e);
                 }
                 *mode = VoiceMode::HandsFree;
+                drop(mode);
+                self.touch_loaded_slot();
                 info!("VoiceSessionManager: Hands-Free dictation activated");
                 crate::services::audio::play_voice_start_cue();
                 self.trigger_load_engines();
@@ -419,7 +399,6 @@ impl VoiceSessionManager {
             let mut mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
             *mode = VoiceMode::Idle;
         }
-        self.restart_capture_if_always_on();
         result
     }
 
@@ -430,23 +409,8 @@ impl VoiceSessionManager {
         drop(mode);
         self.capture.stop();
         self.capture.buffer().clear();
-        self.restart_capture_if_always_on();
         crate::services::audio::play_voice_stop_cue();
         debug!("VoiceSessionManager: Dictation cancelled");
-    }
-
-    /// Restart the audio capture stream if always-on ambient mode is active.
-    ///
-    /// Called after every PTT/HandsFree/Escape session ends so the AlwaysOnVoiceListener
-    /// ambient loop continues receiving microphone frames without a gap.
-    fn restart_capture_if_always_on(&self) {
-        if self.always_on_enabled.load(Ordering::Relaxed) {
-            if let Err(e) = self.capture.start() {
-                warn!("VoiceSessionManager: failed to restart ambient capture after session: {e}");
-            } else {
-                debug!("VoiceSessionManager: ambient capture restarted after session end");
-            }
-        }
     }
 
     /// Drain captured audio samples and execute full on-the-fly STT, formatting, and injection.
@@ -456,14 +420,19 @@ impl VoiceSessionManager {
     }
 
     /// Process a slice of 16kHz mono audio samples:
-    /// 1. Verifies minimum length and energy threshold.
-    /// 2. Loads the configured STT model on-the-fly.
-    /// 3. Transcribes speech.
-    /// 4. Drops model immediately (0 MB idle RAM footprint).
+    /// 1. Trims excess trailing silence while preserving the 250 ms post-roll decay cushion.
+    /// 2. Verifies minimum length and energy threshold.
+    /// 3. Loads the single configured STT model on-the-fly.
+    /// 4. Transcribes speech (model evicted after 10s idle via [`Self::clean_expired_transcriber`]).
     /// 5. Applies personal dictionary corrections and spoken punctuation formatting.
-    /// 6. Records usage statistics.
-    /// 7. Injects text into active window.
+    /// 6. Matches voice triggers (trigger action) or injects dictation text.
+    /// 7. Records usage statistics and injects text into the active window.
     pub fn process_audio_samples(&self, samples: &[f32]) -> Result<Option<String>, String> {
+        // Preserve trailing consonant decay: trim dead silence beyond the 8-frame cushion.
+        let silence_frames = trailing_silence_frames(samples);
+        let trimmed = slice_utterance_with_postroll(samples, silence_frames);
+        let samples = trimmed.as_slice();
+
         if samples.len() < MIN_SAMPLES_COUNT {
             debug!(
                 "VoiceSessionManager: audio buffer too short ({} samples); skipping STT",
@@ -482,92 +451,45 @@ impl VoiceSessionManager {
             return Ok(None);
         }
 
+        // Standardize speech level before recognition (raw energy above decided speech).
+        let normed = normalize_snippet_rms(samples);
+        let samples = normed.as_slice();
+
         let need_trigger = self
-            .light
+            .engine
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .is_none()
-            && self
-                .quality
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .is_none();
+            .is_none();
         if need_trigger {
             self.trigger_load_engines();
         }
 
-        // Wait for light up to 8s, polling every 50ms (or proceed if quality is ready)
+        // Wait for the single engine up to 8s, polling every 50ms.
         let wait_start = Instant::now();
         let wait_timeout = Duration::from_secs(8);
         let poll_interval = Duration::from_millis(50);
         while wait_start.elapsed() < wait_timeout {
             if self
-                .light
+                .engine
                 .lock()
                 .unwrap_or_else(|p| p.into_inner())
                 .is_some()
-                || self
-                    .quality
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner())
-                    .is_some()
             {
                 break;
             }
             std::thread::sleep(poll_interval);
         }
 
-        let mut quality_guard = self.quality.lock().unwrap_or_else(|p| p.into_inner());
-        let mut light_guard = self.light.lock().unwrap_or_else(|p| p.into_inner());
-
-        let transcription = if quality_guard.is_some() {
-            *light_guard = None;
-            drop(light_guard);
-
-            let slot = quality_guard.as_mut().unwrap();
-            let res = slot
-                .transcriber
-                .transcribe(samples, 16000)
-                .map_err(|e| format!("Voice transcription error: {e}"))?;
-            slot.last_used = Instant::now();
-            drop(quality_guard);
-            res
-        } else if light_guard.is_some() {
-            drop(quality_guard);
-
-            let slot = light_guard.as_mut().unwrap();
-            let mut res = slot
-                .transcriber
-                .transcribe(samples, 16000)
-                .map_err(|e| format!("Voice transcription error: {e}"))?;
-            slot.last_used = Instant::now();
-            drop(light_guard);
-
-            if res.is_empty() {
-                let mut q_guard = self.quality.lock().unwrap_or_else(|p| p.into_inner());
-                if let Some(q_slot) = q_guard.as_mut() {
-                    debug!(
-                        "VoiceSessionManager: light engine returned empty result; escalating to quality engine"
-                    );
-                    *self.light.lock().unwrap_or_else(|p| p.into_inner()) = None;
-
-                    let q_res = q_slot
-                        .transcriber
-                        .transcribe(samples, 16000)
-                        .map_err(|e| format!("Voice transcription error: {e}"))?;
-                    q_slot.last_used = Instant::now();
-                    res = q_res;
-                }
-            } else {
-                let mut q_guard = self.quality.lock().unwrap_or_else(|p| p.into_inner());
-                *q_guard = None;
-            }
-            res
-        } else {
-            drop(light_guard);
-            drop(quality_guard);
+        let mut engine_guard = self.engine.lock().unwrap_or_else(|p| p.into_inner());
+        let Some(ref mut slot) = *engine_guard else {
             return Err("Voice engine failed to load; try again".to_string());
         };
+        let transcription = slot
+            .transcriber
+            .transcribe(samples, 16000)
+            .map_err(|e| format!("Voice transcription error: {e}"))?;
+        slot.last_used = Instant::now();
+        drop(engine_guard);
 
         if transcription.is_empty() {
             debug!("VoiceSessionManager: transcription returned empty text");
@@ -594,66 +516,60 @@ impl VoiceSessionManager {
             && let Ok(triggers) = taurine_core::db::crud::list_active_voice_triggers(&conn)
         {
             let current_os = taurine_core::db::get_current_os_db_string();
-            for trigger in triggers {
-                let norm_trigger =
-                    taurine_core::db::crud::normalize_voice_phrase(&trigger.spoken_phrase);
-                if norm_trigger == normalized_spoken {
-                    if trigger.target_os != "all" && trigger.target_os != current_os {
-                        continue;
-                    }
-                    if let Some(ref only) = trigger.only_apps
-                        && let Some(ref app) = active_app
-                        && !only.split(',').any(|a| a.trim().eq_ignore_ascii_case(app))
-                    {
-                        continue;
-                    }
-                    if let Some(ref except) = trigger.except_apps
-                        && let Some(ref app) = active_app
-                        && except
-                            .split(',')
-                            .any(|a| a.trim().eq_ignore_ascii_case(app))
-                    {
-                        continue;
-                    }
+            let in_scope: Vec<taurine_core::db::crud::VoiceTriggerRow> = triggers
+                .into_iter()
+                .filter(|t| {
+                    (t.target_os == "all" || t.target_os == current_os)
+                        && match (&t.only_apps, &active_app) {
+                            (Some(only), Some(app)) => {
+                                only.split(',').any(|a| a.trim().eq_ignore_ascii_case(app))
+                            }
+                            _ => true,
+                        }
+                        && match (&t.except_apps, &active_app) {
+                            (Some(except), Some(app)) => !except
+                                .split(',')
+                                .any(|a| a.trim().eq_ignore_ascii_case(app)),
+                            _ => true,
+                        }
+                })
+                .collect();
 
-                    info!(
-                        "VoiceSessionManager: matched voice trigger '{}'; expanding output",
-                        trigger.spoken_phrase
-                    );
+            if let Some(matched) =
+                taurine_core::voice::rank_voice_triggers(&normalized_spoken, &in_scope)
+            {
+                let trigger = matched.trigger;
+                info!(
+                    "VoiceSessionManager: matched voice trigger '{}' (score {:.2}); expanding output",
+                    trigger.spoken_phrase, matched.score
+                );
 
-                    if trigger.action_type == "text" {
-                        crate::injector::inject_expansion(
-                            vec![taurine_core::engine::variables::ExpansionStep::Text(
-                                trigger.output.clone(),
-                            )],
-                            0,
-                            taurine_core::settings::SpinnerStyle::default(),
-                        );
-                    }
-
-                    taurine_core::db::crud::record_voice_trigger_usage(
-                        &trigger.spoken_phrase,
-                        trigger.output.chars().count(),
-                        active_app,
-                    );
-                    let _ =
-                        taurine_core::db::crud::increment_voice_trigger_usage(&conn, &trigger.id);
-
-                    return Ok(Some(trigger.output));
-                }
+                let output = trigger.output.clone();
+                crate::voice::fire_voice_trigger(
+                    trigger,
+                    &conn,
+                    active_app.clone(),
+                    taurine_core::settings::SpinnerStyle::default(),
+                );
+                return Ok(Some(output));
             }
         }
 
+        let final_text = trimmed;
+        if final_text.is_empty() {
+            return Ok(None);
+        }
+
         // Record voice dictation stats
-        let words_count = trimmed.split_whitespace().count();
-        let chars_count = trimmed.chars().count();
+        let words_count = final_text.split_whitespace().count();
+        let chars_count = final_text.chars().count();
 
         taurine_core::db::crud::record_voice_dictation_usage(words_count, chars_count, active_app);
 
         // Inject text segment using canonical expansion pipeline with IS_INJECTING guard
         crate::injector::inject_expansion(
             vec![taurine_core::engine::variables::ExpansionStep::Text(
-                trimmed.to_string(),
+                final_text.to_string(),
             )],
             0,
             taurine_core::settings::SpinnerStyle::default(),
@@ -663,23 +579,11 @@ impl VoiceSessionManager {
             "VoiceSessionManager: successfully injected {} words ({} chars)",
             words_count, chars_count
         );
-        Ok(Some(trimmed.to_string()))
+        Ok(Some(final_text.to_string()))
     }
 
     #[cfg(test)]
-    pub(crate) fn inject_test_slots(&self, light: bool, quality: bool) {
-        self.inject_test_slots_with_text(
-            if light { Some("ok") } else { None },
-            if quality { Some("ok") } else { None },
-        );
-    }
-
-    #[cfg(test)]
-    pub(crate) fn inject_test_slots_with_text(
-        &self,
-        light_text: Option<&str>,
-        quality_text: Option<&str>,
-    ) {
+    pub(crate) fn inject_test_slot(&self, text: &str) {
         struct TestDummyTranscriber {
             name: String,
             text: String,
@@ -699,20 +603,14 @@ impl VoiceSessionManager {
             }
         }
 
-        let mut q_guard = self.quality.lock().unwrap();
-        let mut l_guard = self.light.lock().unwrap();
-        *q_guard = quality_text.map(|text| EngineSlot {
+        let target = self.target_model().to_string();
+        let mut guard = self.engine.lock().unwrap();
+        *guard = Some(EngineSlot {
             transcriber: Box::new(TestDummyTranscriber {
-                name: "parakeet-unified-en-0.6b".to_string(),
+                name: target.clone(),
                 text: text.to_string(),
             }),
-            last_used: Instant::now(),
-        });
-        *l_guard = light_text.map(|text| EngineSlot {
-            transcriber: Box::new(TestDummyTranscriber {
-                name: "parakeet-tdt-ctc-110m".to_string(),
-                text: text.to_string(),
-            }),
+            model_id: target,
             last_used: Instant::now(),
         });
     }
@@ -823,151 +721,131 @@ mod tests {
     }
 
     #[test]
-    fn test_cascade_releases_loser_slot() {
+    fn test_single_engine_transcribes_and_stays_resident() {
         let (session, _) = create_test_session();
-        session.inject_test_slots_with_text(Some("light output"), Some("quality output"));
+        session.inject_test_slot("hello world");
         let loud_samples = vec![0.5f32; 16000];
         let res = session.process_audio_samples(&loud_samples).unwrap();
-        assert_eq!(res, Some("Quality output".to_string()));
-        assert!(session.light.lock().unwrap().is_none());
-        assert!(session.quality.lock().unwrap().is_some());
+        assert_eq!(res, Some("Hello world".to_string()));
+        assert!(session.engine.lock().unwrap().is_some());
     }
 
     #[test]
-    fn test_cascade_falls_back_to_light_when_quality_missing() {
+    fn test_single_engine_empty_transcription_returns_none() {
         let (session, _) = create_test_session();
-        session.inject_test_slots_with_text(Some("light output"), None);
+        session.inject_test_slot("");
         let loud_samples = vec![0.5f32; 16000];
         let res = session.process_audio_samples(&loud_samples).unwrap();
-        assert_eq!(res, Some("Light output".to_string()));
-        assert!(session.light.lock().unwrap().is_some());
-        assert!(session.quality.lock().unwrap().is_none());
+        assert_eq!(res, None);
     }
 
     #[test]
-    fn test_cascade_ttl_expires_both_slots() {
+    fn test_single_engine_inactivity_eviction() {
         let (session, _) = create_test_session();
         let session = session.with_ttl(Duration::from_millis(10));
-        session.inject_test_slots(true, true);
+        session.inject_test_slot("ok");
+        assert!(session.engine.lock().unwrap().is_some());
+
         let past = Instant::now() - Duration::from_millis(50);
-        session.light.lock().unwrap().as_mut().unwrap().last_used = past;
-        session.quality.lock().unwrap().as_mut().unwrap().last_used = past;
+        session.engine.lock().unwrap().as_mut().unwrap().last_used = past;
 
-        assert!(session.light.lock().unwrap().is_some());
-        assert!(session.quality.lock().unwrap().is_some());
-
+        // Inactivity TTL unloads the single voice model for 0 MB idle RAM.
         session.clean_expired_transcriber();
+        assert!(session.engine.lock().unwrap().is_none());
 
-        assert!(session.light.lock().unwrap().is_none());
-        assert!(session.quality.lock().unwrap().is_none());
+        // Fresh slots within the TTL are retained.
+        session.inject_test_slot("ok");
+        session.clean_expired_transcriber();
+        assert!(session.engine.lock().unwrap().is_some());
+
+        // Explicit unload drops the engine immediately.
+        session.unload_model();
+        assert!(session.engine.lock().unwrap().is_none());
     }
 
     #[test]
-    fn test_pinned_mode_skips_cascade() {
+    fn test_pinned_mode_loads_single_slot() {
         let (session, _) = create_test_session();
         session.set_model_name("parakeet-tdt-ctc-110m");
         session.trigger_load_engines();
 
         let start = Instant::now();
         while start.elapsed() < Duration::from_secs(3) {
-            if session.light.lock().unwrap().is_some() {
+            if session.engine.lock().unwrap().is_some() {
                 break;
             }
             std::thread::sleep(Duration::from_millis(20));
         }
 
-        assert!(session.light.lock().unwrap().is_some());
-        assert_eq!(
-            session
-                .light
-                .lock()
-                .unwrap()
-                .as_ref()
-                .unwrap()
-                .transcriber
-                .name(),
-            "parakeet-tdt-ctc-110m"
-        );
-        assert!(session.quality.lock().unwrap().is_none());
+        let guard = session.engine.lock().unwrap();
+        let slot = guard.as_ref().expect("single engine slot must load");
+        assert_eq!(slot.model_id, "parakeet-tdt-ctc-110m");
+        assert_eq!(slot.transcriber.name(), "parakeet-tdt-ctc-110m");
     }
 
     #[test]
-    fn test_escalation_on_empty_light_result() {
+    fn test_spam_press_loads_once() {
         let (session, _) = create_test_session();
-        let quality_slot = Arc::clone(&session.quality);
-
-        struct EscalatingDummyLight {
-            quality_slot: Arc<Mutex<Option<EngineSlot>>>,
+        session.set_model_name("parakeet-tdt-ctc-110m");
+        for _ in 0..10 {
+            session.trigger_load_engines();
         }
-        impl Transcriber for EscalatingDummyLight {
-            fn name(&self) -> &str {
-                "parakeet-tdt-ctc-110m"
+        // One spawn only: the model switch above bumped the generation
+        // to 1, and the burst after the first trigger sees the in-flight
+        // load and returns without bumping it again.
+        assert_eq!(session.generation.load(Ordering::SeqCst), 2);
+
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(3) {
+            if session.engine.lock().unwrap().is_some() {
+                break;
             }
-            fn transcribe(
-                &mut self,
-                _audio: &[f32],
-                _sample_rate: u32,
-            ) -> taurine_core::error::Result<taurine_core::voice::Transcription> {
-                struct QualityDummy;
-                impl Transcriber for QualityDummy {
-                    fn name(&self) -> &str {
-                        "parakeet-unified-en-0.6b"
-                    }
-                    fn transcribe(
-                        &mut self,
-                        _audio: &[f32],
-                        _sample_rate: u32,
-                    ) -> taurine_core::error::Result<taurine_core::voice::Transcription>
-                    {
-                        Ok(taurine_core::voice::Transcription::new(
-                            "hello world",
-                            1.0,
-                            0.5,
-                        ))
-                    }
-                }
-                *self.quality_slot.lock().unwrap() = Some(EngineSlot {
-                    transcriber: Box::new(QualityDummy),
-                    last_used: Instant::now(),
-                });
-                Ok(taurine_core::voice::Transcription::new("", 0.0, 0.0))
-            }
+            std::thread::sleep(Duration::from_millis(20));
         }
 
-        *session.light.lock().unwrap() = Some(EngineSlot {
-            transcriber: Box::new(EscalatingDummyLight { quality_slot }),
-            last_used: Instant::now(),
-        });
-        *session.quality.lock().unwrap() = None;
+        let guard = session.engine.lock().unwrap();
+        let slot = guard.as_ref().expect("single engine slot must load");
+        assert_eq!(slot.model_id, "parakeet-tdt-ctc-110m");
+        assert_eq!(slot.transcriber.name(), "parakeet-tdt-ctc-110m");
+    }
 
-        let loud_samples = vec![0.5f32; 16000];
-        let res = session.process_audio_samples(&loud_samples).unwrap();
-        assert_eq!(res, Some("Hello world".to_string()));
-        assert!(session.light.lock().unwrap().is_none());
-        assert!(session.quality.lock().unwrap().is_some());
+    #[test]
+    fn test_active_session_never_evicts() {
+        let (session, _) = create_test_session();
+        let session = session.with_ttl(Duration::from_millis(10));
+        session.inject_test_slot("ok");
+
+        let past = Instant::now() - Duration::from_millis(50);
+        session.engine.lock().unwrap().as_mut().unwrap().last_used = past;
+
+        // Recording pins the model: a stale slot survives while active.
+        *session.mode.lock().unwrap() = VoiceMode::HandsFree;
+        session.clean_expired_transcriber();
+        assert!(session.engine.lock().unwrap().is_some());
+
+        // Idle with the same stale timestamp evicts.
+        *session.mode.lock().unwrap() = VoiceMode::Idle;
+        session.clean_expired_transcriber();
+        assert!(session.engine.lock().unwrap().is_none());
     }
 
     #[test]
     fn test_set_model_name_invalidates_cache() {
         let (session, _) = create_test_session();
-        session.inject_test_slots(true, true);
-        assert!(session.light.lock().unwrap().is_some());
-        assert!(session.quality.lock().unwrap().is_some());
+        session.inject_test_slot("ok");
+        assert!(session.engine.lock().unwrap().is_some());
 
         session.set_model_name("parakeet-tdt-ctc-110m");
-        assert!(session.light.lock().unwrap().is_none());
-        assert!(session.quality.lock().unwrap().is_none());
+        assert!(session.engine.lock().unwrap().is_none());
     }
 
     #[test]
     fn test_unload_model_clears_cache() {
         let (session, _) = create_test_session();
-        session.inject_test_slots(true, true);
-        assert!(session.light.lock().unwrap().is_some());
-        assert!(session.quality.lock().unwrap().is_some());
+        session.inject_test_slot("ok");
+        assert!(session.engine.lock().unwrap().is_some());
 
         session.unload_model();
-        assert!(session.light.lock().unwrap().is_none());
-        assert!(session.quality.lock().unwrap().is_none());
+        assert!(session.engine.lock().unwrap().is_none());
     }
 }

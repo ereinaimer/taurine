@@ -611,7 +611,7 @@ pub(crate) fn is_app_allowed(
 
     true
 }
-pub(crate) fn expand_trigger_action(
+pub fn expand_trigger_action(
     action: TriggerAction,
     matched_keyword: &str,
 ) -> Option<FinalExpansion> {
@@ -639,7 +639,7 @@ fn apply_auto_case(output: &str, typed_trigger: &str) -> String {
         }
     }
 }
-pub(crate) fn expand_trigger_action_with_args(
+pub fn expand_trigger_action_with_args(
     action: TriggerAction,
     args: &ArgMap,
     matched_keyword: &str,

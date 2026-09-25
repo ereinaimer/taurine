@@ -129,7 +129,6 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
             format!("{:?}", settings.inline_dictionary_mode).to_lowercase(),
         ),
         ("voice_model", settings.voice_model.clone()),
-        ("voice_always_on", settings.voice_always_on.to_string()),
         (
             "voice_input_device",
             render_optional_setting(settings.voice_input_device.as_deref()).to_string(),
@@ -138,10 +137,6 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
         (
             "voice_handsfree_hotkey",
             settings.voice_handsfree_hotkey.clone(),
-        ),
-        (
-            "voice_dictation_starters",
-            settings.voice_dictation_starters.clone(),
         ),
         ("voice_dictionary", settings.voice_dictionary.clone()),
     ];
@@ -200,7 +195,7 @@ pub fn execute_set(
     apply_setting_input(actual_key, Some(&value))?;
 
     if actual_key == "voice_model" {
-        let canonical = taurine_core::voice::resolve_model_alias(&value);
+        let canonical = taurine_core::voice::resolve_configured_model(&value);
         if let Err(e) = super::progress::ensure_voice_model_downloaded(canonical, json) {
             tracing::warn!(error = %e, "Voice model '{}' download failed", canonical);
             if !json {
@@ -209,15 +204,6 @@ pub fn execute_set(
                     canonical
                 );
             }
-        }
-    } else if actual_key == "voice_always_on" && value.trim().eq_ignore_ascii_case("true") {
-        if let Err(e) = super::progress::ensure_voice_model_downloaded("silero_vad_v6", json) {
-            tracing::warn!(error = %e, "Silero VAD model download failed");
-        }
-        if let Err(e) =
-            super::progress::ensure_voice_model_downloaded("kws-zipformer-zh-en-3M", json)
-        {
-            tracing::warn!(error = %e, "Zipformer KWS model download failed");
         }
     }
 

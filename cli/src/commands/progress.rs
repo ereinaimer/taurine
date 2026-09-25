@@ -7,7 +7,7 @@ use taurine_core::settings::SpinnerStyle;
 use taurine_core::utils::spinner::{SpinnerRenderer, ThreadSpinnerHandle, spawn_threaded};
 use taurine_core::voice::{
     download_model, download_model_with_status, get_model_entry, is_model_downloaded,
-    resolve_model_alias,
+    resolve_configured_model,
 };
 use tracing::info;
 
@@ -293,7 +293,7 @@ pub(crate) fn download_progress_line(
 /// If missing, downloads it and displays a live terminal progress indicator
 /// matching `taurine update`.
 pub fn ensure_voice_model_downloaded(model_id: &str, json: bool) -> Result<()> {
-    let canonical = resolve_model_alias(model_id);
+    let canonical = resolve_configured_model(model_id);
     if is_model_downloaded(canonical, None) {
         return Ok(());
     }

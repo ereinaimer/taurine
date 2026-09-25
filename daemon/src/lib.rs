@@ -32,11 +32,6 @@ pub(crate) static VOICE_SESSION: std::sync::OnceLock<
     std::sync::Arc<crate::voice::VoiceSessionManager>,
 > = std::sync::OnceLock::new();
 
-/// Global always-on listener — stored to allow stop() during daemon shutdown.
-pub(crate) static ALWAYS_ON_LISTENER: std::sync::OnceLock<
-    std::sync::Arc<crate::voice::AlwaysOnVoiceListener>,
-> = std::sync::OnceLock::new();
-
 /// Lock a freshly bound Unix socket to owner-only access. Socket permissions
 /// are the access boundary for unauthenticated control RPCs.
 #[cfg(all(unix, not(target_os = "android")))]
@@ -159,17 +154,17 @@ pub fn start() -> taurine_core::error::Result<()> {
     taurine_core::settings::set_cached_audio_volume(settings.audio_volume);
 
     // Cache voice settings
-    taurine_core::settings::set_cached_voice_always_on(settings.voice_always_on);
     taurine_core::settings::set_cached_voice_model(settings.voice_model.clone());
     taurine_core::settings::set_cached_voice_ptt_hotkey(settings.voice_ptt_hotkey.clone());
     taurine_core::settings::set_cached_voice_handsfree_hotkey(
         settings.voice_handsfree_hotkey.clone(),
     );
-    taurine_core::settings::set_cached_voice_dictation_starters(
-        settings.voice_dictation_starters.clone(),
-    );
     taurine_core::settings::set_cached_voice_dictionary(settings.voice_dictionary.clone());
     taurine_core::settings::set_cached_voice_input_device(settings.voice_input_device.clone());
+
+    // Activate daemon file logging early so voice and hook initialization logs are captured
+    let guard = taurine_core::logs::activate_file_logging();
+    let _ = FILE_LOG_GUARD.set(guard);
 
     let state = Arc::new(EngineState::new());
     state
@@ -245,28 +240,10 @@ pub fn start() -> taurine_core::error::Result<()> {
                 .with_dictionary(dict),
         );
 
-        let always_on_listener = Arc::new(crate::voice::AlwaysOnVoiceListener::new(
-            capture,
-            session.clone(),
-            paused.clone(),
-        ));
-
-        if !settings.voice_dictation_starters.is_empty() {
-            always_on_listener.set_starters(&settings.voice_dictation_starters);
-        }
-
-        if settings.voice_always_on {
-            session.set_always_on(true);
-            if let Err(e) = always_on_listener.start() {
-                error!("Failed to start always-on voice listener: {e}");
-            } else {
-                info!("Always-on voice listener started");
-            }
-        }
-
-        // Store in globals — safe to ignore errors (only fails if already set)
+        // On-demand voice engine: the microphone stream stays closed and no
+        // model is loaded until the user starts a Push-to-Talk or Hands-Free
+        // session. The single configured model evicts 10s after speech ends.
         let _ = VOICE_SESSION.set(session);
-        let _ = ALWAYS_ON_LISTENER.set(always_on_listener);
     }
 
     let (audio_tx, audio_rx) = services::audio::create_channel();
@@ -438,10 +415,6 @@ pub fn start() -> taurine_core::error::Result<()> {
             });
         })?;
 
-    // Activate daemon file logging immediately after hook thread starts capturing
-    let guard = taurine_core::logs::activate_file_logging();
-    let _ = FILE_LOG_GUARD.set(guard);
-
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .max_blocking_threads(4)
@@ -453,6 +426,18 @@ pub fn start() -> taurine_core::error::Result<()> {
         tokio::spawn(crate::dictionary_manager::check_and_update_dictionary());
 
         let shutdown_requested = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+        // Periodic maintenance task for quality voice model TTL cleanup (10s inactivity)
+        let shutdown_for_voice = shutdown_requested.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+            while !shutdown_for_voice.load(Ordering::Relaxed) {
+                interval.tick().await;
+                if let Some(session) = crate::VOICE_SESSION.get() {
+                    session.clean_expired_transcriber();
+                }
+            }
+        });
 
         let evaluator_for_coordinator = evaluator.clone();
         #[cfg(any(windows, target_os = "linux"))]
@@ -477,6 +462,11 @@ pub fn start() -> taurine_core::error::Result<()> {
                     if let Ok(mut lock) = evaluator_for_coordinator.lock() {
                         lock.reset();
                     }
+
+                    // 4. Unload all speech recognition models from memory
+                    if let Some(session) = crate::VOICE_SESSION.get() {
+                        session.unload_model();
+                    }
                 } else {
                     info!("Taurine resumed: restoring subsystems...");
                     // 1. Resume clipboard listener
@@ -489,6 +479,8 @@ pub fn start() -> taurine_core::error::Result<()> {
                     );
                     #[cfg(target_os = "linux")]
                     crate::platform::linux::toplevel::start_listener(state_for_coordinator.clone());
+                    // 3. Voice engine stays unloaded until the next
+                    // Push-to-Talk or Hands-Free session (on-demand).
                 }
 
                 if pause_notifications_enabled_for_coordinator.load(Ordering::Relaxed) {
@@ -798,10 +790,10 @@ pub fn start() -> taurine_core::error::Result<()> {
         crate::platform::linux::toplevel::stop_listener();
     }
 
-    // 5. Stop the always-on voice listener
-    if let Some(listener) = ALWAYS_ON_LISTENER.get() {
-        listener.stop();
-        debug!("Always-on voice listener stopped");
+    // 5. Ensure the microphone stream is closed and the voice model unloaded.
+    if let Some(session) = VOICE_SESSION.get() {
+        session.capture().stop();
+        session.unload_model();
     }
 
     info!("Service stopped cleanly. Exiting.");

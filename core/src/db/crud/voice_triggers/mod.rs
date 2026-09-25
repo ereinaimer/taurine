@@ -275,6 +275,35 @@ fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<VoiceTriggerRow> {
     })
 }
 
+/// Converts a stored voice trigger row into a canonical [`TriggerAction`].
+/// Script interpreters are inferred from a shebang when present, falling back
+/// to the row's `target_os` default. Unknown action types fall back to text.
+pub fn voice_trigger_row_to_action(row: &VoiceTriggerRow) -> crate::db::crud::TriggerAction {
+    use crate::engine::shell::{ScriptBehavior, ScriptInterpreter, compress, infer_interpreter};
+    if row.action_type.trim().eq_ignore_ascii_case("script") {
+        let inferred = infer_interpreter(None, &row.output).unwrap_or_else(|| {
+            let os =
+                crate::db::TargetOs::parse_str(&row.target_os).unwrap_or(crate::db::TargetOs::All);
+            ScriptInterpreter::default_for_target_os(os)
+        });
+        let binary = compress(&row.output).ok();
+        return crate::db::crud::TriggerAction {
+            output: row.output.clone(),
+            action_type: "script".into(),
+            only_apps: row.only_apps.clone(),
+            except_apps: row.except_apps.clone(),
+            auto_case: false,
+            interpreter: Some(inferred),
+            behavior: Some(ScriptBehavior::Silent),
+            script_binary: binary,
+        };
+    }
+    let mut a = crate::db::crud::TriggerAction::text(&row.output);
+    a.only_apps = row.only_apps.clone();
+    a.except_apps = row.except_apps.clone();
+    a
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -376,5 +405,60 @@ mod tests {
         assert_eq!(normalize_voice_phrase("my-email"), "my email");
         assert_eq!(normalize_voice_phrase("\"My Email,\""), "my email");
         assert_eq!(normalize_voice_phrase("HELLO WORLD"), "hello world");
+    }
+
+    fn voice_row(output: &str, action_type: &str, target_os: &str) -> VoiceTriggerRow {
+        VoiceTriggerRow {
+            id: "id".into(),
+            spoken_phrase: "phrase".into(),
+            output: output.into(),
+            action_type: action_type.into(),
+            target_os: target_os.into(),
+            only_apps: None,
+            except_apps: None,
+            require_confirmation: false,
+            strict_threshold: 0.85,
+            usage_count: 0,
+            is_enabled: true,
+            is_deleted: false,
+            version: 1,
+            created_at: 0,
+            updated_at: 0,
+        }
+    }
+
+    #[test]
+    fn test_voice_trigger_row_to_action_script_python() {
+        let row = voice_row("#!/usr/bin/env python3\nprint('Hi')", "script", "all");
+        let a = voice_trigger_row_to_action(&row);
+        assert!(a.is_script());
+        assert_eq!(
+            a.interpreter,
+            Some(crate::engine::shell::ScriptInterpreter::Python)
+        );
+        assert!(a.script_binary.is_some());
+    }
+
+    #[test]
+    fn test_voice_trigger_row_to_action_text_passthrough() {
+        let mut row = voice_row("hello [time]", "text", "all");
+        row.only_apps = Some("notepad".into());
+        row.except_apps = Some("game".into());
+        let a = voice_trigger_row_to_action(&row);
+        assert!(a.is_text());
+        assert_eq!(a.output, "hello [time]");
+        assert_eq!(a.only_apps.as_deref(), Some("notepad"));
+        assert_eq!(a.except_apps.as_deref(), Some("game"));
+    }
+
+    #[test]
+    fn test_voice_trigger_row_to_action_script_fallback_win() {
+        let row = voice_row("echo hi", "script", "win");
+        let a = voice_trigger_row_to_action(&row);
+        assert!(a.is_script());
+        assert_eq!(
+            a.interpreter,
+            Some(crate::engine::shell::ScriptInterpreter::PowerShell)
+        );
     }
 }

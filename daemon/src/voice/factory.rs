@@ -2,15 +2,24 @@ use super::parakeet::ParakeetTranscriber;
 use std::path::Path;
 use taurine_core::voice::Transcriber;
 
-/// Create a boxed Transcriber implementation based on configured voice model identifier.
+/// Create a boxed Transcriber for exactly one configured voice model.
+///
+/// Only the resolved model is instantiated; the other model is never touched,
+/// keeping idle voice RAM at zero until a PTT/Hands-Free session loads it.
 pub fn create_transcriber(model_name: &str, models_dir: Option<&Path>) -> Box<dyn Transcriber> {
-    let canonical = taurine_core::voice::resolve_model_alias(model_name);
+    let canonical = taurine_core::voice::resolve_configured_model(model_name);
     match canonical {
         "parakeet-unified-en-0.6b" => {
             let path = models_dir.map(|d| d.join("parakeet-unified"));
             Box::new(ParakeetTranscriber::new(canonical, path.as_deref()))
         }
+        "parakeet-tdt-ctc-110m" => {
+            let path = models_dir.map(|d| d.join("parakeet-110m"));
+            Box::new(ParakeetTranscriber::new(canonical, path.as_deref()))
+        }
         _ => {
+            // `resolve_configured_model` only returns the two canonical IDs;
+            // fail closed to the light model rather than loading both.
             let path = models_dir.map(|d| d.join("parakeet-110m"));
             Box::new(ParakeetTranscriber::new(
                 "parakeet-tdt-ctc-110m",

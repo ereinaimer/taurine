@@ -9,7 +9,7 @@ use taurine_core::rpc::{
 };
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
-use tracing::{debug, warn};
+use tracing::debug;
 
 pub struct DaemonService {
     shutdown_sender: mpsc::Sender<()>,
@@ -280,14 +280,10 @@ impl DaemonControl for DaemonService {
             );
 
             // Update voice settings cache
-            taurine_core::settings::set_cached_voice_always_on(settings.voice_always_on);
             taurine_core::settings::set_cached_voice_model(settings.voice_model.clone());
             taurine_core::settings::set_cached_voice_ptt_hotkey(settings.voice_ptt_hotkey.clone());
             taurine_core::settings::set_cached_voice_handsfree_hotkey(
                 settings.voice_handsfree_hotkey.clone(),
-            );
-            taurine_core::settings::set_cached_voice_dictation_starters(
-                settings.voice_dictation_starters.clone(),
             );
             taurine_core::settings::set_cached_voice_dictionary(settings.voice_dictionary.clone());
             taurine_core::settings::set_cached_voice_input_device(
@@ -300,25 +296,8 @@ impl DaemonControl for DaemonService {
                 session.set_dictionary(taurine_core::voice::VoiceDictionary::from_csv(
                     &settings.voice_dictionary,
                 ));
-                session.set_always_on(settings.voice_always_on);
                 if session.capture().is_running() {
                     let _ = session.capture().restart();
-                }
-            }
-
-            // Sync always-on voice listener
-            if let Some(listener) = crate::ALWAYS_ON_LISTENER.get() {
-                if !settings.voice_dictation_starters.is_empty() {
-                    listener.set_starters(&settings.voice_dictation_starters);
-                }
-                listener.reload_keywords();
-                if settings.voice_always_on
-                    && !listener.is_running()
-                    && let Err(e) = listener.start()
-                {
-                    warn!("Failed to start always-on voice listener on reload: {e}");
-                } else if !settings.voice_always_on && listener.is_running() {
-                    listener.stop();
                 }
             }
 

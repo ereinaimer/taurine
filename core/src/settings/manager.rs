@@ -232,11 +232,6 @@ impl<'a> SettingsManager<'a> {
         {
             settings.voice_model = v;
         }
-        if let Some(val) = map.get("voice_always_on")
-            && let Ok(v) = serde_json::from_str::<bool>(val)
-        {
-            settings.voice_always_on = v;
-        }
         if let Some(val) = map.get("voice_ptt_hotkey")
             && let Ok(v) = serde_json::from_str::<String>(val)
         {
@@ -246,11 +241,6 @@ impl<'a> SettingsManager<'a> {
             && let Ok(v) = serde_json::from_str::<String>(val)
         {
             settings.voice_handsfree_hotkey = v;
-        }
-        if let Some(val) = map.get("voice_dictation_starters")
-            && let Ok(v) = serde_json::from_str::<String>(val)
-        {
-            settings.voice_dictation_starters = v;
         }
         if let Some(val) = map.get("voice_dictionary")
             && let Ok(v) = serde_json::from_str::<String>(val)
@@ -327,7 +317,6 @@ mod tests {
         manager
             .update_setting("voice_model", "whisper-small-en")
             .unwrap();
-        manager.update_setting("voice_always_on", true).unwrap();
         manager
             .update_setting("voice_ptt_hotkey", "ctrl+space")
             .unwrap();
@@ -335,18 +324,13 @@ mod tests {
             .update_setting("voice_handsfree_hotkey", "ctrl+alt+space")
             .unwrap();
         manager
-            .update_setting("voice_dictation_starters", "dictate, take note")
-            .unwrap();
-        manager
             .update_setting("voice_dictionary", "Rust, Taurine, Whisper")
             .unwrap();
 
         let settings = manager.load_all();
         assert_eq!(settings.voice_model, "whisper-small-en");
-        assert!(settings.voice_always_on);
         assert_eq!(settings.voice_ptt_hotkey, "ctrl+space");
         assert_eq!(settings.voice_handsfree_hotkey, "ctrl+alt+space");
-        assert_eq!(settings.voice_dictation_starters, "dictate, take note");
         assert_eq!(settings.voice_dictionary, "Rust, Taurine, Whisper");
     }
 }

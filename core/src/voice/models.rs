@@ -3,7 +3,7 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 
-/// Metadata entry for a machine learning speech or voice activity model.
+/// Metadata entry for a machine learning speech model.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModelCatalogEntry {
     /// Unique machine identifier for the model.
@@ -61,30 +61,6 @@ pub static MODEL_CATALOG: &[ModelCatalogEntry] = &[
         is_archive: true,
         description: "NVIDIA hybrid TDT-CTC; fast English dictation for constrained machines",
     },
-    ModelCatalogEntry {
-        id: "kws-zipformer-zh-en-3M",
-        name: "Zipformer KWS Spotter 3M",
-        size_display: "33 MB",
-        size_bytes: 32_885_699,
-        url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20.tar.bz2",
-        fallback_url: None,
-        remote_files: None,
-        sha256: None,
-        is_archive: true,
-        description: "Ultra-low power resident keyword spotter; <0.3% CPU usage",
-    },
-    ModelCatalogEntry {
-        id: "silero_vad_v6",
-        name: "Silero VAD v6 ONNX",
-        size_display: "644 KB",
-        size_bytes: 643_854,
-        url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
-        fallback_url: None,
-        remote_files: None,
-        sha256: None,
-        is_archive: false,
-        description: "Voice activity detector gating audio frames in 32ms intervals",
-    },
 ];
 
 /// Returns the models directory inside the app data directory.
@@ -92,33 +68,18 @@ pub fn models_dir() -> PathBuf {
     crate::system::paths::ensure_data_dir().join("models")
 }
 
-/// Retrieve a catalog entry by its canonical ID or alias.
+/// Retrieve a catalog entry by its strict canonical ID or `auto`.
+///
+/// Only `auto`, `parakeet-tdt-ctc-110m`, and `parakeet-unified-en-0.6b`
+/// resolve. All shorthand aliases (`110m`, `unified`,
+/// `best`, `quality`, `fast`, `light`, `tdt-ctc`, etc.) are rejected.
 pub fn get_model_entry(identifier: &str) -> Option<&'static ModelCatalogEntry> {
     let trimmed = identifier.trim().to_ascii_lowercase();
     let canonical = match trimmed.as_str() {
-        "unified" | "parakeet-unified" | "best" | "quality" | "parakeet-unified-en-0.6b" => {
-            "parakeet-unified-en-0.6b"
-        }
-        "110m" | "parakeet-110m" | "light" | "fast" | "tdt-ctc" | "parakeet-tdt-ctc-110m" => {
-            "parakeet-tdt-ctc-110m"
-        }
-        "kws" | "zipformer" | "kws-zipformer-zh-en-3M" => "kws-zipformer-zh-en-3M",
-        "vad" | "silero" | "silero_vad_v6" => "silero_vad_v6",
-        "auto" => {
-            if get_system_ram_gb() >= 8 {
-                "parakeet-unified-en-0.6b"
-            } else {
-                "parakeet-tdt-ctc-110m"
-            }
-        }
-        _ => {
-            for entry in MODEL_CATALOG {
-                if entry.id.eq_ignore_ascii_case(&trimmed) {
-                    return Some(entry);
-                }
-            }
-            return None;
-        }
+        "auto" => resolve_auto_model(),
+        "parakeet-unified-en-0.6b" => "parakeet-unified-en-0.6b",
+        "parakeet-tdt-ctc-110m" => "parakeet-tdt-ctc-110m",
+        _ => return None,
     };
     MODEL_CATALOG.iter().find(|entry| entry.id == canonical)
 }
@@ -128,25 +89,54 @@ pub fn list_models() -> &'static [ModelCatalogEntry] {
     MODEL_CATALOG
 }
 
-/// Returns total system physical memory in gigabytes, categorized by physical RAM tier.
-pub fn get_system_ram_gb() -> u64 {
+/// Raw total system physical memory in bytes.
+pub fn system_total_memory_bytes() -> u64 {
     use sysinfo::System;
     let mut sys = System::new();
     sys.refresh_memory();
-    let bytes = sys.total_memory();
+    sys.total_memory()
+}
 
-    let gb = bytes as f64 / (1024.0 * 1024.0 * 1024.0);
-    if gb >= 28.0 {
-        32
-    } else if gb >= 13.0 {
-        16
-    } else if gb >= 6.5 {
-        8
-    } else if gb >= 3.0 {
-        4
+/// `auto` threshold: 16 GiB. At or above loads the unified model,
+/// below loads the 110m model.
+pub const AUTO_UNIFIED_MIN_BYTES: u64 = 16 * 1024 * 1024 * 1024;
+
+/// Resolve `auto` via the accurate 16 GiB total-RAM threshold.
+pub fn resolve_auto_model() -> &'static str {
+    if system_total_memory_bytes() >= AUTO_UNIFIED_MIN_BYTES {
+        "parakeet-unified-en-0.6b"
     } else {
-        gb.round() as u64
+        "parakeet-tdt-ctc-110m"
     }
+}
+
+/// Resolve the stored `voice_model` setting to the single model ID to load.
+///
+/// Respects the user configuration: a pinned canonical name loads exactly
+/// that model, `auto` loads unified on >= 16 GiB total RAM and 110m below.
+/// Unrecognized input falls back to `auto` (settings validation rejects it).
+pub fn resolve_configured_model(configured: &str) -> &'static str {
+    let trimmed = configured.trim().to_ascii_lowercase();
+    match trimmed.as_str() {
+        "auto" => resolve_auto_model(),
+        "parakeet-unified-en-0.6b" => "parakeet-unified-en-0.6b",
+        "parakeet-tdt-ctc-110m" => "parakeet-tdt-ctc-110m",
+        _ => {
+            for entry in MODEL_CATALOG {
+                if entry.id.eq_ignore_ascii_case(&trimmed) {
+                    return entry.id;
+                }
+            }
+            resolve_auto_model()
+        }
+    }
+}
+
+/// Returns total system physical memory in gigabytes (accurate, rounded).
+pub fn get_system_ram_gb() -> u64 {
+    let bytes = system_total_memory_bytes();
+    let gb = bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+    gb.round() as u64
 }
 
 /// Minimum free system memory required to load the quality engine alongside the light engine.
@@ -164,34 +154,14 @@ pub fn quality_engine_allowed() -> bool {
     available_memory_bytes() >= UNIFIED_MIN_FREE_BYTES
 }
 
-/// Resolves user-friendly aliases to their canonical model catalog ID.
+/// Resolves a strict canonical model ID to its catalog ID.
+///
+/// Only `auto`, `parakeet-tdt-ctc-110m`, and `parakeet-unified-en-0.6b`
+/// are recognized. Shorthand aliases are rejected:
+/// unknown input falls back to `auto` resolution (the validation layer in
+/// `canonicalize_voice_model` rejects such input on save).
 pub fn resolve_model_alias(alias: &str) -> &'static str {
-    let trimmed = alias.trim().to_ascii_lowercase();
-    match trimmed.as_str() {
-        "unified" | "parakeet-unified" | "best" | "quality" => "parakeet-unified-en-0.6b",
-        "110m" | "parakeet-110m" | "light" | "fast" | "tdt-ctc" => "parakeet-tdt-ctc-110m",
-        "kws" | "zipformer" => "kws-zipformer-zh-en-3M",
-        "vad" | "silero" => "silero_vad_v6",
-        "auto" => {
-            if get_system_ram_gb() >= 8 {
-                "parakeet-unified-en-0.6b"
-            } else {
-                "parakeet-tdt-ctc-110m"
-            }
-        }
-        _ => {
-            for entry in MODEL_CATALOG {
-                if entry.id.eq_ignore_ascii_case(&trimmed) {
-                    return entry.id;
-                }
-            }
-            if get_system_ram_gb() >= 8 {
-                "parakeet-unified-en-0.6b"
-            } else {
-                "parakeet-tdt-ctc-110m"
-            }
-        }
-    }
+    resolve_configured_model(alias)
 }
 
 fn is_non_empty_file(path: &Path) -> bool {
@@ -247,54 +217,8 @@ pub fn is_model_downloaded(model_id: &str, base_dir: Option<&Path>) -> bool {
                 && (is_non_empty_file(&model_path.join("tokens.txt"))
                     || has_matching_file(&model_path, "tokens", ".txt"))
         }
-        "kws-zipformer-zh-en-3M" => {
-            let model_path = dir.join("kws");
-            model_path.is_dir()
-                && (is_non_empty_file(&model_path.join("encoder.int8.onnx"))
-                    || has_matching_file(&model_path, "encoder", ".onnx"))
-                && (is_non_empty_file(&model_path.join("decoder.int8.onnx"))
-                    || has_matching_file(&model_path, "decoder", ".onnx"))
-                && (is_non_empty_file(&model_path.join("joiner.int8.onnx"))
-                    || has_matching_file(&model_path, "joiner", ".onnx"))
-                && (is_non_empty_file(&model_path.join("tokens.txt"))
-                    || has_matching_file(&model_path, "tokens", ".txt"))
-        }
-        "silero_vad_v6" => is_non_empty_file(&dir.join("silero_vad.onnx")),
         _ => false,
     }
-}
-
-/// Best-effort removal of deprecated model dirs/files. Returns count removed. Never errors.
-pub fn prune_deprecated_voice_models(dir: &Path) -> usize {
-    let mut count = 0;
-    if !dir.is_dir() {
-        return 0;
-    }
-
-    // Deprecated directories
-    for legacy_dir in ["parakeet", "moonshine", "moonshine-tiny"] {
-        let p = dir.join(legacy_dir);
-        if p.is_dir() && std::fs::remove_dir_all(&p).is_ok() {
-            count += 1;
-        }
-    }
-
-    // Deprecated files (ggml-*.bin, whisper-*.bin)
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file()
-                && let Some(name) = path.file_name().and_then(|n| n.to_str())
-                && ((name.starts_with("ggml-") && name.ends_with(".bin"))
-                    || (name.starts_with("whisper-") && name.ends_with(".bin")))
-                && std::fs::remove_file(&path).is_ok()
-            {
-                count += 1;
-            }
-        }
-    }
-
-    count
 }
 
 /// Compute the SHA-256 hash of a file as a lowercase hexadecimal string.
@@ -331,16 +255,18 @@ mod tests {
 
     #[test]
     fn test_resolve_model_alias() {
-        let expected_auto = if get_system_ram_gb() >= 8 {
-            "parakeet-unified-en-0.6b"
-        } else {
-            "parakeet-tdt-ctc-110m"
-        };
+        let expected_auto = resolve_auto_model();
         assert_eq!(resolve_model_alias("auto"), expected_auto);
-        assert_eq!(resolve_model_alias("unified"), "parakeet-unified-en-0.6b");
-        assert_eq!(resolve_model_alias("110m"), "parakeet-tdt-ctc-110m");
-        assert_eq!(resolve_model_alias("kws"), "kws-zipformer-zh-en-3M");
-        assert_eq!(resolve_model_alias("vad"), "silero_vad_v6");
+        assert_eq!(resolve_configured_model("auto"), expected_auto);
+        assert_eq!(
+            resolve_model_alias("parakeet-unified-en-0.6b"),
+            "parakeet-unified-en-0.6b"
+        );
+        assert_eq!(
+            resolve_model_alias("parakeet-tdt-ctc-110m"),
+            "parakeet-tdt-ctc-110m"
+        );
+        assert_eq!(get_model_entry("silero_vad_v6"), None);
     }
 
     #[test]
@@ -351,10 +277,15 @@ mod tests {
         assert!(entry.size_bytes > 400_000_000);
         assert!(!entry.is_archive);
 
-        let light = get_model_entry("110m").expect("alias must resolve in get_model_entry");
+        let light = get_model_entry("parakeet-tdt-ctc-110m").expect("light must exist in catalog");
         assert_eq!(light.id, "parakeet-tdt-ctc-110m");
         assert!(light.is_archive);
 
+        // Strict canonical names: shorthand aliases are rejected.
+        assert_eq!(get_model_entry("110m"), None);
+        assert_eq!(get_model_entry("unified"), None);
+        assert_eq!(get_model_entry("best"), None);
+        assert_eq!(get_model_entry("fast"), None);
         assert_eq!(get_model_entry("moonshine-tiny-en"), None);
     }
 
@@ -388,30 +319,10 @@ mod tests {
             "parakeet-unified-en-0.6b",
             Some(temp_dir.path())
         ));
-        assert!(!is_model_downloaded("110m", Some(temp_dir.path())));
-    }
-
-    #[test]
-    fn test_prune_deprecated_voice_models() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let path = temp_dir.path();
-        std::fs::create_dir_all(path.join("parakeet")).unwrap();
-        std::fs::create_dir_all(path.join("moonshine")).unwrap();
-        std::fs::create_dir_all(path.join("moonshine-tiny")).unwrap();
-        std::fs::create_dir_all(path.join("parakeet-unified")).unwrap();
-        std::fs::write(path.join("ggml-small.en.bin"), b"test").unwrap();
-        std::fs::write(path.join("whisper-base.bin"), b"test").unwrap();
-        std::fs::write(path.join("silero_vad.onnx"), b"test").unwrap();
-
-        let removed = prune_deprecated_voice_models(path);
-        assert_eq!(removed, 5);
-        assert!(!path.join("parakeet").exists());
-        assert!(!path.join("moonshine").exists());
-        assert!(!path.join("moonshine-tiny").exists());
-        assert!(!path.join("ggml-small.en.bin").exists());
-        assert!(!path.join("whisper-base.bin").exists());
-        assert!(path.join("parakeet-unified").exists());
-        assert!(path.join("silero_vad.onnx").exists());
+        assert!(!is_model_downloaded(
+            "parakeet-tdt-ctc-110m",
+            Some(temp_dir.path())
+        ));
     }
 
     #[test]
@@ -434,36 +345,22 @@ mod tests {
     }
 
     #[test]
-    fn test_is_model_downloaded_kws_epoch_files() {
+    fn test_is_model_downloaded_parakeet_epoch_files() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let kws_dir = temp_dir.path().join("kws");
-        std::fs::create_dir_all(&kws_dir).unwrap();
+        let p_dir = temp_dir.path().join("parakeet-110m");
+        std::fs::create_dir_all(&p_dir).unwrap();
 
         assert!(!is_model_downloaded(
-            "kws-zipformer-zh-en-3M",
+            "parakeet-tdt-ctc-110m",
             Some(temp_dir.path())
         ));
 
-        // Create epoch-suffixed files like sherpa-onnx archive
-        std::fs::write(
-            kws_dir.join("encoder-epoch-13-avg-2-chunk-16-left-64.int8.onnx"),
-            b"model data",
-        )
-        .unwrap();
-        std::fs::write(
-            kws_dir.join("decoder-epoch-13-avg-2-chunk-16-left-64.onnx"),
-            b"model data",
-        )
-        .unwrap();
-        std::fs::write(
-            kws_dir.join("joiner-epoch-13-avg-2-chunk-16-left-64.int8.onnx"),
-            b"model data",
-        )
-        .unwrap();
-        std::fs::write(kws_dir.join("tokens.txt"), b"model data").unwrap();
+        // Create 110m model files
+        std::fs::write(p_dir.join("model.int8.onnx"), b"model data").unwrap();
+        std::fs::write(p_dir.join("tokens.txt"), b"model data").unwrap();
 
         assert!(is_model_downloaded(
-            "kws-zipformer-zh-en-3M",
+            "parakeet-tdt-ctc-110m",
             Some(temp_dir.path())
         ));
     }
@@ -471,29 +368,15 @@ mod tests {
     #[test]
     fn test_is_model_downloaded_rejects_empty_files() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let kws_dir = temp_dir.path().join("kws");
-        std::fs::create_dir_all(&kws_dir).unwrap();
+        let p_dir = temp_dir.path().join("parakeet-110m");
+        std::fs::create_dir_all(&p_dir).unwrap();
 
         // Write 0-byte files
-        std::fs::write(
-            kws_dir.join("encoder-epoch-13-avg-2-chunk-16-left-64.int8.onnx"),
-            b"",
-        )
-        .unwrap();
-        std::fs::write(
-            kws_dir.join("decoder-epoch-13-avg-2-chunk-16-left-64.onnx"),
-            b"",
-        )
-        .unwrap();
-        std::fs::write(
-            kws_dir.join("joiner-epoch-13-avg-2-chunk-16-left-64.int8.onnx"),
-            b"",
-        )
-        .unwrap();
-        std::fs::write(kws_dir.join("tokens.txt"), b"").unwrap();
+        std::fs::write(p_dir.join("model.int8.onnx"), b"").unwrap();
+        std::fs::write(p_dir.join("tokens.txt"), b"").unwrap();
 
         assert!(!is_model_downloaded(
-            "kws-zipformer-zh-en-3M",
+            "parakeet-tdt-ctc-110m",
             Some(temp_dir.path())
         ));
     }

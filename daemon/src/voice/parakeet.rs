@@ -34,8 +34,10 @@ pub struct ParakeetTranscriber {
 impl ParakeetTranscriber {
     /// Initialize Parakeet recognizer with model directory.
     pub fn new(model_name: impl Into<String>, model_dir: Option<&Path>) -> Self {
-        let model_name = model_name.into();
-        let canonical = taurine_core::voice::resolve_model_alias(&model_name);
+        let raw = model_name.into();
+        let canonical = taurine_core::voice::resolve_configured_model(&raw);
+        // Store the canonical ID so `name()` reports the model actually loaded.
+        let model_name = canonical.to_string();
 
         let recognizer = if let Some(dir) = model_dir
             && dir.exists()

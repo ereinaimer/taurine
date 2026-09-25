@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **English-Only Local Dictation**: Everyday dictation now uses an automatic two-tier English engine (best quality on capable machines, light and fast on constrained ones) with no model picker needed.
-- **Faster First Response, Lower Idle Memory**: Voice models load the moment you press the key and unload ~20 seconds after you stop, keeping idle usage a fraction of before.
+- **Faster First Response, Lower Idle Memory**: Voice models load the moment you press the key and unload ~10 seconds after you stop, keeping idle usage a fraction of before.
 - **Voice Audio Feedback**: Play the copy sound when voice dictation starts and the paste sound the moment you stop dictation via hotkey, per audio theme.
 - **Warm Voice Model Caching**: Keep speech recognition models warm in memory with an automatic inactivity timeout for near-instant dictation responses.
 - **Voice Input Device & Tray Controls**: Configure the speech dictation microphone via settings or live system tray submenu, with real-time toggle for always-on ambient listening.
@@ -32,14 +32,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Download Progress**: Show live download progress with transfer speed during installation and updates, including total size and elapsed time on completion.
 
 ### Removed
-- **Removed Retired Voice Models**: Old multilingual and Whisper-based downloads are cleaned up automatically; any previous voice model choice falls back to the new automatic mode.
+- **Always-On Ambient Listening**: Removed background microphone listening in favor of private on-demand voice hotkeys; voice triggers now run during Push-to-Talk and Hands-Free sessions with the mic closed when idle.
+- **Voice Model Aliases**: `voice_model` now accepts only `auto`, `parakeet-tdt-ctc-110m`, and `parakeet-unified-en-0.6b`; shorthand names are rejected with the valid options named.
+- **Ambient Voice Dictation Starters**: Removed ambient wake phrases in favor of dedicated voice triggers; dictation is now initiated exclusively via hotkeys.
+- **Removed Retired Voice Models**: Old multilingual, Whisper, and keyword spotter downloads are cleaned up automatically; voice model choice falls back to automatic mode.
 - **Local-Only Daemon Control**: Removed the TCP transport settings (`rpc_mode`, `rpc_host`, `rpc_port`) and the RPC auth token. The daemon is now controlled over the local socket (Unix) or a same-user named pipe (Windows) only.
 
 ### Fixed
+- **Zero Idle Voice Memory**: Voice models now unload completely ~10 seconds after dictation ends, returning idle memory to baseline.
+- **Voice Recognition Accuracy**: Eliminate microphone aliasing, word-ending cutoffs, and audio distortion using anti-aliasing resampling, voice activity hysteresis, and communications mode echo cancellation.
+- **Voice Trigger Reliability**: Always-listening voice triggers now fire on near-miss dictation and quiet speech, with longer pauses tolerated between words.
+- **Always-On Voice Listening**: Voice triggers now detect reliably without missed starts, keeping background listening ready and unloading models from memory when paused.
 - **Voice Stop Cue Timing**: Play the dictation stop sound immediately when stopping dictation instead of after the text is pasted.
 - **Voice Trigger Expansion During Dictation**: Expand spoken trigger phrases into their configured replacement text instead of typing the trigger words literally.
-- **Always-On Voice Trigger Spotting**: Restore keyword spotter audio stream continuity across recognition chunks so ambient voice triggers activate reliably.
 - **Voice Trigger CLI Logging**: Remove redundant duplicate output lines and arrow symbols when adding voice triggers via the CLI.
+- **Voice Dictation Cleanup**: Dictation now removes stuttered repeats and false starts automatically while keeping intentional emphasis such as very very or no no.
 - **Voice Push-to-Talk Stability**: Eliminate service crashes during push-to-talk key release chords and prevent simulated paste keystrokes from re-triggering voice dictation.
 - **Voice Download & Modifier Stability**: Fix modifier key lockup during push-to-talk chords, eliminate spinner artifacts and tick symbols from progress displays, prevent cursor blinking, and clarify service startup status.
 - **Voice Model Provisioning**: Accurately detect 16 GB hardware tiers during model selection and allow Taurine to start up gracefully without voice capabilities if model downloads fail.
@@ -69,6 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Uninstall Progress Display**: Show step-by-step progress logs during Unix uninstallation.
 - **Word Boundary Expansion Accuracy**: Prevent unwanted expansions when triggers appear inside larger words or follow digits by requiring non-alphanumeric boundaries.
 - **App Launch Shortcuts**: Restore hotkey triggers using the .NET Process Start API, the saps alias, and single-path Invoke-Item via the instant native launcher.
+- **Voice Trigger Scripts and Variables**: Voice triggers now execute scripts in the correct language and expand system and dynamic variables instead of typing them literally.
 
 ### Removed
 - **Redundant Audio Themes**: Remove soft, glass, dreamy, cinematic, and studio pause/resume sounds, leaving seven themes.

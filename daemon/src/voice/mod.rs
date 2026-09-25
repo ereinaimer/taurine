@@ -1,17 +1,16 @@
-pub mod always_on;
 pub mod capture;
 pub mod factory;
-pub mod kws;
 pub mod modes;
 pub mod parakeet;
 pub mod session;
-pub mod vad;
+pub mod trigger_dispatch;
 
-pub use always_on::{AlwaysOnEvent, AlwaysOnVoiceListener};
-pub use capture::{AudioCapture, AudioFrameBuffer, Resampler16k};
+pub use capture::{
+    AudioCapture, AudioFrameBuffer, Resampler16k, slice_utterance_with_postroll,
+    trailing_silence_frames,
+};
 pub use factory::create_transcriber;
-pub use kws::Spotter;
 pub use modes::VoiceMode;
 pub use parakeet::ParakeetTranscriber;
 pub use session::VoiceSessionManager;
-pub use vad::VadGate;
+pub use trigger_dispatch::fire_voice_trigger;

@@ -307,7 +307,7 @@ pub fn apply_setting_input_with_manager(
                 None => {
                     let diag =
                         Diagnostic::problem(format!("'{val}' is not a recognized voice model"))
-                            .suggest(val, KNOWN_VOICE_MODEL_ALIASES)
+                            .suggest(val, KNOWN_VOICE_MODELS)
                             .options("Available voice models", KNOWN_VOICE_MODELS)
                             .example("taurine config set voice_model auto")
                             .render();
@@ -318,14 +318,11 @@ pub fn apply_setting_input_with_manager(
             manager.update_setting(actual_key, canonical)?;
             ApplySettingOutcome::default()
         }
-        "voice_always_on" => {
-            let enabled = parse_boolean_setting_value_with_key(
-                actual_key,
-                require_non_empty(value, actual_key)?,
-            )?;
-            crate::settings::set_cached_voice_always_on(enabled);
-            manager.update_setting(actual_key, enabled)?;
-            ApplySettingOutcome::default()
+        "voice_always_on" | "always_on" | "voice_listen" | "voice_wake" => {
+            return Err(Error::Config(
+                "voice_always_on has been removed: always-on ambient listening is superseded by on-demand voice hotkeys and voice triggers"
+                    .to_string(),
+            ));
         }
         "voice_ptt_hotkey" => {
             let hotkey = require_non_empty(value, actual_key)?;
@@ -354,25 +351,6 @@ pub fn apply_setting_input_with_manager(
             })?;
             crate::settings::set_cached_voice_handsfree_hotkey(canonical.clone());
             manager.update_setting(actual_key, canonical)?;
-            ApplySettingOutcome::default()
-        }
-        "voice_dictation_starters" => {
-            let raw = require_non_empty(value, actual_key)?;
-            let phrases: Vec<&str> = raw
-                .split(',')
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .collect();
-            if phrases.is_empty() {
-                let diag = Diagnostic::problem("voice_dictation_starters cannot be empty")
-                    .help("Provide one or more comma-separated wake phrases (e.g. 'type this, write this')")
-                    .example("taurine config set voice_dictation_starters \"type this, write this\"")
-                    .render();
-                return Err(Error::Config(diag));
-            }
-            let normalized = phrases.join(", ");
-            crate::settings::set_cached_voice_dictation_starters(normalized.clone());
-            manager.update_setting(actual_key, normalized)?;
             ApplySettingOutcome::default()
         }
         "voice_dictionary" => {
@@ -495,30 +473,11 @@ fn require_non_empty<'a>(value: Option<&'a str>, key: &str) -> Result<&'a str> {
 pub const KNOWN_VOICE_MODELS: &[&str] =
     &["auto", "parakeet-unified-en-0.6b", "parakeet-tdt-ctc-110m"];
 
-pub const KNOWN_VOICE_MODEL_ALIASES: &[&str] = &[
-    "auto",
-    "unified",
-    "parakeet-unified",
-    "best",
-    "quality",
-    "110m",
-    "parakeet-110m",
-    "light",
-    "fast",
-    "tdt-ctc",
-    "parakeet-unified-en-0.6b",
-    "parakeet-tdt-ctc-110m",
-];
-
 pub fn canonicalize_voice_model(input: &str) -> Option<&'static str> {
     match input.trim().to_ascii_lowercase().as_str() {
         "auto" => Some("auto"),
-        "unified" | "parakeet-unified" | "best" | "quality" | "parakeet-unified-en-0.6b" => {
-            Some("parakeet-unified-en-0.6b")
-        }
-        "110m" | "parakeet-110m" | "light" | "fast" | "tdt-ctc" | "parakeet-tdt-ctc-110m" => {
-            Some("parakeet-tdt-ctc-110m")
-        }
+        "parakeet-unified-en-0.6b" => Some("parakeet-unified-en-0.6b"),
+        "parakeet-tdt-ctc-110m" => Some("parakeet-tdt-ctc-110m"),
         _ => None,
     }
 }

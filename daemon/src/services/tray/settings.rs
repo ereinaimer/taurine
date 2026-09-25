@@ -4,17 +4,13 @@ use taurine_core::settings::{SettingsManager, apply_setting_input};
 pub struct TraySettings;
 
 impl TraySettings {
-    pub fn load_quick_settings() -> (bool, bool, bool) {
+    pub fn load_quick_settings() -> (bool, bool) {
         if let Ok(conn) = taurine_core::db::get_conn() {
             let manager = SettingsManager::new(&conn);
             let settings = manager.load_all();
-            (
-                settings.instant_expand,
-                settings.start_on_boot,
-                settings.voice_always_on,
-            )
+            (settings.instant_expand, settings.start_on_boot)
         } else {
-            (false, true, false)
+            (false, true)
         }
     }
 
@@ -22,17 +18,17 @@ impl TraySettings {
     /// Returns the fresh values plus the version to store for the next call.
     /// Only the native (Windows/macOS) tray polls for external edits.
     #[cfg(any(windows, target_os = "macos"))]
-    pub fn load_quick_settings_if_changed(last_seen: u64) -> Option<(bool, bool, bool, u64)> {
+    pub fn load_quick_settings_if_changed(last_seen: u64) -> Option<(bool, bool, u64)> {
         let current = taurine_core::settings::settings_version();
         if current == last_seen {
             return None;
         }
-        let (instant, boot, voice_always_on) = Self::load_quick_settings();
-        Some((instant, boot, voice_always_on, current))
+        let (instant, boot) = Self::load_quick_settings();
+        Some((instant, boot, current))
     }
 
     pub fn toggle_instant_expand() -> Result<bool> {
-        let (current_instant, _, _) = Self::load_quick_settings();
+        let (current_instant, _) = Self::load_quick_settings();
         let next = !current_instant;
         Self::set_instant_expand(next)?;
         Ok(next)
@@ -47,7 +43,7 @@ impl TraySettings {
     }
 
     pub fn toggle_start_on_boot() -> Result<bool> {
-        let (_, current_boot, _) = Self::load_quick_settings();
+        let (_, current_boot) = Self::load_quick_settings();
         let next = !current_boot;
         Self::set_start_on_boot(next)?;
         Ok(next)
@@ -56,21 +52,6 @@ impl TraySettings {
     pub fn set_start_on_boot(enabled: bool) -> Result<()> {
         apply_setting_input(
             "start_on_boot",
-            Some(if enabled { "true" } else { "false" }),
-        )?;
-        Ok(())
-    }
-
-    pub fn toggle_voice_always_on() -> Result<bool> {
-        let (_, _, current_always_on) = Self::load_quick_settings();
-        let next = !current_always_on;
-        Self::set_voice_always_on(next)?;
-        Ok(next)
-    }
-
-    pub fn set_voice_always_on(enabled: bool) -> Result<()> {
-        apply_setting_input(
-            "voice_always_on",
             Some(if enabled { "true" } else { "false" }),
         )?;
         Ok(())
@@ -113,7 +94,7 @@ mod tests {
         unsafe { std::env::set_var("TAURINE_DATA_DIR", temp_dir.path()) };
         let _env_guard = EnvVarGuard("TAURINE_DATA_DIR");
 
-        let (initial_instant, _, _) = TraySettings::load_quick_settings();
+        let (initial_instant, _) = TraySettings::load_quick_settings();
         let new_val = TraySettings::toggle_instant_expand().expect("toggle instant expand");
         assert_eq!(new_val, !initial_instant);
 
@@ -131,30 +112,12 @@ mod tests {
         unsafe { std::env::set_var("TAURINE_DATA_DIR", temp_dir.path()) };
         let _env_guard = EnvVarGuard("TAURINE_DATA_DIR");
 
-        let (_, initial_boot, _) = TraySettings::load_quick_settings();
+        let (_, initial_boot) = TraySettings::load_quick_settings();
         let new_val = TraySettings::toggle_start_on_boot().expect("toggle start on boot");
         assert_eq!(new_val, !initial_boot);
 
         let restored = TraySettings::toggle_start_on_boot().expect("restore start on boot");
         assert_eq!(restored, initial_boot);
-    }
-
-    #[test]
-    fn test_toggle_voice_always_on() {
-        let _lock = taurine_core::testing::TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let temp_dir = tempfile::tempdir().unwrap();
-        // SAFETY: Serialized under TEST_LOCK for test database isolation.
-        unsafe { std::env::set_var("TAURINE_DATA_DIR", temp_dir.path()) };
-        let _env_guard = EnvVarGuard("TAURINE_DATA_DIR");
-
-        let (_, _, initial_always_on) = TraySettings::load_quick_settings();
-        let new_val = TraySettings::toggle_voice_always_on().expect("toggle voice always on");
-        assert_eq!(new_val, !initial_always_on);
-
-        let restored = TraySettings::toggle_voice_always_on().expect("restore voice always on");
-        assert_eq!(restored, initial_always_on);
     }
 
     #[test]
@@ -196,13 +159,10 @@ mod tests {
         );
 
         taurine_core::settings::set_cached_wpm(taurine_core::settings::get_cached_wpm());
-        let (instant, boot, always_on) = TraySettings::load_quick_settings();
+        let (instant, boot) = TraySettings::load_quick_settings();
         let changed = TraySettings::load_quick_settings_if_changed(version)
             .expect("bumped version must reload");
-        assert_eq!(
-            (changed.0, changed.1, changed.2),
-            (instant, boot, always_on)
-        );
-        assert!(changed.3 > version);
+        assert_eq!((changed.0, changed.1), (instant, boot));
+        assert!(changed.2 > version);
     }
 }
