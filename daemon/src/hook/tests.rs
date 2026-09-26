@@ -435,6 +435,7 @@ pub(crate) static TEST_LOCK: &std::sync::Mutex<()> = &taurine_core::testing::TES
 #[test]
 fn test_dispatch_expansion_skips_ai_stats() {
     let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    taurine_core::testing::use_shared_test_keyring();
     taurine_core::logs::init_tracing_for_tests();
     let test_dir = std::env::temp_dir().join(format!(
         "taurine_ai_stats_test_{}_{}",
