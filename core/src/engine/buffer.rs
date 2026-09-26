@@ -602,17 +602,17 @@ mod tests {
     #[test]
     fn extract_trigger_word_allow_spaces() {
         let mut b = FastBuffer::new();
-        type_str(&mut b, ">hi:erein aimer: how was your day");
+        type_str(&mut b, ">hi;erein aimer; how was your day");
         assert_eq!(
             b.extract_trigger_word('>'),
-            Some("hi:erein aimer: how was your day".to_string())
+            Some("hi;erein aimer; how was your day".to_string())
         );
 
         let mut b2 = FastBuffer::new();
-        type_str(&mut b2, "hello >world >hi:erein aimer");
+        type_str(&mut b2, "hello >world >hi;erein aimer");
         assert_eq!(
             b2.extract_trigger_word('>'),
-            Some("hi:erein aimer".to_string())
+            Some("hi;erein aimer".to_string())
         );
 
         // Should still fail if multiple trigger characters without space

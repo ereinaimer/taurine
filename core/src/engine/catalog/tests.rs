@@ -14,12 +14,12 @@ fn exact_match_precedence_beats_hybrid_argument_parsing() {
     memory.load_actions(vec![
         ("hi".to_string(), TriggerAction::text("base [0] ([mood])")),
         (
-            "hi:erin".to_string(),
+            "hi;erin".to_string(),
             TriggerAction::text("exact trigger wins"),
         ),
     ]);
 
-    let expansion = catalog.fetch_expansion("hi:erin", false, None).unwrap();
+    let expansion = catalog.fetch_expansion("hi;erin", false, None).unwrap();
     assert_eq!(
         expansion.steps[0],
         ExpansionStep::Text("exact trigger wins".to_string())
@@ -87,7 +87,7 @@ fn script_interpolation_with_positional_args_matches_current_behavior() {
     memory.load_actions(vec![("opendir".to_string(), action)]);
 
     let expansion = catalog
-        .fetch_expansion("opendir:\"C:\\Temp\"", false, None)
+        .fetch_expansion("opendir;\"C:\\Temp\"", false, None)
         .unwrap();
     if let ExpansionStep::Script(md) = &expansion.steps[0] {
         let decompressed = decompress(&md.compressed_content).unwrap();
@@ -120,7 +120,7 @@ fn script_interpolation_with_named_args_matches_current_behavior() {
     memory.load_actions(vec![("api".to_string(), action)]);
 
     let expansion = catalog
-        .fetch_expansion("api:env=prod", false, None)
+        .fetch_expansion("api;env=prod", false, None)
         .unwrap();
     if let ExpansionStep::Script(md) = &expansion.steps[0] {
         let decompressed = decompress(&md.compressed_content).unwrap();

@@ -276,11 +276,11 @@ mod tests {
     #[test]
     fn test_tokenize() {
         assert_eq!(
-            tokenize(r#"foo:bar:"baz:qux""#, ':'),
-            vec!["foo", "bar", "\"baz:qux\""]
+            tokenize(r#"foo;bar;"baz;qux""#, ';'),
+            vec!["foo", "bar", "\"baz;qux\""]
         );
-        assert_eq!(tokenize("ereinaimer", ':'), vec!["ereinaimer"]);
-        assert_eq!(tokenize("", ':'), Vec::<String>::new());
+        assert_eq!(tokenize("ereinaimer", ';'), vec!["ereinaimer"]);
+        assert_eq!(tokenize("", ';'), Vec::<String>::new());
     }
 
     #[test]
@@ -342,16 +342,16 @@ mod tests {
         use super::*;
 
         #[test]
-        fn tokenize_keeps_colons_inside_single_and_double_quotes() {
+        fn tokenize_keeps_semicolons_inside_single_and_double_quotes() {
             assert_eq!(
-                tokenize(r#"alpha:'beta:gamma':"delta:epsilon":zeta"#, ':'),
-                vec!["alpha", "'beta:gamma'", "\"delta:epsilon\"", "zeta"]
+                tokenize(r#"alpha;'beta;gamma';"delta;epsilon";zeta"#, ';'),
+                vec!["alpha", "'beta;gamma'", "\"delta;epsilon\"", "zeta"]
             );
         }
 
         #[test]
         fn parse_tokens_preserves_empty_arguments() {
-            let tokens = tokenize("alpha::beta:", ':');
+            let tokens = tokenize("alpha;;beta;", ';');
             let map = parse_tokens(&tokens);
 
             assert_eq!(map.positional, vec!["alpha", "", "beta", ""]);

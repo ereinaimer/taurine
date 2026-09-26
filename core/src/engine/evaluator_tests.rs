@@ -959,7 +959,7 @@ fn test_end_to_end_dynamic_variable_expansion() {
     )]);
     let mut eval = Evaluator::new(state);
 
-    let input = r#"repo:"ereinaimer":"taurine""#;
+    let input = r#"repo;"ereinaimer";"taurine""#;
     let mut last_result = None;
 
     for c in input.chars() {
@@ -978,7 +978,7 @@ fn test_end_to_end_dynamic_variable_expansion() {
             "https://github.com/ereinaimer/taurine".to_string()
         )]
     );
-    assert_eq!(result.trigger, r#"repo:"ereinaimer":"taurine""#);
+    assert_eq!(result.trigger, r#"repo;"ereinaimer";"taurine""#);
     // There is no trigger char prefix, so delete_count == trigger length.
     assert_eq!(result.delete_count, result.trigger.len());
 }
@@ -992,7 +992,7 @@ fn test_end_to_end_dynamic_variable_named_args_and_defaults() {
     )]);
     let mut eval = Evaluator::new(state);
 
-    let input = r#">gh:"username=ereinaimer""#;
+    let input = r#">gh;"username=ereinaimer""#;
     let mut last_result = None;
 
     for c in input.chars() {
@@ -1011,7 +1011,7 @@ fn test_end_to_end_dynamic_variable_named_args_and_defaults() {
             "https://github.com/ereinaimer/taurine".to_string()
         )]
     );
-    assert_eq!(result.trigger, r#"gh:"username=ereinaimer""#);
+    assert_eq!(result.trigger, r#"gh;"username=ereinaimer""#);
 }
 #[test]
 fn test_backspace_with_args_bug() {
@@ -1022,7 +1022,7 @@ fn test_backspace_with_args_bug() {
     )]);
     let mut eval = Evaluator::new(state);
 
-    let input = ">gh:blah";
+    let input = ">gh;blah";
     for c in input.chars() {
         eval.process(EngineEvent::Char(c));
     }
@@ -1921,9 +1921,9 @@ fn test_spaces_in_arguments_parse() {
 
     let mut eval = Evaluator::new(state);
     // Triggerless mode: "hi" is in the suffix candidates, and the trailing arguments
-    // following the colon delimiter are passed as positional args.  With Enter as the
+    // following the semicolon delimiter are passed as positional args.  With Enter as the
     // only action key, spaces inside arguments are preserved.
-    for c in "hi:erein:how was your day".chars() {
+    for c in "hi;erein;how was your day".chars() {
         eval.process(EngineEvent::Char(c));
     }
 
@@ -1947,7 +1947,7 @@ fn test_spaces_in_arguments_with_leading_dot() {
     )]);
 
     let mut eval = Evaluator::new(state);
-    for c in ">hi:erein".chars() {
+    for c in ">hi;erein".chars() {
         eval.process(EngineEvent::Char(c));
     }
     let res = eval.process(EngineEvent::ActionKey);
@@ -1955,6 +1955,65 @@ fn test_spaces_in_arguments_with_leading_dot() {
     assert_eq!(
         res.unwrap().steps,
         vec![ExpansionStep::Text("Hello erein, msg!".to_string())]
+    );
+}
+
+#[test]
+fn test_colon_is_literal_text_after_separator_switch() {
+    let state = Arc::new(EngineState::new());
+    state.load_actions(vec![(
+        "meet".to_string(),
+        crate::db::crud::TriggerAction::text("At [time=now] in [place=here]"),
+    )]);
+    let mut eval = Evaluator::new(state);
+    for c in "meet:2pm".chars() {
+        eval.process(EngineEvent::Char(c));
+    }
+    assert!(eval.process(EngineEvent::ActionKey).is_none());
+    eval.buffer.clear();
+    for c in "meet;12:30;the lobby".chars() {
+        eval.process(EngineEvent::Char(c));
+    }
+    let res = eval.process(EngineEvent::ActionKey).expect("should expand");
+    assert_eq!(
+        res.steps,
+        vec![ExpansionStep::Text("At 12:30 in the lobby".to_string())]
+    );
+}
+
+#[test]
+fn test_plan_path_ordered_bare_fallback() {
+    use crate::engine::variables::{ArgMap, ExecutionPlan, ExpansionOrigin};
+    let mut args = ArgMap::default();
+    args.positional.push("2pm".to_string());
+    args.positional.push("lobby".to_string());
+    let plan = ExecutionPlan::compile("Meet at [time=now] in [place=here]");
+    let expansion = plan.evaluate(&args, None, ExpansionOrigin::User);
+    assert_eq!(
+        expansion.steps,
+        vec![ExpansionStep::Text("Meet at 2pm in lobby".to_string())]
+    );
+}
+
+#[test]
+fn test_named_args_match_case_insensitively() {
+    let state = Arc::new(EngineState::new());
+    state.load_actions(vec![(
+        "gh".to_string(),
+        crate::db::crud::TriggerAction::text("https://github.com/[name=user]/[repo=taurine]"),
+    )]);
+    let mut eval = Evaluator::new(state);
+    for c in ">gh;NAME=ereinaimer".chars() {
+        eval.process(EngineEvent::Char(c));
+    }
+    let res = eval
+        .process(EngineEvent::ActionKey)
+        .expect("Expansion should have triggered");
+    assert_eq!(
+        res.steps,
+        vec![ExpansionStep::Text(
+            "https://github.com/ereinaimer/taurine".to_string()
+        )]
     );
 }
 
