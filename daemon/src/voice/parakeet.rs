@@ -92,11 +92,24 @@ pub(crate) fn resolve_transcription_text(
     }
 }
 
+/// File set for the lazily-built greedy fallback; Task 2 calls ensure_fallback() from transcribe().
+// honey: allow(dead_code) until Task 2 wires the lazy fallback into transcribe().
+#[allow(dead_code)]
+struct UnifiedFallbackPaths {
+    encoder: PathBuf,
+    decoder: PathBuf,
+    joiner: PathBuf,
+    tokens: PathBuf,
+}
+
 /// Speech-to-text transcriber using NeMo Parakeet models across Fast, Balanced, and Best tiers.
 pub struct ParakeetTranscriber {
     model_name: String,
     recognizer: Option<OfflineRecognizer>,
     fallback_recognizer: Option<OfflineRecognizer>,
+    // honey: allow(dead_code) until Task 2 wires the lazy fallback into transcribe().
+    #[allow(dead_code)]
+    fallback_paths: Option<UnifiedFallbackPaths>,
     ctc_decoder: Option<shenava_ctc_beam::CtcBeamDecoder>,
     hotwords: Option<String>,
 }
@@ -110,7 +123,8 @@ impl ParakeetTranscriber {
         let model_name = canonical.to_string();
 
         let mut recognizer = None;
-        let mut fallback_recognizer = None;
+        let fallback_recognizer = None;
+        let mut fallback_paths: Option<UnifiedFallbackPaths> = None;
         let mut ctc_decoder = None;
 
         if let Some(dir) = model_dir
@@ -165,19 +179,13 @@ impl ParakeetTranscriber {
                     config.hotwords_score = 2.0;
                     recognizer = OfflineRecognizer::create(&config);
 
-                    // Fallback: greedy search with zero hotwords score (Fix 3)
-                    let mut fallback_config = OfflineRecognizerConfig::default();
-                    fallback_config.model_config.transducer = OfflineTransducerModelConfig {
-                        encoder: Some(enc.to_string_lossy().to_string()),
-                        decoder: Some(dec.to_string_lossy().to_string()),
-                        joiner: Some(joi.to_string_lossy().to_string()),
-                    };
-                    fallback_config.model_config.tokens = Some(tok.to_string_lossy().to_string());
-                    fallback_config.model_config.model_type = Some("nemo_transducer".into());
-                    fallback_config.model_config.num_threads = recognizer_threads();
-                    fallback_config.decoding_method = Some("greedy_search".into());
-                    fallback_config.hotwords_score = 0.0;
-                    fallback_recognizer = OfflineRecognizer::create(&fallback_config);
+                    // Fallback built lazily via ensure_fallback() on first need.
+                    fallback_paths = Some(UnifiedFallbackPaths {
+                        encoder: enc,
+                        decoder: dec,
+                        joiner: joi,
+                        tokens: tok,
+                    });
                 }
             } else {
                 // Balanced tier: parakeet-tdt-0.6b-v2 or other transducer models
@@ -212,9 +220,33 @@ impl ParakeetTranscriber {
             model_name,
             recognizer,
             fallback_recognizer,
+            fallback_paths,
             ctc_decoder,
             hotwords: None,
         }
+    }
+
+    // honey: allow(dead_code) until Task 2 wires the lazy fallback into transcribe().
+    #[allow(dead_code)]
+    fn ensure_fallback(&mut self) {
+        if self.fallback_recognizer.is_some() || self.fallback_paths.is_none() {
+            return;
+        }
+        let Some(paths) = self.fallback_paths.as_ref() else {
+            return;
+        };
+        let mut fallback_config = OfflineRecognizerConfig::default();
+        fallback_config.model_config.transducer = OfflineTransducerModelConfig {
+            encoder: Some(paths.encoder.to_string_lossy().to_string()),
+            decoder: Some(paths.decoder.to_string_lossy().to_string()),
+            joiner: Some(paths.joiner.to_string_lossy().to_string()),
+        };
+        fallback_config.model_config.tokens = Some(paths.tokens.to_string_lossy().to_string());
+        fallback_config.model_config.model_type = Some("nemo_transducer".into());
+        fallback_config.model_config.num_threads = recognizer_threads();
+        fallback_config.decoding_method = Some("greedy_search".into());
+        fallback_config.hotwords_score = 0.0;
+        self.fallback_recognizer = OfflineRecognizer::create(&fallback_config);
     }
 
     /// Decode raw CTC log-probabilities using the model's CTC beam decoder.
@@ -383,5 +415,45 @@ mod tests {
 
         let resolved_no_fallback = resolve_transcription_text("", || panic!("no fallback"), false);
         assert_eq!(resolved_no_fallback, "");
+    }
+
+    #[test]
+    fn test_fallback_deferred_until_needed() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        for name in [
+            "encoder.int8.onnx",
+            "decoder.int8.onnx",
+            "joiner.int8.onnx",
+            "tokens.txt",
+        ] {
+            std::fs::write(dir.path().join(name), b"stub").expect("stub file");
+        }
+        let t = ParakeetTranscriber::new("parakeet-unified-en-0.6b", Some(dir.path()));
+        assert_eq!(t.name(), "parakeet-unified-en-0.6b");
+        assert!(t.recognizer.is_none());
+        assert!(t.fallback_recognizer.is_none());
+        assert!(t.fallback_paths.is_some());
+    }
+
+    #[test]
+    fn test_no_fallback_paths_when_files_missing() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let t = ParakeetTranscriber::new("parakeet-unified-en-0.6b", Some(dir.path()));
+        assert!(t.fallback_paths.is_none());
+        assert!(t.fallback_recognizer.is_none());
+    }
+
+    #[test]
+    fn test_ensure_fallback_without_paths_is_silent_noop() {
+        let mut t = ParakeetTranscriber::new("parakeet-unified-en-0.6b", None);
+        assert!(t.fallback_paths.is_none());
+        t.ensure_fallback();
+        t.ensure_fallback();
+        assert!(t.fallback_recognizer.is_none());
+        let res = t
+            .transcribe(&[0.0f32; 16000], 16000)
+            .expect("transcribe should succeed");
+        assert!(res.is_empty());
+        assert_eq!(res.confidence, 0.0);
     }
 }
