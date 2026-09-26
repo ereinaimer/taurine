@@ -99,7 +99,7 @@ Validation limits: trigger string ≤200 chars, text output ≤100 KB, script co
 *   Hotkeys receive no typed args (`[name=default]` fields use defaults) and are desktop-only.
 
 ### 3.3 Regex Triggers
-*   Attach a trigger to a regex matching the suffix of typed text; capture groups map to positionals `[0]`, `[1]`, ...
+*   Attach a trigger to a regex matching the suffix of typed text; capture groups map to numbered slots `[0]`, `[1]`, ...
 *   `taurine add --regex "issue-(\d+)" "https://github.com/issues/[0]"` → typing `issue-42 ` expands to the URL.
 *   Patterns are suffix-anchored automatically, so multi-word patterns like `bind:(\w+)=(\w+)` work (`bind:foo=bar ` → `Mapping foo to bar`).
 *   Fully compatible with Backspace Undo, but **not** with autocomplete. Avoid exponential backtracking (`(a+)+`).
@@ -178,7 +178,7 @@ Taurine's background engine runs arbitrary scripts (Bash, Python, PowerShell, No
 *   **Languages**: `bash` (`.sh`), `powershell` (`.ps1`), `python` (`.py`), `node` (`.js`, `.cjs`), `cmd` (`.bat`, `.cmd`). Inference order: file extension → shebang → explicit `--lang`.
 *   **Execution modes** (`-m`, `--mode`): `inline` (default — stdout injected as text via a clipboard-first "injection" mechanism) or `silent` (background only, for notifications/builds).
 *   **Storage**: `zstd`-compressed BLOBs inside the SQLite DB; script files (`-f`) are copied in — the original file isn't needed afterward.
-*   **"Interpolation First"**: variables are replaced in the script body *before* the interpreter runs — `[var=default]`, `[env(USERNAME)]`, transformers, and positionals all work, including inside script files.
+*   **"Interpolation First"**: variables are replaced in the script body *before* the interpreter runs — `[var=default]`, `[env(USERNAME)]`, transformers, and named/bare values all work, including inside script files.
 *   **Examples**: `taurine add script url 'start https://[url=google.com]' --lang powershell --os windows`; `taurine add script --hotkey "ctrl+shift+w" winget "winget install [pkg=git]"`.
 *   Hard limit: 20s max execution time (then terminated). Scripts run with the service's environment in a temporary directory; interpreters must be on `PATH`.
 
