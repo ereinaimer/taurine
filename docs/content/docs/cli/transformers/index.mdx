@@ -7,7 +7,7 @@ Transformers allow you to manipulate the casing, encoding, lines, formatting, an
 
 ```
 [clip | case(upper)]
-[0=text | case(snake)]
+[name=text | case(snake)]
 [name=john | case(title)]
 ```
 
@@ -23,8 +23,8 @@ Transformers allow you to manipulate the casing, encoding, lines, formatting, an
 Taurine supports recursive transformation chaining using unix pipes. This allows you to perform complex cleanup and formatting in a single tag.
 
 <Transformation
-  template="[0=text | strip(whitespace) | case(upper) | repeat(2)]"
-  input="text:'  taurine  '"
+  template="[text=text | strip(whitespace) | case(upper) | repeat(2)]"
+  input="text;'  taurine  '"
   result="TAURINETAURINE"
 />
 

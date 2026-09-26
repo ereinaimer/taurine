@@ -1,6 +1,6 @@
 ---
 title: Regex Triggers
-description: Learn how to activate triggers using regular expression patterns and positional capture groups.
+description: Learn how to activate triggers using regular expression patterns and capture groups.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
@@ -18,7 +18,7 @@ While Word Triggers are static words (e.g., `gs`), **Regex Triggers** allow you 
 To create a regex trigger, pass the pattern to the `--regex` flag with the `add` command (repeatable — one pattern per occurrence, since patterns may contain commas).
 
 ### Standard Text Expansion with Capture Groups
-Capture groups in your regular expression are mapped directly to positional parameters (`[0]`, `[1]`, etc.) in the expansion output.
+Capture groups in your regular expression are mapped directly to engine-internal numbered slots (`[0]`, `[1]`, etc.) in the expansion output. This numbering is a regex-capture mechanism only — for word triggers, define `[name=default]` fields and fill them inline with `;` instead (see [Arguments](/docs/cli/dynamic-variables/arguments)).
 
 ```bash
 # Add a regex expansion for issue tracking links
@@ -37,7 +37,7 @@ taurine add script user-details -l powershell "Get-UserDetail -Username [0]" --r
 
 ## How Capture Groups Work
 
-Taurine maps standard regular expression capture groups to positional placeholders:
+Taurine maps standard regular expression capture groups to numbered slots:
 
 *   **Group 1** maps to **`[0]`**
 *   **Group 2** maps to **`[1]`**
@@ -45,7 +45,7 @@ Taurine maps standard regular expression capture groups to positional placeholde
 *   And so on.
 
 <Callout title="Zero-Index Mapping" type="info">
-  Positional variables start at `[0]` to align with Taurine's existing positional variables used in standard word triggers.
+  Numbered captures start at `[0]`. This numbering is internal to regex triggers; word triggers use named fields (`[name=default]`) filled inline with `;`.
 </Callout>
 
 ### Example of Multiple Capture Groups

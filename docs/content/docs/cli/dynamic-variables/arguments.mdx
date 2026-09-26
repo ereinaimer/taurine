@@ -1,59 +1,57 @@
 ---
 title: Arguments
-description: Group positional and named inputs effectively.
+description: Fill named fields inline with bare or labeled values.
 ---
 
-## Positional Arguments
+## Bare Values Fill in Order
 
-Use numbered placeholders `[0]`, `[1]`, etc., to reference arguments strictly by the order you type them. This allows you to reorder inputs in your final output.
+Write one template with named fields, then fill values inline separated by semicolons (`;`). Bare values fill named fields in template definition order, followed by Enter.
 
 <Transformation
-  template="https://github.com/[1=repo]/[0=org]"
-  input="gh:taurine:ereinaimer"
-  result="https://github.com/ereinaimer/taurine"
+  template="Meet at [time=now] in [place=here]"
+  input="meet;2pm;the lobby"
+  result="Meet at 2pm in the lobby"
 />
-
-By using `[1=repo]` before `[0=org]`, Taurine swapped the order of the organization and the repository name. You have complete control over where each input goes, regardless of the order you typed them.
 
 ## Named Arguments
 
-Explicitly assign a value to a label using the `key=value` format when typing your trigger. This is useful when you want to ignore the order of arguments entirely.
+Explicitly assign a value to a label using the `key=value` format when typing your trigger. Explicit names always win regardless of position, and matching is case-insensitive.
 
 <Transformation
   template="Repo: [repo=default_repo] by [name=default_name]"
-  input="gh:name=ereinaimer:repo=taurine"
+  input="gh;name=ereinaimer;repo=taurine"
   result="Repo: taurine by ereinaimer"
 />
 
-Named arguments override their position. Even though `name` was typed first, it correctly filled the `[name=default_name]` placeholder at the end of the template.
+Named arguments override position. Even though `name` was typed first, it correctly filled the `[name=default_name]` placeholder at the end of the template. Order in the template does not matter either: with `Repo: [repo=x] by [name=y]`, `gh;name=erein;repo=taurine` still fills each field by name.
 
 ## Quoted Arguments
 
-Quotes allow arguments to contain spaces or colons without breaking the trigger parsing. Taurine supports both double quotes (`"`) and single quotes (`'`), which allows you to nest quotes or include apostrophes easily.
+Quotes allow arguments to contain spaces or semicolons without breaking the trigger parsing. Taurine supports both double quotes (`"`) and single quotes (`'`), which allows you to nest quotes or include apostrophes easily.
 
 <Transformation
-  template="Quote: [0=empty]"
+  template="Quote: [message=empty]"
   cases={[
-    { input: "quote:'\"One small step for man\"'", result: 'Quote: "One small step for man"' },
-    { input: "quote:\"How're you?\"", result: "Quote: How're you?" },
+    { input: "quote;'\"One small step for man\"'", result: 'Quote: "One small step for man"' },
+    { input: "quote;\"How're you?\"", result: "Quote: How're you?" },
   ]}
 />
 
 By wrapping the text in quotes, you can preserve complex strings, including those that contain other quote characters or punctuation, as a single argument.
 
-Arguments can contain unquoted spaces without needing quotes (e.g. `hi:erein aimer: how was your day`). If you need to include colons (`:`) within your arguments, you must wrap them in quotes.
+Arguments can contain unquoted spaces without needing quotes (e.g. `hi;erein aimer; how was your day`). Colons (`:`) are ordinary text and need no quoting (e.g. `meet;12:30;the lobby`).
 
-## Strict Mapping & Non-Greedy Fallbacks
+## Ordered Fallback & Skipping
 
-If a placeholder is not numbered and does not match a named argument, Taurine will **not** consume positional values sequentially. Instead, it strictly respects the variable mapping, leaving the placeholder to use its default value.
+Bare values fill named fields in the order the fields appear in the template, skipping fields already satisfied by an explicit `key=value`. Missing values use their defaults. An empty segment (`;;`) never fills empty text — it always keeps the default, so you can skip a field.
 
 <Transformation
-  template='Repo: [repo="taurine"] / User: [0="erein"]'
-  input="gh:aimer"
+  template='Repo: [repo="taurine"] / User: [user="erein"]'
+  input="gh;;aimer"
   result="Repo: taurine / User: aimer"
 />
 
-Taurine maps `aimer` to `[0="erein"]`, leaving `[repo="taurine"]` to safely fall back to its default value.
+Taurine skips `[repo="taurine"]` via the empty segment and fills `[user="erein"]` with `aimer`, leaving anything unfilled on its default value.
 
 ## Real-World Examples
 Mastering arguments allows you to build templates that are both structured and highly reusable.
@@ -63,24 +61,24 @@ Mastering arguments allows you to build templates that are both structured and h
     <div className="text-lg font-bold mt-4 mb-1">Appointment Details</div>
     Quickly fill out a meeting reminder by passing the time and the place as arguments.
     
-    **Trigger:** `meet:2pm:the lobby`
+    **Trigger:** `meet;2pm;the lobby`
     
-    ```text trigger="meet:2pm:the lobby "
-    Let's meet at [0="time"] in [1="place"]. See you then!
+    ```text trigger="meet;2pm;the lobby "
+    Let's meet at [time="time"] in [place="place"]. See you then!
     ```
   </Accordion>
   <Accordion title="Show Developer Examples">
     <div className="text-lg font-bold mt-4 mb-1">GitHub Quick Links</div>
-    Navigate to repos within a specific organization by using positional mapping.
+    Navigate to repos within a specific organization by filling fields in order.
     
-    **Trigger:** `gh:ereinaimer:taurine`
+    **Trigger:** `gh;ereinaimer;taurine`
     
-    ```text trigger="gh:ereinaimer:taurine "
-    https://github.com/[0=org]/[1=repo]
+    ```text trigger="gh;ereinaimer;taurine "
+    https://github.com/[org=github]/[repo=taurine]
     ```
   </Accordion>
 </Accordions>
 
-<Callout type="info" title="Take Note!">
-  Position indexing starts at **0**. If you have three arguments, they will be mapped to `[0=a]`, `[1=b]`, and `[2=c]` in the order they appear in your trigger.
+<Callout type="info" title="Previously colons">
+  Older guides separated arguments with `:` (e.g. `gh:taurine`). That syntax is retired: `:` is now ordinary text, so `meet:2pm` no longer passes arguments — type `meet;2pm` instead.
 </Callout>

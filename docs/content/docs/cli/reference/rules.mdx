@@ -14,7 +14,7 @@ Taurine is designed to give you maximum power and flexibility over your trigger 
 * **Mandatory Defaults**: Every dynamic variable must define a fallback using the `=` operator at least once (e.g., `[name=stranger]`). Subsequent references to the same variable within the template can omit the default assignment (e.g., `[name]`).
 * **Non-Empty Fallbacks**: Empty default assignments (e.g., `[name=]`) are deprecated and strictly prohibited. They will be rejected at save-time.
 * **Escaping Complex Defaults**: Default values containing spaces, commas, or closing brackets must be wrapped in single or double quotes (e.g., `[message="No content provided"]`).
-* **Positional vs. Named**: Positional arguments must use zero-based integers (e.g., `[0=default]`, `[1=default]`). Named arguments map key-value pairs (e.g., `[repo=taurine]`).
+* **Named-only fields**: User variables use `[name=default]`; fill them inline with `;` (`trigger;value` or `trigger;name=value`, case-insensitive), and skip a field with an empty segment (`;;` keeps the default).
 
 ### Nested Templates & Pipelines
 * **Nested Tags**: You can nest variables inside other tags (e.g., `[http(get, [url]) | json('slideshow.title') | case(upper)]`). Inner tags are always evaluated first.

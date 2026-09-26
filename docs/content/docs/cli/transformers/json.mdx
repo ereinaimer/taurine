@@ -22,8 +22,8 @@ JSON transformers allow you to work with structured JSON data. You can extract v
 Extract nested values or array elements from JSON strings. The path uses standard dot-notation, where numbers represent array indices.
 
 <Transformation
-  template='[0 | json("user.hobbies.1")]'
-  input='text:{"user": {"name": "Alice", "hobbies": ["reading", "gaming"]}}'
+  template='[text=input | json("user.hobbies.1")]'
+  input='text;{"user": {"name": "Alice", "hobbies": ["reading", "gaming"]}}'
   result="gaming"
 />
 
@@ -32,8 +32,8 @@ Extract nested values or array elements from JSON strings. The path uses standar
 Format minified JSON payloads to make them human-readable before pasting them into your editor or document.
 
 <Transformation
-  template='[0 | json.pretty]'
-  input='text:{"user":{"name":"Alice","role":"admin"}}'
+  template='[text=input | json.pretty]'
+  input='text;{"user":{"name":"Alice","role":"admin"}}'
   result='{
   "user": {
     "name": "Alice",
@@ -47,8 +47,8 @@ Format minified JSON payloads to make them human-readable before pasting them in
 Strips all unnecessary whitespace and indentation from a JSON payload, making it compact and safe for single-line terminal prompts or curl commands.
 
 <Transformation
-  template='[0 | json.minify]'
-  input='text:{
+  template='[text=input | json.minify]'
+  input='text;{
   "user": {
     "name": "Alice"
   }

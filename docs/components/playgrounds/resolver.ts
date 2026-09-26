@@ -401,16 +401,15 @@ function parseArguments(input: string, prefix: string): { positional: string[]; 
   if (!input.startsWith(prefix)) return { positional, named };
   let argString = input.slice(prefix.length).trimEnd();
 
-  if (!argString.startsWith(':')) return { positional, named };
-  argString = argString.slice(1); // remove the leading colon
+  if (!argString.startsWith(';')) return { positional, named };
+  argString = argString.slice(1); // remove the leading semicolon
 
-  // Regex to split by colon, respecting quotes
-  // Matches either quoted string "..." or '...' or anything up to next colon
-  const regex = /([^:"']+)|"([^"]*)"|'([^']*)'/g;
+  // Split by semicolon, respecting single/double quotes (mirrors Rust tokenize).
+  // An empty segment (`;;`) is kept as `""` so it holds its field's slot.
   const parts: string[] = [];
   let currentPart = '';
 
-  // A simple split by ':' won't work for quoted colons, so we parse carefully:
+  // A simple split by ';' won't work for quoted semicolons, so we parse carefully:
   let i = 0;
   while (i < argString.length) {
     if (argString[i] === '"' || argString[i] === "'") {
@@ -419,7 +418,7 @@ function parseArguments(input: string, prefix: string): { positional: string[]; 
       if (end === -1) end = argString.length;
       currentPart += argString.slice(i + 1, end);
       i = end + 1;
-    } else if (argString[i] === ':') {
+    } else if (argString[i] === ';') {
       parts.push(currentPart);
       currentPart = '';
       i++;
@@ -444,13 +443,54 @@ function parseArguments(input: string, prefix: string): { positional: string[]; 
   return { positional, named };
 }
 
+/** Case-insensitive named lookup (mirrors Rust `find_named`). */
+function findNamed(named: Record<string, string>, key: string): string | undefined {
+  const lower = key.toLowerCase();
+  for (const k of Object.keys(named)) {
+    if (k.toLowerCase() === lower) return named[k];
+  }
+  return undefined;
+}
+
+/**
+ * Ordered bare fallback (mirrors Rust `build_bare_fallback`): bare
+ * `positional` values fill named fields in template definition order.
+ * Fields already satisfied by an explicit `key=value` arg or already mapped
+ * never consume a positional; empty segments keep the default.
+ */
+function buildBareFallback(
+  template: string,
+  positional: string[],
+  named: Record<string, string>,
+): Map<string, string> {
+  const map = new Map<string, string>();
+  let posIdx = 0;
+  const tagRegex = /\[([^\[\]]+)\]/g;
+  let m: RegExpExecArray | null;
+  while ((m = tagRegex.exec(template)) !== null) {
+    const base = splitPipeline(m[1])[0] ?? '';
+    const eq = base.indexOf('=');
+    if (eq === -1) continue;
+    const key = base.slice(0, eq).trim();
+    // Numeric keys use direct indexing and never consume bare positionals.
+    if (key === '' || !isNaN(Number(key))) continue;
+    const lower = key.toLowerCase();
+    if (findNamed(named, key) !== undefined || map.has(lower)) continue;
+    if (posIdx < positional.length) {
+      const value = positional[posIdx++];
+      if (value !== '') map.set(lower, value);
+    }
+  }
+  return map;
+}
+
 export function resolveTemplate(template: string, input: string, prefix: string): string {
   if (!input.startsWith(prefix) || !input.endsWith(' ')) {
     return template; // Only process if it matches trigger and space
   }
 
   const { positional, named } = parseArguments(input, prefix);
-  let positionalIndex = 0;
+  const bare = buildBareFallback(template, positional, named);
 
   const tagRegex = /\[([^\[\]]+)\]/g;
 
@@ -464,7 +504,7 @@ export function resolveTemplate(template: string, input: string, prefix: string)
     if (baseExpr.includes('=')) {
       const eqIdx = baseExpr.indexOf('=');
       key = baseExpr.substring(0, eqIdx).trim();
-      defaultValue = baseExpr.substring(eqIdx + 1).trim();
+      defaultValue = stripArgQuotes(baseExpr.substring(eqIdx + 1).trim());
     }
 
     let resolvedValue: string | undefined;
@@ -478,20 +518,19 @@ export function resolveTemplate(template: string, input: string, prefix: string)
       }
       resolvedValue = `(Content of snippet ${unquoted})`;
     }
-    // 1. Try named argument
-    else if (named[key] !== undefined) {
-      resolvedValue = named[key];
+    // 1. Try named argument (case-insensitive; explicit `key=value` always wins)
+    else if (findNamed(named, key) !== undefined) {
+      resolvedValue = findNamed(named, key);
     }
-    // 2. Try positional index if key is a number
+    // 2. Try positional index if key is a number (direct index, may be empty)
     else if (!isNaN(Number(key))) {
       const val = positional[Number(key)];
-      resolvedValue = (val === '' || val === undefined) && defaultValue !== undefined ? defaultValue : val;
+      resolvedValue = val !== undefined ? val : defaultValue;
     }
-    // 3. Fallback to sequence of positionals if not a number
-    else {
-      const val = positional[positionalIndex];
-      resolvedValue = (val === '' || val === undefined) && defaultValue !== undefined ? defaultValue : val;
-      if (val !== undefined) positionalIndex++;
+    // 3. Ordered bare fallback: bare values fill named fields in template order
+    else if (defaultValue !== undefined) {
+      const val = bare.get(key.toLowerCase());
+      resolvedValue = val !== undefined ? val : defaultValue;
     }
 
     if (resolvedValue === undefined) {

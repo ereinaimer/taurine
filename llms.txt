@@ -87,7 +87,7 @@ Validation limits: trigger string ≤200 chars, text output ≤100 KB, script co
 
 ### 3.1 Word Triggers
 *   Type the trigger word + a space to expand it directly: `brb ` → "Be right back".
-*   Pass positional arguments by appending `:value` to the trigger: `hi:Erein ` → fills `[0]`/`[name]`.
+*   Pass inline values by appending `;value` to the trigger: `hi;Erein ` → fills `[name]` in template order.
 *   Hotkeys execute immediately on press.
 
 ### 3.2 Hotkey Syntax & Rules
@@ -96,7 +96,7 @@ Validation limits: trigger string ≤200 chars, text output ≤100 KB, script co
 *   Canonicalization: modifier order normalized to `ctrl → shift → alt → meta` (`Shift+Ctrl+G` ≡ `ctrl+shift+g`).
 *   Special keys: `enter`/`return`, `esc`/`escape`, `delete`/`del`, arrows, `home`, `end`, `backtick`/`grave`/`tilde`, `f1`–`f12`. Numpad is distinct (`ctrl+1` vs `ctrl+num1`).
 *   Rejected: modifier-only chords, multi-base chords (`ctrl+k+p`), unknown keys, dangerous OS shortcuts (`ctrl+c/v/x/z/a/s`, `alt+tab`, `alt+f4`, `cmd+q`...), and the reserved `alt+\`` pause hotkey.
-*   Hotkeys receive no typed positional args (`[0]` uses defaults) and are desktop-only.
+*   Hotkeys receive no typed args (`[name=default]` fields use defaults) and are desktop-only.
 
 ### 3.3 Regex Triggers
 *   Attach a trigger to a regex matching the suffix of typed text; capture groups map to positionals `[0]`, `[1]`, ...
@@ -121,12 +121,11 @@ Validation limits: trigger string ≤200 chars, text output ≤100 KB, script co
 
 ## 4. Dynamic Variables
 
-Flexible snippets use `[variable_name=default]` placeholders. The `=` is mandatory. Arguments are passed by appending `:value` to the trigger: `>hi:Erein ` → "Hello, Erein!".
+Flexible snippets use `[variable_name=default]` placeholders. The `=` is mandatory. Arguments are passed by appending `;value` to the trigger: `>hi;Erein ` → "Hello, Erein!".
 
-*   **Positional args**: `[0]`, `[1]`, ... are zero-based and reorderable (`https://github.com/[1=repo]/[0=org]`).
-*   **Named args**: `key=value` in the trigger, order-independent (`>gh:name=erein:repo=taurine`).
-*   **Quoting**: wrap arguments with spaces/colons in single or double quotes (`>hi:"John Doe" `). Unquoted spaces are fine.
-*   **Skip placeholders** with `::` to keep their defaults.
+*   **Ordered bare values**: bare values fill `[name=default]` fields in template order (`meet;2pm;lobby`); explicit `key=value` always wins, case-insensitively (`>gh;name=erein;repo=taurine`). Missing values use defaults.
+*   **Quoting**: wrap arguments with spaces/semicolons in single or double quotes (`>hi;"John Doe" `). Unquoted spaces are fine; `:` is ordinary text (`meet;12:30;lobby` needs no quoting).
+*   **Skip placeholders** with an empty segment (`;;`) to keep their defaults.
 *   **Escaping**: `\[` `\]` escape brackets; `\n`, `\t`, `\r` are escaped literals.
 
 ### 4.1 System Variables
@@ -154,7 +153,7 @@ System variables inject machine data or generate values using unified `namespace
 
 ## 5. Text Transformers
 
-Global transformers apply with Unix pipe syntax right after any variable, positional, default, or quoted literal: `[0=text | case(upper)]`, `[name=john | case(title)]`, `['hello world' | case(title)]`. Chain left-to-right (`[0=text | strip(whitespace) | case(upper)]`).
+Global transformers apply with Unix pipe syntax right after any variable, positional, default, or quoted literal: `[name=text | case(upper)]`, `[name=john | case(title)]`, `['hello world' | case(title)]`. Chain left-to-right (`[text=text | strip(whitespace) | case(upper)]`).
 
 *   **Casing**: `case(upper|lower|sentence|title|camel|pascal|snake|kebab|slug)`.
 *   **Text** (UTF-8 aware): `count(chars|words)`, `truncate(n)`, `repeat(n)`, `replace(old, new)`, `replace(regex, pattern, replacement)`, `slice(start, end)`, `filter(digits|alphanumeric)`, `strip(whitespace|emoji)`.
@@ -180,7 +179,7 @@ Taurine's background engine runs arbitrary scripts (Bash, Python, PowerShell, No
 *   **Execution modes** (`-m`, `--mode`): `inline` (default — stdout injected as text via a clipboard-first "injection" mechanism) or `silent` (background only, for notifications/builds).
 *   **Storage**: `zstd`-compressed BLOBs inside the SQLite DB; script files (`-f`) are copied in — the original file isn't needed afterward.
 *   **"Interpolation First"**: variables are replaced in the script body *before* the interpreter runs — `[var=default]`, `[env(USERNAME)]`, transformers, and positionals all work, including inside script files.
-*   **Examples**: `taurine add script url 'start https://[url=google.com]' --lang powershell --os windows`; `taurine add script --hotkey "ctrl+shift+w" winget "winget install [0=git]"`.
+*   **Examples**: `taurine add script url 'start https://[url=google.com]' --lang powershell --os windows`; `taurine add script --hotkey "ctrl+shift+w" winget "winget install [pkg=git]"`.
 *   Hard limit: 20s max execution time (then terminated). Scripts run with the service's environment in a temporary directory; interpreters must be on `PATH`.
 
 ---

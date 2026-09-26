@@ -24,14 +24,14 @@ taurine add script url 'start https://[url=google.com]' --lang powershell --os w
 ```
 
 - Typing `url ` opens **google.com** in your default browser.
-- Typing `url:youtube.com ` opens **youtube.com** in your default browser.
+- Typing `url;youtube.com ` opens **youtube.com** in your default browser.
 
 ### Hotkey Scripts
 
 Trigger complex system actions with a keyboard shortcut.
 
 ```bash
-taurine add script winget-install -l powershell "winget install [0=git]" --hotkey "ctrl+shift+w"
+taurine add script winget-install -l powershell "winget install [pkg=git]" --hotkey "ctrl+shift+w"
 ```
 
 You can also use **side-specific modifiers** to distinguish between left and right keys:
@@ -45,7 +45,7 @@ taurine add script "Start-Process https://mail.google.com" --hotkey "lalt+m" -l 
 ```
 
 <Callout title="No Arguments for Hotkeys" type="warn">
-  Hotkey triggers do **not** support typed positional arguments. Variables like `[0=git]` will use their default values when triggered via hotkey.
+  Hotkey triggers do **not** support typed arguments. Variables like `[pkg=git]` will use their default values when triggered via hotkey.
 </Callout>
 
 ### Script Files
@@ -117,7 +117,7 @@ taurine add script hi -f ./hi.ps1 --lang powershell
 ```
 
 - Typing `hi ` results in: `Hello, FRIEND!`
-- Typing `hi:world ` results in: `Hello, WORLD!`
+- Typing `hi;world ` results in: `Hello, WORLD!`
 
 ### Contextual Examples
 
@@ -140,7 +140,7 @@ taurine add script hi -f ./hi.ps1 --lang powershell
     **Transformation in Script**
     You can even chain transformers within your script body.
     ```bash
-    taurine add script shout "echo '[0=text | case(upper)]!!!'" --lang bash
+    taurine add script shout "echo '[text=text | case(upper)]!!!'" --lang bash
     ```
   </Tab>
 </Tabs>
@@ -157,13 +157,13 @@ taurine add script hi -f ./hi.ps1 --lang powershell
   <Tab value="Developer Tools">
     **Quick Git Commit & Push**
     ```bash
-    taurine add script gpp 'git add . && git commit -m "[0=update]" && git push' --lang bash
+    taurine add script gpp 'git add . && git commit -m "[msg=update]" && git push' --lang bash
     ```
   </Tab>
   <Tab value="Notifications">
     **Silent Timer (MacOS)**
     ```bash
-    taurine add script timer 'sleep [0=60] && osascript -e "display notification \"Timer Up!\""' --lang bash --mode silent
+    taurine add script timer 'sleep [secs=60] && osascript -e "display notification \"Timer Up!\""' --lang bash --mode silent
     ```
   </Tab>
 </Tabs>

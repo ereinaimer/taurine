@@ -17,7 +17,7 @@ Hashing transformers provide quick access to common cryptographic hash functions
 Hashing is useful for generating unique identifiers for files, passwords (for non-secure display), or API keys.
 
 <Transformation
-  template="Fingerprint: [0 | hash(sha256)]"
-  input="data:'sensitive information'"
+  template="Fingerprint: [data=secret | hash(sha256)]"
+  input="data;'sensitive information'"
   result="Fingerprint: 3e839e... (truncated)"
 />

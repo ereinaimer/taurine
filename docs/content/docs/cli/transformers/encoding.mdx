@@ -16,14 +16,14 @@ Use `encode(url)` and `decode(url)` to handle URI components (percent-encoding).
 | `clean(url)` | Strips tracking/query parameters and hash anchors | `https://site.com/p?utm_id=123#ref` → `https://site.com/p` |
 
 <Transformation
-  template="https://google.com/search?q=[0 | encode(url)]"
-  input="query:'rust programming'"
+  template="https://google.com/search?q=[query=rust | encode(url)]"
+  input="query;'rust programming'"
   result="https://google.com/search?q=rust%20programming"
 />
 
 <Transformation
-  template="Clean URL: [0 | clean(url)]"
-  input="url:'https://example.com/item?id=45&utm_source=share'"
+  template="Clean URL: [url=https://example.com | clean(url)]"
+  input="url;'https://example.com/item?id=45&utm_source=share'"
   result="Clean URL: https://example.com/item"
 />
 
@@ -37,7 +37,7 @@ Base64 transformers convert text to and from standard Base64 encoding.
 | `decode(base64)` | `aGVsbG8=` → `hello` |
 
 <Transformation
-  template="Authorization: Basic [0 | encode(base64)]"
-  input="creds:'admin:password'"
+  template="Authorization: Basic [creds=user | encode(base64)]"
+  input="creds;'admin:password'"
   result="Authorization: Basic YWRtaW46cGFzc3dvcmQ="
 />

@@ -26,8 +26,8 @@ All casing transformations follow the uniform `case(style)` call syntax.
 Unlike `case(title)`, `case(sentence)` only capitalizes the very first character of the string, leaving the rest of the text as-is.
 
 <Transformation
-  template="[0 | case(sentence)]"
-  input="text:'hello from taurine'"
+  template="[text=sample | case(sentence)]"
+  input="text;'hello from taurine'"
   result="Hello from taurine"
 />
 
@@ -36,7 +36,7 @@ Unlike `case(title)`, `case(sentence)` only capitalizes the very first character
 Use `case(camel)` for variables and `case(pascal)` for classes or types when generating code snippets.
 
 <Transformation
-  template="class [0 | case(pascal)] { const [0 | case(camel)] = true; }"
-  input="name:'user_service'"
+  template="class [name=sample | case(pascal)] { const [name=sample | case(camel)] = true; }"
+  input="name;'user_service'"
   result="class UserService { const userService = true; }"
 />

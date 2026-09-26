@@ -21,8 +21,8 @@ Data extraction transformers allow you to parse and extract specific values from
 Use standard CSS selectors to parse HTML or XML payloads. This allows you to scrape specific text nodes without complex XPath or regex queries.
 
 <Transformation
-  template='[0 | html(".price > span")]'
-  input='text:<html><body><div class="price"><span>$99.99</span></div></body></html>'
+  template='[text=input | html(".price > span")]'
+  input='text;<html><body><div class="price"><span>$99.99</span></div></body></html>'
   result="$99.99"
 />
 
@@ -30,8 +30,8 @@ Use standard CSS selectors to parse HTML or XML payloads. This allows you to scr
 Similar to JSON extraction, you can traverse YAML and TOML configurations using dot-notation.
 
 <Transformation
-  template='[0 | yaml("services.db.image")]'
-  input='text:services:\n  db:\n    image: postgres:15'
+  template='[text=input | yaml("services.db.image")]'
+  input='text;services:\n  db:\n    image: postgres:15'
   result="postgres:15"
 />
 
@@ -39,7 +39,7 @@ Similar to JSON extraction, you can traverse YAML and TOML configurations using 
 Extract specific segments of a text using capturing groups. Provide the regex pattern as the first argument, and the optional 0-based capturing group index as the second argument.
 
 <Transformation
-  template='[0 | regex("#([0-9]+)", 1)]'
-  input="text:Order ID: #12345 (Completed)"
+  template='[text=input | regex("#([0-9]+)", 1)]'
+  input="text;Order ID: #12345 (Completed)"
   result="12345"
 />

@@ -19,8 +19,8 @@ export function Playground({
 
   useEffect(() => {
     // When input changes, resolve the template
-    const firstSpaceOrColon = input.match(/[ :]/);
-    const prefix = firstSpaceOrColon ? input.slice(0, firstSpaceOrColon.index) : input;
+    const firstSpaceOrSemicolon = input.match(/[ ;]/);
+    const prefix = firstSpaceOrSemicolon ? input.slice(0, firstSpaceOrSemicolon.index) : input;
 
     if (input.endsWith(' ')) {
       setOutput(resolveTemplate(template, input, prefix));
@@ -56,7 +56,7 @@ export function Playground({
             className="min-h-[100px] w-full resize-none rounded-md border border-fd-border bg-fd-background p-3 text-sm font-mono text-fd-foreground focus:outline-none focus:ring-1 focus:ring-fd-primary/30 transition-all"
           />
           <p className="text-xs text-fd-muted-foreground">
-            Define variables like <code className="text-fd-primary">{'[name]'}</code> or <code className="text-fd-primary">{'[0]'}</code>.
+            Define variables like <code className="text-fd-primary">{'[name=default]'}</code>.
           </p>
         </div>
       </div>

@@ -24,8 +24,8 @@ These transformers ensure user input is correctly escaped or quoted when inserte
 Ensure a variable is safely wrapped in double quotes for a JSON structure.
 
 <Transformation
-  template='{ "value": [0 | wrap(doublequote)] }'
-  input="text:'hello world'"
+  template='{ "value": [text=hello | wrap(doublequote)] }'
+  input="text;'hello world'"
   result='{ "value": "hello world" }'
 />
 
@@ -33,8 +33,8 @@ Ensure a variable is safely wrapped in double quotes for a JSON structure.
 Wrap dynamic strings in backticks for markdown or documentation snippets.
 
 <Transformation
-  template="Use the [0 | wrap(backtick)] variable."
-  input="text:'user_id'"
+  template="Use the [text=user | wrap(backtick)] variable."
+  input="text;'user_id'"
   result="Use the `user_id` variable."
 />
 
