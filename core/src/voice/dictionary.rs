@@ -886,6 +886,17 @@ mod tests {
 
     #[test]
     fn test_dictionary_phonetic_sound_alikes_and_lexicon_immunity() {
+        let _guard = crate::testing::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        // Lexicon immunity relies on the offline DB; mock it for hermetic tests
+        // so common words are protected without a real dictionary download.
+        // Sound-alike non-words (dorin, torin, etc.) stay unmocked so they correct.
+        crate::engine::dictionary::offline::set_mock_offline_words(Some(vec![
+            "took", "train", "today", "drain", "water", "page", "torn", "thorn", "side", "rough",
+            "terrain", "ahead", "run", "torrent", "now", "want", "earn", "money", "cast", "iron",
+            "skillet",
+        ]));
         let dict = VoiceDictionary::from_csv("Taurine");
 
         // Real-world user failure cases:
@@ -948,6 +959,7 @@ mod tests {
         assert_eq!(dict.apply("run torrent now"), "run torrent now");
         assert_eq!(dict.apply("I want to earn money"), "I want to earn money");
         assert_eq!(dict.apply("cast iron skillet"), "cast iron skillet");
+        crate::engine::dictionary::offline::set_mock_offline_words(None);
     }
 
     #[test]

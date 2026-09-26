@@ -49,7 +49,14 @@ fn restrict_socket_permissions(
     // SAFETY: fd comes from a live listener owned by the caller.
     let rc = unsafe { libc::fchmod(std::os::unix::io::AsRawFd::as_raw_fd(listener), 0o600) };
     if rc != 0 {
-        return Err(std::io::Error::last_os_error());
+        let err = std::io::Error::last_os_error();
+        // macOS rejects fchmod on socket fds (EINVAL); fall through to the
+        // path chmod below, whose verifying stat still fails closed.
+        if cfg!(target_os = "macos") {
+            tracing::debug!("fchmod on IPC socket unsupported ({err}); using path chmod");
+        } else {
+            return Err(err);
+        }
     }
     use std::os::unix::fs::PermissionsExt;
     let mut perms = std::fs::metadata(path)?.permissions();
