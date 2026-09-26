@@ -627,37 +627,52 @@ impl VoiceSessionManager {
         let progress = Arc::new(StreamProgress::new());
         let buffer = self.capture.buffer().clone();
         let worker = self.worker.clone();
-        let thread_progress = Arc::clone(&progress);
-        let thread_req = req_id.clone();
         let thread_meta = Arc::clone(&self.meta);
         let entry_target = target.clone();
-        let builder = std::thread::Builder::new().name("taurine-voice-stream".to_string());
-        let spawn_res = builder.spawn(move || {
-            if let Err(e) = worker.ensure_worker(&target) {
-                debug!("VoiceSessionManager: worker unavailable for '{target}': {e}");
-                return;
-            }
-            loop {
-                if !thread_progress.alive.load(Ordering::Relaxed) {
-                    break;
-                }
-                let len = buffer.len();
-                let sent = thread_progress.sent.load(Ordering::Relaxed);
-                if len > sent {
-                    let seq = thread_progress.seq.load(Ordering::Relaxed);
-                    if worker
-                        .append(&thread_req, seq, &buffer.peek_tail(len - sent))
-                        .is_err()
-                    {
-                        break;
+        // Retry briefly: under parallel load thread creation can fail
+        // transiently, and without a forwarder the stop path finds no entry
+        // and silently drops the recording.
+        let mut spawn_res = Err(std::io::Error::other("forwarder spawn not attempted"));
+        for _ in 0..5 {
+            let worker = worker.clone();
+            let target = target.clone();
+            let buffer = buffer.clone();
+            let thread_progress = Arc::clone(&progress);
+            let thread_req = req_id.clone();
+            let thread_meta = Arc::clone(&thread_meta);
+            spawn_res = std::thread::Builder::new()
+                .name("taurine-voice-stream".to_string())
+                .spawn(move || {
+                    if let Err(e) = worker.ensure_worker(&target) {
+                        debug!("VoiceSessionManager: worker unavailable for '{target}': {e}");
+                        return;
                     }
-                    thread_progress.sent.store(len, Ordering::Relaxed);
-                    thread_progress.seq.store(seq + 1, Ordering::Relaxed);
-                    Self::pin_stream_meta(&thread_meta, &target);
-                }
-                std::thread::sleep(STREAM_POLL_INTERVAL);
+                    loop {
+                        if !thread_progress.alive.load(Ordering::Relaxed) {
+                            break;
+                        }
+                        let len = buffer.len();
+                        let sent = thread_progress.sent.load(Ordering::Relaxed);
+                        if len > sent {
+                            let seq = thread_progress.seq.load(Ordering::Relaxed);
+                            if worker
+                                .append(&thread_req, seq, &buffer.peek_tail(len - sent))
+                                .is_err()
+                            {
+                                break;
+                            }
+                            thread_progress.sent.store(len, Ordering::Relaxed);
+                            thread_progress.seq.store(seq + 1, Ordering::Relaxed);
+                            Self::pin_stream_meta(&thread_meta, &target);
+                        }
+                        std::thread::sleep(STREAM_POLL_INTERVAL);
+                    }
+                });
+            if spawn_res.is_ok() {
+                break;
             }
-        });
+            std::thread::sleep(Duration::from_millis(20));
+        }
         match spawn_res {
             Ok(handle) => {
                 self.streams
