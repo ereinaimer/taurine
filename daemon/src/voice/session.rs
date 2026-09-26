@@ -367,6 +367,7 @@ impl VoiceSessionManager {
     pub fn clean_expired_transcriber(&self) {
         self.capture.reclaim_expired_held();
         if self.is_active() {
+            self.recover_live_capture_device();
             return;
         }
         let mut guard = self.meta.lock().unwrap_or_else(|p| p.into_inner());
@@ -384,6 +385,23 @@ impl VoiceSessionManager {
                 format_mb(rss_before),
                 format_mb(rss_after),
             );
+        }
+    }
+
+    /// While a session owns the mic, a device failure must migrate the
+    /// stream, never strand the recording on a dead endpoint. The frame
+    /// buffer outlives the stream, so reopening loses no captured audio.
+    /// Silent when healthy: at most one cheap identity query per sweep.
+    fn recover_live_capture_device(&self) {
+        if self.capture.is_device_disconnected() {
+            if let Err(e) = self.capture.try_recover_device() {
+                debug!("VoiceSessionManager: live mic recovery failed: {e}");
+            }
+        } else if self.capture.live_device_stale() {
+            debug!("VoiceSessionManager: live mic stale after device change; reopening");
+            if let Err(e) = self.capture.restart() {
+                debug!("VoiceSessionManager: live mic reopen failed: {e}");
+            }
         }
     }
 
@@ -2712,5 +2730,53 @@ mod tests {
             "preload must never fire for bounces"
         );
         assert_eq!(hold_secs(&session), None);
+    }
+
+    #[test]
+    fn test_sweep_recovers_disconnected_live_recording() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        crate::input::hotkey::PTT_KEY_DOWN.store(true, Ordering::Relaxed);
+        let (session, _) = create_test_session();
+        session.start_ptt().expect("start");
+        assert_eq!(session.current_mode(), VoiceMode::PushToTalk);
+        session.capture().simulate_disconnect_for_test();
+        session.clean_expired_transcriber();
+        assert_eq!(
+            session.current_mode(),
+            VoiceMode::PushToTalk,
+            "recovery must keep recording, not abort it"
+        );
+        assert_eq!(
+            session.capture().open_count_for_test(),
+            2,
+            "sweep must reopen the dead stream"
+        );
+        assert!(
+            !session.capture().is_device_disconnected(),
+            "recovery must clear the disconnect flag"
+        );
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+    }
+
+    #[test]
+    fn test_sweep_reopens_stale_live_recording() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        crate::input::hotkey::PTT_KEY_DOWN.store(true, Ordering::Relaxed);
+        let (session, _) = create_test_session();
+        session.capture().set_test_default_identity("mic-a");
+        session.start_ptt().expect("start");
+        session.capture().set_test_default_identity("mic-b");
+        session.clean_expired_transcriber();
+        assert_eq!(
+            session.capture().open_count_for_test(),
+            2,
+            "OS default move mid-press must reopen, never record stale"
+        );
+        assert_eq!(session.current_mode(), VoiceMode::PushToTalk);
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
     }
 }
