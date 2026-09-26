@@ -232,33 +232,32 @@ pub(super) fn inject_mutex() -> &'static Mutex<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
 
     #[test]
     fn test_injection_pool_executes_task() {
         init_injection_pool();
-        let executed = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let executed_clone = executed.clone();
+        let (done_tx, done_rx) = mpsc::channel();
         spawn_guarded_injection_thread("test-pool", move || {
-            executed_clone.store(true, std::sync::atomic::Ordering::SeqCst);
+            let _ = done_tx.send(());
         });
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        assert!(executed.load(std::sync::atomic::Ordering::SeqCst));
+        // Rendezvous, not a fixed sleep: under parallel CI load a pool
+        // worker may take longer than any sleep budget to get scheduled.
+        done_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("pool task must execute");
     }
 
     #[test]
     fn test_injection_pool_sets_injecting_flag() {
         init_injection_pool();
-        let flag_was_set = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let flag_clone = flag_was_set.clone();
+        let (flag_tx, flag_rx) = mpsc::channel();
         spawn_guarded_injection_thread("test-flag", move || {
-            flag_clone.store(
-                IS_INJECTING.load(std::sync::atomic::Ordering::SeqCst),
-                std::sync::atomic::Ordering::SeqCst,
-            );
+            let _ = flag_tx.send(IS_INJECTING.load(std::sync::atomic::Ordering::SeqCst));
         });
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        assert!(flag_was_set.load(std::sync::atomic::Ordering::SeqCst));
+        let flag_was_set = flag_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("pool task must execute");
+        assert!(flag_was_set);
     }
 
     // Regression: tab-complete-then-enter fails to expand.
@@ -303,22 +302,21 @@ mod tests {
 
         // A new task dispatched to the pool captures the current
         // generation — it must not be affected by the old abort.
-        let expansion_ran = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let expansion_ran_clone = expansion_ran.clone();
+        // The result is reported back and asserted on the test thread:
+        // panicking inside a pool worker would kill a process-global
+        // worker and cascade into every later pool test.
+        let (abort_tx, abort_rx) = mpsc::channel();
         spawn_guarded_injection_thread("test-stale-abort", move || {
             let captured = capture_generation();
-            let abort_seen = is_aborted(captured);
-            expansion_ran_clone.store(true, std::sync::atomic::Ordering::SeqCst);
-            assert!(
-                !abort_seen,
-                "pool task must not inherit stale abort generation"
-            );
+            let _ = abort_tx.send(is_aborted(captured));
         });
 
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        let abort_seen = abort_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("expansion task must have executed");
         assert!(
-            expansion_ran.load(std::sync::atomic::Ordering::SeqCst),
-            "expansion task must have executed"
+            !abort_seen,
+            "pool task must not inherit stale abort generation"
         );
     }
 
