@@ -173,7 +173,7 @@ impl ExpansionCatalog {
         window: &WindowResolver,
         fetch_window: &mut Option<impl FnOnce() -> Option<ActiveWindowInfo>>,
     ) -> Option<FinalExpansion> {
-        let tokens = tokenize(keyword, ':');
+        let tokens = tokenize(keyword, ';');
         if tokens.len() <= 1 {
             return None;
         }

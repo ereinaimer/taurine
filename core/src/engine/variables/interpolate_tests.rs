@@ -242,7 +242,7 @@ fn test_interpolate_modified_default_prefers_positional_arg() {
     let mut args = ArgMap::default();
     args.positional.push("aimer".to_string());
 
-    assert_eq!(interpolate("[name=erein | case(title)]", &args), "Erein");
+    assert_eq!(interpolate("[name=erein | case(title)]", &args), "Aimer");
     assert_eq!(
         interpolate("[name=erein | case(title)]", &ArgMap::default()),
         "Erein"
@@ -438,8 +438,11 @@ fn test_interpolate_user_variable_mapping_to_positional() {
     args.positional.push("monkeytype.com".to_string());
 
     let tpl = "Start-Process https://[url=google.com]";
-    // [url] should not consume the positional argument "monkeytype.com"
-    assert_eq!(interpolate(tpl, &args), "Start-Process https://google.com");
+    // [url] fills from the bare positional argument "monkeytype.com"
+    assert_eq!(
+        interpolate(tpl, &args),
+        "Start-Process https://monkeytype.com"
+    );
 
     // Test fallback when argument is omitted
     let args_empty = ArgMap::default();
@@ -455,6 +458,35 @@ fn test_interpolate_user_variable_without_default() {
     let mut args = ArgMap::default();
     args.positional.push("John".to_string());
     assert_eq!(interpolate(tpl, &args), "Hello [var]");
+}
+
+#[test]
+fn bare_semicolon_value_fills_single_named() {
+    let mut args = ArgMap::default();
+    args.positional.push("aimer".to_string());
+    assert_eq!(interpolate("hello, [name=erein]", &args), "hello, aimer");
+}
+
+#[test]
+fn ordered_bare_values_fill_in_template_order() {
+    let mut args = ArgMap::default();
+    args.positional.push("2pm".to_string());
+    args.positional.push("lobby".to_string());
+    assert_eq!(
+        interpolate("Meet at [time=now] in [place=here]", &args),
+        "Meet at 2pm in lobby"
+    );
+}
+
+#[test]
+fn explicit_named_beats_bare_order() {
+    let mut args = ArgMap::default();
+    args.positional.push("IGNORED".to_string());
+    args.named.insert("name".to_string(), "erein".to_string());
+    assert_eq!(
+        interpolate("hi [name=x] [other=y]", &args),
+        "hi erein IGNORED"
+    );
 }
 
 mod compatibility_interpolation_tests {
@@ -477,10 +509,10 @@ mod compatibility_interpolation_tests {
             .insert("name".to_string(), "ereinaimer".to_string());
         args.positional.push("taurine".to_string());
 
-        // The positional argument "taurine" should NOT map to [repo]
+        // The bare positional "taurine" fills [repo] in template order
         assert_eq!(
             interpolate("[name=] / [repo=default]", &args),
-            "ereinaimer / default"
+            "ereinaimer / taurine"
         );
     }
 

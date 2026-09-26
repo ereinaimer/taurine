@@ -122,10 +122,11 @@ impl ExecutionPlan {
         trigger: Option<&str>,
         origin: ExpansionOrigin,
     ) -> FinalExpansion {
+        let bare = build_bare_fallback(&self.ops, args);
         if !self.global_transformers.is_empty() {
             let mut base_text = String::new();
             for op in &self.ops {
-                base_text.push_str(&evaluate_text_op(op, args));
+                base_text.push_str(&evaluate_text_op(op, args, &bare));
             }
             let (mut final_str, _) = apply_transformers(base_text, &self.global_transformers);
             final_str = final_str.replace("\\|", "|");
@@ -168,7 +169,7 @@ impl ExecutionPlan {
                             text.push_str(&format!("[{} | {}]", raw_cmd, trs.join(" | ")));
                         }
                     }
-                    other => text.push_str(&evaluate_text_op(other, args)),
+                    other => text.push_str(&evaluate_text_op(other, args, &bare)),
                 }
             }
             return FinalExpansion {
@@ -230,7 +231,7 @@ impl ExecutionPlan {
                         }
                     }
                     other => {
-                        let text = evaluate_text_op(other, args);
+                        let text = evaluate_text_op(other, args, &bare);
                         if text.contains('[')
                             && (text.contains("[key(")
                                 || text.contains("[delay(")
@@ -294,7 +295,7 @@ impl ExecutionPlan {
                 }
                 PlanOp::Literal(s) => full_text.push_str(s),
                 other => {
-                    let text = evaluate_text_op(other, args);
+                    let text = evaluate_text_op(other, args, &bare);
                     if text.contains("[cursor]") && first_cursor_char_idx.is_none() {
                         if let Some(pos) = text.find("[cursor]") {
                             let before = &text[..pos];
@@ -515,7 +516,50 @@ fn unescape_literal_segment(segment: &str) -> String {
     output
 }
 
-fn evaluate_text_op(op: &PlanOp, args: &ArgMap) -> String {
+fn find_named(args: &ArgMap, name: &str) -> Option<String> {
+    args.named
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(name))
+        .map(|(_, v)| v.clone())
+}
+
+/// Ordered bare fallback: bare `positional` values fill `NamedArg` ops in
+/// template order. Names already satisfied by an explicit `key=value` arg or
+/// already mapped never consume a positional; empty segments keep the default.
+fn build_bare_fallback(ops: &[PlanOp], args: &ArgMap) -> std::collections::HashMap<String, String> {
+    let mut map = std::collections::HashMap::new();
+    let mut pos_idx = 0usize;
+    for op in ops {
+        if let PlanOp::NamedArg {
+            name,
+            default_value,
+            ..
+        } = op
+        {
+            let lower = name.to_lowercase();
+            if find_named(args, name).is_some() || map.contains_key(&lower) {
+                continue;
+            }
+            if !has_valid_default_value(default_value.as_deref()) {
+                continue;
+            }
+            if pos_idx < args.positional.len() {
+                let value = &args.positional[pos_idx];
+                pos_idx += 1;
+                if !value.is_empty() {
+                    map.insert(lower, value.clone());
+                }
+            }
+        }
+    }
+    map
+}
+
+fn evaluate_text_op(
+    op: &PlanOp,
+    args: &ArgMap,
+    bare: &std::collections::HashMap<String, String>,
+) -> String {
     match op {
         PlanOp::Literal(s) => s.clone(),
         PlanOp::PositionalArg {
@@ -547,7 +591,9 @@ fn evaluate_text_op(op: &PlanOp, args: &ArgMap) -> String {
             default_value,
             transformers: trs,
         } => {
-            let raw_val = if let Some(val) = args.named.get(name) {
+            let raw_val = if let Some(val) = find_named(args, name) {
+                Some(val)
+            } else if let Some(val) = bare.get(&name.to_lowercase()) {
                 Some(val.clone())
             } else if let Some(def) = default_value
                 && has_valid_default_value(Some(def))

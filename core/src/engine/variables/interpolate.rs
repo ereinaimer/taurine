@@ -59,6 +59,13 @@ pub(crate) fn extract_placeholders<'a>(template: &'a str) -> IndexMap<&'a str, P
     placeholders
 }
 
+fn find_named(args: &ArgMap, key: &str) -> Option<String> {
+    args.named
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(key))
+        .map(|(_, v)| v.clone())
+}
+
 fn is_valid_user_reference(key: &str, default_value: Option<&str>, args: &ArgMap) -> bool {
     let key_unquoted = system::strip_quotes(key).unwrap_or(key);
 
@@ -72,7 +79,7 @@ fn is_valid_user_reference(key: &str, default_value: Option<&str>, args: &ArgMap
         return index < args.positional.len() || has_valid_default_value(default_value);
     }
 
-    args.named.contains_key(key_unquoted)
+    find_named(args, key_unquoted).is_some()
         || (has_valid_default_value(default_value)
             && !system::is_reserved(key_unquoted)
             && !key_unquoted.contains('[')
@@ -84,6 +91,7 @@ fn resolve_user_placeholder(
     default_value: Option<&str>,
     args: &ArgMap,
     depth: usize,
+    pos_idx: usize,
 ) -> Option<String> {
     if !is_valid_user_reference(key, default_value, args) {
         return None;
@@ -96,10 +104,16 @@ fn resolve_user_placeholder(
         args.positional
             .get(index)
             .cloned()
-            .or_else(|| args.named.get(key_unquoted).cloned())
+            .or_else(|| find_named(args, key_unquoted))
             .or_else(|| default_val_unquoted.map(|value| resolve_default_value(value, args, depth)))
-    } else if let Some(value) = args.named.get(key_unquoted) {
-        Some(value.clone())
+    } else if let Some(value) = find_named(args, key_unquoted) {
+        Some(value)
+    } else if pos_idx != usize::MAX {
+        // honey: empty segments never fill; each field consumes one slot, empty keeps default
+        match args.positional.get(pos_idx) {
+            Some(value) if !value.is_empty() => Some(value.clone()),
+            _ => default_val_unquoted.map(|value| resolve_default_value(value, args, depth)),
+        }
     } else {
         default_val_unquoted.map(|value| resolve_default_value(value, args, depth))
     }
@@ -163,12 +177,26 @@ fn interpolate_with_depth(template: &str, args: &ArgMap, depth: usize) -> String
 
     let placeholders = extract_placeholders(template);
     let mut user_resolutions = std::collections::HashMap::new();
+    let mut pos_idx = 0usize;
 
     for (key, placeholder) in placeholders.iter() {
+        let lower = key.to_lowercase();
+        if user_resolutions.contains_key(&lower) {
+            continue;
+        }
+        // Numeric keys index directly and explicit `key=value` args never
+        // consume a bare positional; only unresolved named fields advance.
+        let slot = if key.parse::<usize>().is_ok() || find_named(args, key).is_some() {
+            usize::MAX
+        } else {
+            let slot = pos_idx;
+            pos_idx += 1;
+            slot
+        };
         if let Some(resolved) =
-            resolve_user_placeholder(key, placeholder.default_value, args, depth)
+            resolve_user_placeholder(key, placeholder.default_value, args, depth, slot)
         {
-            user_resolutions.insert(*key, resolved);
+            user_resolutions.insert(lower, resolved);
         }
     }
 
@@ -185,28 +213,30 @@ fn interpolate_with_depth(template: &str, args: &ArgMap, depth: usize) -> String
 
             let key_unquoted = system::strip_quotes(key).unwrap_or(key);
 
-            let base_resolved = if let Some(user) = user_resolutions.get(key_unquoted) {
-                Some(user.clone())
-            } else if key_unquoted.starts_with('\x03') && key_unquoted.ends_with('\x04') {
-                Some(key_unquoted.to_string())
-            } else if key_unquoted.starts_with("use(") && key_unquoted.ends_with(')') {
-                Some(resolve_use_placeholder(key_unquoted, args, depth))
-            } else if let Some(sys) = resolve_system_placeholder(key_unquoted) {
-                Some(sys)
-            } else if is_valid_user_reference(key_unquoted, default_value, args) {
-                resolve_user_placeholder(key, default_value, args, depth)
-            } else if let Some(unquoted) = system::strip_quotes(key) {
-                Some(unquoted.to_string())
-            } else if key.chars().all(|c| c.is_ascii_digit()) {
-                resolve_user_placeholder(key, default_value, args, depth)
-            } else if !transformers.is_empty()
-                && !system::is_reserved(key_unquoted)
-                && (key.contains(' ') || key.contains(SENTINEL_OPEN))
-            {
-                Some(key.to_string())
-            } else {
-                None
-            };
+            let base_resolved =
+                if let Some(user) = user_resolutions.get(&key_unquoted.to_lowercase()) {
+                    Some(user.clone())
+                } else if key_unquoted.starts_with('\x03') && key_unquoted.ends_with('\x04') {
+                    Some(key_unquoted.to_string())
+                } else if key_unquoted.starts_with("use(") && key_unquoted.ends_with(')') {
+                    Some(resolve_use_placeholder(key_unquoted, args, depth))
+                } else if let Some(sys) = resolve_system_placeholder(key_unquoted) {
+                    Some(sys)
+                } else if is_valid_user_reference(key_unquoted, default_value, args) {
+                    // Late tags outside the pre-scan never consume bare positionals.
+                    resolve_user_placeholder(key, default_value, args, depth, usize::MAX)
+                } else if let Some(unquoted) = system::strip_quotes(key) {
+                    Some(unquoted.to_string())
+                } else if key.chars().all(|c| c.is_ascii_digit()) {
+                    resolve_user_placeholder(key, default_value, args, depth, usize::MAX)
+                } else if !transformers.is_empty()
+                    && !system::is_reserved(key_unquoted)
+                    && (key.contains(' ') || key.contains(SENTINEL_OPEN))
+                {
+                    Some(key.to_string())
+                } else {
+                    None
+                };
 
             let resolved = if let Some(mut text) = base_resolved {
                 for tr in transformers {
