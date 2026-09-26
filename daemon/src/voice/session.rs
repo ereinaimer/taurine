@@ -1796,6 +1796,10 @@ mod tests {
         session.stop_ptt().expect("stop");
         assert_eq!(session.current_mode(), VoiceMode::Idle);
         // Mash repress, key held: engine work defers to the rescue waiter.
+        // Re-stamp the gate explicitly: the stop-to-repress gap is
+        // microseconds in practice, but a descheduled test thread could age
+        // past MASH_WINDOW_MS and take the direct path instead.
+        session.note_session_end();
         crate::input::hotkey::PTT_KEY_DOWN.store(true, Ordering::Relaxed);
         session.start_ptt().expect("mash press");
         assert_eq!(session.current_mode(), VoiceMode::Idle);
@@ -1904,6 +1908,9 @@ mod tests {
         let (mode, _) = session.toggle_handsfree().expect("toggle off");
         assert_eq!(mode, VoiceMode::Idle);
         // Immediate re-toggle is a bounce: cue fired at entry, engine gated.
+        // Re-stamp the gate explicitly so a descheduled test thread cannot
+        // age past MASH_WINDOW_MS and take the direct path instead.
+        session.note_session_end();
         crate::input::hotkey::HANDSFREE_KEY_DOWN.store(true, Ordering::Relaxed);
         let (mode, _) = session.toggle_handsfree().expect("mash toggle");
         assert_eq!(mode, VoiceMode::Idle);
