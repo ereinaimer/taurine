@@ -2745,11 +2745,11 @@ mod tests {
         );
         session.capture().start().expect("prior open");
         session.capture().stop();
-        session.start_ptt().expect("press past grace");
+        session.start_ptt().expect("press after stop");
         assert_eq!(
             opens.load(Ordering::SeqCst),
             1,
-            "press past the grace window must reopen the mic"
+            "press after stop must reopen the mic"
         );
         assert_eq!(session.current_mode(), VoiceMode::PushToTalk);
         session.cancel();

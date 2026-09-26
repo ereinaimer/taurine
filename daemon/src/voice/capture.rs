@@ -1462,7 +1462,7 @@ mod tests {
         assert_eq!(
             cap.open_count_for_test(),
             2,
-            "OS disconnect mid-hold must force a clean reopen"
+            "OS disconnect must force a clean reopen"
         );
         assert!(!cap.is_device_disconnected());
         taurine_core::settings::set_cached_voice_input_device(prev);

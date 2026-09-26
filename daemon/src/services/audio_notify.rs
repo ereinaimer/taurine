@@ -239,6 +239,9 @@ mod win_notify {
     static STOP_FLAG: AtomicBool = AtomicBool::new(false);
 
     pub fn start() {
+        if !CLIENT_PTR.load(Ordering::SeqCst).is_null() {
+            return;
+        }
         STOP_FLAG.store(false, Ordering::SeqCst);
         std::thread::Builder::new()
             .name("tau-audio-notify".to_string())
@@ -275,8 +278,8 @@ mod win_notify {
                         enumerator_raw,
                         client as *mut c_void,
                     );
-                    ((*vtbl).base.Release)(enumerator_raw);
                     if hr < 0 {
+                        ((*vtbl).base.Release)(enumerator_raw);
                         tracing::debug!(
                             "audio endpoint registration failed; lazy path owns recovery"
                         );
@@ -285,6 +288,18 @@ mod win_notify {
                         CoUninitialize();
                         return;
                     }
+                    if STOP_FLAG.load(Ordering::SeqCst) {
+                        ((*vtbl).UnregisterEndpointNotificationCallback)(
+                            enumerator_raw,
+                            client as *mut c_void,
+                        );
+                        ((*vtbl).base.Release)(enumerator_raw);
+                        CLIENT_PTR.store(std::ptr::null_mut(), Ordering::SeqCst);
+                        notify_release(client as *mut c_void);
+                        CoUninitialize();
+                        return;
+                    }
+                    ((*vtbl).base.Release)(enumerator_raw);
                     while !STOP_FLAG.load(Ordering::SeqCst) {
                         std::thread::sleep(std::time::Duration::from_millis(100));
                     }
