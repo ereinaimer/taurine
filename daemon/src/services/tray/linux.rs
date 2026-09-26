@@ -382,6 +382,7 @@ async fn run_tray(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>)
             let sig = crate::voice::device_monitor::device_list_signature(&devices);
             if last_device_sig.as_deref() != Some(sig.as_str()) {
                 last_device_sig = Some(sig);
+                crate::voice::device_monitor::mark_device_change();
                 let _ = handle.update(|_| {}).await;
             }
             if crate::voice::device_monitor::fallback_value_if_missing(

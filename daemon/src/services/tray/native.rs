@@ -570,6 +570,7 @@ fn run_tray_loop_once(paused: &Arc<AtomicBool>, system_tray_enabled: &Arc<Atomic
                 let sig = crate::voice::device_monitor::device_list_signature(&devices);
                 if last_device_sig.as_deref() != Some(sig.as_str()) {
                     last_device_sig = Some(sig);
+                    crate::voice::device_monitor::mark_device_change();
                     refresh_voice_submenu(&items);
                 }
                 if crate::voice::device_monitor::fallback_value_if_missing(
@@ -736,6 +737,7 @@ fn run_tray_loop_once(paused: &Arc<AtomicBool>, system_tray_enabled: &Arc<Atomic
                 let sig = crate::voice::device_monitor::device_list_signature(&devices);
                 if last_device_sig.as_deref() != Some(sig.as_str()) {
                     last_device_sig = Some(sig);
+                    crate::voice::device_monitor::mark_device_change();
                     refresh_voice_submenu(&items);
                 }
                 if crate::voice::device_monitor::fallback_value_if_missing(
