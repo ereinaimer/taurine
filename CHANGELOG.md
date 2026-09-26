@@ -71,6 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Uninstall Progress Display**: Show step-by-step progress logs during Unix uninstallation.
 - **Word Boundary Expansion Accuracy**: Prevent unwanted expansions when triggers appear inside larger words or follow digits by requiring non-alphanumeric boundaries.
 - **App Launch Shortcuts**: Restore hotkey triggers using the .NET Process Start API, the saps alias, and single-path Invoke-Item via the instant native launcher.
+- **Voice Dictation Reliability**: Fix dictation occasionally failing after a delayed response by correctly skipping stale replies that arrive together with the current one.
 
 ## [1.0.0-alpha.18] - 2026-09-06
 

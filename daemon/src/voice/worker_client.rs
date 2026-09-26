@@ -178,6 +178,31 @@ where
             .map_err(|e| format!("voice pipe write failed: {e}"))?;
         let mut buf = Vec::new();
         loop {
+            // Drain every complete frame already buffered before reading more,
+            // so coalesced replies (stale + own in one chunk) resolve without
+            // another read that could hit EOF first.
+            if let Some((resp, resp_body)) = proto::decode_frame(&mut buf)? {
+                if resp.req_id.as_deref() != Some(id.as_str()) {
+                    // Stale reply from an earlier timed-out call (e.g. a
+                    // pause-time unload racing a long decode): skip it and
+                    // keep waiting for our own response within budget, so
+                    // one timeout cannot cascade into the next call.
+                    debug!(
+                        expected = id.as_str(),
+                        got = resp.req_id.as_deref().unwrap_or("<none>"),
+                        "voice worker answered a stale request; waiting for ours"
+                    );
+                    continue;
+                }
+                if resp.op == proto::OP_ERROR {
+                    let detail = resp
+                        .message
+                        .clone()
+                        .unwrap_or_else(|| "unknown error".to_string());
+                    return Err(format!("voice worker error: {detail}"));
+                }
+                return Ok((resp, resp_body));
+            }
             let mut chunk = [0u8; 4096];
             let n = stream
                 .read(&mut chunk)
@@ -191,31 +216,6 @@ where
                 });
             }
             buf.extend_from_slice(&chunk[..n]);
-            match proto::decode_frame(&mut buf)? {
-                Some((resp, resp_body)) => {
-                    if resp.req_id.as_deref() != Some(id.as_str()) {
-                        // Stale reply from an earlier timed-out call (e.g. a
-                        // pause-time unload racing a long decode): skip it and
-                        // keep waiting for our own response within budget, so
-                        // one timeout cannot cascade into the next call.
-                        debug!(
-                            expected = id.as_str(),
-                            got = resp.req_id.as_deref().unwrap_or("<none>"),
-                            "voice worker answered a stale request; waiting for ours"
-                        );
-                        continue;
-                    }
-                    if resp.op == proto::OP_ERROR {
-                        let detail = resp
-                            .message
-                            .clone()
-                            .unwrap_or_else(|| "unknown error".to_string());
-                        return Err(format!("voice worker error: {detail}"));
-                    }
-                    return Ok((resp, resp_body));
-                }
-                None => continue,
-            }
         }
     };
     tokio::time::timeout(timeout, run)
@@ -647,12 +647,15 @@ mod tests {
                 };
                 let mut stale = Header::op(proto::OP_ACK);
                 stale.req_id = Some("qSTALE".to_string());
-                let bytes = proto::encode_frame(&stale, &[]).expect("encode stale");
-                peer.write_all(&bytes).await.expect("send stale");
+                let mut stale_bytes = proto::encode_frame(&stale, &[]).expect("encode stale");
                 let mut own = Header::op(proto::OP_ACK);
                 own.req_id = Some(req_id);
-                let bytes = proto::encode_frame(&own, &[]).expect("encode own");
-                peer.write_all(&bytes).await.expect("send own");
+                let own_bytes = proto::encode_frame(&own, &[]).expect("encode own");
+                // One coalesced write: both replies land in a single read, so
+                // transact must drain buffered frames instead of reading past
+                // them into EOF (the Windows failure mode).
+                stale_bytes.extend_from_slice(&own_bytes);
+                peer.write_all(&stale_bytes).await.expect("send replies");
             });
             let (resp, _) = transact(
                 &mut client,
