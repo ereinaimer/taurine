@@ -73,6 +73,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **App Launch Shortcuts**: Restore hotkey triggers using the .NET Process Start API, the saps alias, and single-path Invoke-Item via the instant native launcher.
 - **Voice Recording Reliability**: Retry starting the audio streaming thread so dictation is not silently lost when the system is under heavy load.
 - **Voice Dictation Reliability**: Fix dictation occasionally failing after a delayed response by correctly skipping stale replies that arrive together with the current one.
+- **Voice Recording Follows Microphone Changes**: Switching or unplugging the microphone mid-dictation moves the live recording to the new device instead of capturing silence, and a lost key release no longer leaves recording stuck on.
+- **Sounds Follow Speaker Changes**: Switching speakers no longer swallows startup and shutdown sounds or leaves them playing on the old device.
+- **Fewer Keyboard Dropouts During Device Changes**: Brief hardware reshuffles no longer restart keyboard capture repeatedly, so fewer keystrokes go missing when devices come and go.
 
 ## [1.0.0-alpha.18] - 2026-09-06
 
