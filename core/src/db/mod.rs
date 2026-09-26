@@ -53,7 +53,7 @@ impl std::ops::DerefMut for DbConnection {
     }
 }
 
-fn is_test_env() -> bool {
+pub(crate) fn is_test_env() -> bool {
     cfg!(test)
         || std::env::var("CARGO_MANIFEST_DIR").is_ok()
         || std::env::current_exe()
