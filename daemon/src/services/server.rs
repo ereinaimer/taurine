@@ -304,9 +304,6 @@ impl DaemonControl for DaemonService {
                 session.set_dictionary(taurine_core::voice::VoiceDictionary::from_csv(
                     &settings.voice_dictionary,
                 ));
-                session
-                    .capture()
-                    .invalidate_held_on_device_change(prev_voice_device);
                 if session.capture().is_running() {
                     let _ = session.capture().restart();
                 }

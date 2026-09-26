@@ -71,27 +71,25 @@ pub fn device_list_signature(devices: &[String]) -> String {
 }
 
 /// Impure entry: re-reads cache, persists the fallback if the helper says so.
-/// Returns true when a change was persisted. Never touches a live recording.
+/// Returns true when a change was persisted. Migrates a live recording via restart; idle sessions need nothing (no parked mic exists).
 pub fn persist_fallback_to_system_default(available: &[String]) -> bool {
     let cached = taurine_core::settings::get_cached_voice_input_device();
     if fallback_value_if_missing(cached.as_deref(), available) != Some(None) {
         return false;
     }
-    let prev = cached;
     if taurine_core::settings::apply_setting_input("voice_input_device", None).is_err() {
         tracing::warn!("mic fallback: failed to persist System Default");
         return false;
     }
     mark_device_change();
-    if let Some(session) = crate::VOICE_SESSION.get() {
-        session.capture().invalidate_held_on_device_change(prev);
-        if session.capture().is_running() {
-            // A live recording is bound to the departed device; move it now.
-            // Buffered audio is preserved (the buffer outlives the stream).
-            // If no device is ready the stream closes and the 5s sweep
-            // keeps retrying via try_recover_device.
-            let _ = session.capture().restart();
-        }
+    if let Some(session) = crate::VOICE_SESSION.get()
+        && session.capture().is_running()
+    {
+        // A live recording is bound to the departed device; move it now.
+        // Buffered audio is preserved (the buffer outlives the stream).
+        // If no device is ready the stream closes and the 5s sweep
+        // keeps retrying via try_recover_device.
+        let _ = session.capture().restart();
     }
     tracing::info!("mic in use disconnected; fell back to System Default");
     true

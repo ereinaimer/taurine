@@ -67,18 +67,14 @@ impl TraySettings {
     }
 
     pub fn set_voice_input_device(device: Option<&str>) -> Result<()> {
-        let prev = taurine_core::settings::get_cached_voice_input_device();
         apply_setting_input("voice_input_device", device)?;
-        // Same-process settings-apply: drop any parked mic at once so the
-        // next press records from the new device, never the stale hold.
+        // Same-process settings-apply: the next press opens the new device
+        // (nothing is parked), and a live recording moves at once.
         crate::voice::device_monitor::mark_device_change();
-        if let Some(session) = crate::VOICE_SESSION.get() {
-            session.capture().invalidate_held_on_device_change(prev);
-            if session.capture().is_running() {
-                // Same-process settings-apply, same rule as the gRPC path: a
-                // live recording moves to the newly picked device at once.
-                let _ = session.capture().restart();
-            }
+        if let Some(session) = crate::VOICE_SESSION.get()
+            && session.capture().is_running()
+        {
+            let _ = session.capture().restart();
         }
         Ok(())
     }
