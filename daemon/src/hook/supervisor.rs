@@ -116,6 +116,8 @@ pub fn start_windows_supervisor(
             let mut last_seen_started_instant = std::time::Instant::now();
             let mut last_unresponsive_recovery =
                 std::time::Instant::now() - Duration::from_secs(10);
+            let mut unresponsive_streak: u32 = 0;
+            let mut last_fired_event_mark: u64 = 0;
             let mut is_session_locked = false;
 
             loop {
@@ -123,8 +125,29 @@ pub fn start_windows_supervisor(
 
                 match event {
                     Ok(WindowsSupervisorEvent::HookUnresponsive) => {
-                        if !is_session_locked && last_unresponsive_recovery.elapsed() >= Duration::from_millis(1000) {
+                        if is_session_locked {
+                            continue;
+                        }
+                        let storm_delay =
+                            Duration::from_secs(crate::input::hook_health::recovery_backoff_secs(
+                                unresponsive_streak,
+                            ));
+                        if last_unresponsive_recovery.elapsed() < storm_delay {
+                            tracing::debug!("Hook watchdog backing off; skipping reinstall during storm");
+                        } else if last_seen_started_instant.elapsed()
+                            < Duration::from_millis(crate::input::hook_health::NEWBORN_LISTENER_GRACE_MS)
+                        {
+                            tracing::debug!("Hook watchdog ignoring misses from a newborn listener");
+                        } else if crate::voice::device_monitor::millis_since_device_change()
+                            < crate::input::hook_health::DEVICE_CHANGE_GRACE_MS
+                        {
+                            tracing::debug!("Hook watchdog ignoring misses during device re-enumeration");
+                        } else {
                             last_unresponsive_recovery = std::time::Instant::now();
+                            last_fired_event_mark = hook_health
+                                .snapshot()
+                                .last_keyboard_event_at_unix_ms;
+                            unresponsive_streak = unresponsive_streak.saturating_add(1);
                             hook_health.mark_recovery_signal("raw input detected unresponsive hook");
                             warn!(
                                 "Raw Input shadow detected missed events; reinstalling low-level hook immediately"
@@ -196,6 +219,10 @@ pub fn start_windows_supervisor(
                         if last_health_log_at_instant.elapsed().as_millis() >= 30_000 {
                             last_health_log_at_instant = std::time::Instant::now();
                             hook_health.log_periodic_health();
+                        }
+
+                        if hook_health.snapshot().last_keyboard_event_at_unix_ms > last_fired_event_mark {
+                            unresponsive_streak = 0;
                         }
 
                         let mut needs_restart = false;

@@ -73,6 +73,28 @@ impl HookHealthSnapshot {
     }
 }
 
+/// Misses the low-level hook may drop before the Raw Input shadow calls
+/// it unresponsive. Values preserve the long-standing 300ms/3-press
+/// behavior; they live here (not buried at the call site) so tuning
+/// stays in one place next to the watchdog tests.
+pub(crate) const HOOK_EVENT_GRACE_MS: u64 = 300;
+pub(crate) const MISSED_PRESS_THRESHOLD: u32 = 3;
+/// A freshly respawned listener must settle before its misses count: a
+/// restart must not condemn its own replacement mid-storm.
+pub(crate) const NEWBORN_LISTENER_GRACE_MS: u64 = 2000;
+/// Extra patience after a known device-topology change: Windows stalls
+/// input delivery while re-enumerating, so misses there are expected
+/// noise, not a dead hook.
+pub(crate) const DEVICE_CHANGE_GRACE_MS: u64 = 5000;
+
+/// Escalating reinstall delay (seconds) while recoveries keep firing with
+/// no acknowledged keys in between: 1, 2, 4, 8, 16, then capped at 30.
+/// The first recovery always stays fast; only sustained storms back off.
+pub(crate) fn recovery_backoff_secs(consecutive_storm_recoveries: u32) -> u64 {
+    2u64.saturating_pow(consecutive_storm_recoveries.min(5))
+        .min(30)
+}
+
 #[derive(Clone, Default)]
 pub struct HookHealth {
     inner: Arc<HookHealthInner>,
@@ -276,6 +298,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_recovery_backoff_escalates_then_caps() {
+        assert_eq!(recovery_backoff_secs(0), 1, "first recovery stays fast");
+        assert_eq!(recovery_backoff_secs(1), 2);
+        assert_eq!(recovery_backoff_secs(2), 4);
+        assert_eq!(recovery_backoff_secs(3), 8);
+        assert_eq!(
+            recovery_backoff_secs(5),
+            30,
+            "cap keeps a dead hook recoverable"
+        );
+        assert_eq!(
+            recovery_backoff_secs(100),
+            30,
+            "saturation must not overflow"
+        );
+    }
+
+    #[test]
     fn test_stale_hook_classification() {
         let now = now_unix_ms();
         let mut snapshot = HookHealthSnapshot {
@@ -320,9 +360,9 @@ mod tests {
 
         // Simulate Raw Input receiving first key after 60s pause
         let should_recover = health.check_raw_input_keystroke_and_evaluate(
-            true, // is_physical_press
-            300,  // hook_event_grace_ms
-            3,    // threshold_misses
+            true,                   // is_physical_press
+            HOOK_EVENT_GRACE_MS,    // hook_event_grace_ms
+            MISSED_PRESS_THRESHOLD, // threshold_misses
         );
 
         assert!(
@@ -339,10 +379,10 @@ mod tests {
         health.record_keyboard_event();
 
         // 1st missed press
-        assert!(!health.check_raw_input_keystroke_and_evaluate(true, 0, 3));
+        assert!(!health.check_raw_input_keystroke_and_evaluate(true, 0, MISSED_PRESS_THRESHOLD));
         // 2nd missed press
-        assert!(!health.check_raw_input_keystroke_and_evaluate(true, 0, 3));
+        assert!(!health.check_raw_input_keystroke_and_evaluate(true, 0, MISSED_PRESS_THRESHOLD));
         // 3rd missed press without any hook events in between
-        assert!(health.check_raw_input_keystroke_and_evaluate(true, 0, 3));
+        assert!(health.check_raw_input_keystroke_and_evaluate(true, 0, MISSED_PRESS_THRESHOLD));
     }
 }

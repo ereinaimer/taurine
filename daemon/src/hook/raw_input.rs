@@ -232,7 +232,11 @@ unsafe extern "system" fn raw_input_window_proc(
                     {
                         // Check if consecutive physical keypresses were missed by the low-level hook
                         // with at least 300ms grace window since the last acknowledged hook event.
-                        if health.check_raw_input_keystroke_and_evaluate(true, 300, 3) {
+                        if health.check_raw_input_keystroke_and_evaluate(
+                            true,
+                            crate::input::hook_health::HOOK_EVENT_GRACE_MS,
+                            crate::input::hook_health::MISSED_PRESS_THRESHOLD,
+                        ) {
                             if !crate::platform::windows::is_foreground_window_elevated_or_restricted() {
                                 if let Some(ref tx) = ctx.supervisor_tx {
                                     let _ = tx.send(
