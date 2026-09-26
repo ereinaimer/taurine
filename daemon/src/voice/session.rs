@@ -24,11 +24,6 @@ pub(crate) const MASH_WINDOW_MS: u64 = 300;
 /// Still-held rescue delay: a gated press starts only if the key is still
 /// down after this wait; a released key was a bounce and records nothing.
 pub(crate) const RESCUE_WAIT_MS: u64 = 200;
-/// Pre-roll cushion (ms): prior mic audio restored at the front of each
-/// recording so the first syllable is never clipped.
-pub(crate) const PREROLL_MS: u64 = 400;
-/// Pre-roll samples at 16 kHz mono.
-pub(crate) const PREROLL_SAMPLES: usize = PREROLL_MS as usize * 16;
 
 /// Grace after key-up before a still-"recording" PTT session is declared
 /// stranded by a lost key-release. Normal release-to-stop completes in
@@ -128,8 +123,7 @@ type CaptureHook = Arc<dyn Fn() -> Result<(), String> + Send + Sync>;
 /// worker: it loads on demand when a Push-to-Talk or Hands-Free session
 /// starts, stays pinned for the whole recording, and is fully evicted once
 /// its hold rung (10s base, up to 60s with use) expires after last use.
-/// The microphone stream is parked for a short grace after each session,
-/// then closed on silence.
+/// The microphone is closed on every release; every press opens fresh.
 pub struct VoiceSessionManager {
     mode: Mutex<VoiceMode>,
     capture: Arc<AudioCapture>,
@@ -379,11 +373,9 @@ impl VoiceSessionManager {
     /// Only evicts while idle: an active recording or transcription pins the
     /// model so long dictations never pay a mid-session reload. Guarantees
     /// 0 MB idle voice memory once the rung deadline passes after last use.
-    /// Also reaps a silence-expired held mic every tick, and closes any held
-    /// mic on model eviction, so the device is never held longer than the
-    /// model is warm.
+    /// The microphone is closed on every stop, so there is no mic state to
+    /// reap here.
     pub fn clean_expired_transcriber(&self) {
-        self.capture.reclaim_expired_held();
         if self.is_active() {
             self.recover_live_capture_device();
             self.recover_stranded_session();
@@ -397,7 +389,6 @@ impl VoiceSessionManager {
             let rss_before = process_rss_mb();
             *guard = None;
             self.worker.unload_model();
-            self.capture.close_held_now();
             let rss_after = process_rss_mb();
             info!(
                 "VoiceSessionManager: model evicted ({hold_secs}s hold expired, RSS {} -> {} MB)",
@@ -855,9 +846,9 @@ impl VoiceSessionManager {
         self.start_ptt_now(press_at, cue_at)
     }
 
-    /// Immediate engine start: snapshot the mic pre-roll, open or reuse the
-    /// device, and begin recording. Callers must have passed the mash gate
-    /// (or hold an explicit continuation like the pending-press autostart).
+    /// Immediate engine start: open the device and begin recording. Callers
+    /// must have passed the mash gate (or hold an explicit continuation
+    /// like the pending-press autostart).
     fn start_ptt_now(&self, press_at: Instant, cue_at: Instant) -> Result<(), String> {
         {
             let mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
@@ -868,20 +859,12 @@ impl VoiceSessionManager {
             }
         }
         self.pending_press.store(false, Ordering::Relaxed);
-        // Snapshot the live pre-roll BEFORE clearing: a parked mic keeps
-        // pushing while held, so the tail is the audio just before the press.
-        // A cold mic has nothing (the last stop drained it) and the prepend
-        // below is a no-op.
-        let preroll = self.capture.buffer().peek_tail(PREROLL_SAMPLES);
+        // No parked mic exists: the buffer was drained at the last stop, so
+        // every press opens cold on an empty buffer.
         self.capture.buffer().clear();
-        if !self.capture.try_reuse_held_stream()
-            && let Err(e) = self.start_capture()
-        {
+        if let Err(e) = self.start_capture() {
             warn!("Failed to start audio capture stream for PTT: {e}");
             return Err(e);
-        }
-        if !preroll.is_empty() {
-            self.capture.buffer().prepend_samples(&preroll);
         }
         let recording_at = Instant::now();
 
@@ -1050,9 +1033,9 @@ impl VoiceSessionManager {
     /// Stop Push-To-Talk recording, transcribe captured speech, inject text, and return to `Idle`.
     ///
     /// Fires the mic-close cue first to acknowledge the key release itself,
-    /// before locks and state checks, then stops the mic and transcribes:
+    /// stops the mic at once and transcribes:
     /// feedback lines up with the hotkey, never with paste. The microphone
-    /// stays parked for the grace window.
+    /// is closed on release, never parked.
     pub fn stop_ptt(&self) -> Result<Option<String>, String> {
         self.fire_stop_cue();
         {
@@ -1091,8 +1074,8 @@ impl VoiceSessionManager {
         result
     }
 
-    /// Immediate hands-free start: snapshot the mic pre-roll, open the
-    /// device, and transition to `HandsFree`. Mash-blind like `start_ptt_now`;
+    /// Immediate hands-free start: open the device and transition to
+    /// `HandsFree`. Mash-blind like `start_ptt_now`;
     /// the gated `toggle_handsfree` entry decides when to call it.
     fn start_handsfree_now(&self) -> Result<(VoiceMode, Option<String>), String> {
         let press_at = Instant::now();
@@ -1103,16 +1086,12 @@ impl VoiceSessionManager {
                 return Ok((*mode, None));
             }
         }
-        let preroll = self.capture.buffer().peek_tail(PREROLL_SAMPLES);
         self.capture.buffer().clear();
         // Already cued at entry; timestamp it here for the telemetry.
         let cue_at = Instant::now();
         if let Err(e) = self.start_capture() {
             warn!("Failed to start audio capture stream for Hands-Free: {e}");
             return Err(e);
-        }
-        if !preroll.is_empty() {
-            self.capture.buffer().prepend_samples(&preroll);
         }
         let recording_at = Instant::now();
         {
@@ -1141,7 +1120,7 @@ impl VoiceSessionManager {
     /// paused, and silent when there is nothing to toggle.
     /// If `Idle`, starts capture and transitions to `HandsFree`.
     /// If `HandsFree`, stops capture, processes audio, injects text, and transitions to `Idle`.
-    /// The microphone stays parked for the grace window while Hands-Free is off.
+    /// The microphone is closed when Hands-Free toggles off.
     pub fn toggle_handsfree(&self) -> Result<(VoiceMode, Option<String>), String> {
         if self.is_paused() {
             debug!("VoiceSessionManager: toggle_handsfree ignored because daemon is paused");
@@ -1998,7 +1977,7 @@ mod tests {
     }
 
     #[test]
-    fn test_mash_rescue_starts_when_key_held_with_preroll() {
+    fn test_mash_rescue_starts_when_key_held() {
         let _lock = crate::hook::tests::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -2019,13 +1998,6 @@ mod tests {
         session.start_ptt().expect("mash press");
         assert_eq!(session.current_mode(), VoiceMode::Idle);
         assert!(session.active_request().is_none());
-        // The parked mic keeps pushing while held: pre-press audio arrives
-        // before the rescue wait elapses.
-        const MARKER: f32 = 0.7;
-        session
-            .capture()
-            .buffer()
-            .push_samples(&[MARKER; PREROLL_SAMPLES]);
         assert_eq!(
             wait_for_mode(&session, VoiceMode::PushToTalk),
             VoiceMode::PushToTalk,
@@ -2035,10 +2007,10 @@ mod tests {
         let res = session.stop_ptt().expect("stop rescued");
         assert!(res.is_some(), "rescued recording must transcribe");
         let drained = session.last_drained().expect("drained audio recorded");
-        assert!(drained.len() >= PREROLL_SAMPLES + 3200);
-        assert!(
-            drained[..PREROLL_SAMPLES].iter().all(|s| *s == MARKER),
-            "drained audio must begin with the pre-roll tail"
+        assert_eq!(
+            drained.len(),
+            3200,
+            "rescued recording starts clean with no pre-roll tail"
         );
         crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
     }
@@ -2077,10 +2049,7 @@ mod tests {
         crate::platform::test_injector().clear();
         crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
         session.start_ptt().expect("start");
-        session
-            .capture()
-            .buffer()
-            .push_samples(&[0.002; PREROLL_SAMPLES]);
+        session.capture().buffer().push_samples(&[0.002; 6400]);
         session.capture().buffer().push_samples(&[0.5; 3200]);
         let res = session.stop_ptt().expect("stop");
         assert!(
@@ -2099,10 +2068,7 @@ mod tests {
         mock_keystore::use_mock_keystore();
         let (session, _) = create_ordering_session(None, Some(Arc::new(move || Ok(()))), None);
         session.start_ptt().expect("start");
-        session
-            .capture()
-            .buffer()
-            .push_samples(&[0.0; PREROLL_SAMPLES + 3200]);
+        session.capture().buffer().push_samples(&[0.0; 9600]);
         let res = session.stop_ptt().expect("stop");
         assert!(res.is_none(), "pure silence must skip STT");
     }
@@ -2735,7 +2701,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ptt_start_inside_mic_grace_skips_capture_open() {
+    fn test_ptt_start_always_opens_capture() {
         let _lock = crate::hook::tests::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -2749,21 +2715,21 @@ mod tests {
             })),
             None,
         );
-        // A prior burst leaves the mic parked in grace on the real capture.
+        // No parked mic exists: stop closes the stream, so the press opens fresh.
         session.capture().start().expect("prior open");
         session.capture().stop();
         session.start_ptt().expect("press inside grace");
         assert_eq!(
             opens.load(Ordering::SeqCst),
-            0,
-            "press inside the grace window must reuse the held mic"
+            1,
+            "every press opens the mic; nothing is parked"
         );
         assert_eq!(session.current_mode(), VoiceMode::PushToTalk);
         session.cancel();
     }
 
     #[test]
-    fn test_ptt_start_past_mic_grace_reopens_capture() {
+    fn test_ptt_start_after_stop_reopens_capture() {
         let _lock = crate::hook::tests::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -2779,9 +2745,6 @@ mod tests {
         );
         session.capture().start().expect("prior open");
         session.capture().stop();
-        session
-            .capture()
-            .backdate_held_deadline_for_test(Duration::from_secs(30));
         session.start_ptt().expect("press past grace");
         assert_eq!(
             opens.load(Ordering::SeqCst),
