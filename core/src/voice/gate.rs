@@ -171,7 +171,7 @@ pub fn rank_voice_triggers(
     transcript: &str,
     triggers: &[ResolvedInvocation],
 ) -> Option<TriggerMatch> {
-    // honey: O(T*W^2) string sims per utterance; trigger lists are small
+    // O(T*W^2) string sims per utterance; trigger lists are small
     // (<1k rows). Index keys if the list grows past that.
     let mut scored: Vec<(f64, &ResolvedInvocation)> = triggers
         .iter()
@@ -227,7 +227,7 @@ pub fn rank_voice_invocations(
     transcript: &str,
     triggers: &[ResolvedInvocation],
 ) -> Option<RankedVoiceMatch> {
-    // honey: O(T*W^2) string sims per utterance; trigger lists are small
+    // O(T*W^2) string sims per utterance; trigger lists are small
     // (<1k rows). Index keys if the list grows past that.
     let mut statik = Vec::new();
     let mut parameterized = Vec::new();

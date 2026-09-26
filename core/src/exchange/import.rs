@@ -306,7 +306,7 @@ fn find_conflicting_trigger(
     let rows = stmt.query_map([invocation_type.as_db_str(), lookup.as_str()], |row| {
         let id: String = row.get(0)?;
         let name: String = row.get(1)?;
-        // honey: N+1, fine under ~1k rows; batch with a single IN query if it grows
+        // N+1, fine under ~1k rows; batch with a single IN query if it grows
         let invocations = list_aliases(tx, &id).map_err(|err| {
             rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(err))
         })?;

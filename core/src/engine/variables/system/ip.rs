@@ -124,7 +124,7 @@ mod tests {
     fn ip_unified() {
         assert!(resolve("local").is_some());
         assert!(resolve("type=local").is_some());
-        // honey: public WAN fetch is deferred + network-dependent; stub the transport.
+        // Public WAN fetch is deferred + network-dependent; stub the transport.
         assert_eq!(
             resolve_public_ip_with(&|_| Some("fl=1\nip=198.51.100.42\n".to_string())),
             Some("198.51.100.42".to_string())

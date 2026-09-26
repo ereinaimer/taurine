@@ -113,7 +113,7 @@ fn collapse_segment(segment: &str) -> String {
 
     // Phase 2: false-start repair ("how are [how are these] how are you"):
     // a 2-gram repeating within 3 tokens drops the earlier fragment.
-    // honey: window of 3 covers close restarts only; widen if dictation logs show longer repairs.
+    // Restart window of 3 covers close restarts only; widen if dictation logs show longer repairs.
     let mut j = 0;
     while j + 1 < kept.len() {
         let mut dropped = false;

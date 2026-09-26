@@ -430,7 +430,7 @@ pub fn get_triggers_list(conn: &Connection) -> Result<Vec<TriggerListItem>> {
     }
     drop(stmt);
 
-    // honey: N+1, fine under ~1k rows; batch with a single IN query if it grows
+    // N+1, fine under ~1k rows; batch with a single IN query if it grows
     for item in &mut list {
         item.invocations = list_aliases(conn, &item.id).map_err(alias_err)?;
         item.display = display_for_aliases(&item.name, &item.invocations);
@@ -476,7 +476,7 @@ pub fn search_triggers(conn: &Connection, query: &str, limit: i64) -> Result<Vec
     }
     drop(stmt);
 
-    // honey: N+1, fine under ~1k rows; batch with a single IN query if it grows
+    // N+1, fine under ~1k rows; batch with a single IN query if it grows
     for item in &mut results {
         item.invocations = list_aliases(conn, &item.id).map_err(alias_err)?;
         item.display = display_for_aliases(&item.name, &item.invocations);

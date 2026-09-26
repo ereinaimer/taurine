@@ -121,7 +121,7 @@ pub fn bind_call(namespace: &str, raw: &str, spec: &ParamSpec) -> Result<BoundAr
         if strip_quotes(piece).is_empty() {
             continue;
         }
-        // honey: split before unquoting so a quoted `=` stays a positional value.
+        // Split before unquoting so a quoted `=` stays a positional value.
         if let Some((raw_key, raw_value)) = split_named(piece) {
             let key = strip_quotes(raw_key.trim()).to_string();
             let value = strip_quotes(raw_value.trim()).to_string();

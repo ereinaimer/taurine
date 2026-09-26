@@ -1003,7 +1003,7 @@ impl AudioCapture {
             warn!(
                 "Configured voice input device '{configured_name}' not found; falling back to default device"
             );
-            // honey: per-open fallback only; persisting System Default to the DB is left to
+            // Per-open fallback only; persisting System Default to the DB is left to
             // the callers (start() disconnect path, tray poll loop, boot reconcile) so this
             // hot path never pays for an extra enumeration or DB write.
         }
@@ -1056,7 +1056,7 @@ impl AudioCapture {
         }
         if self.is_device_disconnected() {
             self.force_close();
-            // honey: one extra enumeration only on the disconnect path; healthy presses skip it.
+            // One extra enumeration only on the disconnect path; healthy presses skip it.
             let _ = self.persist_fallback_if_configured_missing();
         } else if self.try_reuse_held_stream() {
             return Ok(());

@@ -39,7 +39,7 @@ pub fn resolve(raw: &str) -> Option<String> {
                 let max = bound.named.get("max")?.parse::<i64>().ok()?;
                 (min <= max).then(|| rng.random_range(min..=max).to_string())
             } else {
-                // honey: a leading kind word owns position 0; bare numerics are the range.
+                // A leading kind word owns position 0; bare numerics are the range.
                 let nums: Vec<String> =
                     if bound.positional.first().map(String::as_str) == Some("int") {
                         bound.positional.iter().skip(1).cloned().collect()

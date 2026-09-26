@@ -58,7 +58,7 @@ pub fn is_deferred(key: &str) -> bool {
         return true;
     }
     if let Some(inner) = key.strip_prefix("ip(").and_then(|s| s.strip_suffix(')')) {
-        // honey: any spelling binding type=public defers (WAN fetch async); local UDP trick sync.
+        // Any spelling binding type=public defers (WAN fetch async); local UDP trick sync.
         if let Some(spec) = crate::engine::variables::registry::param_spec("ip")
             && let Ok(bound) = crate::engine::variables::parser::bind_call("ip", inner, &spec)
         {
@@ -285,7 +285,7 @@ pub(crate) fn parse_mouse_directive(inner: &str) -> Option<ExpansionStep> {
     let spec = crate::engine::variables::registry::param_spec("mouse")?;
     let bound = bind_call("mouse", raw, &spec).ok()?;
     let action = bound.named.get("action").map(String::as_str).unwrap_or("");
-    // honey: binder fills defaults into named, so an explicit count reads as
+    // Binder fills defaults into named, so an explicit count reads as
     // non-"1"; a bare extra positional only exists when explicitly passed.
     let count_raw = bound.named.get("count").map(String::as_str).unwrap_or("1");
     match action {
@@ -309,7 +309,7 @@ pub(crate) fn parse_mouse_directive(inner: &str) -> Option<ExpansionStep> {
             })
         }
         "move" => {
-            // honey: x/y ride the generic btn/count slots; y has no default so
+            // X/Y ride the generic btn/count slots; y has no default so
             // a 2-positional call (or defaulted count) is an arity error.
             if bound.positional.len() > 3
                 || (bound.positional.len() == 2 && count_raw == "1")
@@ -331,7 +331,7 @@ pub(crate) fn parse_mouse_directive(inner: &str) -> Option<ExpansionStep> {
             if bound.positional.len() > 2 || count_raw != "1" {
                 return None;
             }
-            // honey: signed delta, positive scrolls up / negative scrolls down.
+            // Signed delta, positive scrolls up / negative scrolls down.
             let delta = bound
                 .named
                 .get("btn")
@@ -341,7 +341,7 @@ pub(crate) fn parse_mouse_directive(inner: &str) -> Option<ExpansionStep> {
                 .ok()?;
             Some(ExpansionStep::MouseScroll(delta))
         }
-        // honey: pos is deferred content (sys marker), not a step; unknown
+        // Pos is deferred content (sys marker), not a step; unknown
         // actions are save-time errors.
         _ => None,
     }

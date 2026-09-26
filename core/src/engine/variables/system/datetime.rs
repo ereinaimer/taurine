@@ -222,7 +222,7 @@ const DEFAULT_TYPE: &str = "datetime";
 const NO_OFFSET: &str = "none";
 const DEFAULT_TZ: &str = "local";
 
-// honey: single bare token is ambiguous; shape decides the slot it fills.
+// Single bare token is ambiguous; shape decides the slot it fills.
 fn classify_single(token: &str) -> Option<(String, String, String, String)> {
     let token = token.trim();
     let lower = token.to_ascii_lowercase();
@@ -248,7 +248,7 @@ fn classify_single(token: &str) -> Option<(String, String, String, String)> {
             DEFAULT_TZ.to_string(),
         ))
     } else if token.as_bytes().first().is_some_and(u8::is_ascii_digit) {
-        // honey: digit-leading bare token is an offset missing its sign.
+        // Digit-leading bare token is an offset missing its sign.
         None
     } else {
         Some((

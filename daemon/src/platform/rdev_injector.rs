@@ -16,7 +16,7 @@ fn mouse_button_to_rdev(button: MouseButton) -> rdev::Button {
 
 impl Injector for RdevInjector {
     fn simulate_mouse_click(&self, button: MouseButton) {
-        // honey: no sleeps in the click path (max CPS, platform-varies);
+        // No sleeps in the click path (max CPS, platform-varies);
         // the inject.rs count loop owns pacing and per-iteration abort.
         #[cfg(windows)]
         {

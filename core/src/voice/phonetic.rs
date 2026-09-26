@@ -5,7 +5,7 @@
 //! (`folder` vs `follower`). Simplified for short command vocabularies:
 //! vowel elision, duplicate collapse, and a small consonant folding set.
 //!
-//! honey: covers the command-vocabulary subset (C/G alternate branches only);
+//! Covers the command-vocabulary subset (C/G alternate branches only);
 //! port full DDMetaphone branch table if trigger vocab grows past ~1k phrases
 //! or non-English triggers arrive.
 

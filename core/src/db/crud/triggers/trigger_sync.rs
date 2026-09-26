@@ -83,7 +83,7 @@ pub fn get_syncable_triggers(conn: &Connection) -> Result<Vec<TriggerRow>> {
     }
     drop(stmt);
 
-    // honey: N+1, fine under ~1k rows; batch with a single IN query if it grows
+    // N+1, fine under ~1k rows; batch with a single IN query if it grows
     for row in &mut results {
         row.invocations = list_aliases(conn, &row.id).map_err(|err| match err {
             crate::Error::Database(inner) => inner,

@@ -58,7 +58,7 @@ impl crate::engine::evaluator::Evaluator {
                     crate::engine::conversion::convert(&cleaned_word, &self.state)
             {
                 let to_unit = cleaned_word.rsplit('=').next().unwrap_or("");
-                // honey: Indian currency targets (INR/BDT) use lakh/crore
+                // Indian currency targets (INR/BDT) use lakh/crore
                 // grouping once the result reaches 1,000; revisit if other
                 // locales need target-driven grouping.
                 let needs_indian_grouping =

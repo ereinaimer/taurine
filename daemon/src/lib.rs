@@ -103,7 +103,7 @@ pub fn start() -> taurine_core::error::Result<()> {
     // Tray first: icon shows instantly with defaults while DB, voice, and
     // hooks init in the background. Real settings are stored into the same
     // Arcs after load so the running loop picks them up live.
-    // honey: spawn cost is one thread; no hook/audio/voice work runs before it.
+    // Spawn cost is one thread; no hook/audio/voice work runs before it.
     let paused = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let system_tray_enabled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
     let tray_handle = crate::services::tray::spawn(paused.clone(), system_tray_enabled.clone());
@@ -395,7 +395,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                         // Park the cue output sink too, so the first press of
                         // the process plays warm. Silent when no device exists.
                         crate::services::audio::prewarm_voice_sink();
-                        // honey: preload in the same background thread so hook
+                        // Preload in the same background thread so hook
                         // startup never waits; missing model files fall back
                         // to lazy first-press load.
                         if let Err(e) = warm.ensure_worker_ready() {
@@ -405,7 +405,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                 );
             })
             .ok();
-        // honey: one-shot warm loses the logon race (audio/pipe not ready in
+        // One-shot warm loses the logon race (audio/pipe not ready in
         // ~1s); two delayed idempotent retries cover it, then lazy first-press
         // path owns recovery if still cold.
         if let Some(session) = VOICE_SESSION.get().cloned() {

@@ -50,7 +50,7 @@ fn parse_unified_invocation(raw: &str) -> Result<ExecuteInvocation, ExecuteParse
 
     let spec = crate::engine::variables::registry::param_spec("execute")
         .ok_or(ExecuteParseError::InvalidLanguage)?;
-    // honey: variadic argv overflows into the flag slots, so a trailing
+    // Variadic argv overflows into the flag slots, so a trailing
     // `file=`/`silent=` collides (Duplicate). Peel trailing flags, bind the
     // positional skeleton, then apply the flags.
     let mut head = raw.to_string();
@@ -149,7 +149,7 @@ fn flag_value(
         return parse_bool_flag(&value);
     }
     if !has_named || bound.positional.len() > index {
-        // honey: pure positional call, or argv overflow occupies the slot: not a flag.
+        // Pure positional call, or argv overflow occupies the slot: not a flag.
         return Ok(false);
     }
     parse_bool_flag(bound.named.get(key).map(String::as_str).unwrap_or("false"))

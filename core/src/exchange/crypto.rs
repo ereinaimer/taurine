@@ -4,7 +4,7 @@ use rand::random;
 use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
-// honey: obscurity only, not secrecy. Real confidentiality comes from the
+// Obscurity only, not secrecy. Real confidentiality comes from the
 // optional user password. Single shared key so every build reads every file.
 const APP_KEY_MASK: [u8; 32] = [
     58, 184, 96, 160, 4, 242, 74, 216, 89, 107, 78, 197, 25, 174, 62, 51, 196, 149, 3, 106, 35, 31,
