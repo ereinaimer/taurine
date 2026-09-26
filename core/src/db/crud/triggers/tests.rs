@@ -1997,3 +1997,22 @@ fn voice_alias_overlap_detected() {
     assert!(found.is_some());
     assert_eq!(found.unwrap().trigger_type, InvocationType::Voice);
 }
+
+#[test]
+fn test_audit_payload_tags_missing_default_teaches_semicolon_syntax() {
+    let err = audit_payload_tags("[nickname]").unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("[name=default]"),
+        "expected named-default example, got: {msg}"
+    );
+    assert!(
+        msg.contains("trigger;value"),
+        "expected semicolon fill example, got: {msg}"
+    );
+    assert!(
+        msg.contains("trigger;name=value"),
+        "expected named fill example, got: {msg}"
+    );
+    assert!(!msg.contains('`'), "must not contain backticks: {msg}");
+}

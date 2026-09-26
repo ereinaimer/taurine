@@ -200,7 +200,7 @@ pub(crate) fn audit_payload_tags_impl_opt(
                             if !defined_vars.contains(key_unquoted) && !is_allowed_regex_positional
                             {
                                 let mut diag = crate::diagnostic::Diagnostic::problem(format!(
-                                    "[{inner}]: dynamic variables need a default (e.g., [key=default])"
+                                    "[{inner}]: dynamic variables need a default (e.g., [name=default]); fill inline like trigger;value or trigger;name=value"
                                 ));
                                 if let Some(suggestion) =
                                     crate::diagnostic::matcher::find_best_match(
