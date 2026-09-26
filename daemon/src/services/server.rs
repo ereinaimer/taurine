@@ -294,7 +294,9 @@ impl DaemonControl for DaemonService {
             taurine_core::settings::set_cached_voice_input_device(
                 settings.voice_input_device.clone(),
             );
-            crate::voice::device_monitor::mark_device_change();
+            if prev_voice_device != settings.voice_input_device {
+                crate::voice::device_monitor::mark_device_change();
+            }
 
             // Sync live voice session manager
             if let Some(session) = crate::VOICE_SESSION.get() {

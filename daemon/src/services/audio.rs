@@ -263,6 +263,7 @@ fn play_cached_voice_cue(
             }
         }
     };
+    let mut revalidated: Option<(Option<VoiceDeviceId>, f64)> = None;
     if let Some((played, played_id, play_ms, throttled)) = warm_attempt {
         if played && throttled {
             debug!("voice cue warm (throttled revalidate)");
@@ -319,11 +320,16 @@ fn play_cached_voice_cue(
         // Fall through and replay on the fresh default below, whether the
         // stale blip sounded (it went to the departed endpoint, so only the
         // replay is heard) or failed. The old early-return on played-after-
-        // mismatch stands deleted by this change.
+        // mismatch stands deleted by this change. Reuse the revalidation
+        // query so replay pays no second enumeration stall.
+        revalidated = Some((current, query_ms));
     }
-    let query_at = Instant::now();
-    let current = backend.default_device_id();
-    let query_ms = query_at.elapsed().as_secs_f64() * 1000.0;
+    let (current, query_ms) = revalidated.unwrap_or_else(|| {
+        let query_at = Instant::now();
+        let current = backend.default_device_id();
+        let query_ms = query_at.elapsed().as_secs_f64() * 1000.0;
+        (current, query_ms)
+    });
     let open_at = Instant::now();
     let opened = backend.open_sink();
     let open_ms = open_at.elapsed().as_secs_f64() * 1000.0;

@@ -419,8 +419,12 @@ impl VoiceSessionManager {
             return;
         }
         if self.capture.is_device_disconnected() {
-            if let Err(e) = self.capture.try_recover_device() {
-                debug!("VoiceSessionManager: live mic recovery failed: {e}");
+            match self.capture.try_recover_device() {
+                Err(e) => debug!("VoiceSessionManager: live mic recovery failed: {e}"),
+                Ok(false) => {
+                    debug!("VoiceSessionManager: no device ready; retrying on next sweep");
+                }
+                Ok(true) => {}
             }
         } else if self.capture.live_device_stale() {
             debug!("VoiceSessionManager: live mic stale after device change; reopening");
