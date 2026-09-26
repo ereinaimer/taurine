@@ -426,6 +426,8 @@ pub fn start() -> taurine_core::error::Result<()> {
                 .ok();
         }
     }
+    // OS push notifications for endpoint changes; no-op off Windows.
+    crate::services::audio_notify::start();
 
     // 6. Deferred heavy initializations, all background and parallel
 
@@ -852,6 +854,8 @@ pub fn start() -> taurine_core::error::Result<()> {
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
+    // Stop OS endpoint notifications; the notifier thread exits on its next tick.
+    crate::services::audio_notify::stop();
 
     // 1. Signal shutdown to all hook listeners/supervisors
     #[cfg(windows)]
