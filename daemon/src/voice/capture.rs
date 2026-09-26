@@ -891,6 +891,20 @@ impl AudioCapture {
         }
     }
 
+    /// True when a live recording's device no longer matches what a fresh
+    /// open would record from (OS default moved, or the configured pick
+    /// changed mid-press). Idle and parked states always return false:
+    /// parked holds are covered by the try_reuse guards. Touches no
+    /// hardware beyond one cheap default-device identity query.
+    pub fn live_device_stale(&self) -> bool {
+        let live = self.live.lock().unwrap_or_else(|p| p.into_inner());
+        let Some(live) = live.as_ref() else {
+            return false;
+        };
+        let (configured, identity) = self.current_mic_identity();
+        live.identity != identity || live.configured != configured
+    }
+
     /// Drop the parked stream and any live handle, resetting the rung to base.
     fn reap_held_and_stream(&self) {
         drop(
@@ -1726,6 +1740,61 @@ mod tests {
         assert!(
             cap.held_open_for_test(),
             "same-device apply must keep the hold"
+        );
+        taurine_core::settings::set_cached_voice_input_device(prev);
+    }
+
+    #[test]
+    fn test_live_device_stale_tracks_os_default() {
+        let (_lock, prev) = lock_pinned_input_for_test();
+        let cap = mic_test_capture();
+        cap.set_test_default_identity("mic-a");
+        cap.start().expect("open");
+        assert!(
+            !cap.live_device_stale(),
+            "fresh live stream must not be stale"
+        );
+        cap.set_test_default_identity("mic-b");
+        assert!(
+            cap.live_device_stale(),
+            "OS default move must stale the live stream"
+        );
+        taurine_core::settings::set_cached_voice_input_device(prev);
+    }
+
+    #[test]
+    fn test_live_device_stale_false_when_idle() {
+        let (_lock, prev) = lock_pinned_input_for_test();
+        let cap = mic_test_capture();
+        cap.set_test_default_identity("mic-a");
+        assert!(
+            !cap.live_device_stale(),
+            "no live recording means nothing can be stale"
+        );
+        cap.start().expect("open");
+        cap.stop();
+        cap.set_test_default_identity("mic-b");
+        assert!(
+            !cap.live_device_stale(),
+            "parked holds are covered by try_reuse guards, not the live check"
+        );
+        taurine_core::settings::set_cached_voice_input_device(prev);
+    }
+
+    #[test]
+    fn test_restart_while_running_reopens() {
+        let (_lock, prev) = lock_pinned_input_for_test();
+        let cap = mic_test_capture();
+        cap.start().expect("open");
+        cap.restart().expect("restart while running must reopen");
+        assert_eq!(
+            cap.open_count_for_test(),
+            2,
+            "restart must drop the old stream and open clean"
+        );
+        assert!(
+            cap.is_running(),
+            "recording must stay running across restart"
         );
         taurine_core::settings::set_cached_voice_input_device(prev);
     }
