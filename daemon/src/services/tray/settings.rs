@@ -95,6 +95,7 @@ mod tests {
         let _lock = taurine_core::testing::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
+        crate::hook::tests::mock_keystore::use_mock_keystore();
         let temp_dir = tempfile::tempdir().unwrap();
         // SAFETY: Serialized under TEST_LOCK for test database isolation.
         unsafe { std::env::set_var("TAURINE_DATA_DIR", temp_dir.path()) };
@@ -113,6 +114,7 @@ mod tests {
         let _lock = taurine_core::testing::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
+        crate::hook::tests::mock_keystore::use_mock_keystore();
         let temp_dir = tempfile::tempdir().unwrap();
         // SAFETY: Serialized under TEST_LOCK for test database isolation.
         unsafe { std::env::set_var("TAURINE_DATA_DIR", temp_dir.path()) };
@@ -131,6 +133,7 @@ mod tests {
         let _lock = taurine_core::testing::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
+        crate::hook::tests::mock_keystore::use_mock_keystore();
         let temp_dir = tempfile::tempdir().unwrap();
         // SAFETY: Serialized under TEST_LOCK for test database isolation.
         unsafe { std::env::set_var("TAURINE_DATA_DIR", temp_dir.path()) };
@@ -152,6 +155,7 @@ mod tests {
         let _lock = taurine_core::testing::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
+        crate::hook::tests::mock_keystore::use_mock_keystore();
         let temp_dir = tempfile::tempdir().unwrap();
         // SAFETY: Serialized under TEST_LOCK for test database isolation.
         unsafe { std::env::set_var("TAURINE_DATA_DIR", temp_dir.path()) };

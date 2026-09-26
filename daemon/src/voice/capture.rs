@@ -301,7 +301,7 @@ pub fn leading_silence_frames(samples: &[f32]) -> usize {
 }
 
 struct RubatoResamplerState {
-    resampler: rubato::FftFixedIn<f32>,
+    resampler: rubato::Fft<f32>,
     fifo: Vec<f32>,
 }
 
@@ -326,7 +326,15 @@ impl std::fmt::Debug for Resampler16k {
 impl Resampler16k {
     pub fn new(input_sample_rate: u32, channels: u16) -> Self {
         let rubato = if input_sample_rate != 16000 && input_sample_rate > 0 {
-            match rubato::FftFixedIn::<f32>::new(input_sample_rate as usize, 16000, 1024, 2, 1) {
+            match rubato::Fft::<f32>::new_custom(
+                input_sample_rate as usize,
+                16000,
+                1024,
+                2,
+                1,
+                rubato::WindowFunction::BlackmanHarris2,
+                rubato::FixedSync::Input,
+            ) {
                 Ok(r) => Some(Mutex::new(RubatoResamplerState {
                     resampler: r,
                     fifo: Vec::with_capacity(4096),
@@ -381,11 +389,19 @@ impl Resampler16k {
                 let mut resampled_chunks = Vec::new();
                 while state.fifo.len() >= needed {
                     let chunk: Vec<f32> = state.fifo.drain(..needed).collect();
-                    match state.resampler.process(&[&chunk], None) {
-                        Ok(mut output_channels) => {
-                            if let Some(chan) = output_channels.get_mut(0) {
-                                resampled_chunks.append(chan);
+                    let input_buf =
+                        match rubato::audioadapter_buffers::owned::InterleavedOwned::new_from(
+                            chunk, 1, needed,
+                        ) {
+                            Ok(buf) => buf,
+                            Err(e) => {
+                                warn!("Rubato input buffer error: {e}");
+                                break;
                             }
+                        };
+                    match state.resampler.process(&input_buf, None) {
+                        Ok(output_buf) => {
+                            resampled_chunks.extend(output_buf.take_data());
                         }
                         Err(e) => {
                             warn!("Rubato resampling error: {e}");
@@ -834,7 +850,7 @@ impl AudioCapture {
             use cpal::traits::{DeviceTrait, HostTrait};
             cpal::default_host()
                 .default_input_device()
-                .and_then(|d| d.name().ok())
+                .and_then(|d| d.description().map(|desc| desc.name().to_string()).ok())
                 .unwrap_or_default()
         }
     }
@@ -969,7 +985,7 @@ impl AudioCapture {
         let mut names = Vec::new();
         if let Ok(devices) = host.input_devices() {
             for device in devices {
-                if let Ok(name) = device.name()
+                if let Ok(name) = device.description().map(|desc| desc.name().to_string())
                     && !names.contains(&name)
                 {
                     names.push(name);
@@ -991,7 +1007,7 @@ impl AudioCapture {
             let configured_lower = configured_name.trim().to_lowercase();
             if let Ok(devices) = host.input_devices() {
                 for d in devices {
-                    if let Ok(name) = d.name() {
+                    if let Ok(name) = d.description().map(|desc| desc.name().to_string()) {
                         let name_lower = name.to_lowercase();
                         if name_lower == configured_lower || name_lower.contains(&configured_lower)
                         {
@@ -1015,7 +1031,7 @@ impl AudioCapture {
             let comm_lower = comm_name.trim().to_lowercase();
             if let Ok(devices) = host.input_devices() {
                 for d in devices {
-                    if let Ok(name) = d.name() {
+                    if let Ok(name) = d.description().map(|desc| desc.name().to_string()) {
                         let name_lower = name.to_lowercase();
                         if name_lower == comm_lower
                             || name_lower.contains(&comm_lower)
@@ -1089,14 +1105,17 @@ impl AudioCapture {
         let host = cpal::default_host();
         let device = Self::resolve_input_device(&host)?;
 
-        let device_name = device.name().unwrap_or_else(|_| "Default Device".into());
+        let device_name = device
+            .description()
+            .map(|desc| desc.name().to_string())
+            .unwrap_or_else(|_| "Default Device".into());
         debug!("Initializing voice capture device: {device_name}");
 
         let config = device
             .default_input_config()
             .map_err(|e| format!("Failed to query default input audio config: {e}"))?;
 
-        let sample_rate = config.sample_rate().0;
+        let sample_rate = config.sample_rate();
         let channels = config.channels();
         let resampler = Arc::new(Resampler16k::new(sample_rate, channels));
 
