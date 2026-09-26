@@ -28,7 +28,11 @@ impl TriggerStatEvent {
 }
 
 pub fn record_trigger_stat(event: TriggerStatEvent) {
-    if cfg!(test) {
+    // Synchronous in test harnesses: cfg(test) is false for this crate when
+    // it is compiled as a dependency of other test binaries, so also probe
+    // the runtime test-env marker. A detached background thread racing
+    // process teardown segfaults test runners after the test reports ok.
+    if cfg!(test) || crate::db::is_test_env() {
         match crate::db::get_conn() {
             Ok(mut conn) => {
                 if let Err(error) = record_trigger_stat_with_conn(&mut conn, &event) {

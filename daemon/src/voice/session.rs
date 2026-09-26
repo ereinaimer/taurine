@@ -2095,6 +2095,14 @@ mod tests {
 
     #[test]
     fn test_inject_transcript_formats_and_returns_text() {
+        // Headless Linux CI has no display, so injection falls back to direct
+        // typing and never touches the clipboard; nothing to assert there.
+        if cfg!(target_os = "linux")
+            && std::env::var("DISPLAY").is_err()
+            && std::env::var("WAYLAND_DISPLAY").is_err()
+        {
+            return;
+        }
         // Hermetic: injection records to the fake injector, never the host;
         // stats land in a temp DB, never the real one; keystore is mocked.
         // Serialized: all three are process-global.

@@ -9,6 +9,105 @@ use taurine_core::db::crud::TriggerAction;
 use taurine_core::engine::source::MemorySource;
 use taurine_core::engine::{EngineEvent, EngineState, Evaluator};
 
+/// Process-local mock OS keystore so temp-DB opens never touch the real
+/// keystore on headless CI (no secret service). Installed once per process.
+pub(crate) mod mock_keystore {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, Once, OnceLock};
+
+    type PasswordMap = HashMap<(String, String), Vec<u8>>;
+
+    const FIXED_TEST_DB_KEY_HEX: &[u8] =
+        b"4343434343434343434343434343434343434343434343434343434343434343";
+
+    static PASSWORDS: OnceLock<Mutex<PasswordMap>> = OnceLock::new();
+    static INSTALL: Once = Once::new();
+
+    fn passwords() -> &'static Mutex<PasswordMap> {
+        PASSWORDS.get_or_init(|| {
+            let mut map = HashMap::new();
+            map.insert(
+                ("taurine".to_string(), "db-key".to_string()),
+                FIXED_TEST_DB_KEY_HEX.to_vec(),
+            );
+            Mutex::new(map)
+        })
+    }
+
+    #[derive(Debug)]
+    struct TestCredential {
+        service: String,
+        user: String,
+    }
+
+    impl keyring::credential::CredentialApi for TestCredential {
+        fn set_secret(&self, secret: &[u8]) -> keyring::Result<()> {
+            passwords()
+                .lock()
+                .expect("test keystore poisoned")
+                .insert((self.service.clone(), self.user.clone()), secret.to_vec());
+            Ok(())
+        }
+
+        fn get_secret(&self) -> keyring::Result<Vec<u8>> {
+            passwords()
+                .lock()
+                .expect("test keystore poisoned")
+                .get(&(self.service.clone(), self.user.clone()))
+                .cloned()
+                .ok_or(keyring::Error::NoEntry)
+        }
+
+        fn delete_credential(&self) -> keyring::Result<()> {
+            passwords()
+                .lock()
+                .expect("test keystore poisoned")
+                .remove(&(self.service.clone(), self.user.clone()))
+                .map(|_| ())
+                .ok_or(keyring::Error::NoEntry)
+        }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+
+        fn debug_fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            std::fmt::Debug::fmt(self, f)
+        }
+    }
+
+    #[derive(Debug)]
+    struct TestCredentialBuilder;
+
+    impl keyring::credential::CredentialBuilderApi for TestCredentialBuilder {
+        fn build(
+            &self,
+            _target: Option<&str>,
+            service: &str,
+            user: &str,
+        ) -> keyring::Result<Box<keyring::credential::Credential>> {
+            Ok(Box::new(TestCredential {
+                service: service.to_string(),
+                user: user.to_string(),
+            }))
+        }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+
+        fn persistence(&self) -> keyring::credential::CredentialPersistence {
+            keyring::credential::CredentialPersistence::ProcessOnly
+        }
+    }
+
+    pub(crate) fn use_mock_keystore() {
+        INSTALL.call_once(|| {
+            keyring::set_default_credential_builder(Box::new(TestCredentialBuilder));
+        });
+    }
+}
+
 #[test]
 fn dispatch_expansion_runs_injection_before_follow_up_consumption() {
     let events = Arc::new(Mutex::new(Vec::new()));
@@ -435,6 +534,7 @@ pub(crate) static TEST_LOCK: &std::sync::Mutex<()> = &taurine_core::testing::TES
 #[test]
 fn test_dispatch_expansion_skips_ai_stats() {
     let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    mock_keystore::use_mock_keystore();
     taurine_core::logs::init_tracing_for_tests();
     let test_dir = std::env::temp_dir().join(format!(
         "taurine_ai_stats_test_{}_{}",
