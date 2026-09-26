@@ -76,6 +76,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Voice Recording Follows Microphone Changes**: Switching or unplugging the microphone mid-dictation moves the live recording to the new device instead of capturing silence, and a lost key release no longer leaves recording stuck on.
 - **Sounds Follow Speaker Changes**: Switching speakers no longer swallows startup and shutdown sounds or leaves them playing on the old device.
 - **Fewer Keyboard Dropouts During Device Changes**: Brief hardware reshuffles no longer restart keyboard capture repeatedly, so fewer keystrokes go missing when devices come and go.
+- **Microphone Releases Immediately**: The microphone now closes the moment you release the talk key instead of staying warm in the background, so the system mic indicator is on only while you are genuinely dictating.
+- **Sounds Follow Speaker Switches**: Startup and shutdown sounds now track speaker changes in real time, including virtual devices, instead of going silent until restart.
 
 ## [1.0.0-alpha.18] - 2026-09-06
 
