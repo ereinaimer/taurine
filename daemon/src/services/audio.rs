@@ -121,6 +121,7 @@ struct CachedVoiceSink {
     device_id: VoiceDeviceId,
     sink: Box<dyn VoiceSink + Send>,
     last_revalidated: Instant,
+    opened_at: Instant,
 }
 
 fn play_through_sink(
@@ -213,6 +214,12 @@ static VOICE_SINK_CACHE: std::sync::Mutex<Option<CachedVoiceSink>> = std::sync::
 /// back-to-back cues share one verdict instead of each paying the stall.
 const REVALIDATE_THROTTLE: Duration = Duration::from_secs(2);
 
+/// Maximum age of a parked cue sink. An undetected output switch (same
+/// name, virtual endpoint re-routed behind our back) can never trip the
+/// identity check, so age alone forces rotation: worst case is this many
+/// seconds of silence. Healthy reopens cost ~10ms.
+const SINK_MAX_AGE: Duration = Duration::from_secs(30);
+
 /// Recover from poisoning: one panicking cue thread must never silence all
 /// future cues forever.
 fn lock_voice_cache(
@@ -251,7 +258,8 @@ fn play_cached_voice_cue(
                 let played = entry.sink.play(data, volume).is_ok();
                 let play_ms = play_at.elapsed().as_secs_f64() * 1000.0;
                 let throttled = entry.last_revalidated.elapsed() < REVALIDATE_THROTTLE;
-                Some((played, entry.device_id.clone(), play_ms, throttled))
+                let expired = entry.opened_at.elapsed() >= SINK_MAX_AGE;
+                Some((played, entry.device_id.clone(), play_ms, throttled, expired))
             }
             _ => {
                 // No entry, or a dead one: drop it here so the fresh path
@@ -264,8 +272,8 @@ fn play_cached_voice_cue(
         }
     };
     let mut revalidated: Option<(Option<VoiceDeviceId>, f64)> = None;
-    if let Some((played, played_id, play_ms, throttled)) = warm_attempt {
-        if played && throttled {
+    if let Some((played, played_id, play_ms, throttled, expired)) = warm_attempt {
+        if played && throttled && !expired {
             debug!("voice cue warm (throttled revalidate)");
             return;
         }
@@ -275,7 +283,7 @@ fn play_cached_voice_cue(
         let query_at = Instant::now();
         let current = backend.default_device_id();
         let query_ms = query_at.elapsed().as_secs_f64() * 1000.0;
-        if played && current.as_ref().is_some_and(|id| id == &played_id) {
+        if played && !expired && current.as_ref().is_some_and(|id| id == &played_id) {
             let mut guard = lock_voice_cache(cache);
             if let Some(entry) = guard.as_mut()
                 && entry.device_id == played_id
@@ -312,6 +320,13 @@ fn play_cached_voice_cue(
             }
         } else {
             drop(guard);
+        }
+        if played && current.as_ref().is_some_and(|id| id == &played_id) {
+            // Expiry-only rotation: the mismatch-drop above already removed this
+            // entry, so just return without replaying - the blip already sounded
+            // through the old sink and replaying a heard blip would double-blip.
+            // The next cue opens fresh.
+            return;
         }
         debug!(
             "voice cue stale play_ms={:.2} revalidate_ms={:.2}",
@@ -357,6 +372,7 @@ fn play_cached_voice_cue(
             device_id,
             sink,
             last_revalidated: Instant::now(),
+            opened_at: Instant::now(),
         });
         debug!(
             "voice cue cold open_ms={:.2} query_ms={:.2} cached=true",
@@ -403,6 +419,7 @@ fn prewarm_voice_sink_with(
             device_id,
             sink,
             last_revalidated: Instant::now(),
+            opened_at: Instant::now(),
         });
         debug!("voice cue sink pre-warmed");
     }
@@ -772,6 +789,7 @@ mod tests {
                 index: 0,
             },
             last_revalidated: std::time::Instant::now(),
+            opened_at: std::time::Instant::now(),
             sink,
         });
         drop_cached_voice_sink();
@@ -797,6 +815,7 @@ mod tests {
             },
             // Aged: this cue must revalidate, not throttle.
             last_revalidated: std::time::Instant::now() - std::time::Duration::from_secs(5),
+            opened_at: std::time::Instant::now(),
             sink: b_sink,
         };
         *cache.lock().unwrap() = Some(newer);
@@ -1018,6 +1037,56 @@ mod tests {
         assert_eq!(state.opens, 1, "warm cue must not reopen");
         assert_eq!(state.plays, 2, "both cues must play");
         assert_eq!(state.cuts, 1, "warm cue must cut, not blend");
+    }
+
+    #[test]
+    fn voice_expired_sink_rotates_without_replay() {
+        let (backend, cache, state) = fake_setup("dev-a");
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        // Age past the TTL with the default UNCHANGED: the blip already
+        // sounded through the old sink, so rotation must not double-blip.
+        {
+            let mut guard = cache.lock().unwrap();
+            if let Some(entry) = guard.as_mut() {
+                entry.opened_at = std::time::Instant::now() - std::time::Duration::from_secs(60);
+            }
+        }
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        {
+            let state = state.lock().unwrap();
+            assert_eq!(state.opens, 1, "expiry rotation defers the reopen");
+            assert_eq!(state.plays, 2, "both cues sound exactly once");
+        }
+        assert!(
+            cache.lock().unwrap().is_none(),
+            "expired entry must be dropped"
+        );
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        let state = state.lock().unwrap();
+        assert_eq!(state.opens, 2, "next cue reopens fresh");
+        assert_eq!(state.plays, 3);
+    }
+
+    #[test]
+    fn voice_expired_sink_with_mismatch_replays() {
+        let (backend, cache, state) = fake_setup("dev-a");
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        {
+            let mut state = state.lock().unwrap();
+            state.outputs = vec!["dev-a".to_string(), "dev-b".to_string()];
+            state.default = Some(1);
+            let mut guard = cache.lock().unwrap();
+            if let Some(entry) = guard.as_mut() {
+                entry.opened_at = std::time::Instant::now() - std::time::Duration::from_secs(60);
+            }
+        }
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        let state = state.lock().unwrap();
+        assert_eq!(state.opens, 2, "expired mismatch must reopen immediately");
+        assert_eq!(
+            state.plays, 3,
+            "stale play plus fresh replay must both sound"
+        );
     }
 
     #[test]
