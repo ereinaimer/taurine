@@ -587,7 +587,20 @@ mod tests {
     #[test]
     fn pause_counter_applies_odd_bursts_and_drops_even_ones() {
         use std::sync::atomic::Ordering;
-        use std::time::Duration;
+        use std::time::{Duration, Instant};
+
+        // Poll a condition until it holds or the deadline passes; fixed
+        // sleeps flake on loaded runners where the counter thread may not be
+        // scheduled within a small margin past the quiet window.
+        fn poll_until(deadline: Instant, mut cond: impl FnMut() -> bool) -> bool {
+            while !cond() {
+                if Instant::now() >= deadline {
+                    return false;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            true
+        }
 
         let _lock = taurine_core::testing::TEST_LOCK
             .lock()
@@ -602,25 +615,32 @@ mod tests {
 
         // Single press: toggles once the quiet window elapses.
         super::push_pause_press();
-        std::thread::sleep(Duration::from_millis(400));
-        assert!(paused.load(Ordering::Relaxed), "odd burst must toggle");
+        assert!(
+            poll_until(Instant::now() + Duration::from_secs(10), || paused
+                .load(Ordering::Relaxed)),
+            "odd burst must toggle"
+        );
         assert_eq!(transition_rx.try_recv(), Ok(true));
         assert!(
             transition_rx.try_recv().is_err(),
             "exactly one transition per burst"
         );
 
-        // Rapid pair: settles even, no toggle, no notification.
+        // Rapid pair: settles even, no toggle, no notification. Watch the
+        // channel well past the quiet window; an even burst never notifies,
+        // so any message here is a failure regardless of scheduling delays.
         super::push_pause_press();
         super::push_pause_press();
-        std::thread::sleep(Duration::from_millis(400));
+        let quiet_until = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < quiet_until {
+            if let Ok(v) = transition_rx.try_recv() {
+                panic!("even burst must not notify, got {v:?}");
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
         assert!(
             paused.load(Ordering::Relaxed),
             "even burst must not toggle back"
-        );
-        assert!(
-            transition_rx.try_recv().is_err(),
-            "even burst must not notify"
         );
 
         super::clear_pause_press_sender();
