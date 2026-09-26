@@ -1,5 +1,6 @@
 use rodio::{Decoder, DeviceSinkBuilder, Player};
 use std::io::Cursor;
+use std::time::{Duration, Instant};
 use taurine_core::settings::{AudioTheme, get_cached_audio_theme, get_cached_audio_volume};
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
@@ -119,6 +120,7 @@ struct VoiceDeviceId {
 struct CachedVoiceSink {
     device_id: VoiceDeviceId,
     sink: Box<dyn VoiceSink + Send>,
+    last_revalidated: Instant,
 }
 
 fn play_through_sink(
@@ -206,6 +208,11 @@ impl VoiceBackend for RodioVoiceBackend {
 
 static VOICE_SINK_CACHE: std::sync::Mutex<Option<CachedVoiceSink>> = std::sync::Mutex::new(None);
 
+/// Minimum gap between output-identity revalidations. Enumeration stalls
+/// for seconds while Windows re-enumerates (3.5s observed per query), so
+/// back-to-back cues share one verdict instead of each paying the stall.
+const REVALIDATE_THROTTLE: Duration = Duration::from_secs(2);
+
 /// Recover from poisoning: one panicking cue thread must never silence all
 /// future cues forever.
 fn lock_voice_cache(
@@ -219,11 +226,12 @@ fn lock_voice_cache(
 /// Warm-path cue playback. The cached entry stays cached: the cue plays
 /// through it FIRST with no device query in front of it (stop, decode and
 /// append run under a microsecond lock, never open, sleep or query), then
-/// the default identity is revalidated beside playback. Match keeps the
-/// entry; mismatch drops only the entry this cue played with, so a newer
-/// concurrent store always survives. Nothing audible ever waits on OS
+/// the default identity is revalidated beside playback unless the previous
+/// verdict is under 2s old. Match keeps the entry; mismatch drops only the
+/// entry this cue played with, so a newer concurrent store always survives,
+/// then replays once on the fresh default. Nothing audible ever waits on OS
 /// enumeration. A device change mid-flight costs at most one blip through
-/// the stale sink (or a silent miss when unplugged), self-healing next cue.
+/// the stale sink (or a silent miss when unplugged) plus its replay.
 /// Silent on every failure: a missed blip at worst.
 fn play_cached_voice_cue(
     backend: &dyn VoiceBackend,
@@ -231,7 +239,6 @@ fn play_cached_voice_cue(
     data: &'static [u8],
     volume: u32,
 ) {
-    use std::time::Instant;
     // Play through the cached entry first: stop, decode and append run under
     // a microsecond lock, never open, sleep or query. The entry stays cached
     // throughout, so overlapping cues share one sink and interrupt each
@@ -243,7 +250,8 @@ fn play_cached_voice_cue(
                 let play_at = Instant::now();
                 let played = entry.sink.play(data, volume).is_ok();
                 let play_ms = play_at.elapsed().as_secs_f64() * 1000.0;
-                Some((played, entry.device_id.clone(), play_ms))
+                let throttled = entry.last_revalidated.elapsed() < REVALIDATE_THROTTLE;
+                Some((played, entry.device_id.clone(), play_ms, throttled))
             }
             _ => {
                 // No entry, or a dead one: drop it here so the fresh path
@@ -255,16 +263,25 @@ fn play_cached_voice_cue(
             }
         }
     };
-    if let Some((played, played_id, play_ms)) = warm_attempt {
+    if let Some((played, played_id, play_ms, throttled)) = warm_attempt {
+        if played && throttled {
+            debug!("voice cue warm (throttled revalidate)");
+            return;
+        }
         // Revalidate beside playback, lock-free: match keeps the entry,
         // mismatch drops only the entry this cue played with so a newer
-        // concurrent store always survives. A sounded cue always returns
-        // here: replaying through a fresh sink would double-blip, and the
-        // next cue reopens lazily.
+        // concurrent store always survives.
         let query_at = Instant::now();
         let current = backend.default_device_id();
         let query_ms = query_at.elapsed().as_secs_f64() * 1000.0;
         if played && current.as_ref().is_some_and(|id| id == &played_id) {
+            let mut guard = lock_voice_cache(cache);
+            if let Some(entry) = guard.as_mut()
+                && entry.device_id == played_id
+            {
+                entry.last_revalidated = Instant::now();
+            }
+            drop(guard);
             debug!(
                 "voice cue warm play_ms={:.2} revalidate_ms={:.2}",
                 play_ms, query_ms
@@ -275,15 +292,34 @@ fn play_cached_voice_cue(
         if guard.as_ref().is_some_and(|e| e.device_id == played_id) {
             *guard = None;
         }
-        drop(guard);
+        // A concurrent cue may have parked a fresh entry while this one
+        // played: prefer it over opening yet another sink when it already
+        // matches the current default.
+        if let Some(entry) = guard.as_mut()
+            && entry.sink.is_live()
+            && current.as_ref().is_some_and(|id| id == &entry.device_id)
+        {
+            let raced = entry.sink.play(data, volume).is_ok();
+            entry.last_revalidated = Instant::now();
+            drop(guard);
+            debug!(
+                "voice cue raced play_ms={:.2} revalidate_ms={:.2}",
+                play_ms, query_ms
+            );
+            if raced {
+                return;
+            }
+        } else {
+            drop(guard);
+        }
         debug!(
             "voice cue stale play_ms={:.2} revalidate_ms={:.2}",
             play_ms, query_ms
         );
-        if played {
-            return;
-        }
-        // Failed playback falls through to a fresh open below.
+        // Fall through and replay on the fresh default below, whether the
+        // stale blip sounded (it went to the departed endpoint, so only the
+        // replay is heard) or failed. The old early-return on played-after-
+        // mismatch stands deleted by this change.
     }
     let query_at = Instant::now();
     let current = backend.default_device_id();
@@ -311,7 +347,11 @@ fn play_cached_voice_cue(
     // the blip. Persistent cached sinks never wait: their player outlives
     // the call.
     if let Some(device_id) = current {
-        *lock_voice_cache(cache) = Some(CachedVoiceSink { device_id, sink });
+        *lock_voice_cache(cache) = Some(CachedVoiceSink {
+            device_id,
+            sink,
+            last_revalidated: Instant::now(),
+        });
         debug!(
             "voice cue cold open_ms={:.2} query_ms={:.2} cached=true",
             open_ms, query_ms
@@ -332,6 +372,15 @@ pub fn prewarm_voice_sink() {
     prewarm_voice_sink_with(&RodioVoiceBackend, &VOICE_SINK_CACHE);
 }
 
+/// Drop the parked cue sink without opening anything. Called on
+/// device-change notifications so the next cue opens fresh on the
+/// current default instead of sounding once more into the departed
+/// endpoint. Never touches a live playback; the next cue re-caches.
+pub fn drop_cached_voice_sink() {
+    *lock_voice_cache(&VOICE_SINK_CACHE) = None;
+    debug!("voice cue cache dropped on device change");
+}
+
 fn prewarm_voice_sink_with(
     backend: &dyn VoiceBackend,
     cache: &std::sync::Mutex<Option<CachedVoiceSink>>,
@@ -344,7 +393,11 @@ fn prewarm_voice_sink_with(
         && let Some(device_id) = current
         && sink.is_live()
     {
-        *lock_voice_cache(cache) = Some(CachedVoiceSink { device_id, sink });
+        *lock_voice_cache(cache) = Some(CachedVoiceSink {
+            device_id,
+            sink,
+            last_revalidated: Instant::now(),
+        });
         debug!("voice cue sink pre-warmed");
     }
 }
@@ -503,6 +556,7 @@ mod tests {
         default: Option<usize>,
         opens: usize,
         plays: usize,
+        queries: usize,
         /// Previous blips cut short by a newer cue (interrupt semantics).
         cuts: usize,
         sounding: bool,
@@ -549,6 +603,7 @@ mod tests {
 
     impl VoiceBackend for FakeBackend {
         fn default_device_id(&self) -> Option<VoiceDeviceId> {
+            self.state.lock().unwrap().queries += 1;
             let state = self.state.lock().unwrap();
             let index = state.default?;
             let name = state.outputs.get(index)?.clone();
@@ -647,6 +702,81 @@ mod tests {
     }
 
     #[test]
+    fn voice_mismatch_replays_once_on_new_default() {
+        let (backend, cache, state) = fake_setup("dev-a");
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        {
+            let mut state = state.lock().unwrap();
+            state.outputs = vec!["dev-a".to_string(), "dev-b".to_string()];
+            state.default = Some(1);
+        }
+        // Age the entry past the throttle so this cue revalidates instead of
+        // taking the throttled warm path (simulates time passing; hermetic, no sleep).
+        {
+            let mut guard = cache.lock().unwrap();
+            if let Some(entry) = guard.as_mut() {
+                entry.last_revalidated =
+                    std::time::Instant::now() - std::time::Duration::from_secs(5);
+            }
+        }
+        // The switched cue must sound on the NEW device in the same call,
+        // not play silently into the departed endpoint and heal next time.
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        let state = state.lock().unwrap();
+        assert_eq!(state.opens, 2, "mismatch must reopen immediately");
+        assert_eq!(
+            state.plays, 3,
+            "stale play plus fresh replay must both sound"
+        );
+        drop(state);
+        assert_eq!(
+            cache.lock().unwrap().as_ref().map(|e| e.device_id.clone()),
+            Some(VoiceDeviceId {
+                name: "dev-b".to_string(),
+                index: 0
+            }),
+            "cache must track the new device"
+        );
+    }
+
+    #[test]
+    fn voice_revalidation_throttles_during_flux() {
+        let (backend, cache, state) = fake_setup("dev-a");
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        let state = state.lock().unwrap();
+        assert_eq!(state.opens, 1, "throttled cues must reuse the warm sink");
+        assert_eq!(state.plays, 2, "both cues must play");
+        assert_eq!(
+            state.queries, 1,
+            "second immediate cue must skip revalidation"
+        );
+    }
+
+    #[test]
+    fn voice_drop_cache_forces_fresh_open() {
+        let (backend, cache, state) = fake_setup("dev-a");
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        assert!(cache.lock().unwrap().is_some());
+        // Park a sink in the GLOBAL cache via the fake backend, then drop it.
+        let sink = backend.open_sink().expect("fake open must succeed");
+        *VOICE_SINK_CACHE.lock().unwrap() = Some(CachedVoiceSink {
+            device_id: VoiceDeviceId {
+                name: "dev-a".to_string(),
+                index: 0,
+            },
+            last_revalidated: std::time::Instant::now(),
+            sink,
+        });
+        drop_cached_voice_sink();
+        assert!(
+            VOICE_SINK_CACHE.lock().unwrap().is_none(),
+            "drop must empty the cache"
+        );
+        drop(state);
+    }
+
+    #[test]
     fn voice_mismatch_drop_preserves_newer_concurrent_entry() {
         let (backend, cache, state) = fake_setup("dev-a");
         play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
@@ -659,20 +789,33 @@ mod tests {
                 name: "dev-b".to_string(),
                 index: 0,
             },
+            // Aged: this cue must revalidate, not throttle.
+            last_revalidated: std::time::Instant::now() - std::time::Duration::from_secs(5),
             sink: b_sink,
         };
         *cache.lock().unwrap() = Some(newer);
-        // Default still dev-a: the cue plays through dev-b (stale for it),
-        // revalidates dev-a, drops exactly the entry it played, and returns
-        // without reopening mid-cue; the next cue reopens lazily.
+        // Default still dev-a: the cue plays through dev-b, drops exactly the
+        // entry it played, then reopens fresh on dev-a and replays there.
         play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
-        assert!(
-            cache.lock().unwrap().is_none(),
-            "stale drop must remove exactly the played entry"
+        assert_eq!(
+            state.lock().unwrap().opens,
+            2,
+            "stale cue must reopen on the current default"
         );
-        assert_eq!(state.lock().unwrap().opens, 1, "stale cue must not reopen");
-        assert_eq!(state.lock().unwrap().plays, 1, "first cue stands");
-        assert_eq!(b_state.lock().unwrap().plays, 1, "stale cue still sounds");
+        assert_eq!(
+            b_state.lock().unwrap().plays,
+            1,
+            "stale play still sounds once"
+        );
+        drop(state);
+        assert_eq!(
+            cache.lock().unwrap().as_ref().map(|e| e.device_id.clone()),
+            Some(VoiceDeviceId {
+                name: "dev-a".to_string(),
+                index: 0,
+            }),
+            "cache must end on the current default"
+        );
     }
 
     #[test]
@@ -686,7 +829,7 @@ mod tests {
     }
 
     #[test]
-    fn voice_changed_default_identity_reopens_lazily_after_one_stale_play() {
+    fn voice_changed_default_identity_reopens_and_replays() {
         let (backend, cache, state) = fake_setup("dev-a");
         play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
         {
@@ -694,24 +837,25 @@ mod tests {
             state.outputs = vec!["dev-a".to_string(), "dev-b".to_string()];
             state.default = Some(1);
         }
-        // Play-first: the changed cue still sounds instantly through the
-        // stale sink while the mismatch drops the cache; no reopen yet.
+        // Age the entry past the throttle so this cue revalidates instead of
+        // taking the throttled warm path (simulates time passing; hermetic, no sleep).
+        {
+            let mut guard = cache.lock().unwrap();
+            if let Some(entry) = guard.as_mut() {
+                entry.last_revalidated =
+                    std::time::Instant::now() - std::time::Duration::from_secs(5);
+            }
+        }
+        // The changed cue reopens immediately on the new default and replays.
         play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
         {
             let state = state.lock().unwrap();
-            assert_eq!(state.opens, 1, "stale play must not reopen mid-cue");
-            assert_eq!(state.plays, 2, "both cues must play");
+            assert_eq!(state.opens, 2, "changed default must reopen immediately");
+            assert_eq!(
+                state.plays, 3,
+                "stale play plus fresh replay must both sound"
+            );
         }
-        assert!(
-            cache.lock().unwrap().is_none(),
-            "mismatch must drop the cache"
-        );
-        // Next cue reopens lazily against the new default and re-caches.
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
-        let state = state.lock().unwrap();
-        assert_eq!(state.opens, 2, "next cue must reopen on the new device");
-        assert_eq!(state.plays, 3, "all cues must play");
-        drop(state);
         assert_eq!(
             cache.lock().unwrap().as_ref().map(|e| e.device_id.clone()),
             Some(VoiceDeviceId {
@@ -720,6 +864,12 @@ mod tests {
             }),
             "cache must track the new device"
         );
+        // Next cue stays warm against the new default.
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        let state = state.lock().unwrap();
+        assert_eq!(state.opens, 2, "warm cue must not reopen");
+        assert_eq!(state.plays, 4, "all cues must play");
+        drop(state);
     }
 
     #[test]

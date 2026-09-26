@@ -156,6 +156,10 @@ unsafe extern "system" fn tray_menu_subclass_proc(
             // SAFETY: ref_data points to live_state valid for the duration of the tau-tray thread.
             let state = unsafe { &*(ref_data as *const TrayLiveState) };
             state.device_dirty.store(true, Ordering::Relaxed);
+            // Proactive cue-cache drop: the next blip opens fresh on the new
+            // default instead of playing into the departed endpoint. No
+            // enumeration here, so this never stalls the GUI thread.
+            crate::services::audio::drop_cached_voice_sink();
         }
         _ => {}
     }
