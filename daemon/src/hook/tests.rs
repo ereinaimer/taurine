@@ -11,7 +11,7 @@ use taurine_core::engine::{EngineEvent, EngineState, Evaluator};
 
 /// Process-local mock OS keystore so temp-DB opens never touch the real
 /// keystore on headless CI (no secret service). Installed once per process.
-mod mock_keystore {
+pub(crate) mod mock_keystore {
     use std::collections::HashMap;
     use std::sync::{Mutex, Once, OnceLock};
 
@@ -101,7 +101,7 @@ mod mock_keystore {
         }
     }
 
-    pub(super) fn use_mock_keystore() {
+    pub(crate) fn use_mock_keystore() {
         INSTALL.call_once(|| {
             keyring::set_default_credential_builder(Box::new(TestCredentialBuilder));
         });

@@ -433,6 +433,7 @@ mod tests {
         let _lock = crate::hook::tests::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
+        crate::hook::tests::mock_keystore::use_mock_keystore();
         // Setup tracing + env override for test dir
         taurine_core::logs::init_tracing_for_tests();
         let test_dir = std::env::temp_dir().join("taurine_reload_test");
