@@ -301,7 +301,7 @@ pub fn leading_silence_frames(samples: &[f32]) -> usize {
 }
 
 struct RubatoResamplerState {
-    resampler: rubato::FftFixedIn<f32>,
+    resampler: rubato::Fft<f32>,
     fifo: Vec<f32>,
 }
 
@@ -326,7 +326,15 @@ impl std::fmt::Debug for Resampler16k {
 impl Resampler16k {
     pub fn new(input_sample_rate: u32, channels: u16) -> Self {
         let rubato = if input_sample_rate != 16000 && input_sample_rate > 0 {
-            match rubato::FftFixedIn::<f32>::new(input_sample_rate as usize, 16000, 1024, 2, 1) {
+            match rubato::Fft::<f32>::new_custom(
+                input_sample_rate as usize,
+                16000,
+                1024,
+                2,
+                1,
+                rubato::WindowFunction::BlackmanHarris2,
+                rubato::FixedSync::Input,
+            ) {
                 Ok(r) => Some(Mutex::new(RubatoResamplerState {
                     resampler: r,
                     fifo: Vec::with_capacity(4096),
@@ -381,11 +389,19 @@ impl Resampler16k {
                 let mut resampled_chunks = Vec::new();
                 while state.fifo.len() >= needed {
                     let chunk: Vec<f32> = state.fifo.drain(..needed).collect();
-                    match state.resampler.process(&[&chunk], None) {
-                        Ok(mut output_channels) => {
-                            if let Some(chan) = output_channels.get_mut(0) {
-                                resampled_chunks.append(chan);
+                    let input_buf =
+                        match rubato::audioadapter_buffers::owned::InterleavedOwned::new_from(
+                            chunk, 1, needed,
+                        ) {
+                            Ok(buf) => buf,
+                            Err(e) => {
+                                warn!("Rubato input buffer error: {e}");
+                                break;
                             }
+                        };
+                    match state.resampler.process(&input_buf, None) {
+                        Ok(output_buf) => {
+                            resampled_chunks.extend(output_buf.take_data());
                         }
                         Err(e) => {
                             warn!("Rubato resampling error: {e}");
