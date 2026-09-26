@@ -30,6 +30,16 @@ pub(crate) const PREROLL_MS: u64 = 400;
 /// Pre-roll samples at 16 kHz mono.
 pub(crate) const PREROLL_SAMPLES: usize = PREROLL_MS as usize * 16;
 
+/// Grace after key-up before a still-"recording" PTT session is declared
+/// stranded by a lost key-release. Normal release-to-stop completes in
+/// milliseconds; only a lost release can still be recording with the key
+/// up this long.
+const STUCK_PTT_GRACE: Duration = Duration::from_secs(10);
+/// Ceiling for the Processing state. Transcription caps at 60s
+/// (finalize_request), so anything beyond this has no owner thread and
+/// would silence voice until restart.
+const STUCK_PROCESSING_TIMEOUT: Duration = Duration::from_secs(90);
+
 /// Hold ladder rungs mirroring the worker sweep: a fresh load holds 10s;
 /// genuine use inside the window steps one rung up to the 60s cap, so at
 /// most 60s of residency follows last use, then zero. Both tables must agree.
@@ -145,6 +155,12 @@ pub struct VoiceSessionManager {
     /// path that terminates a session; presses inside `MASH_WINDOW_MS` cue
     /// instantly but defer engine work to the still-held rescue waiter.
     last_stop: Mutex<Option<Instant>>,
+    /// When the current PushToTalk recording started; None when not recording.
+    /// The sweep auto-stops a recording long past key-up (lost release).
+    ptt_started_at: Mutex<Option<Instant>>,
+    /// When the current Processing state was entered; None otherwise. Bounds
+    /// a wedged worker so one dead transcription cannot silence voice.
+    processing_since: Mutex<Option<Instant>>,
     #[cfg(test)]
     last_latency: Mutex<Option<RequestLatency>>,
     #[cfg(test)]
@@ -174,6 +190,8 @@ impl VoiceSessionManager {
             pending_press: AtomicBool::new(false),
             self_ref: OnceLock::new(),
             last_stop: Mutex::new(None),
+            ptt_started_at: Mutex::new(None),
+            processing_since: Mutex::new(None),
             #[cfg(test)]
             last_latency: Mutex::new(None),
             #[cfg(test)]
@@ -368,6 +386,7 @@ impl VoiceSessionManager {
         self.capture.reclaim_expired_held();
         if self.is_active() {
             self.recover_live_capture_device();
+            self.recover_stranded_session();
             return;
         }
         let mut guard = self.meta.lock().unwrap_or_else(|p| p.into_inner());
@@ -409,6 +428,83 @@ impl VoiceSessionManager {
                 debug!("VoiceSessionManager: live mic reopen failed: {e}");
             }
         }
+    }
+
+    /// Last-resort recovery for sessions the event path lost: a PTT recording
+    /// whose key is long released, or a Processing state older than any
+    /// possible transcription. Only fires on already-stranded sessions;
+    /// healthy holds (key down) and fresh states never trip the grace.
+    fn recover_stranded_session(&self) {
+        match self.current_mode() {
+            VoiceMode::PushToTalk => {
+                let key_up = !crate::input::hotkey::PTT_KEY_DOWN.load(Ordering::Relaxed);
+                let past_grace = self
+                    .ptt_started_at
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .is_some_and(|t| t.elapsed() >= STUCK_PTT_GRACE);
+                if key_up && past_grace {
+                    warn!(
+                        "VoiceSessionManager: PTT key released but session still recording; auto-stopping"
+                    );
+                    if let Err(e) = self.stop_ptt() {
+                        warn!("VoiceSessionManager: stranded PTT auto-stop failed: {e}");
+                    }
+                }
+            }
+            VoiceMode::Processing => {
+                let past_timeout = self
+                    .processing_since
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .is_some_and(|t| t.elapsed() >= STUCK_PROCESSING_TIMEOUT);
+                if past_timeout {
+                    warn!(
+                        "VoiceSessionManager: voice stuck processing with no owner; resetting to Idle"
+                    );
+                    self.reset_stranded_processing();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Reset a wedged Processing state without joining: the owner thread is
+    /// gone and its worker call may never return, so joining here would hang
+    /// the 5s sweep. Detaching the handle lets the dead thread die alone;
+    /// a discard poke frees the worker-side buffer for the next session.
+    fn reset_stranded_processing(&self) {
+        self.pending_press.store(false, Ordering::Relaxed);
+        *self.mode.lock().unwrap_or_else(|p| p.into_inner()) = VoiceMode::Idle;
+        *self
+            .processing_since
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = None;
+        self.note_session_end();
+        self.stop_capture();
+        self.capture.buffer().clear();
+        if let Some(req_id) = self
+            .active_req
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .take()
+            && let Some(entry) = self
+                .streams
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .remove(&req_id)
+        {
+            entry.progress.alive.store(false, Ordering::Relaxed);
+            std::mem::drop(entry.handle);
+            let worker = self.worker.clone();
+            std::thread::Builder::new()
+                .name("taurine-voice-discard".to_string())
+                .spawn(move || {
+                    let _ = worker.transcribe(&req_id, Duration::from_secs(5), None);
+                })
+                .ok();
+        }
+        debug!("VoiceSessionManager: stranded session reset");
     }
 
     /// Refresh a fresh model timestamp so a session starting on a stale-but
@@ -792,6 +888,10 @@ impl VoiceSessionManager {
                 return Ok(());
             }
             *mode = VoiceMode::PushToTalk;
+            *self
+                .ptt_started_at
+                .lock()
+                .unwrap_or_else(|p| p.into_inner()) = Some(Instant::now());
         }
         self.touch_loaded_slot();
         self.kick_preload();
@@ -958,6 +1058,14 @@ impl VoiceSessionManager {
             }
             *mode = VoiceMode::Processing;
         }
+        *self
+            .ptt_started_at
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = None;
+        *self
+            .processing_since
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = Some(Instant::now());
 
         self.stop_capture();
         info!("VoiceSessionManager: Push-To-Talk recording stopped; processing audio");
@@ -966,6 +1074,14 @@ impl VoiceSessionManager {
             let mut mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
             *mode = VoiceMode::Idle;
         }
+        *self
+            .processing_since
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = None;
+        *self
+            .ptt_started_at
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = None;
         self.note_session_end();
         self.maybe_autostart();
         result
@@ -1043,6 +1159,14 @@ impl VoiceSessionManager {
             VoiceMode::HandsFree => {
                 *mode = VoiceMode::Processing;
                 drop(mode);
+                *self
+                    .ptt_started_at
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner()) = None;
+                *self
+                    .processing_since
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner()) = Some(Instant::now());
                 self.stop_capture();
                 info!("VoiceSessionManager: Hands-Free dictation toggled off; processing audio");
                 // Never strand the session in Processing: a worker failure
@@ -1054,6 +1178,14 @@ impl VoiceSessionManager {
                     let mut mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
                     *mode = VoiceMode::Idle;
                 }
+                *self
+                    .processing_since
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner()) = None;
+                *self
+                    .ptt_started_at
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner()) = None;
                 self.note_session_end();
                 self.maybe_autostart();
                 result.map(|text| (VoiceMode::Idle, text))
@@ -1105,6 +1237,14 @@ impl VoiceSessionManager {
         if !was_recording {
             return Ok(None);
         }
+        *self
+            .ptt_started_at
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = None;
+        *self
+            .processing_since
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = Some(Instant::now());
 
         // Escape aborts everything: a parked press dies with the session.
         self.pending_press.store(false, Ordering::Relaxed);
@@ -1116,6 +1256,14 @@ impl VoiceSessionManager {
             let mut mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
             *mode = VoiceMode::Idle;
         }
+        *self
+            .processing_since
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = None;
+        *self
+            .ptt_started_at
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = None;
         self.note_session_end();
         result
     }
@@ -1141,6 +1289,14 @@ impl VoiceSessionManager {
                 .is_some();
         *mode = VoiceMode::Idle;
         drop(mode);
+        *self
+            .processing_since
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = None;
+        *self
+            .ptt_started_at
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = None;
         if was_live {
             self.note_session_end();
         }
@@ -1301,6 +1457,22 @@ impl VoiceSessionManager {
             last_used,
             hold: base_hold(),
         });
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_ptt_started_for_test(&self, at: Instant) {
+        *self
+            .ptt_started_at
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = Some(at);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_processing_since_for_test(&self, at: Instant) {
+        *self
+            .processing_since
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = Some(at);
     }
 }
 
@@ -2805,5 +2977,86 @@ mod tests {
             session.capture().is_device_disconnected(),
             "sweep must leave the flag for the next real recovery"
         );
+    }
+
+    #[test]
+    fn test_sweep_autostops_ptt_with_lost_key_release() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        crate::input::hotkey::PTT_KEY_DOWN.store(true, Ordering::Relaxed);
+        let (session, _) = create_test_session();
+        session.start_ptt().expect("start");
+        assert_eq!(session.current_mode(), VoiceMode::PushToTalk);
+        // The release the hook reinstall ate: flag cleared, stop never ran.
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+        session.set_ptt_started_for_test(Instant::now() - Duration::from_secs(30));
+        session.clean_expired_transcriber();
+        assert_eq!(
+            session.current_mode(),
+            VoiceMode::Idle,
+            "lost release must self-heal to Idle, not stick until restart"
+        );
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+    }
+
+    #[test]
+    fn test_sweep_leaves_fresh_keyup_ptt_alone() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        crate::input::hotkey::PTT_KEY_DOWN.store(true, Ordering::Relaxed);
+        let (session, _) = create_test_session();
+        session.start_ptt().expect("start");
+        // Key already up (tap racing start) but inside grace: hands off.
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+        session.clean_expired_transcriber();
+        assert_eq!(
+            session.current_mode(),
+            VoiceMode::PushToTalk,
+            "grace must protect fresh sessions from the failsafe"
+        );
+        session.cancel();
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+    }
+
+    #[test]
+    fn test_sweep_resets_stranded_processing() {
+        let (session, _) = create_test_session();
+        *session.mode.lock().unwrap() = VoiceMode::Processing;
+        session.set_processing_since_for_test(Instant::now() - Duration::from_secs(120));
+        session.clean_expired_transcriber();
+        assert_eq!(
+            session.current_mode(),
+            VoiceMode::Idle,
+            "Processing older than any transcription must reset"
+        );
+    }
+
+    #[test]
+    fn test_sweep_leaves_fresh_processing_alone() {
+        let (session, _) = create_test_session();
+        *session.mode.lock().unwrap() = VoiceMode::Processing;
+        session.set_processing_since_for_test(Instant::now());
+        session.clean_expired_transcriber();
+        assert_eq!(
+            session.current_mode(),
+            VoiceMode::Processing,
+            "a live transcription must never be reset"
+        );
+        *session.mode.lock().unwrap() = VoiceMode::Idle;
+    }
+
+    #[test]
+    fn test_sweep_leaves_handsfree_alone() {
+        let (session, _) = create_test_session();
+        *session.mode.lock().unwrap() = VoiceMode::HandsFree;
+        session.clean_expired_transcriber();
+        assert_eq!(
+            session.current_mode(),
+            VoiceMode::HandsFree,
+            "toggle-based hands-free is exempt from the key-up net"
+        );
+        *session.mode.lock().unwrap() = VoiceMode::Idle;
     }
 }
