@@ -393,6 +393,12 @@ impl VoiceSessionManager {
     /// buffer outlives the stream, so reopening loses no captured audio.
     /// Silent when healthy: at most one cheap identity query per sweep.
     fn recover_live_capture_device(&self) {
+        if !matches!(
+            self.current_mode(),
+            VoiceMode::PushToTalk | VoiceMode::HandsFree
+        ) {
+            return;
+        }
         if self.capture.is_device_disconnected() {
             if let Err(e) = self.capture.try_recover_device() {
                 debug!("VoiceSessionManager: live mic recovery failed: {e}");
@@ -2778,5 +2784,26 @@ mod tests {
         );
         assert_eq!(session.current_mode(), VoiceMode::PushToTalk);
         crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+    }
+
+    #[test]
+    fn test_sweep_skips_live_recovery_while_processing() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let (session, _) = create_test_session();
+        *session.mode.lock().unwrap() = VoiceMode::Processing;
+        session.capture().simulate_disconnect_for_test();
+        session.clean_expired_transcriber();
+        assert_eq!(session.current_mode(), VoiceMode::Processing);
+        assert_eq!(
+            session.capture().open_count_for_test(),
+            0,
+            "sweep must not reopen the mic during transcription"
+        );
+        assert!(
+            session.capture().is_device_disconnected(),
+            "sweep must leave the flag for the next real recovery"
+        );
     }
 }
