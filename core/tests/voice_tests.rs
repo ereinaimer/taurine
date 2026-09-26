@@ -455,6 +455,34 @@ fn test_voice_trigger_database_crud_lifecycle() {
 
 #[test]
 fn test_phonetic_dictionary_pipeline() {
+    // Lexicon immunity needs the offline DB; seed a temp one so the test is
+    // hermetic and never touches the real data dir. Serialized via TEST_LOCK
+    // since TAURINE_DATA_DIR and the dictionary connection cache are global.
+    let _lock = taurine_core::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let _data_dir = TempDataDir::isolated();
+    {
+        use taurine_core::settings::{InlineDictionaryMode, set_cached_inline_dictionary_mode};
+        let dict_dir = std::env::var("TAURINE_DATA_DIR")
+            .map(std::path::PathBuf::from)
+            .expect("TAURINE_DATA_DIR must be set")
+            .join("dict");
+        std::fs::create_dir_all(&dict_dir).expect("create dict dir");
+        let conn = Connection::open(dict_dir.join("dictionary_lite.db")).expect("open dict db");
+        conn.execute(
+            "CREATE TABLE dictionary (word TEXT PRIMARY KEY, data TEXT)",
+            [],
+        )
+        .expect("create dict table");
+        for w in ["run", "torrent", "now"] {
+            conn.execute("INSERT INTO dictionary (word, data) VALUES (?1, '[]')", [w])
+                .expect("insert dict word");
+        }
+        drop(conn);
+        set_cached_inline_dictionary_mode(InlineDictionaryMode::Lite);
+        taurine_core::engine::dictionary::offline::close_cached_connection();
+    }
     let dict = VoiceDictionary::from_csv("Taurine");
     // Distinct English words like "torrent" or "thirty" are preserved
     assert_eq!(dict.apply("run torrent now"), "run torrent now");
@@ -471,6 +499,7 @@ fn test_phonetic_dictionary_pipeline() {
         dict.apply("Dorin is the best text expander in the world"),
         "Taurine is the best text expander in the world"
     );
+    taurine_core::engine::dictionary::offline::close_cached_connection();
 }
 
 fn test_voice_invocation(phrase: &str, output: &str) -> taurine_core::db::crud::ResolvedInvocation {
