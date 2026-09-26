@@ -1277,6 +1277,22 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
     use taurine_core::voice::VoiceDictionary;
 
+    /// Poll until the session reaches `want` (or a 5 s deadline expires).
+    /// The mash-rescue waiter sleeps a fixed `RESCUE_WAIT_MS` before acting,
+    /// so a fixed test sleep leaves only a ~100 ms margin for the rescue
+    /// thread's spawn and wakeup under parallel CI load. Polling absorbs
+    /// that dilation instead of racing it.
+    fn wait_for_mode(session: &VoiceSessionManager, want: VoiceMode) -> VoiceMode {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let got = session.current_mode();
+            if got == want || Instant::now() >= deadline {
+                return got;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
     fn create_test_session() -> (VoiceSessionManager, Arc<AtomicBool>) {
         create_ordering_session(None, None, None)
     }
@@ -1791,9 +1807,8 @@ mod tests {
             .capture()
             .buffer()
             .push_samples(&[MARKER; PREROLL_SAMPLES]);
-        std::thread::sleep(Duration::from_millis(RESCUE_WAIT_MS + 100));
         assert_eq!(
-            session.current_mode(),
+            wait_for_mode(&session, VoiceMode::PushToTalk),
             VoiceMode::PushToTalk,
             "held key must rescue the gated press"
         );
@@ -1892,9 +1907,8 @@ mod tests {
         crate::input::hotkey::HANDSFREE_KEY_DOWN.store(true, Ordering::Relaxed);
         let (mode, _) = session.toggle_handsfree().expect("mash toggle");
         assert_eq!(mode, VoiceMode::Idle);
-        std::thread::sleep(Duration::from_millis(RESCUE_WAIT_MS + 100));
         assert_eq!(
-            session.current_mode(),
+            wait_for_mode(&session, VoiceMode::HandsFree),
             VoiceMode::HandsFree,
             "held key must rescue the gated hands-free press"
         );
