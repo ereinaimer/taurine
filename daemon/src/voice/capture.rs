@@ -4,9 +4,7 @@ use std::sync::Mutex;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
-#[cfg(not(test))]
-use tracing::error;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 /// Maximum buffered samples (5 minutes of 16kHz mono audio = 4,800,000 samples).
 pub const MAX_BUFFER_SAMPLES: usize = 16_000 * 60 * 5;
@@ -802,6 +800,22 @@ impl AudioCapture {
         self.device_disconnected.load(Ordering::Relaxed)
     }
 
+    /// Classify a cpal stream failure. WASAPI only reports DeviceNotAvailable
+    /// vs BackendSpecific, and a mid-stream BackendSpecific error never
+    /// self-heals, so every variant flags disconnection and clears the
+    /// running flag. The next start() then reopens clean instead of
+    /// recording dead air from a zombie stream.
+    pub(crate) fn handle_stream_error(
+        is_running: &AtomicBool,
+        device_disconnected: &AtomicBool,
+        err: &cpal::StreamError,
+    ) {
+        error!("Audio stream error: {err}");
+        warn!("Audio input device error; flagging disconnection");
+        device_disconnected.store(true, Ordering::SeqCst);
+        is_running.store(false, Ordering::SeqCst);
+    }
+
     /// Snapshot the current mic identity: cached configured device plus the
     /// effective device a fresh open would record from.
     fn current_mic_identity(&self) -> (Option<String>, String) {
@@ -1105,12 +1119,7 @@ impl AudioCapture {
         let disconnected_clone = self.device_disconnected.clone();
 
         let err_fn = move |err: cpal::StreamError| {
-            error!("Audio stream error: {err}");
-            if matches!(err, cpal::StreamError::DeviceNotAvailable) {
-                warn!("Audio input device became unavailable; flagging disconnection");
-                disconnected_clone.store(true, Ordering::SeqCst);
-                is_running_clone.store(false, Ordering::SeqCst);
-            }
+            AudioCapture::handle_stream_error(&is_running_clone, &disconnected_clone, &err);
         };
 
         let sample_format = config.sample_format();
@@ -1719,5 +1728,44 @@ mod tests {
             "same-device apply must keep the hold"
         );
         taurine_core::settings::set_cached_voice_input_device(prev);
+    }
+
+    #[test]
+    fn test_any_stream_error_flags_disconnection() {
+        let running = AtomicBool::new(true);
+        let disconnected = AtomicBool::new(false);
+        AudioCapture::handle_stream_error(
+            &running,
+            &disconnected,
+            &cpal::StreamError::DeviceNotAvailable,
+        );
+        assert!(
+            !running.load(Ordering::SeqCst),
+            "DeviceNotAvailable must clear the running flag"
+        );
+        assert!(
+            disconnected.load(Ordering::SeqCst),
+            "DeviceNotAvailable must flag disconnection"
+        );
+
+        let running = AtomicBool::new(true);
+        let disconnected = AtomicBool::new(false);
+        AudioCapture::handle_stream_error(
+            &running,
+            &disconnected,
+            &cpal::StreamError::BackendSpecific {
+                err: cpal::BackendSpecificError {
+                    description: "AUDCLNT_E_DEVICE_INVALIDATED".to_string(),
+                },
+            },
+        );
+        assert!(
+            !running.load(Ordering::SeqCst),
+            "backend-specific errors must also clear the running flag"
+        );
+        assert!(
+            disconnected.load(Ordering::SeqCst),
+            "backend-specific errors must also flag disconnection"
+        );
     }
 }
