@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Machine-Bound Database Encryption**: The local database is now encrypted with a per-computer key and copies of the database file no longer open on other computers; move data between machines with encrypted exports.
 - **Simpler fill-in fields**: Write `[name=default]` and fill values inline with `;` (e.g. `hi;Erein`); missing values use defaults, `;;` skips a field.
 - **Semicolon argument separator**: Separate arguments with `;` instead of `:` so times and URLs no longer need quoting.
+- Lower memory use on startup by loading the voice model only when dictation is first used.
 
 ### Removed
 - **Local-Only Daemon Control**: Removed the TCP transport settings (`rpc_mode`, `rpc_host`, `rpc_port`) and the RPC auth token. The daemon is now controlled over the local socket (Unix) or a same-user named pipe (Windows) only.

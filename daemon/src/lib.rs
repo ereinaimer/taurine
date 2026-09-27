@@ -373,9 +373,9 @@ pub fn start() -> taurine_core::error::Result<()> {
     // own threads from here on)
     services::audio::start_worker(audio_rx);
 
-    // 5. Voice subsystem in the background — worker pre-spawned plus model
-    // preloaded so the first press transcribes instantly. Idle expiry still
-    // unloads the model after the hold ladder, then on-demand use reloads it.
+    // 5. Voice subsystem in the background — worker pre-spawned model-free
+    // so the pipe is warm; the model loads on first press and unloads after
+    // the hold ladder, keeping startup memory flat.
     {
         use taurine_core::voice::VoiceDictionary;
 
@@ -402,12 +402,9 @@ pub fn start() -> taurine_core::error::Result<()> {
                         // Park the cue output sink too, so the first press of
                         // the process plays warm. Silent when no device exists.
                         crate::services::audio::prewarm_voice_sink();
-                        // Preload in the same background thread so hook
-                        // startup never waits; missing model files fall back
-                        // to lazy first-press load.
-                        if let Err(e) = warm.ensure_worker_ready() {
-                            tracing::debug!("voice model preload deferred: {e}");
-                        }
+                        // No model preload: the worker stays model-free until
+                        // the first PTT / hands-free press loads it via
+                        // kick_preload, keeping startup memory flat.
                     }),
                 );
             })

@@ -715,7 +715,8 @@ impl VoiceSessionManager {
         Self::ensure_model_loaded(&self.worker, &self.meta, self.target_model())
     }
 
-    /// Preload the model in the background on a dedicated thread at genuine engine start.
+    /// Preload the model in the background on a dedicated thread on press /
+    /// capture start.
     ///
     /// Fire-and-forget: press and capture never wait for the load. If the worker is already
     /// warm this is a millisecond ping; if cold, background load overlaps speech capture.
@@ -2437,6 +2438,25 @@ mod tests {
         let worker = WorkerClient::with_hooks(spawner, connector).expect("test client");
         let session = VoiceSessionManager::new(capture, paused).with_worker(worker);
         assert!(session.ensure_worker_ready().is_err());
+    }
+
+    #[test]
+    fn test_warm_worker_leaves_model_unbound() {
+        // Boot-warm path: model-free handshake only, so meta stays None and
+        // no model binds. Failing spawner, no host audio/input.
+        let buffer = Arc::new(super::super::capture::AudioFrameBuffer::new());
+        let capture = Arc::new(AudioCapture::new(buffer));
+        let paused = Arc::new(AtomicBool::new(false));
+        let spawner: super::super::worker_client::SpawnFn =
+            Arc::new(|_, _| Err(std::io::Error::other("no worker in tests")));
+        let connector: super::super::worker_client::ConnectFn = Arc::new(|_, _, _, _| {
+            Box::pin(async { Err("no worker in tests".to_string()) })
+                as std::pin::Pin<Box<dyn std::future::Future<Output = Result<_, String>> + Send>>
+        });
+        let worker = WorkerClient::with_hooks(spawner, connector).expect("test client");
+        let session = VoiceSessionManager::new(capture, paused).with_worker(worker);
+        session.warm_worker();
+        assert!(session.meta.lock().unwrap().is_none());
     }
 
     /// Duplex stub peer answering hello/ping/append/transcribe without a process.
