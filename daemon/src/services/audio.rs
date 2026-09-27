@@ -175,23 +175,15 @@ struct RodioVoiceBackend;
 
 impl VoiceBackend for RodioVoiceBackend {
     fn default_device_id(&self) -> Option<VoiceDeviceId> {
-        use cpal::traits::{DeviceTrait, HostTrait};
+        use cpal::traits::HostTrait;
         let host = cpal::default_host();
-        let name = host
-            .default_output_device()?
-            .description()
-            .map(|desc| desc.name().to_string())
-            .ok()?;
+        let name = crate::voice::capture::friendly_device_name(&host.default_output_device()?)?;
         // Position among same-named devices. Unique names always yield 0
         // regardless of where unrelated endpoints sort around them, so
         // reorderings never invalidate the cache.
         let mut found = false;
         for device in host.output_devices().ok()? {
-            if device
-                .description()
-                .map(|desc| desc.name().to_string())
-                .ok()
-                .as_deref()
+            if crate::voice::capture::friendly_device_name(&device).as_deref()
                 != Some(name.as_str())
             {
                 continue;

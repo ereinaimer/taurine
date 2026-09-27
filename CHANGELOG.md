@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Redundant Audio Themes**: Remove soft, glass, dreamy, cinematic, and studio pause/resume sounds, leaving seven themes.
 
 ### Fixed
+- **Microphone List & Dictation Cues**: Restore individual microphones in the tray menu and keep start/stop sounds on the current speaker.
 - **Responsive Pause Toggle**: The pause hotkey plays its sound instantly on every press and settles rapid presses to the intended on/off state.
 - **Instant, Accurate Tray Icon**: The tray appears immediately at launch, flips the moment pause is pressed, and never leaves duplicates behind.
 - **Instant Long Expansions**: Longer snippets now paste in one step instead of typing out character by character.

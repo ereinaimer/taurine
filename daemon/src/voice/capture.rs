@@ -590,6 +590,26 @@ mod win_com {
     }
 }
 
+/// User-facing device name on cpal 0.17.
+///
+/// WASAPI `description().name()` is the generic class (`DeviceDesc`, e.g.
+/// "Microphone"/"Speakers") shared by every endpoint, while the specific
+/// label users recognize (`FriendlyName`, e.g. "Microphone Array
+/// (Realtek(R) Audio)") rides in `extended()[0]` when it differs. Other
+/// backends already put the specific label in `name()` with `extended()[0]`
+/// equal (ALSA) or empty (CoreAudio), so preferring the first extended line
+/// restores the pre-0.17 `device.name()` behavior everywhere with no cfg.
+pub fn friendly_device_name(device: &cpal::Device) -> Option<String> {
+    use cpal::traits::DeviceTrait;
+    let desc = device.description().ok()?;
+    if let Some(first) = desc.extended().first()
+        && !first.trim().is_empty()
+    {
+        return Some(first.clone());
+    }
+    Some(desc.name().to_string())
+}
+
 /// Query the system default communications audio capture device name on Windows.
 ///
 /// On Windows, querying the `eCommunications` role endpoint allows applications to
@@ -799,10 +819,10 @@ impl AudioCapture {
             if let Some(name) = query_default_communications_device_name() {
                 return name;
             }
-            use cpal::traits::{DeviceTrait, HostTrait};
+            use cpal::traits::HostTrait;
             cpal::default_host()
                 .default_input_device()
-                .and_then(|d| d.description().map(|desc| desc.name().to_string()).ok())
+                .and_then(|d| friendly_device_name(&d))
                 .unwrap_or_default()
         }
     }
@@ -856,12 +876,12 @@ impl AudioCapture {
 
     /// Enumerate all unique audio input device names currently available on the system.
     pub fn list_input_devices() -> Vec<String> {
-        use cpal::traits::{DeviceTrait, HostTrait};
+        use cpal::traits::HostTrait;
         let host = cpal::default_host();
         let mut names = Vec::new();
         if let Ok(devices) = host.input_devices() {
             for device in devices {
-                if let Ok(name) = device.description().map(|desc| desc.name().to_string())
+                if let Some(name) = friendly_device_name(&device)
                     && !names.contains(&name)
                 {
                     names.push(name);
@@ -875,7 +895,7 @@ impl AudioCapture {
     /// against available input devices (case-insensitive substring match).
     /// Falls back to system default input device if unset or not found.
     pub fn resolve_input_device(host: &cpal::Host) -> Result<cpal::Device, String> {
-        use cpal::traits::{DeviceTrait, HostTrait};
+        use cpal::traits::HostTrait;
 
         if let Some(configured_name) = taurine_core::settings::get_cached_voice_input_device()
             && !configured_name.trim().is_empty()
@@ -883,7 +903,7 @@ impl AudioCapture {
             let configured_lower = configured_name.trim().to_lowercase();
             if let Ok(devices) = host.input_devices() {
                 for d in devices {
-                    if let Ok(name) = d.description().map(|desc| desc.name().to_string()) {
+                    if let Some(name) = friendly_device_name(&d) {
                         let name_lower = name.to_lowercase();
                         if name_lower == configured_lower || name_lower.contains(&configured_lower)
                         {
@@ -907,7 +927,7 @@ impl AudioCapture {
             let comm_lower = comm_name.trim().to_lowercase();
             if let Ok(devices) = host.input_devices() {
                 for d in devices {
-                    if let Ok(name) = d.description().map(|desc| desc.name().to_string()) {
+                    if let Some(name) = friendly_device_name(&d) {
                         let name_lower = name.to_lowercase();
                         if name_lower == comm_lower
                             || name_lower.contains(&comm_lower)
@@ -980,10 +1000,7 @@ impl AudioCapture {
         let host = cpal::default_host();
         let device = Self::resolve_input_device(&host)?;
 
-        let device_name = device
-            .description()
-            .map(|desc| desc.name().to_string())
-            .unwrap_or_else(|_| "Default Device".into());
+        let device_name = friendly_device_name(&device).unwrap_or_else(|| "Default Device".into());
         debug!("Initializing voice capture device: {device_name}");
 
         let config = device
