@@ -218,10 +218,7 @@ impl Evaluator {
         window: &crate::engine::catalog::WindowResolver,
         mut fetch_window: Option<impl FnOnce() -> Option<crate::engine::catalog::ActiveWindowInfo>>,
     ) -> Option<ExpansionResult> {
-        use std::sync::atomic::Ordering;
-        if self.state.ignore_fullscreen_enabled.load(Ordering::Relaxed)
-            && self.state.is_os_fullscreen.load(Ordering::Relaxed)
-        {
+        if self.state.fullscreen_suppressed() {
             self.buffer.clear();
             self.completion.deactivate(&self.state.completion_active);
             return None;
@@ -278,7 +275,10 @@ impl Evaluator {
                 self.buffer.push(c);
                 self.update_completion_after_char(c);
 
-                if self.state.instant_expand.load(Ordering::Relaxed)
+                if self
+                    .state
+                    .instant_expand
+                    .load(std::sync::atomic::Ordering::Relaxed)
                     && let Some(result) =
                         self.evaluate_buffer_for_expansion_lazy(window, fetch_window.take())
                 {

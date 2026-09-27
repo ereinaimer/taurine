@@ -514,57 +514,68 @@ pub fn process_keyboard_event(
             // Voice routing — check voice hotkeys and Escape before the text-expansion pipeline.
             // All voice work is dispatched off the hook thread to avoid blocking the message pump.
             if let Some(session) = crate::VOICE_SESSION.get() {
-                // Escape terminates any live PTT or HandsFree session.
+                // Escape terminates any live PTT or HandsFree session. Never gated:
+                // a session started before fullscreen must still be cancellable.
                 if key == Key::Escape && session.is_active() {
                     let session = session.clone();
+                    let pass_through = state.fullscreen_suppressed();
                     std::thread::spawn(move || {
                         if let Err(e) = session.on_escape_pressed() {
                             warn!("Voice Escape handler error: {e}");
                         }
                     });
                     // Swallow Escape so it doesn't close an application dialog while dictating.
-                    return None;
-                }
-
-                // PTT press — start recording if the PTT hotkey matches.
-                if let Some(spec) = cached_voice_ptt_spec()
-                    && spec.matches_press(&event, modifiers)
-                {
-                    if !PTT_KEY_DOWN.swap(true, Ordering::Relaxed) {
-                        let session = session.clone();
-                        if let Err(e) = std::thread::Builder::new()
-                            .name("taurine-voice-ptt-start".to_string())
-                            .spawn(move || {
-                                if let Err(e) = session.start_ptt() {
-                                    warn!("Voice PTT start error: {e}");
-                                }
-                            })
-                        {
-                            warn!("Voice PTT start spawn error: {e}");
-                        }
-                    }
-                    if is_modifier_key(key) {
+                    // Exception: suppressed on fullscreen — the key belongs to the game,
+                    // and the inject gate already discards the cancelled audio.
+                    if pass_through {
                         return Some(event);
                     }
                     return None;
                 }
 
-                // HandsFree toggle press.
-                if let Some(spec) = cached_voice_handsfree_spec()
-                    && spec.matches_press(&event, modifiers)
-                {
-                    if !HANDSFREE_KEY_DOWN.swap(true, Ordering::Relaxed) {
-                        let session = session.clone();
-                        std::thread::spawn(move || {
-                            if let Err(e) = session.toggle_handsfree() {
-                                warn!("Voice HandsFree toggle error: {e}");
+                // Voice hotkeys stay silent on fullscreen when ignore-fullscreen is on:
+                // no cue, no capture, and the key passes through like an unmatched hotkey.
+                if !state.fullscreen_suppressed() {
+                    // PTT press — start recording if the PTT hotkey matches.
+                    if let Some(spec) = cached_voice_ptt_spec()
+                        && spec.matches_press(&event, modifiers)
+                    {
+                        if !PTT_KEY_DOWN.swap(true, Ordering::Relaxed) {
+                            let session = session.clone();
+                            if let Err(e) = std::thread::Builder::new()
+                                .name("taurine-voice-ptt-start".to_string())
+                                .spawn(move || {
+                                    if let Err(e) = session.start_ptt() {
+                                        warn!("Voice PTT start error: {e}");
+                                    }
+                                })
+                            {
+                                warn!("Voice PTT start spawn error: {e}");
                             }
-                        });
+                        }
+                        if is_modifier_key(key) {
+                            return Some(event);
+                        }
+                        return None;
                     }
-                    if is_modifier_key(key) {
-                        return Some(event);
+
+                    // HandsFree toggle press.
+                    if let Some(spec) = cached_voice_handsfree_spec()
+                        && spec.matches_press(&event, modifiers)
+                    {
+                        if !HANDSFREE_KEY_DOWN.swap(true, Ordering::Relaxed) {
+                            let session = session.clone();
+                            std::thread::spawn(move || {
+                                if let Err(e) = session.toggle_handsfree() {
+                                    warn!("Voice HandsFree toggle error: {e}");
+                                }
+                            });
+                        }
+                        if is_modifier_key(key) {
+                            return Some(event);
+                        }
+                        return None;
                     }
-                    return None;
                 }
             }
 

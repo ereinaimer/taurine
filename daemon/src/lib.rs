@@ -386,7 +386,8 @@ pub fn start() -> taurine_core::error::Result<()> {
         let session = Arc::new(
             crate::voice::VoiceSessionManager::new(capture.clone(), paused.clone())
                 .with_model_name(settings.voice_model.clone())
-                .with_dictionary(dict),
+                .with_dictionary(dict)
+                .with_engine_state(state.clone()),
         );
         session.set_self_ref();
 

@@ -128,6 +128,7 @@ pub struct VoiceSessionManager {
     mode: Mutex<VoiceMode>,
     capture: Arc<AudioCapture>,
     paused: Arc<AtomicBool>,
+    engine_state: Option<Arc<taurine_core::engine::EngineState>>,
     model_name: Mutex<String>,
     dictionary: Mutex<VoiceDictionary>,
     worker: WorkerClient,
@@ -174,6 +175,7 @@ impl VoiceSessionManager {
             mode: Mutex::new(VoiceMode::Idle),
             capture,
             paused,
+            engine_state: None,
             model_name: Mutex::new("auto".to_string()),
             dictionary: Mutex::new(VoiceDictionary::default()),
             worker: WorkerClient::new().expect("voice worker runtime must build"),
@@ -197,6 +199,22 @@ impl VoiceSessionManager {
             #[cfg(test)]
             stop_hook: Mutex::new(None),
         }
+    }
+
+    /// Builder method to share the daemon EngineState for fullscreen checks.
+    /// Production wires the live state in daemon/src/lib.rs; tests opt in per
+    /// case. Unset means "not suppressed".
+    pub fn with_engine_state(mut self, state: Arc<taurine_core::engine::EngineState>) -> Self {
+        self.engine_state = Some(state);
+        self
+    }
+
+    /// True when voice must stay silent: ignore-fullscreen on and a fullscreen
+    /// app focused. Reads the live atomics, so settings hot-reload applies.
+    fn voice_suppressed(&self) -> bool {
+        self.engine_state
+            .as_ref()
+            .is_some_and(|s| s.fullscreen_suppressed())
     }
 
     /// Builder method to specify the voice model name.
@@ -835,6 +853,10 @@ impl VoiceSessionManager {
             debug!("VoiceSessionManager: start_ptt ignored because daemon is paused");
             return Ok(());
         }
+        if self.voice_suppressed() {
+            debug!("VoiceSessionManager: start_ptt ignored while fullscreen app focused");
+            return Ok(());
+        }
 
         self.fire_start_cue();
         let cue_at = Instant::now();
@@ -1137,6 +1159,17 @@ impl VoiceSessionManager {
             debug!("VoiceSessionManager: toggle_handsfree ignored because daemon is paused");
             return Ok((VoiceMode::Idle, None));
         }
+        // Start direction only: a live HandsFree session must always be able
+        // to stop (the inject gate discards its audio when suppressed).
+        {
+            let mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
+            if *mode == VoiceMode::Idle && self.voice_suppressed() {
+                debug!(
+                    "VoiceSessionManager: toggle_handsfree ignored while fullscreen app focused"
+                );
+                return Ok((VoiceMode::Idle, None));
+            }
+        }
 
         // Direction cue first, so feedback never waits on locks or devices.
         {
@@ -1332,6 +1365,13 @@ impl VoiceSessionManager {
             debug!("VoiceSessionManager: transcription returned empty text");
             return Ok(None);
         }
+        // Backstop for recordings that span a fullscreen transition: discard
+        // before dictionary, stats, trigger expansion, and injection. Covers
+        // dictation and voice triggers — both funnel through here.
+        if self.voice_suppressed() {
+            debug!("VoiceSessionManager: discarding transcript while fullscreen app focused");
+            return Ok(None);
+        }
 
         // Apply personal dictionary
         let dict = self.dictionary.lock().unwrap_or_else(|p| p.into_inner());
@@ -1523,6 +1563,172 @@ mod tests {
 
     fn create_test_session() -> (VoiceSessionManager, Arc<AtomicBool>) {
         create_ordering_session(None, None, None)
+    }
+
+    fn suppressed_state() -> Arc<taurine_core::engine::EngineState> {
+        let state = Arc::new(taurine_core::engine::EngineState::new());
+        state.is_os_fullscreen.store(true, Ordering::Relaxed);
+        state
+    }
+
+    #[test]
+    fn voice_suppressed_defaults_to_false() {
+        let (session, _) = create_test_session();
+        assert!(!session.voice_suppressed());
+    }
+
+    #[test]
+    fn voice_suppressed_follows_engine_state() {
+        let (session, _) = create_test_session();
+        let session = session.with_engine_state(suppressed_state());
+        assert!(session.voice_suppressed());
+        session
+            .engine_state
+            .as_ref()
+            .expect("test wired engine state")
+            .ignore_fullscreen_enabled
+            .store(false, Ordering::Relaxed);
+        assert!(!session.voice_suppressed());
+    }
+
+    /// Build a session recording start-cue and capture-start into one order
+    /// log. Hooks replace the mic and speaker, so even an ungated press never
+    /// touches the host in hermetic tests.
+    fn create_start_ordering_session() -> (VoiceSessionManager, Arc<Mutex<Vec<&'static str>>>) {
+        let order = Arc::new(Mutex::new(Vec::<&'static str>::new()));
+        let cue_order = Arc::clone(&order);
+        let cap_order = Arc::clone(&order);
+        let (session, _) = create_ordering_session(
+            Some(Arc::new(move || {
+                cue_order
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .push("cue");
+            })),
+            Some(Arc::new(move || {
+                cap_order
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .push("capture");
+                Ok(())
+            })),
+            None,
+        );
+        (session, order)
+    }
+
+    fn start_order_of(order: &Arc<Mutex<Vec<&'static str>>>) -> Vec<&'static str> {
+        order.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    }
+
+    #[test]
+    fn suppressed_ptt_press_is_silent_noop() {
+        let (session, order) = create_start_ordering_session();
+        let session = session.with_engine_state(suppressed_state());
+        session.start_ptt().unwrap();
+        assert_eq!(session.current_mode(), VoiceMode::Idle);
+        assert!(session.capture().buffer().is_empty());
+        assert!(
+            start_order_of(&order).is_empty(),
+            "suppressed PTT must fire no cue and open no capture, got {:?}",
+            start_order_of(&order)
+        );
+    }
+
+    #[test]
+    fn suppressed_handsfree_toggle_from_idle_is_noop() {
+        let (session, order) = create_start_ordering_session();
+        let session = session.with_engine_state(suppressed_state());
+        let (mode, text) = session.toggle_handsfree().unwrap();
+        assert_eq!(mode, VoiceMode::Idle);
+        assert_eq!(text, None);
+        assert!(
+            start_order_of(&order).is_empty(),
+            "suppressed hands-free toggle must fire no cue, got {:?}",
+            start_order_of(&order)
+        );
+    }
+
+    #[test]
+    fn suppressed_handsfree_toggle_off_still_stops() {
+        // Empty buffer takes the tap-too-short path in finalize_request: no
+        // worker needed, returns Ok(None), mode returns to Idle.
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let (session, _) = create_test_session();
+        let session = session.with_engine_state(suppressed_state());
+        *session.mode.lock().unwrap() = VoiceMode::HandsFree;
+        let (mode, text) = session.toggle_handsfree().unwrap();
+        assert_eq!(mode, VoiceMode::Idle);
+        assert_eq!(text, None);
+    }
+
+    #[test]
+    fn suppressed_inject_transcript_discards_without_injecting() {
+        // Hermetic: the gate returns before DB, keystore, and injector
+        // access, so only the injector recorder needs clearing for the
+        // negative assert. Serialized on the global lock with the other
+        // injector-recording tests.
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let (session, _) = create_test_session();
+        let session = session.with_engine_state(suppressed_state());
+        crate::platform::test_injector().clear();
+        let res = session.inject_transcript("hello world").unwrap();
+        assert_eq!(res, None);
+        assert!(
+            crate::platform::test_injector().recorded().is_empty(),
+            "suppressed dictation must not inject, got {:?}",
+            crate::platform::test_injector().recorded()
+        );
+    }
+
+    #[test]
+    fn suppressed_inject_transcript_discards_matching_trigger() {
+        // Hermetic: temp DB + mock keystore + recording injector, serialized
+        // on the global lock like test_parameterized_voice_trigger_injects_args.
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let conn = taurine_core::db::get_conn().expect("temp db conn");
+        taurine_core::db::crud::create_entry(
+            &conn,
+            taurine_core::db::crud::NewEntry {
+                name: String::new(),
+                description: None,
+                content: "Hello, [person=there]!".to_string(),
+                action_type: "text".to_string(),
+                target_os: "all".to_string(),
+                only_apps: None,
+                except_apps: None,
+                tags_json: "[]".to_string(),
+                auto_case: false,
+                interpreter: None,
+                behavior: None,
+                invocations: vec![(
+                    taurine_core::db::crud::InvocationType::Voice,
+                    "say hi to [person]".to_string(),
+                    false,
+                )],
+            },
+        )
+        .expect("seed parameterized voice trigger");
+        let (session, _) = create_test_session();
+        let session = session.with_engine_state(suppressed_state());
+        crate::platform::test_injector().clear();
+        let res = session.inject_transcript("say hi to Bob").unwrap();
+        assert_eq!(res, None);
+        assert!(
+            crate::platform::test_injector().recorded().is_empty(),
+            "suppressed voice trigger must not inject, got {:?}",
+            crate::platform::test_injector().recorded()
+        );
     }
 
     fn create_ordering_session(

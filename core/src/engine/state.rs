@@ -151,6 +151,15 @@ impl EngineState {
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    /// True when expansions and injections must be suppressed: the user
+    /// enabled "ignore fullscreen" and the OS reports a fullscreen
+    /// foreground window. Voice, expansions, and hotkeys share this check.
+    pub fn fullscreen_suppressed(&self) -> bool {
+        use std::sync::atomic::Ordering;
+        self.ignore_fullscreen_enabled.load(Ordering::Relaxed)
+            && self.is_os_fullscreen.load(Ordering::Relaxed)
+    }
+
     pub fn inline_emoji_enabled(&self) -> bool {
         crate::settings::get_cached_inline_emoji_enabled()
     }
@@ -421,6 +430,21 @@ mod tests {
 
         assert!(state.inline_ai_enabled());
         assert!(state.inline_tab_completion_enabled());
+    }
+
+    #[test]
+    fn fullscreen_suppressed_requires_both_flags() {
+        use std::sync::atomic::Ordering;
+        let state = EngineState::new();
+        assert!(!state.fullscreen_suppressed());
+        state.is_os_fullscreen.store(true, Ordering::Relaxed);
+        assert!(state.fullscreen_suppressed());
+        state
+            .ignore_fullscreen_enabled
+            .store(false, Ordering::Relaxed);
+        assert!(!state.fullscreen_suppressed());
+        state.is_os_fullscreen.store(false, Ordering::Relaxed);
+        assert!(!state.fullscreen_suppressed());
     }
 
     #[test]

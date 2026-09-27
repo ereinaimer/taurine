@@ -493,54 +493,65 @@ fn process_frame(
         if is_press {
             // Voice routing — check Escape and voice hotkeys
             if let Some(session) = crate::VOICE_SESSION.get() {
+                // Escape cancels a live session. Never gated: a session
+                // started before fullscreen must still be cancellable. When
+                // suppressed the key still reaches the fullscreen app and the
+                // inject gate discards the cancelled audio.
                 if key == KeyCode::KEY_ESC && session.is_active() {
                     let session = session.clone();
+                    let pass_through = state.fullscreen_suppressed();
                     std::thread::spawn(move || {
                         if let Err(e) = session.on_escape_pressed() {
                             warn!("Voice Escape handler error: {e}");
                         }
                     });
-                    swallow_frame = true;
-                    continue;
-                }
-
-                if let Some(spec) = crate::input::hotkey::cached_voice_ptt_spec()
-                    && spec.matches_press_evdev(key, is_press, modifiers)
-                {
-                    if !crate::input::hotkey::PTT_KEY_DOWN.swap(true, Ordering::Relaxed) {
-                        let session = session.clone();
-                        if let Err(e) = std::thread::Builder::new()
-                            .name("taurine-voice-ptt-start".to_string())
-                            .spawn(move || {
-                                if let Err(e) = session.start_ptt() {
-                                    warn!("Voice PTT start error: {e}");
-                                }
-                            })
-                        {
-                            warn!("Voice PTT start spawn error: {e}");
-                        }
-                    }
-                    if !is_modifier_evdev(key) {
+                    if !pass_through {
                         swallow_frame = true;
                     }
                     continue;
                 }
 
-                if let Some(spec) = crate::input::hotkey::cached_voice_handsfree_spec()
-                    && spec.matches_press_evdev(key, is_press, modifiers)
-                {
-                    if !crate::input::hotkey::HANDSFREE_KEY_DOWN.swap(true, Ordering::Relaxed) {
-                        let session = session.clone();
-                        std::thread::spawn(move || {
-                            if let Err(e) = session.toggle_handsfree() {
-                                warn!("Voice HandsFree toggle error: {e}");
+                // Voice hotkeys stay silent on fullscreen when
+                // ignore-fullscreen is on: no cue, no capture, no swallow.
+                if !state.fullscreen_suppressed() {
+                    if let Some(spec) = crate::input::hotkey::cached_voice_ptt_spec()
+                        && spec.matches_press_evdev(key, is_press, modifiers)
+                    {
+                        if !crate::input::hotkey::PTT_KEY_DOWN.swap(true, Ordering::Relaxed) {
+                            let session = session.clone();
+                            if let Err(e) = std::thread::Builder::new()
+                                .name("taurine-voice-ptt-start".to_string())
+                                .spawn(move || {
+                                    if let Err(e) = session.start_ptt() {
+                                        warn!("Voice PTT start error: {e}");
+                                    }
+                                })
+                            {
+                                warn!("Voice PTT start spawn error: {e}");
                             }
-                        });
+                        }
+                        if !is_modifier_evdev(key) {
+                            swallow_frame = true;
+                        }
+                        continue;
                     }
-                    if !is_modifier_evdev(key) {
-                        swallow_frame = true;
+
+                    if let Some(spec) = crate::input::hotkey::cached_voice_handsfree_spec()
+                        && spec.matches_press_evdev(key, is_press, modifiers)
+                    {
+                        if !crate::input::hotkey::HANDSFREE_KEY_DOWN.swap(true, Ordering::Relaxed) {
+                            let session = session.clone();
+                            std::thread::spawn(move || {
+                                if let Err(e) = session.toggle_handsfree() {
+                                    warn!("Voice HandsFree toggle error: {e}");
+                                }
+                            });
+                        }
+                        if !is_modifier_evdev(key) {
+                            swallow_frame = true;
+                        }
+                        continue;
                     }
-                    continue;
                 }
             }
 
