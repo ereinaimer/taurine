@@ -282,6 +282,7 @@ fn play_cached_voice_cue(
     cache: &std::sync::Mutex<Option<CachedVoiceSink>>,
     data: &'static [u8],
     volume: u32,
+    tag: &'static str,
 ) {
     // Play through the cached entry first: stop, decode and append run under
     // a microsecond lock, never open, sleep or query. The entry stays cached
@@ -303,7 +304,7 @@ fn play_cached_voice_cue(
                 // below starts clean instead of tripping on it every cue.
                 *guard = None;
                 drop(guard);
-                debug!("voice cue no live sink, opening fresh");
+                debug!("voice cue {tag} no live sink, opening fresh");
                 None
             }
         }
@@ -311,7 +312,7 @@ fn play_cached_voice_cue(
     let mut revalidated: Option<(Option<VoiceDeviceId>, f64)> = None;
     if let Some((played, played_id, play_ms, throttled, expired)) = warm_attempt {
         if played && throttled && !expired {
-            debug!("voice cue warm (throttled revalidate)");
+            debug!("voice cue {tag} warm (throttled revalidate)");
             return;
         }
         // Revalidate beside playback, lock-free: match keeps the entry,
@@ -329,7 +330,7 @@ fn play_cached_voice_cue(
             }
             drop(guard);
             debug!(
-                "voice cue warm play_ms={:.2} revalidate_ms={:.2}",
+                "voice cue {tag} warm play_ms={:.2} revalidate_ms={:.2}",
                 play_ms, query_ms
             );
             return;
@@ -349,7 +350,7 @@ fn play_cached_voice_cue(
             entry.last_revalidated = Instant::now();
             drop(guard);
             debug!(
-                "voice cue raced play_ms={:.2} revalidate_ms={:.2}",
+                "voice cue {tag} raced play_ms={:.2} revalidate_ms={:.2}",
                 play_ms, query_ms
             );
             if raced {
@@ -366,7 +367,7 @@ fn play_cached_voice_cue(
             return;
         }
         debug!(
-            "voice cue stale play_ms={:.2} revalidate_ms={:.2}",
+            "voice cue {tag} stale play_ms={:.2} revalidate_ms={:.2}",
             play_ms, query_ms
         );
         // Fall through and replay on the fresh default below, whether the
@@ -399,7 +400,7 @@ fn play_cached_voice_cue(
     let wanted = wanted.or_else(|| current.as_ref().map(|id| id.name.clone()));
     let Some(mut sink) = opened else {
         warn!(
-            "voice cue missed (cold open failed twice) open_ms={:.2} query_ms={:.2} retry_ms={:.2} wanted={:?}",
+            "voice cue {tag} missed (cold open failed twice) open_ms={:.2} query_ms={:.2} retry_ms={:.2} wanted={:?}",
             open_ms, query_ms, retry_ms, wanted,
         );
         return;
@@ -409,7 +410,7 @@ fn play_cached_voice_cue(
     let prime_ms = prime_at.elapsed().as_secs_f64() * 1000.0;
     if sink.play(data, volume).is_err() {
         warn!(
-            "voice cue missed (cold play failed) open_ms={:.2} query_ms={:.2} retry_ms={:.2} wanted={:?}",
+            "voice cue {tag} missed (cold play failed) open_ms={:.2} query_ms={:.2} retry_ms={:.2} wanted={:?}",
             open_ms, query_ms, retry_ms, wanted,
         );
         return;
@@ -431,13 +432,13 @@ fn play_cached_voice_cue(
             opened_at: Instant::now(),
         });
         debug!(
-            "voice cue cold open_ms={:.2} query_ms={:.2} prime_ms={:.2} cached=true device={:?}",
+            "voice cue {tag} cold open_ms={:.2} query_ms={:.2} prime_ms={:.2} cached=true device={:?}",
             open_ms, query_ms, prime_ms, wanted,
         );
     } else {
         sink.wait_until_end();
         debug!(
-            "voice cue cold moved mid-open, playing uncached open_ms={:.2} query_ms={:.2} prime_ms={:.2} wanted={:?} bound={:?}",
+            "voice cue {tag} cold moved mid-open, playing uncached open_ms={:.2} query_ms={:.2} prime_ms={:.2} wanted={:?} bound={:?}",
             open_ms,
             query_ms,
             prime_ms,
@@ -533,13 +534,23 @@ pub fn play_voice_cue(start: bool) {
     }
     let theme = get_cached_audio_theme();
     let data = get_voice_audio_data(theme, start);
+    let tag = if start { "start" } else { "stop" };
 
-    std::thread::Builder::new()
-        .name("tau-voice-cue".to_string())
-        .spawn(move || {
-            play_cached_voice_cue(&RodioVoiceBackend, &VOICE_SINK_CACHE, data, volume);
-        })
-        .ok();
+    // A cue that never spawns never logs: retry briefly (spawn can fail
+    // transiently under parallel load, same as the chunk forwarder), then
+    // warn loudly instead of losing the press/release blip silently.
+    // Caller (hook/session) never waits either way.
+    for _ in 0..3 {
+        match std::thread::Builder::new()
+            .name("tau-voice-cue".to_string())
+            .spawn(move || {
+                play_cached_voice_cue(&RodioVoiceBackend, &VOICE_SINK_CACHE, data, volume, tag);
+            }) {
+            Ok(_) => return,
+            Err(_) => std::thread::sleep(Duration::from_millis(20)),
+        }
+    }
+    warn!("voice cue {tag} missed (thread spawn failed)");
 }
 
 /// Plays a non-blocking pause/resume cue for the global pause toggle.
@@ -797,7 +808,7 @@ mod tests {
         let (backend, cache, state) = fake_setup("dev-a");
         prewarm_voice_sink_with(&backend, &cache);
         assert!(cache.lock().unwrap().is_some(), "prewarm must park a sink");
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         let state = state.lock().unwrap();
         assert_eq!(state.opens, 1, "first cue must reuse the prewarmed sink");
         assert_eq!(state.plays, 1, "cue must play");
@@ -806,8 +817,8 @@ mod tests {
     #[test]
     fn voice_second_cue_cuts_first_instead_of_blending() {
         let (backend, cache, state) = fake_setup("dev-a");
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         let state = state.lock().unwrap();
         assert_eq!(state.opens, 1, "second cue must reuse the warm sink");
         assert_eq!(state.plays, 2, "both cues must play");
@@ -817,7 +828,7 @@ mod tests {
     #[test]
     fn voice_mismatch_replays_once_on_new_default() {
         let (backend, cache, state) = fake_setup("dev-a");
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         {
             let mut state = state.lock().unwrap();
             state.outputs = vec!["dev-a".to_string(), "dev-b".to_string()];
@@ -834,7 +845,7 @@ mod tests {
         }
         // The switched cue must sound on the NEW device in the same call,
         // not play silently into the departed endpoint and heal next time.
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         let state = state.lock().unwrap();
         assert_eq!(state.opens, 2, "mismatch must reopen immediately");
         assert_eq!(
@@ -855,8 +866,8 @@ mod tests {
     #[test]
     fn voice_revalidation_throttles_during_flux() {
         let (backend, cache, state) = fake_setup("dev-a");
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         let state = state.lock().unwrap();
         assert_eq!(state.opens, 1, "throttled cues must reuse the warm sink");
         assert_eq!(state.plays, 2, "both cues must play");
@@ -869,7 +880,7 @@ mod tests {
     #[test]
     fn voice_drop_cache_forces_fresh_open() {
         let (backend, cache, state) = fake_setup("dev-a");
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         assert!(cache.lock().unwrap().is_some());
         // Park a sink in the GLOBAL cache via the fake backend, then drop it.
         let sink = backend.open_sink().expect("fake open must succeed");
@@ -893,7 +904,7 @@ mod tests {
     #[test]
     fn voice_mismatch_drop_preserves_newer_concurrent_entry() {
         let (backend, cache, state) = fake_setup("dev-a");
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         // A concurrent cue stores a newer entry for dev-b while this cue's
         // stale drop runs: the drop must only remove the entry it played.
         let (b_backend, _, b_state) = fake_setup_with(&["dev-a", "dev-b"], 1);
@@ -911,7 +922,7 @@ mod tests {
         *cache.lock().unwrap() = Some(newer);
         // Default still dev-a: the cue plays through dev-b, drops exactly the
         // entry it played, then reopens fresh on dev-a and replays there.
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         assert_eq!(
             state.lock().unwrap().opens,
             2,
@@ -936,8 +947,8 @@ mod tests {
     #[test]
     fn voice_second_cue_with_unchanged_default_reuses_cached_sink() {
         let (backend, cache, state) = fake_setup("dev-a");
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         let state = state.lock().unwrap();
         assert_eq!(state.opens, 1, "unchanged default must not reopen");
         assert_eq!(state.plays, 2, "both cues must play");
@@ -946,7 +957,7 @@ mod tests {
     #[test]
     fn voice_changed_default_identity_reopens_and_replays() {
         let (backend, cache, state) = fake_setup("dev-a");
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         {
             let mut state = state.lock().unwrap();
             state.outputs = vec!["dev-a".to_string(), "dev-b".to_string()];
@@ -962,7 +973,7 @@ mod tests {
             }
         }
         // The changed cue reopens immediately on the new default and replays.
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         {
             let state = state.lock().unwrap();
             assert_eq!(state.opens, 2, "changed default must reopen immediately");
@@ -980,7 +991,7 @@ mod tests {
             "cache must track the new device"
         );
         // Next cue stays warm against the new default.
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         let state = state.lock().unwrap();
         assert_eq!(state.opens, 2, "warm cue must not reopen");
         assert_eq!(state.plays, 4, "all cues must play");
@@ -990,7 +1001,7 @@ mod tests {
     #[test]
     fn voice_unrelated_reorder_never_invalidates_cache() {
         let (backend, cache, state) = fake_setup_with(&["dev-a", "dev-b", "dev-c"], 0);
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         {
             // Unrelated endpoints reorder around a unique default: the
             // identity (name plus same-name position) is unchanged.
@@ -1002,8 +1013,8 @@ mod tests {
             ];
             state.default = Some(2);
         }
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         let state = state.lock().unwrap();
         assert_eq!(state.opens, 1, "reorder must not reopen");
         assert_eq!(state.plays, 3, "all cues must play");
@@ -1012,9 +1023,9 @@ mod tests {
     #[test]
     fn voice_dead_sink_falls_back_to_reopen() {
         let (backend, cache, state) = fake_setup("dev-a");
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         state.lock().unwrap().dead = true;
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         let state = state.lock().unwrap();
         assert_eq!(state.opens, 2, "dead sink must reopen");
         assert_eq!(state.plays, 2, "cue must still play after reopen");
@@ -1023,10 +1034,10 @@ mod tests {
     #[test]
     fn voice_playback_failure_is_swallowed_without_surfacing() {
         let (backend, cache, state) = fake_setup("dev-a");
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         state.lock().unwrap().failing = true;
         // Must not panic, and must attempt reopen exactly as today.
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         let state = state.lock().unwrap();
         assert_eq!(state.opens, 2, "failed playback must reopen");
         assert_eq!(state.plays, 1, "only the first cue played");
@@ -1040,8 +1051,8 @@ mod tests {
     #[test]
     fn voice_duplicate_names_fall_back_to_uncached_playback_then_resume_caching() {
         let (backend, cache, state) = fake_setup_with(&["Speakers", "Speakers"], 0);
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         {
             let state = state.lock().unwrap();
             assert_eq!(state.opens, 2, "ambiguous identity must reopen per cue");
@@ -1055,8 +1066,8 @@ mod tests {
             let mut state = state.lock().unwrap();
             state.outputs = vec!["Speakers".to_string(), "Headphones".to_string()];
         }
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         let state = state.lock().unwrap();
         assert_eq!(state.opens, 3, "unique identity must resume warm reuse");
         assert_eq!(state.plays, 4, "all cues must play");
@@ -1065,9 +1076,9 @@ mod tests {
     #[test]
     fn voice_same_name_different_index_forces_reopen() {
         let (backend, cache, state) = fake_setup_with(&["Speakers", "Speakers"], 0);
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         state.lock().unwrap().default = Some(1);
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         let state = state.lock().unwrap();
         assert_eq!(
             state.opens, 2,
@@ -1084,13 +1095,13 @@ mod tests {
     #[test]
     fn voice_poisoned_cache_lock_still_plays_cue() {
         let (backend, cache, state) = fake_setup("dev-a");
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _guard = cache.lock().unwrap();
             panic!("intentional cache-lock poison");
         }));
         assert!(cache.is_poisoned(), "setup must poison the cache lock");
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         let state = state.lock().unwrap();
         assert_eq!(state.opens, 1, "poison recovery must reuse the warm sink");
         assert_eq!(state.plays, 2, "cue must still play after lock poison");
@@ -1109,7 +1120,8 @@ mod tests {
         std::thread::scope(|s| {
             // Cold cue blocks inside device open: the cache lock must stay
             // free so overlapping cues never serialize on a slow open.
-            let handle = s.spawn(|| play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80));
+            let handle =
+                s.spawn(|| play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test"));
             open_entered_rx
                 .recv_timeout(std::time::Duration::from_secs(5))
                 .expect("cue must reach device open");
@@ -1122,7 +1134,7 @@ mod tests {
         });
         // Warm cue replays through the shared entry: one open total, the
         // second play cutting (not blending with) the first.
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         let state = state.lock().unwrap();
         assert_eq!(state.opens, 1, "warm cue must not reopen");
         assert_eq!(state.plays, 2, "both cues must play");
@@ -1132,7 +1144,7 @@ mod tests {
     #[test]
     fn voice_expired_sink_rotates_without_replay() {
         let (backend, cache, state) = fake_setup("dev-a");
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         // Age past the TTL with the default UNCHANGED: the blip already
         // sounded through the old sink, so rotation must not double-blip.
         {
@@ -1141,7 +1153,7 @@ mod tests {
                 entry.opened_at = std::time::Instant::now() - std::time::Duration::from_secs(60);
             }
         }
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         {
             let state = state.lock().unwrap();
             assert_eq!(state.opens, 1, "expiry rotation defers the reopen");
@@ -1151,7 +1163,7 @@ mod tests {
             cache.lock().unwrap().is_none(),
             "expired entry must be dropped"
         );
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         let state = state.lock().unwrap();
         assert_eq!(state.opens, 2, "next cue reopens fresh");
         assert_eq!(state.plays, 3);
@@ -1160,7 +1172,7 @@ mod tests {
     #[test]
     fn voice_expired_sink_with_mismatch_replays() {
         let (backend, cache, state) = fake_setup("dev-a");
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         {
             let mut state = state.lock().unwrap();
             state.outputs = vec!["dev-a".to_string(), "dev-b".to_string()];
@@ -1170,7 +1182,7 @@ mod tests {
                 entry.opened_at = std::time::Instant::now() - std::time::Duration::from_secs(60);
             }
         }
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         let state = state.lock().unwrap();
         assert_eq!(state.opens, 2, "expired mismatch must reopen immediately");
         assert_eq!(
@@ -1183,7 +1195,7 @@ mod tests {
     fn voice_cold_open_moves_default_midflight_stays_uncached() {
         let (backend, cache, state) = fake_setup_with(&["dev-a", "dev-b"], 0);
         state.lock().unwrap().swap_default_on_open = true;
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         let state = state.lock().unwrap();
         assert_eq!(state.plays, 1, "raced blip still sounds exactly once");
         drop(state);
@@ -1192,7 +1204,7 @@ mod tests {
             "stream bound mid-flap must never populate the cache"
         );
         // Next cue on the settled default caches normally.
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         assert!(
             cache.lock().unwrap().is_some(),
             "settled default must cache again"
@@ -1203,7 +1215,7 @@ mod tests {
     fn voice_cold_open_retries_once_then_plays() {
         let (backend, cache, state) = fake_setup("dev-a");
         state.lock().unwrap().fail_opens = 1;
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         let state = state.lock().unwrap();
         assert_eq!(state.attempts, 2, "transient flux gets exactly one retry");
         assert_eq!(state.plays, 1, "retried cue must sound");
@@ -1218,7 +1230,7 @@ mod tests {
     fn voice_cold_open_fails_twice_misses_uncached() {
         let (backend, cache, state) = fake_setup("dev-a");
         state.lock().unwrap().fail_opens = 2;
-        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80, "test");
         let state = state.lock().unwrap();
         assert_eq!(state.attempts, 2, "no more than one retry");
         assert_eq!(state.plays, 0, "double failure must not sound");

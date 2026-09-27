@@ -74,7 +74,14 @@ pub fn device_list_signature(devices: &[String]) -> String {
 /// Returns true when a change was persisted. Migrates a live recording via restart; idle sessions need nothing (no parked mic exists).
 pub fn persist_fallback_to_system_default(available: &[String]) -> bool {
     let cached = taurine_core::settings::get_cached_voice_input_device();
-    if fallback_value_if_missing(cached.as_deref(), available) != Some(None) {
+    persist_fallback_for_value(cached.as_deref(), available)
+}
+
+/// Testable core: the cached pick is passed in so tests never depend on the
+/// process-global settings cache (nextest runs tests on threads sharing one
+/// process; a concurrent test mutating the cache would flake the assert).
+fn persist_fallback_for_value(cached: Option<&str>, available: &[String]) -> bool {
+    if fallback_value_if_missing(cached, available) != Some(None) {
         return false;
     }
     if taurine_core::settings::apply_setting_input("voice_input_device", None).is_err() {
@@ -127,10 +134,11 @@ mod tests {
         let prev_var = std::env::var("TAURINE_DATA_DIR").ok();
         // SAFETY: Serialized under TEST_LOCK for test database isolation.
         unsafe { std::env::set_var("TAURINE_DATA_DIR", dir.path()) };
-        let prev_device = taurine_core::settings::get_cached_voice_input_device();
-        taurine_core::settings::set_cached_voice_input_device(Some("Gone Mic".to_string()));
+        // Pass the pick explicitly: the process-global settings cache is
+        // shared with every test thread in this binary, so reading it here
+        // flakes under parallel runners (passes solo/VM, fails loaded CI).
         assert!(
-            persist_fallback_to_system_default(&["Other Mic".to_string()]),
+            persist_fallback_for_value(Some("Gone Mic"), &["Other Mic".to_string()]),
             "genuinely-gone pick must fall back"
         );
         assert_eq!(
@@ -149,7 +157,6 @@ mod tests {
                 None => std::env::remove_var("TAURINE_DATA_DIR"),
             }
         }
-        taurine_core::settings::set_cached_voice_input_device(prev_device);
     }
 
     #[test]

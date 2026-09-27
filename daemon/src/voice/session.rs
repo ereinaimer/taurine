@@ -283,6 +283,7 @@ impl VoiceSessionManager {
     #[cfg(not(test))]
     fn fire_stop_cue(&self) {
         if self.voice_suppressed() {
+            debug!("VoiceSessionManager: stop cue skipped while fullscreen app focused");
             return;
         }
         crate::services::audio::play_voice_stop_cue();
