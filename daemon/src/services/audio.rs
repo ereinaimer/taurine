@@ -204,7 +204,10 @@ impl VoiceBackend for RodioVoiceBackend {
     }
 
     fn open_sink(&self) -> Option<Box<dyn VoiceSink + Send>> {
-        use cpal::traits::HostTrait;
+        // honey: cue sink stays on rodio's cpal 0.17 (rodio 0.22 pins cpal
+        // ^0.17, no 0.18 release yet) while capture uses cpal 0.18 directly;
+        // unify on one cpal once rodio supports 0.18.
+        use rodio::cpal::traits::HostTrait;
         // Exact-device open: the handle below IS the default at this instant.
         // from_device + open_sink_or_fallback only ever try other *configs* on
         // this same endpoint. There is deliberately no cross-device fallback:
@@ -212,7 +215,7 @@ impl VoiceBackend for RodioVoiceBackend {
         // caller retries once, then misses loudly (warn) instead of silently
         // succeeding elsewhere. TOCTOU vs the pre-open identity query is closed
         // by the caller's verify-then-cache (Task 2).
-        let device = cpal::default_host().default_output_device()?;
+        let device = rodio::cpal::default_host().default_output_device()?;
         let mut stream = DeviceSinkBuilder::from_device(device)
             .ok()
             .and_then(|b| b.open_sink_or_fallback().ok())?;

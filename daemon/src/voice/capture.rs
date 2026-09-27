@@ -590,24 +590,26 @@ mod win_com {
     }
 }
 
-/// User-facing device name on cpal 0.17.
+/// User-facing device name on cpal 0.18.
 ///
 /// WASAPI `description().name()` is the generic class (`DeviceDesc`, e.g.
 /// "Microphone"/"Speakers") shared by every endpoint, while the specific
 /// label users recognize (`FriendlyName`, e.g. "Microphone Array
-/// (Realtek(R) Audio)") rides in `extended()[0]` when it differs. Other
-/// backends already put the specific label in `name()` with `extended()[0]`
-/// equal (ALSA) or empty (CoreAudio), so preferring the first extended line
-/// restores the pre-0.17 `device.name()` behavior everywhere with no cfg.
+/// (Realtek(R) Audio)") rides in `extended().next()` when it differs. Other
+/// backends already put the specific label in `name()` with the first
+/// extended line equal (ALSA) or empty (CoreAudio), so preferring the first
+/// extended line restores the pre-0.17 `device.name()` behavior everywhere
+/// with no cfg.
 pub fn friendly_device_name(device: &cpal::Device) -> Option<String> {
     use cpal::traits::DeviceTrait;
     let desc = device.description().ok()?;
-    if let Some(first) = desc.extended().first()
+    let mut extended = desc.extended();
+    if let Some(first) = extended.next()
         && !first.trim().is_empty()
     {
-        return Some(first.clone());
+        return Some(first.to_owned());
     }
-    Some(desc.name().to_string())
+    Some(desc.name().to_owned())
 }
 
 /// Query the system default communications audio capture device name on Windows.
@@ -774,15 +776,15 @@ impl AudioCapture {
         self.device_disconnected.load(Ordering::Relaxed)
     }
 
-    /// Classify a cpal stream failure. WASAPI only reports DeviceNotAvailable
-    /// vs BackendSpecific, and a mid-stream BackendSpecific error never
-    /// self-heals, so every variant flags disconnection and clears the
+    /// Classify a cpal stream failure. cpal 0.18 reports every failure as
+    /// `cpal::Error` (kind + message); WASAPI mid-stream errors never
+    /// self-heal, so every variant flags disconnection and clears the
     /// running flag. The next start() then reopens clean instead of
     /// recording dead air from a zombie stream.
     pub(crate) fn handle_stream_error(
         is_running: &AtomicBool,
         device_disconnected: &AtomicBool,
-        err: &cpal::StreamError,
+        err: &cpal::Error,
     ) {
         error!("Audio stream error: {err}");
         warn!("Audio input device error; flagging disconnection");
@@ -1015,7 +1017,7 @@ impl AudioCapture {
         let is_running_clone = self.is_running.clone();
         let disconnected_clone = self.device_disconnected.clone();
 
-        let err_fn = move |err: cpal::StreamError| {
+        let err_fn = move |err: cpal::Error| {
             AudioCapture::handle_stream_error(&is_running_clone, &disconnected_clone, &err);
         };
 
@@ -1025,7 +1027,7 @@ impl AudioCapture {
                 let resampler_clone = resampler.clone();
                 let buf_clone = buffer_clone.clone();
                 device.build_input_stream(
-                    &config.into(),
+                    config.into(),
                     move |data: &[f32], _: &cpal::InputCallbackInfo| {
                         let resampled = resampler_clone.process(data);
                         buf_clone.push_samples(&resampled);
@@ -1038,7 +1040,7 @@ impl AudioCapture {
                 let resampler_clone = resampler.clone();
                 let buf_clone = buffer_clone.clone();
                 device.build_input_stream(
-                    &config.into(),
+                    config.into(),
                     move |data: &[i16], _: &cpal::InputCallbackInfo| {
                         let f32_samples: Vec<f32> =
                             data.iter().map(|&s| s as f32 / 32768.0).collect();
@@ -1053,7 +1055,7 @@ impl AudioCapture {
                 let resampler_clone = resampler.clone();
                 let buf_clone = buffer_clone.clone();
                 device.build_input_stream(
-                    &config.into(),
+                    config.into(),
                     move |data: &[u16], _: &cpal::InputCallbackInfo| {
                         let f32_samples: Vec<f32> = data
                             .iter()
@@ -1614,7 +1616,7 @@ mod tests {
         AudioCapture::handle_stream_error(
             &running,
             &disconnected,
-            &cpal::StreamError::DeviceNotAvailable,
+            &cpal::Error::new(cpal::ErrorKind::DeviceNotAvailable),
         );
         assert!(
             !running.load(Ordering::SeqCst),
@@ -1630,11 +1632,10 @@ mod tests {
         AudioCapture::handle_stream_error(
             &running,
             &disconnected,
-            &cpal::StreamError::BackendSpecific {
-                err: cpal::BackendSpecificError {
-                    description: "AUDCLNT_E_DEVICE_INVALIDATED".to_string(),
-                },
-            },
+            &cpal::Error::with_message(
+                cpal::ErrorKind::BackendError,
+                "AUDCLNT_E_DEVICE_INVALIDATED",
+            ),
         );
         assert!(
             !running.load(Ordering::SeqCst),
