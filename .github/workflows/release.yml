@@ -74,14 +74,25 @@ jobs:
           SHERPA_VERSION=$(grep -A2 'name = "sherpa-onnx-sys"' Cargo.lock | grep '^version' | head -n1 | cut -d'"' -f2)
           ARCHIVE="sherpa-onnx-v${SHERPA_VERSION}-${{ matrix.sherpa_platform }}-lib.tar.bz2"
           URL="https://github.com/k2-fsa/sherpa-onnx/releases/download/v${SHERPA_VERSION}/${ARCHIVE}"
-          DEST="${RUNNER_TEMP}/sherpa-prebuilt"
+          # On Windows, RUNNER_TEMP is a native path (D:\...) whose colon
+          # makes tar treat the archive as a remote host:file address.
+          # Use the MSYS path (/d/...) for file ops, but export the native
+          # form: the Rust build script is a native process needing Win32.
+          if [[ "${RUNNER_OS}" == "Windows" ]]; then
+            DEST="$(cygpath -u "${RUNNER_TEMP}")/sherpa-prebuilt"
+            NATIVE_DEST="$(cygpath -w "${RUNNER_TEMP}")\sherpa-prebuilt"
+          else
+            DEST="${RUNNER_TEMP}/sherpa-prebuilt"
+            NATIVE_DEST="$DEST"
+          fi
+          STEM="${ARCHIVE%.tar.bz2}"
           mkdir -p "$DEST"
           curl --proto '=https' --tlsv1.2 --retry 5 --retry-connrefused --location --fail --show-error \
             --output "${DEST}/${ARCHIVE}" "$URL"
           tar -xjf "${DEST}/${ARCHIVE}" -C "$DEST"
-          LIB_DIR="${DEST}/${ARCHIVE%.tar.bz2}/lib"
+          LIB_DIR="${NATIVE_DEST}/${STEM}/lib"
           echo "SHERPA_ONNX_LIB_DIR=${LIB_DIR}" >> "$GITHUB_ENV"
-          ls "$LIB_DIR" | grep -i "sherpa-onnx-c-api" || (echo "sherpa-onnx-c-api missing in $LIB_DIR" && exit 1)
+          ls "${DEST}/${STEM}/lib" | grep -i "sherpa-onnx-c-api" || (echo "sherpa-onnx-c-api missing in ${DEST}/${STEM}/lib" && exit 1)
 
       - name: Disable Windows Defender real-time scanning
         if: matrix.os == 'windows-latest'
