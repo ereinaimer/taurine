@@ -258,8 +258,13 @@ impl VoiceSessionManager {
     }
 
     /// Fire the mic-close cue (stubbed in tests to observe ordering).
+    /// Silent while suppressed: stop paths stay functional over a fullscreen
+    /// app, but play nothing over it.
     #[cfg(test)]
     fn fire_stop_cue(&self) {
+        if self.voice_suppressed() {
+            return;
+        }
         if let Some(hook) = self
             .cue_hook
             .lock()
@@ -273,8 +278,13 @@ impl VoiceSessionManager {
     }
 
     /// Fire the mic-close cue.
+    /// Silent while suppressed: stop paths stay functional over a fullscreen
+    /// app, but play nothing over it.
     #[cfg(not(test))]
     fn fire_stop_cue(&self) {
+        if self.voice_suppressed() {
+            return;
+        }
         crate::services::audio::play_voice_stop_cue();
     }
 
@@ -883,6 +893,13 @@ impl VoiceSessionManager {
     /// must have passed the mash gate (or hold an explicit continuation
     /// like the pending-press autostart).
     fn start_ptt_now(&self, press_at: Instant, cue_at: Instant) -> Result<(), String> {
+        // Deferred entries (mash rescue, pending-press autostart) land here
+        // directly, so the gate lives at engine start, not just at the hotkey
+        // entries: fullscreen engaging mid-deferral must not open capture.
+        if self.voice_suppressed() {
+            debug!("VoiceSessionManager: deferred PTT start ignored while fullscreen app focused");
+            return Ok(());
+        }
         {
             let mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
             if *mode != VoiceMode::Idle {
@@ -1111,6 +1128,13 @@ impl VoiceSessionManager {
     /// `HandsFree`. Mash-blind like `start_ptt_now`;
     /// the gated `toggle_handsfree` entry decides when to call it.
     fn start_handsfree_now(&self) -> Result<(VoiceMode, Option<String>), String> {
+        // Same deferred-entry reasoning as start_ptt_now: gate engine start.
+        if self.voice_suppressed() {
+            debug!(
+                "VoiceSessionManager: deferred hands-free start ignored while fullscreen app focused"
+            );
+            return Ok((self.current_mode(), None));
+        }
         let press_at = Instant::now();
         {
             let mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
@@ -1664,6 +1688,51 @@ mod tests {
         let (mode, text) = session.toggle_handsfree().unwrap();
         assert_eq!(mode, VoiceMode::Idle);
         assert_eq!(text, None);
+    }
+
+    #[test]
+    fn suppressed_deferred_ptt_start_is_noop() {
+        // Direct engine start (mash rescue, pending-press autostart) must
+        // honor suppression even though it bypasses the gated entries.
+        let (session, order) = create_start_ordering_session();
+        let session = session.with_engine_state(suppressed_state());
+        session
+            .start_ptt_now(Instant::now(), Instant::now())
+            .unwrap();
+        assert_eq!(session.current_mode(), VoiceMode::Idle);
+        assert!(session.capture().buffer().is_empty());
+        assert!(
+            start_order_of(&order).is_empty(),
+            "suppressed deferred PTT must not capture, got {:?}",
+            start_order_of(&order)
+        );
+    }
+
+    #[test]
+    fn suppressed_deferred_handsfree_start_is_noop() {
+        let (session, order) = create_start_ordering_session();
+        let session = session.with_engine_state(suppressed_state());
+        let (mode, text) = session.start_handsfree_now().unwrap();
+        assert_eq!(mode, VoiceMode::Idle);
+        assert_eq!(text, None);
+        assert!(
+            start_order_of(&order).is_empty(),
+            "suppressed deferred hands-free must not capture, got {:?}",
+            start_order_of(&order)
+        );
+    }
+
+    #[test]
+    fn suppressed_stop_ptt_is_silent() {
+        // Stop paths stay functional but play no cue over a fullscreen app.
+        let (session, order) = create_stop_ordering_session();
+        let session = session.with_engine_state(suppressed_state());
+        session.stop_ptt().unwrap();
+        assert!(
+            stop_order_of(&order).is_empty(),
+            "suppressed stop must fire no cue, got {:?}",
+            stop_order_of(&order)
+        );
     }
 
     #[test]
