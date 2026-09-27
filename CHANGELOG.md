@@ -78,6 +78,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Sounds Follow Speaker Changes**: Switching speakers no longer swallows startup and shutdown sounds or leaves them playing on the old device.
 - **Fewer Keyboard Dropouts During Device Changes**: Brief hardware reshuffles no longer restart keyboard capture repeatedly, so fewer keystrokes go missing when devices come and go.
 - **Sounds Follow Speaker Switches in Real Time**: Startup and shutdown sounds now track output changes as they happen, including virtual devices, instead of going silent.
+- **Faster First Dictation**: The first voice dictation after idle starts noticeably quicker and uses less memory in the most accurate mode, with no change to accuracy or the empty-result safety net.
 
 ## [1.0.0-alpha.18] - 2026-09-06
 
