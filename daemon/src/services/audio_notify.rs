@@ -9,6 +9,9 @@
 //! All heavy work stays on existing threads.
 
 /// WASAPI data-flow direction (matches EDataFlow).
+/// Windows-only at runtime (win_notify is cfg(windows)); shared here so
+/// tests assert the same routing on every platform.
+#[allow(dead_code)]
 pub(crate) const E_RENDER: u32 = 0;
 /// WASAPI data-flow direction (matches EDataFlow).
 #[allow(dead_code)]
@@ -16,6 +19,7 @@ pub(crate) const E_CAPTURE: u32 = 1;
 
 /// Render default moved (or topology changed): the cue sink may point at
 /// a departed endpoint. Best-effort and silent.
+#[allow(dead_code)]
 pub(crate) fn on_default_endpoint_changed(flow: u32) {
     if flow == E_RENDER {
         crate::services::audio::drop_cached_voice_sink();
@@ -25,6 +29,7 @@ pub(crate) fn on_default_endpoint_changed(flow: u32) {
 
 /// A device arrived, left, or changed state: identity checks may be
 /// stale on both sides. Best-effort and silent.
+#[allow(dead_code)]
 pub(crate) fn on_endpoint_topology_changed() {
     crate::services::audio::drop_cached_voice_sink();
     crate::voice::device_monitor::mark_device_change();

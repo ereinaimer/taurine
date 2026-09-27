@@ -77,19 +77,26 @@ impl HookHealthSnapshot {
 /// it unresponsive. Values preserve the long-standing 300ms/3-press
 /// behavior; they live here (not buried at the call site) so tuning
 /// stays in one place next to the watchdog tests.
+/// Windows-only at runtime (supervisor/raw_input are cfg(windows));
+/// shared here so tests assert the same tuning on every platform.
+#[allow(dead_code)]
 pub(crate) const HOOK_EVENT_GRACE_MS: u64 = 300;
+#[allow(dead_code)]
 pub(crate) const MISSED_PRESS_THRESHOLD: u32 = 3;
 /// A freshly respawned listener must settle before its misses count: a
 /// restart must not condemn its own replacement mid-storm.
+#[allow(dead_code)]
 pub(crate) const NEWBORN_LISTENER_GRACE_MS: u64 = 2000;
 /// Extra patience after a known device-topology change: Windows stalls
 /// input delivery while re-enumerating, so misses there are expected
 /// noise, not a dead hook.
+#[allow(dead_code)]
 pub(crate) const DEVICE_CHANGE_GRACE_MS: u64 = 5000;
 
 /// Escalating reinstall delay (seconds) while recoveries keep firing with
 /// no acknowledged keys in between: 1, 2, 4, 8, 16, then capped at 30.
 /// The first recovery always stays fast; only sustained storms back off.
+#[allow(dead_code)]
 pub(crate) fn recovery_backoff_secs(consecutive_storm_recoveries: u32) -> u64 {
     2u64.saturating_pow(consecutive_storm_recoveries.min(5))
         .min(30)

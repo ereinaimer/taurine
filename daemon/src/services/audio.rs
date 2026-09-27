@@ -400,6 +400,10 @@ pub fn prewarm_voice_sink() {
 /// device-change notifications so the next cue opens fresh on the
 /// current default instead of sounding once more into the departed
 /// endpoint. Never touches a live playback; the next cue re-caches.
+/// Windows-only at runtime (audio_notify/tray subclass are cfg(windows));
+/// exercised by tests on every platform.
+/// honey: allow(dead_code) instead of cfg gating so tests share one path.
+#[allow(dead_code)]
 pub fn drop_cached_voice_sink() {
     *lock_voice_cache(&VOICE_SINK_CACHE) = None;
     debug!("voice cue cache dropped on device change");
