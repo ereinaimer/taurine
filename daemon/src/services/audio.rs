@@ -369,26 +369,29 @@ fn play_cached_voice_cue(
     let wanted = current.as_ref().map(|id| id.name.clone());
     let open_at = Instant::now();
     let mut opened = backend.open_sink();
+    let open_ms = open_at.elapsed().as_secs_f64() * 1000.0;
+    let mut retry_ms = 0.0;
     if opened.is_none() {
         // Transient flux (virtual endpoint mid-flap): one retry on a fresh
         // default query after COLD_RETRY_DELAY. Still cue-thread only.
+        let retry_at = Instant::now();
         std::thread::sleep(COLD_RETRY_DELAY);
         current = backend.default_device_id();
         opened = backend.open_sink();
+        retry_ms = retry_at.elapsed().as_secs_f64() * 1000.0;
     }
-    let open_ms = open_at.elapsed().as_secs_f64() * 1000.0;
     let wanted = wanted.or_else(|| current.as_ref().map(|id| id.name.clone()));
     let Some(mut sink) = opened else {
         warn!(
-            "voice cue missed (cold open failed twice) open_ms={:.2} query_ms={:.2} wanted={:?}",
-            open_ms, query_ms, wanted,
+            "voice cue missed (cold open failed twice) open_ms={:.2} query_ms={:.2} retry_ms={:.2} wanted={:?}",
+            open_ms, query_ms, retry_ms, wanted,
         );
         return;
     };
     if sink.play(data, volume).is_err() {
         warn!(
-            "voice cue missed (cold play failed) open_ms={:.2} query_ms={:.2} wanted={:?}",
-            open_ms, query_ms, wanted,
+            "voice cue missed (cold play failed) open_ms={:.2} query_ms={:.2} retry_ms={:.2} wanted={:?}",
+            open_ms, query_ms, retry_ms, wanted,
         );
         return;
     }
@@ -455,6 +458,10 @@ fn prewarm_voice_sink_with(
     if let Some(sink) = backend.open_sink()
         && let Some(device_id) = current
         && sink.is_live()
+        && backend
+            .default_device_id()
+            .as_ref()
+            .is_some_and(|id| id == &device_id)
     {
         *lock_voice_cache(cache) = Some(CachedVoiceSink {
             device_id,
