@@ -130,6 +130,7 @@ mod tests {
         let _lock = crate::hook::tests::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
+        crate::hook::tests::mock_keystore::use_mock_keystore();
         let dir = tempfile::tempdir().unwrap();
         let prev_var = std::env::var("TAURINE_DATA_DIR").ok();
         // SAFETY: Serialized under TEST_LOCK for test database isolation.
