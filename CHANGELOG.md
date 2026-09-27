@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Voice Model Aliases**: Switch dictation tiers via `taurine config set voice_model` with `best`, `balanced`, `fast`, or `auto` instead of full model identifiers.
-- **Voice Dictation**: Local push-to-talk and hands-free dictation with automatic formatting, lexicon-guarded dictionary corrections, stutter cleanup, instant start with the model staying warm across bursts with no clipped words or missed presses, single-step paste, and start/stop audio cues.
+- **Voice Dictation**: Local push-to-talk and hands-free dictation with automatic formatting, lexicon-guarded dictionary corrections, stutter cleanup, instant start with the model staying warm across bursts with no clipped words or missed presses, single-step paste, and reliable start/stop audio cues.
 - **Voice Triggers**: Spoken phrases that expand text, run scripts in the correct language, and expand system variables, working during dictation.
 - **Parameterized Voice Triggers**: Define voice shortcuts with slot placeholders (e.g. `--voice 'send [msg] to [person]'`) that extract spoken words into output variables.
 - **Automatic Voice Model Setup**: Voice models download on demand with live progress, stay warm while dictating in an isolated background process, and unload when idle; English engine tiers are automatic with no picker needed.
