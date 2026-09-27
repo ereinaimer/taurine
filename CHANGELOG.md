@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-alpha.19] - 2026-09-27
+
 ### Added
 - **Voice Model Aliases**: Switch dictation tiers via `taurine config set voice_model` with `best`, `balanced`, `fast`, or `auto` instead of full model identifiers.
 - **Voice Dictation**: Local push-to-talk and hands-free dictation with automatic formatting, lexicon-guarded dictionary corrections, stutter cleanup, instant start with the model staying warm across bursts with no clipped words or missed presses, single-step paste, and reliable start/stop audio cues.
