@@ -33,7 +33,7 @@ os_info = "3"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 unicode-normalization = "0.1"
 reqwest = "0.13.4"
-cpal = "0.17"
+cpal = "0.18"
 rubato = "5.0"
 sherpa-onnx = "1.13.8"
 shenava-ctc-beam = "0.1.0"
