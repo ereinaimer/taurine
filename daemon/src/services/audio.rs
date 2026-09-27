@@ -235,6 +235,22 @@ const REVALIDATE_THROTTLE: Duration = Duration::from_secs(2);
 /// making a heard blip feel late. Tests pay this sleep once per retry case.
 const COLD_RETRY_DELAY: Duration = Duration::from_millis(100);
 
+/// Fresh-stream priming delay. A brand-new WASAPI/virtual stream swallows its
+/// first samples while the endpoint primes (FxSound rebuilds its graph per
+/// stream), so a blip appended instantly after open plays Ok but is never
+/// heard — always the first cue after boot, idle expiry, or a flux reopen.
+/// Idling briefly lets the stream render silence first; the blip then lands
+/// on a running stream. Cue thread (or background prewarm) only; skipped
+/// under cfg(test) so the hermetic suite pays no timing.
+const COLD_PRIME_MS: u64 = 150;
+
+fn prime_fresh_stream() {
+    if cfg!(test) {
+        return;
+    }
+    std::thread::sleep(Duration::from_millis(COLD_PRIME_MS));
+}
+
 /// Maximum age of a parked cue sink. An undetected output switch (same
 /// name, virtual endpoint re-routed behind our back) can never trip the
 /// identity check, so age alone forces rotation: worst case is this many
@@ -388,6 +404,9 @@ fn play_cached_voice_cue(
         );
         return;
     };
+    let prime_at = Instant::now();
+    prime_fresh_stream();
+    let prime_ms = prime_at.elapsed().as_secs_f64() * 1000.0;
     if sink.play(data, volume).is_err() {
         warn!(
             "voice cue missed (cold play failed) open_ms={:.2} query_ms={:.2} retry_ms={:.2} wanted={:?}",
@@ -412,15 +431,16 @@ fn play_cached_voice_cue(
             opened_at: Instant::now(),
         });
         debug!(
-            "voice cue cold open_ms={:.2} query_ms={:.2} cached=true device={:?}",
-            open_ms, query_ms, wanted,
+            "voice cue cold open_ms={:.2} query_ms={:.2} prime_ms={:.2} cached=true device={:?}",
+            open_ms, query_ms, prime_ms, wanted,
         );
     } else {
         sink.wait_until_end();
         debug!(
-            "voice cue cold moved mid-open, playing uncached open_ms={:.2} query_ms={:.2} wanted={:?} bound={:?}",
+            "voice cue cold moved mid-open, playing uncached open_ms={:.2} query_ms={:.2} prime_ms={:.2} wanted={:?} bound={:?}",
             open_ms,
             query_ms,
+            prime_ms,
             wanted,
             post.as_ref().map(|id| &id.name),
         );
@@ -440,7 +460,6 @@ pub fn prewarm_voice_sink() {
 /// endpoint. Never touches a live playback; the next cue re-caches.
 /// Windows-only at runtime (audio_notify/tray subclass are cfg(windows));
 /// exercised by tests on every platform.
-/// honey: allow(dead_code) instead of cfg gating so tests share one path.
 #[allow(dead_code)]
 pub fn drop_cached_voice_sink() {
     *lock_voice_cache(&VOICE_SINK_CACHE) = None;
@@ -463,6 +482,7 @@ fn prewarm_voice_sink_with(
             .as_ref()
             .is_some_and(|id| id == &device_id)
     {
+        prime_fresh_stream();
         *lock_voice_cache(cache) = Some(CachedVoiceSink {
             device_id,
             sink,
