@@ -479,4 +479,27 @@ mod tests {
         assert!(t.fallback_paths.is_some());
         assert!(t.fallback_recognizer.is_none());
     }
+
+    #[test]
+    #[ignore]
+    fn test_live_unified_primary_before_fallback_order() {
+        if !crate::platform::host_tests_allowed() {
+            return;
+        }
+        let dir = taurine_core::voice::models_dir();
+        let mut t = ParakeetTranscriber::new("parakeet-unified-en-0.6b", Some(&dir));
+        assert!(t.recognizer.is_some(), "real model must build the primary");
+        assert!(
+            t.fallback_recognizer.is_none(),
+            "fallback must stay unbuilt after construction"
+        );
+        let sample: Vec<f32> = vec![0.0; 16000]; // placeholder, swap for speech on the live host
+        let res = t.transcribe(&sample, 16000).expect("live transcribe");
+        if !res.is_empty() {
+            assert!(
+                t.fallback_recognizer.is_none(),
+                "non-empty primary must not build the fallback"
+            );
+        }
+    }
 }
