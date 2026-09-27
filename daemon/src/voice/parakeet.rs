@@ -93,8 +93,6 @@ pub(crate) fn resolve_transcription_text(
 }
 
 /// File set for the lazily-built greedy fallback; Task 2 calls ensure_fallback() from transcribe().
-// honey: allow(dead_code) until Task 2 wires the lazy fallback into transcribe().
-#[allow(dead_code)]
 struct UnifiedFallbackPaths {
     encoder: PathBuf,
     decoder: PathBuf,
@@ -107,8 +105,6 @@ pub struct ParakeetTranscriber {
     model_name: String,
     recognizer: Option<OfflineRecognizer>,
     fallback_recognizer: Option<OfflineRecognizer>,
-    // honey: allow(dead_code) until Task 2 wires the lazy fallback into transcribe().
-    #[allow(dead_code)]
     fallback_paths: Option<UnifiedFallbackPaths>,
     ctc_decoder: Option<shenava_ctc_beam::CtcBeamDecoder>,
     hotwords: Option<String>,
@@ -226,8 +222,6 @@ impl ParakeetTranscriber {
         }
     }
 
-    // honey: allow(dead_code) until Task 2 wires the lazy fallback into transcribe().
-    #[allow(dead_code)]
     fn ensure_fallback(&mut self) {
         if self.fallback_recognizer.is_some() || self.fallback_paths.is_none() {
             return;
@@ -294,8 +288,14 @@ impl Transcriber for ParakeetTranscriber {
                 .unwrap_or_default();
 
             // Fix 3: Dual-pass fallback for Unified model.
-            // If modified_beam_search yields an empty transcript, immediately
-            // fall back to greedy decode so the user never gets dropped output.
+            // If modified_beam_search yields an empty transcript on real audio,
+            // ensure the lazily-built greedy fallback exists, then fall back to
+            // greedy decode so the user never gets dropped output. A failed
+            // lazy build leaves no fallback and the primary (empty) result
+            // stands — identical to having no backup.
+            if text.trim().is_empty() && !audio.is_empty() {
+                self.ensure_fallback();
+            }
             let text = if let Some(ref fallback) = self.fallback_recognizer
                 && !audio.is_empty()
             {
@@ -455,5 +455,28 @@ mod tests {
             .expect("transcribe should succeed");
         assert!(res.is_empty());
         assert_eq!(res.confidence, 0.0);
+    }
+
+    #[test]
+    fn test_transcribe_empty_audio_never_builds_fallback() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        for name in [
+            "encoder.int8.onnx",
+            "decoder.int8.onnx",
+            "joiner.int8.onnx",
+            "tokens.txt",
+        ] {
+            std::fs::write(dir.path().join(name), b"stub").expect("stub file");
+        }
+        // No recognizer exists (stubs are not valid ONNX), so any audio yields
+        // empty — and the fallback must never be attempted without a primary.
+        let mut t = ParakeetTranscriber::new("parakeet-unified-en-0.6b", Some(dir.path()));
+        let res = t
+            .transcribe(&[0.0f32; 16000], 16000)
+            .expect("transcribe should succeed");
+        assert!(res.is_empty());
+        assert_eq!(res.confidence, 0.0);
+        assert!(t.fallback_paths.is_some());
+        assert!(t.fallback_recognizer.is_none());
     }
 }
