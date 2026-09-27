@@ -99,9 +99,11 @@ trait VoiceBackend {
     /// Returns None when the identity is unknowable (duplicate names, missing
     /// device, OS query failure): the caller must still play, just uncached.
     fn default_device_id(&self) -> Option<VoiceDeviceId>;
-    /// Fresh open of the current default, exactly the pre-task cold path. Must
-    /// succeed whenever a default device exists, even when the identity above
-    /// is ambiguous.
+    /// Fresh open of the exact current-default endpoint handle, never any other
+    /// device. Must succeed whenever the default endpoint is openable, even when
+    /// the identity above is ambiguous. A transient flux failure returns None so
+    /// the caller can retry once; a persistent failure returns None so the caller
+    /// misses loudly instead of playing into a substitute speaker.
     fn open_sink(&self) -> Option<Box<dyn VoiceSink + Send>>;
 }
 
@@ -202,7 +204,18 @@ impl VoiceBackend for RodioVoiceBackend {
     }
 
     fn open_sink(&self) -> Option<Box<dyn VoiceSink + Send>> {
-        let mut stream = DeviceSinkBuilder::open_default_sink().ok()?;
+        use cpal::traits::HostTrait;
+        // Exact-device open: the handle below IS the default at this instant.
+        // from_device + open_sink_or_fallback only ever try other *configs* on
+        // this same endpoint. There is deliberately no cross-device fallback:
+        // a cue on the wrong speaker is worse than a missed blip, and the
+        // caller retries once, then misses loudly (warn) instead of silently
+        // succeeding elsewhere. TOCTOU vs the pre-open identity query is closed
+        // by the caller's verify-then-cache (Task 2).
+        let device = cpal::default_host().default_output_device()?;
+        let mut stream = DeviceSinkBuilder::from_device(device)
+            .ok()
+            .and_then(|b| b.open_sink_or_fallback().ok())?;
         stream.log_on_drop(false);
         let player = rodio::Player::connect_new(stream.mixer());
         Some(Box::new(RodioVoiceSink { stream, player }))
@@ -215,6 +228,12 @@ static VOICE_SINK_CACHE: std::sync::Mutex<Option<CachedVoiceSink>> = std::sync::
 /// for seconds while Windows re-enumerates (3.5s observed per query), so
 /// back-to-back cues share one verdict instead of each paying the stall.
 const REVALIDATE_THROTTLE: Duration = Duration::from_secs(2);
+
+/// Single cold-open retry delay. The retry runs on the `tau-voice-cue`
+/// thread only — hotkey, capture, and transcription never wait. 100ms is
+/// enough for a virtual-endpoint flap (FxSound re-route) to settle without
+/// making a heard blip feel late. Tests pay this sleep once per retry case.
+const COLD_RETRY_DELAY: Duration = Duration::from_millis(100);
 
 /// Maximum age of a parked cue sink. An undetected output switch (same
 /// name, virtual endpoint re-routed behind our back) can never trip the
@@ -341,35 +360,48 @@ fn play_cached_voice_cue(
         // query so replay pays no second enumeration stall.
         revalidated = Some((current, query_ms));
     }
-    let (current, query_ms) = revalidated.unwrap_or_else(|| {
+    let (mut current, query_ms) = revalidated.unwrap_or_else(|| {
         let query_at = Instant::now();
         let current = backend.default_device_id();
         let query_ms = query_at.elapsed().as_secs_f64() * 1000.0;
         (current, query_ms)
     });
+    let wanted = current.as_ref().map(|id| id.name.clone());
     let open_at = Instant::now();
-    let opened = backend.open_sink();
+    let mut opened = backend.open_sink();
+    if opened.is_none() {
+        // Transient flux (virtual endpoint mid-flap): one retry on a fresh
+        // default query after COLD_RETRY_DELAY. Still cue-thread only.
+        std::thread::sleep(COLD_RETRY_DELAY);
+        current = backend.default_device_id();
+        opened = backend.open_sink();
+    }
     let open_ms = open_at.elapsed().as_secs_f64() * 1000.0;
+    let wanted = wanted.or_else(|| current.as_ref().map(|id| id.name.clone()));
     let Some(mut sink) = opened else {
-        debug!(
-            "voice cue missed open_ms={:.2} query_ms={:.2}",
-            open_ms, query_ms
+        warn!(
+            "voice cue missed (cold open failed twice) open_ms={:.2} query_ms={:.2} wanted={:?}",
+            open_ms, query_ms, wanted,
         );
         return;
     };
     if sink.play(data, volume).is_err() {
-        debug!(
-            "voice cue missed open_ms={:.2} query_ms={:.2}",
-            open_ms, query_ms
+        warn!(
+            "voice cue missed (cold play failed) open_ms={:.2} query_ms={:.2} wanted={:?}",
+            open_ms, query_ms, wanted,
         );
         return;
     }
-    // Cache only when the identity is unambiguous. Ambiguous (None) still
-    // sounded through the fresh sink exactly as the cold path; it is never
-    // cached, and the one-shot sink blocks to completion so drop cannot cut
-    // the blip. Persistent cached sinks never wait: their player outlives
-    // the call.
-    if let Some(device_id) = current {
+    // Verify-then-cache: the default may have moved between the pre-open query
+    // and the open (TOCTOU during flux). Cache only when a post-open query still
+    // matches what the open was issued for; otherwise play this blip uncached
+    // (one-shot + wait_until_end so drop cannot cut it) and let the next cue
+    // open fresh. A raced blip may sound once on a departed endpoint — never
+    // cached, never repeated.
+    let post = backend.default_device_id();
+    if let Some(device_id) = current
+        && post.as_ref().is_some_and(|id| id == &device_id)
+    {
         *lock_voice_cache(cache) = Some(CachedVoiceSink {
             device_id,
             sink,
@@ -377,14 +409,17 @@ fn play_cached_voice_cue(
             opened_at: Instant::now(),
         });
         debug!(
-            "voice cue cold open_ms={:.2} query_ms={:.2} cached=true",
-            open_ms, query_ms
+            "voice cue cold open_ms={:.2} query_ms={:.2} cached=true device={:?}",
+            open_ms, query_ms, wanted,
         );
     } else {
         sink.wait_until_end();
         debug!(
-            "voice cue cold open_ms={:.2} query_ms={:.2} cached=false",
-            open_ms, query_ms
+            "voice cue cold moved mid-open, playing uncached open_ms={:.2} query_ms={:.2} wanted={:?} bound={:?}",
+            open_ms,
+            query_ms,
+            wanted,
+            post.as_ref().map(|id| &id.name),
         );
     }
 }
@@ -591,6 +626,15 @@ mod tests {
         sounding: bool,
         dead: bool,
         failing: bool,
+        /// Number of upcoming open_sink calls that must return None (transient
+        /// flux). Decremented per attempt, so `1` fails once then succeeds.
+        fail_opens: usize,
+        /// Total open_sink attempts (successes + failures). `opens` keeps counting
+        /// successes only, so existing asserts are untouched.
+        attempts: usize,
+        /// When true, the next open_sink flips state.default to the other output
+        /// index mid-open, simulating the default moving during a flux open.
+        swap_default_on_open: bool,
     }
 
     struct FakeSink {
@@ -664,8 +708,21 @@ mod tests {
             let play_hooks = self.play_hooks.clone();
             {
                 let mut state = self.state.lock().unwrap();
+                state.attempts += 1;
+                if state.fail_opens > 0 {
+                    state.fail_opens -= 1;
+                    return None;
+                }
                 state.outputs.get(state.default?)?;
                 state.opens += 1;
+                if state.swap_default_on_open {
+                    state.swap_default_on_open = false;
+                    if state.outputs.len() > 1
+                        && let Some(default) = state.default
+                    {
+                        state.default = Some((default + 1) % state.outputs.len());
+                    }
+                }
             }
             if let Some(hooks) = &open_hooks {
                 hooks.rendezvous();
@@ -777,8 +834,8 @@ mod tests {
         assert_eq!(state.opens, 1, "throttled cues must reuse the warm sink");
         assert_eq!(state.plays, 2, "both cues must play");
         assert_eq!(
-            state.queries, 1,
-            "second immediate cue must skip revalidation"
+            state.queries, 2,
+            "cold open pays pre-open plus post-open verify; second immediate cue must skip revalidation"
         );
     }
 
@@ -1092,6 +1149,56 @@ mod tests {
         assert_eq!(
             state.plays, 3,
             "stale play plus fresh replay must both sound"
+        );
+    }
+
+    #[test]
+    fn voice_cold_open_moves_default_midflight_stays_uncached() {
+        let (backend, cache, state) = fake_setup_with(&["dev-a", "dev-b"], 0);
+        state.lock().unwrap().swap_default_on_open = true;
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        let state = state.lock().unwrap();
+        assert_eq!(state.plays, 1, "raced blip still sounds exactly once");
+        drop(state);
+        assert!(
+            cache.lock().unwrap().is_none(),
+            "stream bound mid-flap must never populate the cache"
+        );
+        // Next cue on the settled default caches normally.
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        assert!(
+            cache.lock().unwrap().is_some(),
+            "settled default must cache again"
+        );
+    }
+
+    #[test]
+    fn voice_cold_open_retries_once_then_plays() {
+        let (backend, cache, state) = fake_setup("dev-a");
+        state.lock().unwrap().fail_opens = 1;
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        let state = state.lock().unwrap();
+        assert_eq!(state.attempts, 2, "transient flux gets exactly one retry");
+        assert_eq!(state.plays, 1, "retried cue must sound");
+        drop(state);
+        assert!(
+            cache.lock().unwrap().is_some(),
+            "recovered open on a stable default must cache"
+        );
+    }
+
+    #[test]
+    fn voice_cold_open_fails_twice_misses_uncached() {
+        let (backend, cache, state) = fake_setup("dev-a");
+        state.lock().unwrap().fail_opens = 2;
+        play_cached_voice_cue(&backend, &cache, MINIMAL_COPY, 80);
+        let state = state.lock().unwrap();
+        assert_eq!(state.attempts, 2, "no more than one retry");
+        assert_eq!(state.plays, 0, "double failure must not sound");
+        drop(state);
+        assert!(
+            cache.lock().unwrap().is_none(),
+            "failed opens must never populate the cache"
         );
     }
 
