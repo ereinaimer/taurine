@@ -35,15 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Machine-Bound Database Encryption**: The local database is now encrypted with a per-computer key and copies of the database file no longer open on other computers; move data between machines with encrypted exports.
 - **Simpler fill-in fields**: Write `[name=default]` and fill values inline with `;` (e.g. `hi;Erein`); missing values use defaults, `;;` skips a field.
 - **Semicolon argument separator**: Separate arguments with `;` instead of `:` so times and URLs no longer need quoting.
-- Lower memory use on startup by loading the voice model only when dictation is first used.
 
 ### Removed
 - **Local-Only Daemon Control**: Removed the TCP transport settings (`rpc_mode`, `rpc_host`, `rpc_port`) and the RPC auth token. The daemon is now controlled over the local socket (Unix) or a same-user named pipe (Windows) only.
 - **Redundant Audio Themes**: Remove soft, glass, dreamy, cinematic, and studio pause/resume sounds, leaving seven themes.
 
 ### Fixed
-- **Voice Dictation Honors Ignore Fullscreen**: Voice dictation and voice triggers now stay silent while a fullscreen app is focused when ignore fullscreen is on, matching text expansions and hotkeys.
-- **Microphone List & Dictation Cues**: Restore individual microphones in the tray menu and keep start/stop sounds on the current speaker.
 - **Responsive Pause Toggle**: The pause hotkey plays its sound instantly on every press and settles rapid presses to the intended on/off state.
 - **Instant, Accurate Tray Icon**: The tray appears immediately at launch, flips the moment pause is pressed, and never leaves duplicates behind.
 - **Instant Long Expansions**: Longer snippets now paste in one step instead of typing out character by character.
@@ -76,12 +73,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Uninstall Progress Display**: Show step-by-step progress logs during Unix uninstallation.
 - **Word Boundary Expansion Accuracy**: Prevent unwanted expansions when triggers appear inside larger words or follow digits by requiring non-alphanumeric boundaries.
 - **App Launch Shortcuts**: Restore hotkey triggers using the .NET Process Start API, the saps alias, and single-path Invoke-Item via the instant native launcher.
-- **Voice Recording Reliability**: Retry starting the audio streaming thread so dictation is not silently lost when the system is under heavy load.
-- **Voice Dictation Reliability**: Fix dictation occasionally failing after a delayed response by correctly skipping stale replies that arrive together with the current one.
-- **Voice Recording Follows Microphone Changes**: Switching or unplugging the microphone mid-dictation moves the live recording to the new device instead of capturing silence, and a lost key release no longer leaves recording stuck on.
 - **Sounds Follow Speaker Changes**: Switching speakers no longer swallows startup and shutdown sounds or leaves them playing on the old device.
 - **Fewer Keyboard Dropouts During Device Changes**: Brief hardware reshuffles no longer restart keyboard capture repeatedly, so fewer keystrokes go missing when devices come and go.
-- **Microphone Releases Immediately**: The microphone now closes the moment you release the talk key instead of staying warm in the background, so the system mic indicator is on only while you are genuinely dictating.
 - **Sounds Follow Speaker Switches in Real Time**: Startup and shutdown sounds now track output changes as they happen, including virtual devices, instead of going silent.
 
 ## [1.0.0-alpha.18] - 2026-09-06
