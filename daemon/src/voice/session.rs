@@ -598,27 +598,37 @@ impl VoiceSessionManager {
         let Some(me) = self.self_ref.get().and_then(Weak::upgrade) else {
             return;
         };
-        std::thread::Builder::new()
-            .name("tau-ptt-rescue".to_string())
-            .spawn(move || {
-                std::thread::sleep(Duration::from_millis(RESCUE_WAIT_MS));
-                let held = if handsfree {
-                    crate::input::hotkey::HANDSFREE_KEY_DOWN.load(Ordering::Relaxed)
-                } else {
-                    crate::input::hotkey::PTT_KEY_DOWN.load(Ordering::Relaxed)
-                };
-                if !held || me.is_paused() || me.current_mode() != VoiceMode::Idle {
-                    return;
-                }
-                if handsfree {
-                    if let Err(e) = me.start_handsfree_now() {
-                        warn!("VoiceSessionManager: mash rescue hands-free start failed: {e}");
+        // Retry briefly: under parallel load thread creation can fail
+        // transiently (like the chunk forwarder), and without the waiter a
+        // held key never rescues the gated press.
+        for _ in 0..5 {
+            let waiter = Arc::clone(&me);
+            let res = std::thread::Builder::new()
+                .name("tau-ptt-rescue".to_string())
+                .spawn(move || {
+                    std::thread::sleep(Duration::from_millis(RESCUE_WAIT_MS));
+                    let held = if handsfree {
+                        crate::input::hotkey::HANDSFREE_KEY_DOWN.load(Ordering::Relaxed)
+                    } else {
+                        crate::input::hotkey::PTT_KEY_DOWN.load(Ordering::Relaxed)
+                    };
+                    if !held || waiter.is_paused() || waiter.current_mode() != VoiceMode::Idle {
+                        return;
                     }
-                } else if let Err(e) = me.start_ptt_now(Instant::now(), Instant::now()) {
-                    warn!("VoiceSessionManager: mash rescue PTT start failed: {e}");
-                }
-            })
-            .ok();
+                    if handsfree {
+                        if let Err(e) = waiter.start_handsfree_now() {
+                            warn!("VoiceSessionManager: mash rescue hands-free start failed: {e}");
+                        }
+                    } else if let Err(e) = waiter.start_ptt_now(Instant::now(), Instant::now()) {
+                        warn!("VoiceSessionManager: mash rescue PTT start failed: {e}");
+                    }
+                });
+            if res.is_ok() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        warn!("VoiceSessionManager: failed to spawn mash rescue thread");
     }
 
     /// Honor a press parked while busy: when the previous session reaches
@@ -1488,6 +1498,29 @@ mod tests {
         }
     }
 
+    /// Poll until a request is registered with its forwarder entry (or a 5 s
+    /// deadline expires). Mode flips to PushToTalk before `begin_request`
+    /// inserts the stream entry; stopping in that gap finds no request and
+    /// drops the recording, so the rescue test must wait for both.
+    fn wait_for_request(session: &VoiceSessionManager) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(req) = session.active_request()
+                && session
+                    .streams
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .contains_key(&req)
+            {
+                return true;
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
     fn create_test_session() -> (VoiceSessionManager, Arc<AtomicBool>) {
         create_ordering_session(None, None, None)
     }
@@ -1996,13 +2029,23 @@ mod tests {
         // past MASH_WINDOW_MS and take the direct path instead.
         session.note_session_end();
         crate::input::hotkey::PTT_KEY_DOWN.store(true, Ordering::Relaxed);
+        let mash_at = Instant::now();
         session.start_ptt().expect("mash press");
-        assert_eq!(session.current_mode(), VoiceMode::Idle);
-        assert!(session.active_request().is_none());
+        // Engine work must defer: immediately after the mash press no
+        // request exists yet. Gated on elapsed time so a descheduled test
+        // thread past RESCUE_WAIT_MS (rescue legitimately fired) never flakes.
+        if mash_at.elapsed() < Duration::from_millis(RESCUE_WAIT_MS / 2) {
+            assert_eq!(session.current_mode(), VoiceMode::Idle);
+            assert!(session.active_request().is_none());
+        }
         assert_eq!(
             wait_for_mode(&session, VoiceMode::PushToTalk),
             VoiceMode::PushToTalk,
             "held key must rescue the gated press"
+        );
+        assert!(
+            wait_for_request(&session),
+            "rescued request must register before stop"
         );
         session.capture().buffer().push_samples(&[0.5; 3200]);
         let res = session.stop_ptt().expect("stop rescued");
