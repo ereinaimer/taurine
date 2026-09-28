@@ -177,6 +177,8 @@ pub struct VoiceSessionManager {
     worker: WorkerClient,
     meta: Arc<Mutex<Option<EngineMeta>>>,
     active_req: Mutex<Option<String>>,
+    media: Arc<dyn super::media_suspend::MediaSuspender>,
+    media_paused: Arc<std::sync::Mutex<Vec<super::media_suspend::PausedSession>>>,
     streams: Arc<Mutex<HashMap<String, StreamEntry>>>,
     req_counter: AtomicU64,
     /// Press remembered while busy: a press landing during decode cannot
@@ -228,6 +230,19 @@ impl VoiceSessionManager {
             worker: WorkerClient::new().expect("voice worker runtime must build"),
             meta: Arc::new(Mutex::new(None)),
             active_req: Mutex::new(None),
+            #[cfg(test)]
+            media: Arc::new(super::media_suspend::NoopMediaSuspender),
+            #[cfg(not(test))]
+            media: {
+                #[cfg(windows)]
+                let m: Arc<dyn super::media_suspend::MediaSuspender> =
+                    Arc::new(super::media_suspend::SmtcMediaSuspender);
+                #[cfg(not(windows))]
+                let m: Arc<dyn super::media_suspend::MediaSuspender> =
+                    Arc::new(super::media_suspend::NoopMediaSuspender);
+                m
+            },
+            media_paused: Arc::new(Mutex::new(Vec::new())),
             streams: Arc::new(Mutex::new(HashMap::new())),
             req_counter: AtomicU64::new(0),
             pending_press: AtomicBool::new(false),
@@ -283,6 +298,16 @@ impl VoiceSessionManager {
     #[cfg(test)]
     pub(crate) fn with_worker(mut self, worker: WorkerClient) -> Self {
         self.worker = worker;
+        self
+    }
+
+    /// Builder method to inject a media suspender (tests only).
+    #[cfg(test)]
+    pub(crate) fn with_media(
+        mut self,
+        media: Arc<dyn super::media_suspend::MediaSuspender>,
+    ) -> Self {
+        self.media = media;
         self
     }
 
@@ -598,6 +623,7 @@ impl VoiceSessionManager {
             .unwrap_or_else(|p| p.into_inner()) = None;
         self.note_session_end();
         self.stop_capture();
+        self.resume_media();
         self.capture.buffer().clear();
         if let Some(req_id) = self
             .active_req
@@ -892,6 +918,55 @@ impl VoiceSessionManager {
         }
     }
 
+    /// Snapshot-pause SMTC media on a background thread. Skipped unless the
+    /// setting is on and a real recording is starting; overlapping starts
+    /// share one guard (non-empty check) so mash/busy never double-pauses.
+    fn suspend_media(&self) {
+        if !taurine_core::settings::get_cached_pause_media_while_dictating() {
+            return;
+        }
+        if !self
+            .media_paused
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .is_empty()
+        {
+            return;
+        }
+        let media = Arc::clone(&self.media);
+        let paused_slot = Arc::clone(&self.media_paused);
+        if std::thread::Builder::new()
+            .name("tau-media-suspend".to_string())
+            .spawn(move || {
+                let paused = media.suspend_playing();
+                *paused_slot.lock().unwrap_or_else(|p| p.into_inner()) = paused;
+            })
+            .is_err()
+        {
+            debug!("media suspend: thread spawn failed");
+        }
+    }
+
+    /// Resume exactly what suspend paused, on a background thread. Drains the
+    /// guard first so a concurrent start cannot resume its own pause.
+    fn resume_media(&self) {
+        let paused =
+            std::mem::take(&mut *self.media_paused.lock().unwrap_or_else(|p| p.into_inner()));
+        if paused.is_empty() {
+            return;
+        }
+        let media = Arc::clone(&self.media);
+        if std::thread::Builder::new()
+            .name("tau-media-resume".to_string())
+            .spawn(move || {
+                media.resume(&paused);
+            })
+            .is_err()
+        {
+            debug!("media resume: thread spawn failed");
+        }
+    }
+
     /// Stream newly captured audio to the worker while the request is alive.
     ///
     /// Runs on its own thread; the stop path stops it, joins it, sends the
@@ -1053,6 +1128,7 @@ impl VoiceSessionManager {
         }
         self.touch_loaded_slot();
         self.kick_preload();
+        self.suspend_media();
         info!("VoiceSessionManager: Push-To-Talk recording started");
         self.begin_request(PttTiming {
             press_at,
@@ -1250,6 +1326,7 @@ impl VoiceSessionManager {
     /// is closed on release, never parked.
     pub fn stop_ptt(&self) -> Result<Option<String>, String> {
         self.fire_stop_cue();
+        self.resume_media();
         {
             let mut mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
             if *mode != VoiceMode::PushToTalk {
@@ -1327,6 +1404,7 @@ impl VoiceSessionManager {
         }
         self.touch_loaded_slot();
         self.kick_preload();
+        self.suspend_media();
         info!("VoiceSessionManager: Hands-Free dictation activated");
         self.begin_request(PttTiming {
             press_at,
@@ -1385,6 +1463,7 @@ impl VoiceSessionManager {
                     .lock()
                     .unwrap_or_else(|p| p.into_inner()) = Some(Instant::now());
                 self.stop_capture();
+                self.resume_media();
                 info!("VoiceSessionManager: Hands-Free dictation toggled off; processing audio");
                 // Never strand the session in Processing: a worker failure
                 // must degrade to one lost dictation, never to a voice path
@@ -1442,6 +1521,7 @@ impl VoiceSessionManager {
                 "VoiceSessionManager: Escape pressed while in Processing; resetting voice to Idle"
             );
             self.cancel();
+            self.resume_media();
             return Ok(None);
         }
         let was_recording = {
@@ -1470,6 +1550,7 @@ impl VoiceSessionManager {
         self.pending_press.store(false, Ordering::Relaxed);
         self.fire_stop_cue();
         self.stop_capture();
+        self.resume_media();
         info!("VoiceSessionManager: Escape pressed; terminating voice session and transcribing");
         let result = self.finalize_request();
         if result.is_err() {
@@ -1524,6 +1605,7 @@ impl VoiceSessionManager {
             self.note_session_end();
         }
         self.stop_capture();
+        self.resume_media();
         self.capture.buffer().clear();
         if let Some(req_id) = self
             .active_req
@@ -2507,6 +2589,239 @@ mod tests {
         session.cancel();
         assert_eq!(stop_order_of(&order), vec!["stop-cue", "stop"]);
         assert_eq!(session.current_mode(), VoiceMode::Idle);
+    }
+
+    /// Poll until the media guard holds a suspend token (or a 5 s deadline
+    /// expires). Suspend runs on a background thread, so tests must wait for
+    /// it before stopping; otherwise the stop drain races the suspend write.
+    fn wait_for_media_paused(session: &VoiceSessionManager) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if !session
+                .media_paused
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .is_empty()
+            {
+                return true;
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// Poll until `counter` reaches `want` (or a 5 s deadline expires).
+    /// Resume runs on a background thread, so tests must wait for it.
+    fn wait_for_counter(counter: &AtomicUsize, want: usize) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if counter.load(Ordering::Relaxed) >= want {
+                return true;
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// Counting suspender for tests where `FakeMediaSuspender` cannot
+    /// observe: it records suspend calls, not just resume tokens.
+    struct CountingMedia {
+        suspends: AtomicUsize,
+        resumes: AtomicUsize,
+    }
+
+    impl super::super::media_suspend::MediaSuspender for CountingMedia {
+        fn suspend_playing(&self) -> Vec<super::super::media_suspend::PausedSession> {
+            self.suspends.fetch_add(1, Ordering::Relaxed);
+            vec![super::super::media_suspend::PausedSession {
+                source_id: "fake-player".to_string(),
+                display_name: "fake".to_string(),
+            }]
+        }
+        fn resume(&self, sessions: &[super::super::media_suspend::PausedSession]) {
+            self.resumes.fetch_add(sessions.len(), Ordering::Relaxed);
+        }
+    }
+
+    #[test]
+    fn test_media_suspends_on_start_and_resumes_on_stop() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+        taurine_core::settings::set_cached_pause_media_while_dictating(true);
+        let concrete = Arc::new(super::super::media_suspend::FakeMediaSuspender::new());
+        let fake: Arc<dyn super::super::media_suspend::MediaSuspender> = concrete.clone();
+        let (session, _) = create_ordering_session(
+            Some(Arc::new(|| {})),
+            Some(Arc::new(|| Ok(()))),
+            Some(Arc::new(|| {})),
+        );
+        let session = session.with_media(fake);
+        session.start_ptt().expect("ptt start");
+        assert_eq!(session.current_mode(), VoiceMode::PushToTalk);
+        assert!(
+            wait_for_media_paused(&session),
+            "suspend must land after start"
+        );
+        assert_eq!(
+            session
+                .media_paused
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .len(),
+            1,
+            "fake suspender pauses exactly one session"
+        );
+        // Empty buffer takes the tap-too-short path: Ok(None), no injection.
+        let res = session.stop_ptt().expect("tap-short stop");
+        assert_eq!(res, None);
+        assert_eq!(session.current_mode(), VoiceMode::Idle);
+        assert!(
+            wait_for_counter(&concrete.resumes, 1),
+            "resume must fire after stop"
+        );
+        assert_eq!(concrete.resumes.load(Ordering::Relaxed), 1);
+        taurine_core::settings::set_cached_pause_media_while_dictating(false);
+    }
+
+    #[test]
+    fn test_media_silent_when_setting_off() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+        taurine_core::settings::set_cached_pause_media_while_dictating(false);
+        let concrete = Arc::new(super::super::media_suspend::FakeMediaSuspender::new());
+        let fake: Arc<dyn super::super::media_suspend::MediaSuspender> = concrete.clone();
+        let (session, _) = create_ordering_session(
+            Some(Arc::new(|| {})),
+            Some(Arc::new(|| Ok(()))),
+            Some(Arc::new(|| {})),
+        );
+        let session = session.with_media(fake);
+        session.start_ptt().expect("ptt start");
+        assert_eq!(session.current_mode(), VoiceMode::PushToTalk);
+        // No suspend thread is spawned while off; sleep past any spawn delay
+        // so a stray suspend would have landed before asserting silence.
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(
+            session
+                .media_paused
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .is_empty(),
+            "setting off must never suspend"
+        );
+        let res = session.stop_ptt().expect("tap-short stop");
+        assert_eq!(res, None);
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(
+            concrete.resumes.load(Ordering::Relaxed),
+            0,
+            "setting off must never resume"
+        );
+        taurine_core::settings::set_cached_pause_media_while_dictating(false);
+    }
+
+    #[test]
+    fn test_media_resumes_on_cancel_and_escape() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+        taurine_core::settings::set_cached_pause_media_while_dictating(true);
+        // Cancel path: fresh session so the mash gate cannot swallow the start.
+        let concrete = Arc::new(super::super::media_suspend::FakeMediaSuspender::new());
+        let fake: Arc<dyn super::super::media_suspend::MediaSuspender> = concrete.clone();
+        let (session, _) = create_ordering_session(
+            Some(Arc::new(|| {})),
+            Some(Arc::new(|| Ok(()))),
+            Some(Arc::new(|| {})),
+        );
+        let session = session.with_media(fake);
+        session.start_ptt().expect("ptt start");
+        assert!(
+            wait_for_media_paused(&session),
+            "suspend must land before cancel"
+        );
+        session.cancel();
+        assert_eq!(session.current_mode(), VoiceMode::Idle);
+        assert!(wait_for_counter(&concrete.resumes, 1), "cancel must resume");
+        // Escape path: another fresh session, same shape.
+        let concrete = Arc::new(super::super::media_suspend::FakeMediaSuspender::new());
+        let fake: Arc<dyn super::super::media_suspend::MediaSuspender> = concrete.clone();
+        let (session, _) = create_ordering_session(
+            Some(Arc::new(|| {})),
+            Some(Arc::new(|| Ok(()))),
+            Some(Arc::new(|| {})),
+        );
+        let session = session.with_media(fake);
+        session.start_ptt().expect("ptt start");
+        assert!(
+            wait_for_media_paused(&session),
+            "suspend must land before escape"
+        );
+        let res = session.on_escape_pressed().expect("escape");
+        assert_eq!(res, None);
+        assert_eq!(session.current_mode(), VoiceMode::Idle);
+        assert!(wait_for_counter(&concrete.resumes, 1), "escape must resume");
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+        taurine_core::settings::set_cached_pause_media_while_dictating(false);
+    }
+
+    #[test]
+    fn test_media_no_double_pause_on_busy_press() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+        taurine_core::settings::set_cached_pause_media_while_dictating(true);
+        let concrete = Arc::new(CountingMedia {
+            suspends: AtomicUsize::new(0),
+            resumes: AtomicUsize::new(0),
+        });
+        let media: Arc<dyn super::super::media_suspend::MediaSuspender> = concrete.clone();
+        let (session, _) = create_ordering_session(
+            Some(Arc::new(|| {})),
+            Some(Arc::new(|| Ok(()))),
+            Some(Arc::new(|| {})),
+        );
+        let session = session.with_media(media);
+        session.start_ptt().expect("first press starts");
+        assert!(
+            wait_for_counter(&concrete.suspends, 1),
+            "first press must suspend"
+        );
+        // Busy press parks as pending without reaching engine start.
+        session.start_ptt().expect("busy press is silent");
+        assert_eq!(session.current_mode(), VoiceMode::PushToTalk);
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(
+            concrete.suspends.load(Ordering::Relaxed),
+            1,
+            "busy press must not suspend twice"
+        );
+        session.cancel();
+        assert!(
+            wait_for_counter(&concrete.resumes, 1),
+            "cancel must resume the single pause"
+        );
+        assert_eq!(concrete.resumes.load(Ordering::Relaxed), 1);
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+        taurine_core::settings::set_cached_pause_media_while_dictating(false);
     }
 
     #[test]
