@@ -351,7 +351,7 @@ pub fn validate_voice_phrase(phrase: &str) -> Result<String> {
 
     let normalized: String = trimmed.nfc().collect::<String>().to_lowercase();
 
-    // Check reserved dictation wake phrases
+    // Check reserved dictation command prefix
     if normalized == "type this" || normalized.starts_with("type this ") {
         let diag = Diagnostic::problem(
             "Voice trigger phrase cannot start with reserved command 'type this'",
