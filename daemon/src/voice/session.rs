@@ -82,6 +82,21 @@ fn processing_timeout_limit(windows: u64) -> Duration {
     }
 }
 
+/// Per-window transcribe timeout. Single-window sessions keep the flat 60s
+/// timeout so the 90s watchdog always covers the decode; multi-window
+/// sessions scale with window audio length (covered by the scaled watchdog).
+fn per_window_timeout(window_len_samples: usize, single_window: bool) -> Duration {
+    if single_window {
+        Duration::from_secs(60)
+    } else {
+        Duration::from_secs(60)
+            .checked_add(Duration::from_secs(
+                (window_len_samples as u64).div_ceil(16_000),
+            ))
+            .unwrap_or(Duration::from_secs(120))
+    }
+}
+
 /// TTL bookkeeping for the worker-side model. The audio and the recognizer
 /// live in the `--voice-daemon` worker; this stays lean by design.
 struct EngineMeta {
@@ -1150,9 +1165,7 @@ impl VoiceSessionManager {
                     self.worker
                         .append(&req_id, seq, &window[(sent - offset)..])?;
                 }
-                let per_window_timeout = Duration::from_secs(60)
-                    .checked_add(Duration::from_secs((len as u64).div_ceil(16_000)))
-                    .unwrap_or(Duration::from_secs(120));
+                let per_window_timeout = per_window_timeout(len, true);
                 let part =
                     self.worker
                         .transcribe(&req_id, per_window_timeout, hotwords.as_deref())?;
@@ -1170,9 +1183,7 @@ impl VoiceSessionManager {
                     let window = &drained[offset..offset + len];
                     let seq = entry.progress.seq.load(Ordering::Relaxed);
                     self.worker.append(&window_req, seq, window)?;
-                    let per_window_timeout = Duration::from_secs(60)
-                        .checked_add(Duration::from_secs((len as u64).div_ceil(16_000)))
-                        .unwrap_or(Duration::from_secs(120));
+                    let per_window_timeout = per_window_timeout(len, false);
                     let part = self.worker.transcribe(
                         &window_req,
                         per_window_timeout,
@@ -3935,6 +3946,19 @@ mod tests {
         assert_eq!(processing_timeout_limit(1), Duration::from_secs(90));
         assert_eq!(processing_timeout_limit(2), Duration::from_secs(390));
         assert_eq!(processing_timeout_limit(3), Duration::from_secs(540));
+    }
+
+    #[test]
+    fn single_window_timeout_stays_flat_60s() {
+        assert_eq!(
+            per_window_timeout(16_000 * 60, true),
+            Duration::from_secs(60)
+        );
+        assert_eq!(per_window_timeout(8000, true), Duration::from_secs(60));
+        assert_eq!(
+            per_window_timeout(16_000 * 60, false),
+            Duration::from_secs(120)
+        );
     }
 
     #[test]

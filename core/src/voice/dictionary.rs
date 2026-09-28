@@ -773,7 +773,7 @@ impl VoiceDictionary {
 }
 
 /// Combines personal dictionary terms and active Voice Trigger phrases into a
-/// `/-separated hotwords string for decoder biasing, capped at 100 items with
+/// `/`-separated hotwords string for decoder biasing, capped at 100 items with
 /// dictionary terms taking precedence.
 pub fn build_hotwords_payload(
     dict: &VoiceDictionary,

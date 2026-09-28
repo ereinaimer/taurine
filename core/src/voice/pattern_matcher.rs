@@ -3,8 +3,8 @@ use super::pattern::{VoicePattern, VoicePatternPart};
 use super::phonetic::double_metaphone;
 use crate::engine::variables::ArgMap;
 
-/// Per-word anchor gate: exact match or lexical/phonetic similarity >= 0.80
-/// (same bar as the verifier witness in `gate.rs`).
+/// Per-word anchor gate: exact match or lexical/phonetic similarity at the
+/// 0.80 similarity bar.
 fn anchor_word_match(spoken: &str, anchor: &str) -> bool {
     if spoken.eq_ignore_ascii_case(anchor) {
         return true;

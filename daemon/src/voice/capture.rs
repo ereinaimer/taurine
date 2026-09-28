@@ -25,7 +25,7 @@ impl AudioFrameBuffer {
         lock.extend_from_slice(incoming);
     }
 
-    /// Prepend 16kHz mono samples to the front of the buffer (e.g. to restore boundary audio context).
+    /// Prepend 16kHz mono samples to the front of the buffer (e.g. to restore boundary audio context). The buffer is unbounded; prepended audio is drained and segmented at transcribe time.
     pub fn prepend_samples(&self, incoming: &[f32]) {
         if incoming.is_empty() {
             return;
@@ -1164,7 +1164,7 @@ mod tests {
     }
 
     #[test]
-    fn test_audio_frame_buffer_overflow_cap() {
+    fn buffer_grows_without_cap() {
         let buffer = AudioFrameBuffer::new();
         // Push 4,800,000 samples (old 5-minute cap worth of audio)
         let chunk = vec![0.5f32; 100_000];
@@ -1187,8 +1187,8 @@ mod tests {
             buffer.push_samples(&chunk);
         }
         assert_eq!(buffer.len(), 16_000 * 60 * 8);
-        let head = buffer.peek_tail(16_000 * 60 * 8);
-        assert!(head.iter().all(|&s| s == 0.5));
+        let all = buffer.peek_tail(16_000 * 60 * 8);
+        assert!(all.iter().all(|&s| s == 0.5));
     }
 
     #[test]
