@@ -454,3 +454,21 @@ fn test_static_fuzzy_fallback_when_no_parameterized_match() {
     assert_eq!(m.trigger.invocation, "movies folder");
     assert!(m.args.named.is_empty());
 }
+
+#[test]
+fn voice_trigger_outranks_plain_dictation_on_fuzzy_match() {
+    use taurine_core::db::crud::{normalize_voice_phrase, threshold_for_phrase};
+    use taurine_core::voice::score_trigger;
+
+    let spoken = normalize_voice_phrase("open my terminal please");
+    let trigger_score = score_trigger(&spoken, "open terminal");
+    let plain_score = score_trigger(&spoken, "open my жыраф please");
+    assert!(
+        trigger_score >= threshold_for_phrase(&normalize_voice_phrase("open terminal")),
+        "trigger must clear its threshold, got {trigger_score:.3}"
+    );
+    assert!(
+        trigger_score > plain_score,
+        "trigger {trigger_score:.3} must beat unrelated {plain_score:.3}"
+    );
+}
