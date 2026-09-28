@@ -772,34 +772,35 @@ impl VoiceDictionary {
     }
 }
 
-/// Combines active Voice Trigger phrases and personal dictionary terms into a
-/// `/`-separated hotwords string for decoder biasing, capped at 30 items with
-/// trigger phrases taking precedence.
+/// Combines personal dictionary terms and active Voice Trigger phrases into a
+/// `/-separated hotwords string for decoder biasing, capped at 100 items with
+/// dictionary terms taking precedence.
 pub fn build_hotwords_payload(
     dict: &VoiceDictionary,
     trigger_phrases: &[impl AsRef<str>],
 ) -> Option<String> {
+    const HOTWORDS_CAP: usize = 100;
     let mut collected: Vec<String> = Vec::new();
     let mut seen = std::collections::HashSet::new();
 
-    // 1. Voice triggers first (highest priority)
-    for trigger in trigger_phrases {
-        let trimmed = trigger.as_ref().trim();
+    // 1. Personal dictionary first (highest priority)
+    for term in dict.terms() {
+        let trimmed = term.trim();
         if !trimmed.is_empty() && seen.insert(trimmed.to_lowercase()) {
             collected.push(trimmed.to_string());
-            if collected.len() >= 30 {
+            if collected.len() >= HOTWORDS_CAP {
                 break;
             }
         }
     }
 
-    // 2. Personal dictionary terms second
-    if collected.len() < 30 {
-        for term in dict.terms() {
-            let trimmed = term.trim();
+    // 2. Voice triggers second
+    if collected.len() < HOTWORDS_CAP {
+        for trigger in trigger_phrases {
+            let trimmed = trigger.as_ref().trim();
             if !trimmed.is_empty() && seen.insert(trimmed.to_lowercase()) {
                 collected.push(trimmed.to_string());
-                if collected.len() >= 30 {
+                if collected.len() >= HOTWORDS_CAP {
                     break;
                 }
             }
@@ -970,18 +971,18 @@ mod tests {
         let payload = build_hotwords_payload(&dict, &triggers).expect("payload must be some");
         let parts: Vec<&str> = payload.split('/').collect();
 
-        // Triggers come first: "movies folder", "open terminal"
-        assert_eq!(parts[0], "movies folder");
-        assert_eq!(parts[1], "open terminal");
-        // "movies folder" in dict was deduplicated with trigger
-        assert_eq!(parts[2], "Taurine");
-        assert_eq!(parts[3], "Kubernetes");
-        assert_eq!(parts[4], "API");
+        // Dictionary terms come first: "Taurine", "Kubernetes", "API", "movies folder"
+        assert_eq!(parts[0], "Taurine");
+        assert_eq!(parts[1], "Kubernetes");
+        assert_eq!(parts[2], "API");
+        assert_eq!(parts[3], "movies folder");
+        // "movies folder" trigger was deduplicated; "open terminal" appended
+        assert_eq!(parts[4], "open terminal");
         assert_eq!(parts.len(), 5);
 
-        // Test 30-phrase cap with triggers prioritized
-        let many_triggers: Vec<String> = (0..25).map(|i| format!("trigger {i}")).collect();
-        let many_dict_terms: String = (0..25)
+        // Test 100-phrase cap with dictionary prioritized
+        let many_triggers: Vec<String> = (0..60).map(|i| format!("trigger {i}")).collect();
+        let many_dict_terms: String = (0..60)
             .map(|i| format!("term {i}"))
             .collect::<Vec<_>>()
             .join(",");
@@ -989,14 +990,34 @@ mod tests {
 
         let capped_payload = build_hotwords_payload(&big_dict, &many_triggers).unwrap();
         let capped_parts: Vec<&str> = capped_payload.split('/').collect();
-        assert_eq!(capped_parts.len(), 30);
-        // All 25 triggers must be present at the front
-        for (i, part) in capped_parts.iter().enumerate().take(25) {
-            assert_eq!(*part, format!("trigger {i}"));
+        assert_eq!(capped_parts.len(), 100);
+        // All 60 dictionary terms must be present at the front
+        for (i, part) in capped_parts.iter().enumerate().take(60) {
+            assert_eq!(*part, format!("term {i}"));
         }
-        // Remaining 5 slots filled by dictionary terms
-        assert_eq!(capped_parts[25], "term 0");
-        assert_eq!(capped_parts[29], "term 4");
+        // Remaining 40 slots filled by triggers
+        assert_eq!(capped_parts[60], "trigger 0");
+        assert_eq!(capped_parts[99], "trigger 39");
+    }
+
+    #[test]
+    fn test_hotwords_dict_first_and_higher_cap() {
+        let dict = VoiceDictionary::from_csv("Taurine, PostgreSQL");
+        let payload = build_hotwords_payload(&dict, &["open terminal"]).unwrap();
+        let first = payload.split('/').next().unwrap();
+        assert!(
+            first == "Taurine" || first == "PostgreSQL",
+            "dict term must lead, got: {payload}"
+        );
+        assert!(payload.contains("open terminal"));
+
+        let many_terms: Vec<String> = (0..60).map(|i| format!("customword{i:03}")).collect();
+        let big_csv = many_terms.join(", ");
+        let big_dict = VoiceDictionary::from_csv(&big_csv);
+        let big_triggers: Vec<String> = (0..60).map(|i| format!("trigger phrase {i}")).collect();
+        let big_payload = build_hotwords_payload(&big_dict, &big_triggers).unwrap();
+        assert_eq!(big_payload.split('/').count(), 100);
+        assert!(big_payload.starts_with("customword000"));
     }
 
     #[test]
