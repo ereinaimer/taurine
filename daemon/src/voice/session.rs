@@ -30,10 +30,12 @@ pub(crate) const RESCUE_WAIT_MS: u64 = 200;
 /// milliseconds; only a lost release can still be recording with the key
 /// up this long.
 const STUCK_PTT_GRACE: Duration = Duration::from_secs(10);
-/// Ceiling for the Processing state. Transcription caps at 60s
-/// (finalize_request), so anything beyond this has no owner thread and
-/// would silence voice until restart.
-const STUCK_PROCESSING_TIMEOUT: Duration = Duration::from_secs(90);
+/// Ceiling for the Processing state. Single-window sessions keep exactly
+/// 90s; each extra 60s decode window adds 150s (60s transcribe timeout +
+/// window audio length, with margin) so stacked segment decodes never trip
+/// the watchdog while truly ownerless states still reset.
+const STUCK_PROCESSING_BASE: Duration = Duration::from_secs(90);
+const STUCK_PROCESSING_PER_WINDOW: Duration = Duration::from_secs(150);
 
 /// Hold ladder rungs mirroring the worker sweep: a fresh load holds 10s;
 /// genuine use inside the window steps one rung up to the 60s cap, so at
@@ -66,6 +68,18 @@ fn segment_audio_windows(total: usize, window: usize) -> Vec<(usize, usize)> {
         offset += len;
     }
     out
+}
+
+/// Processing watchdog limit for a session with `windows` 60s decode
+/// windows. Single-window (0 or 1) sessions keep exactly the 90s base.
+fn processing_timeout_limit(windows: u64) -> Duration {
+    if windows <= 1 {
+        STUCK_PROCESSING_BASE
+    } else {
+        STUCK_PROCESSING_BASE.saturating_add(Duration::from_secs(
+            windows.saturating_mul(STUCK_PROCESSING_PER_WINDOW.as_secs()),
+        ))
+    }
 }
 
 /// TTL bookkeeping for the worker-side model. The audio and the recognizer
@@ -533,11 +547,13 @@ impl VoiceSessionManager {
                 }
             }
             VoiceMode::Processing => {
+                let windows = self.processing_windows.load(Ordering::Relaxed);
+                let limit = processing_timeout_limit(windows);
                 let past_timeout = self
                     .processing_since
                     .lock()
                     .unwrap_or_else(|p| p.into_inner())
-                    .is_some_and(|t| t.elapsed() >= STUCK_PROCESSING_TIMEOUT);
+                    .is_some_and(|t| t.elapsed() >= limit);
                 if past_timeout {
                     warn!(
                         "VoiceSessionManager: voice stuck processing with no owner; resetting to Idle"
@@ -1015,6 +1031,9 @@ impl VoiceSessionManager {
 
     /// Register a new streaming request and start its chunk forwarder.
     fn begin_request(&self, timing: PttTiming) {
+        // Clear any stale window count from a worker-error mid-loop session
+        // so it never inflates the next session's watchdog.
+        self.processing_windows.store(0, Ordering::Relaxed);
         let req_id = format!("r{}", self.req_counter.fetch_add(1, Ordering::Relaxed));
         *self.active_req.lock().unwrap_or_else(|p| p.into_inner()) = Some(req_id.clone());
         self.spawn_chunk_forwarder(req_id, self.target_model().to_string(), timing);
@@ -3908,6 +3927,14 @@ mod tests {
             "toggle-based hands-free is exempt from the key-up net"
         );
         *session.mode.lock().unwrap() = VoiceMode::Idle;
+    }
+
+    #[test]
+    fn processing_watchdog_scales_with_windows() {
+        assert_eq!(processing_timeout_limit(0), Duration::from_secs(90));
+        assert_eq!(processing_timeout_limit(1), Duration::from_secs(90));
+        assert_eq!(processing_timeout_limit(2), Duration::from_secs(390));
+        assert_eq!(processing_timeout_limit(3), Duration::from_secs(540));
     }
 
     #[test]
