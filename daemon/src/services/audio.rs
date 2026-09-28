@@ -34,6 +34,13 @@ const RUBBER_COPY: &[u8] = include_bytes!("../../../assets/audio/themes/rubber/c
 const RUBBER_PASTE: &[u8] = include_bytes!("../../../assets/audio/themes/rubber/paste.wav");
 const ZEN_COPY: &[u8] = include_bytes!("../../../assets/audio/themes/zen/copy.wav");
 const ZEN_PASTE: &[u8] = include_bytes!("../../../assets/audio/themes/zen/paste.wav");
+const MINIMAL_ERROR: &[u8] = include_bytes!("../../../assets/audio/themes/minimal/error.wav");
+const ARCADE_ERROR: &[u8] = include_bytes!("../../../assets/audio/themes/arcade/error.wav");
+const MECHANICAL_ERROR: &[u8] = include_bytes!("../../../assets/audio/themes/mechanical/error.wav");
+const ORGANIC_ERROR: &[u8] = include_bytes!("../../../assets/audio/themes/organic/error.wav");
+const SCIFI_ERROR: &[u8] = include_bytes!("../../../assets/audio/themes/scifi/error.wav");
+const RUBBER_ERROR: &[u8] = include_bytes!("../../../assets/audio/themes/rubber/error.wav");
+const ZEN_ERROR: &[u8] = include_bytes!("../../../assets/audio/themes/zen/error.wav");
 
 pub fn get_audio_data(theme: AudioTheme, is_paused: bool) -> &'static [u8] {
     match (theme, is_paused) {
@@ -73,6 +80,21 @@ pub fn get_voice_audio_data(theme: AudioTheme, start: bool) -> &'static [u8] {
         (AudioTheme::Rubber, false) => RUBBER_PASTE,
         (AudioTheme::Zen, true) => ZEN_COPY,
         (AudioTheme::Zen, false) => ZEN_PASTE,
+    }
+}
+
+/// Voice dictation error cue, sourced from the uisfx `error` (feedback)
+/// sound. One variant per theme so the error timbre matches the
+/// start (copy) / stop (paste) personality.
+pub fn get_voice_error_data(theme: AudioTheme) -> &'static [u8] {
+    match theme {
+        AudioTheme::Minimal => MINIMAL_ERROR,
+        AudioTheme::Arcade => ARCADE_ERROR,
+        AudioTheme::Mechanical => MECHANICAL_ERROR,
+        AudioTheme::Organic => ORGANIC_ERROR,
+        AudioTheme::Scifi => SCIFI_ERROR,
+        AudioTheme::Rubber => RUBBER_ERROR,
+        AudioTheme::Zen => ZEN_ERROR,
     }
 }
 
@@ -587,6 +609,39 @@ pub fn play_voice_start_cue() {
 /// hands-free toggle off, or Escape), before transcription runs.
 pub fn play_voice_stop_cue() {
     play_voice_cue(false);
+}
+
+/// Plays the mic/error cue for failed dictation (mic open failed or
+/// engine/transcription failed). Same threading, volume, and hermetic
+/// guards as the start/stop cues; the error interrupts like any cue.
+pub fn play_voice_error_cue() {
+    // Hermetic tests never play sound on the host speakers.
+    if cfg!(test) {
+        return;
+    }
+    let volume = get_cached_audio_volume();
+    if volume == 0 {
+        return;
+    }
+    let theme = get_cached_audio_theme();
+    let data = get_voice_error_data(theme);
+    let tag = "error";
+    for _ in 0..3 {
+        match std::thread::Builder::new()
+            .name("tau-voice-cue".to_string())
+            .spawn(move || {
+                let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    play_cached_voice_cue(&RodioVoiceBackend, &VOICE_SINK_CACHE, data, volume, tag);
+                }));
+                if let Err(e) = res {
+                    warn!("voice cue {tag} thread panicked: {e:?}");
+                }
+            }) {
+            Ok(_) => return,
+            Err(_) => std::thread::sleep(Duration::from_millis(20)),
+        }
+    }
+    warn!("voice cue {tag} missed (thread spawn failed)");
 }
 
 pub fn start_worker(mut rx: mpsc::Receiver<bool>) {
@@ -1295,6 +1350,19 @@ mod tests {
                 &paste_bytes[0..4],
                 b"RIFF",
                 "Theme {:?} voice stop (paste) cue is not a valid WAV",
+                theme
+            );
+
+            let error_bytes = get_voice_error_data(theme);
+            assert!(
+                !error_bytes.is_empty(),
+                "Theme {:?} voice error cue is empty",
+                theme
+            );
+            assert_eq!(
+                &error_bytes[0..4],
+                b"RIFF",
+                "Theme {:?} voice error cue is not a valid WAV",
                 theme
             );
         }
