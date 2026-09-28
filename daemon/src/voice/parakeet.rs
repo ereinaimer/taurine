@@ -156,7 +156,7 @@ impl ParakeetTranscriber {
                 if let (Some(enc), Some(dec), Some(joi), Some(tok)) =
                     (encoder, decoder, joiner, tokens)
                 {
-                    // Primary: modified_beam_search with provisioned bpe_vocab and hotwords_score = 2.0
+                    // Primary: modified_beam_search with provisioned bpe_vocab and hotwords_score = 4.0
                     let mut config = OfflineRecognizerConfig::default();
                     config.model_config.transducer = OfflineTransducerModelConfig {
                         encoder: Some(enc.to_string_lossy().to_string()),
@@ -172,7 +172,7 @@ impl ParakeetTranscriber {
                     if let Some(ref bpe) = bpe_vocab {
                         config.model_config.bpe_vocab = Some(bpe.to_string_lossy().to_string());
                     }
-                    config.hotwords_score = 2.0;
+                    config.hotwords_score = 4.0;
                     recognizer = OfflineRecognizer::create(&config);
 
                     // Fallback built lazily via ensure_fallback() on first need.
@@ -202,6 +202,7 @@ impl ParakeetTranscriber {
                     config.model_config.tokens = Some(tok.to_string_lossy().to_string());
                     config.model_config.model_type = Some("nemo_transducer".into());
                     config.model_config.num_threads = recognizer_threads();
+                    config.hotwords_score = 4.0;
                     recognizer = OfflineRecognizer::create(&config);
 
                     let ctc_labels = load_ctc_labels(&tok);
@@ -273,7 +274,8 @@ impl Transcriber for ParakeetTranscriber {
         if let Some(ref recognizer) = self.recognizer {
             let stream = if let Some(ref hw) = self.hotwords
                 && !hw.trim().is_empty()
-                && self.model_name == "parakeet-unified-en-0.6b"
+                && (self.model_name == "parakeet-unified-en-0.6b"
+                    || self.model_name == "parakeet-tdt-0.6b-v2")
             {
                 recognizer.create_stream_with_hotwords(hw.trim())
             } else {
