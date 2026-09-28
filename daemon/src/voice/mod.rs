@@ -2,6 +2,7 @@ pub mod capture;
 pub mod daemon;
 pub mod device_monitor;
 pub mod factory;
+pub mod media_suspend;
 pub mod modes;
 pub mod parakeet;
 pub mod session;
