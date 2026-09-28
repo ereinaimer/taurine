@@ -166,6 +166,8 @@ pub struct VoiceSessionManager {
     capture_hook: Mutex<Option<CaptureHook>>,
     #[cfg(test)]
     stop_hook: Mutex<Option<CueHook>>,
+    #[cfg(test)]
+    error_hook: Mutex<Option<CueHook>>,
 }
 
 impl VoiceSessionManager {
@@ -198,6 +200,8 @@ impl VoiceSessionManager {
             capture_hook: Mutex::new(None),
             #[cfg(test)]
             stop_hook: Mutex::new(None),
+            #[cfg(test)]
+            error_hook: Mutex::new(None),
         }
     }
 
@@ -257,6 +261,12 @@ impl VoiceSessionManager {
         self
     }
 
+    #[cfg(test)]
+    pub(crate) fn with_error_hook(self, hook: CueHook) -> Self {
+        *self.error_hook.lock().unwrap_or_else(|p| p.into_inner()) = Some(hook);
+        self
+    }
+
     /// Fire the mic-close cue (stubbed in tests to observe ordering).
     /// Silent while suppressed: stop paths stay functional over a fullscreen
     /// app, but play nothing over it.
@@ -287,6 +297,32 @@ impl VoiceSessionManager {
             return;
         }
         crate::services::audio::play_voice_stop_cue();
+    }
+
+    #[cfg(test)]
+    fn fire_error_cue(&self) {
+        if self.voice_suppressed() {
+            return;
+        }
+        if let Some(hook) = self
+            .error_hook
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+        {
+            hook();
+        } else {
+            crate::services::audio::play_voice_error_cue();
+        }
+    }
+
+    #[cfg(not(test))]
+    fn fire_error_cue(&self) {
+        if self.voice_suppressed() {
+            debug!("VoiceSessionManager: error cue skipped while fullscreen app focused");
+            return;
+        }
+        crate::services::audio::play_voice_error_cue();
     }
 
     /// Close the microphone (stubbed in tests to observe ordering).
@@ -931,6 +967,7 @@ impl VoiceSessionManager {
         self.capture.buffer().clear();
         if let Err(e) = self.start_capture() {
             warn!("Failed to start audio capture stream for PTT: {e}");
+            self.fire_error_cue();
             return Err(e);
         }
         let recording_at = Instant::now();
@@ -1165,6 +1202,7 @@ impl VoiceSessionManager {
         let cue_at = Instant::now();
         if let Err(e) = self.start_capture() {
             warn!("Failed to start audio capture stream for Hands-Free: {e}");
+            self.fire_error_cue();
             return Err(e);
         }
         let recording_at = Instant::now();
@@ -1998,6 +2036,39 @@ mod tests {
         );
         assert_eq!(session.current_mode(), VoiceMode::Idle);
         assert_eq!(session.active_request(), None);
+    }
+
+    #[test]
+    fn test_ptt_capture_failure_fires_error_cue() {
+        let err_order = Arc::new(Mutex::new(Vec::<&'static str>::new()));
+        let err_clone = Arc::clone(&err_order);
+        let (session, _) = create_ordering_session(
+            Some(Arc::new(move || {
+                err_clone
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .push("cue");
+            })),
+            Some(Arc::new(|| Err("no mic".to_string()))),
+            None,
+        );
+        let session = session.with_error_hook(Arc::new({
+            let err_order = Arc::clone(&err_order);
+            move || {
+                err_order
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .push("error");
+            }
+        }));
+        let res = session.start_ptt_now(Instant::now(), Instant::now());
+        assert!(res.is_err());
+        assert_eq!(session.current_mode(), VoiceMode::Idle);
+        let got = err_order.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        assert!(
+            got.contains(&"error"),
+            "capture failure must fire error cue, got {got:?}"
+        );
     }
 
     #[test]
