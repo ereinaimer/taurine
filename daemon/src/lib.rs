@@ -202,6 +202,9 @@ pub fn start() -> taurine_core::error::Result<()> {
     taurine_core::settings::set_cached_voice_dictionary(settings.voice_dictionary.clone());
     taurine_core::settings::set_cached_voice_input_device(settings.voice_input_device.clone());
     taurine_core::settings::set_cached_voice_keep_loaded(settings.voice_keep_loaded);
+    taurine_core::settings::set_cached_pause_media_while_dictating(
+        settings.pause_media_while_dictating,
+    );
     // Reconcile saved mic against actually-present devices: stale pick -> System
     // Default (persisted), saved pick present -> kept, nothing enumerated -> keep
     // and let the runtime monitor retry once audio is ready.

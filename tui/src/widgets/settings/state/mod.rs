@@ -177,6 +177,9 @@ impl SettingsPageState {
                 (!self.settings.inline_dictionary_enabled).to_string()
             }
             SettingKey::VoiceKeepLoaded => (!self.settings.voice_keep_loaded).to_string(),
+            SettingKey::PauseMediaWhileDictating => {
+                (!self.settings.pause_media_while_dictating).to_string()
+            }
             _ => return SettingsInteraction::handled(),
         };
 
@@ -396,6 +399,29 @@ mod tests {
         let interaction = state.toggle_selected_setting();
         let pending = interaction.pending_save().expect("toggle saves");
         assert_eq!(pending.key, SettingKey::VoiceKeepLoaded);
+        assert_eq!(pending.value.as_deref(), Some("true"));
+
+        state.open_editor_for_selected();
+        assert!(state.modal.is_none());
+    }
+
+    #[test]
+    fn test_pause_media_while_dictating_toggles_and_needs_no_modal() {
+        let mut state = SettingsPageState::default();
+        let idx = state
+            .visible_keys()
+            .iter()
+            .position(|k| *k == SettingKey::PauseMediaWhileDictating)
+            .expect("PauseMediaWhileDictating should be visible");
+        state.selected = idx;
+
+        assert_eq!(
+            SettingKey::PauseMediaWhileDictating.editor_kind(),
+            EditorKind::Toggle
+        );
+        let interaction = state.toggle_selected_setting();
+        let pending = interaction.pending_save().expect("toggle saves");
+        assert_eq!(pending.key, SettingKey::PauseMediaWhileDictating);
         assert_eq!(pending.value.as_deref(), Some("true"));
 
         state.open_editor_for_selected();

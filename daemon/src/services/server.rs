@@ -291,6 +291,9 @@ impl DaemonControl for DaemonService {
             );
             taurine_core::settings::set_cached_voice_dictionary(settings.voice_dictionary.clone());
             taurine_core::settings::set_cached_voice_keep_loaded(settings.voice_keep_loaded);
+            taurine_core::settings::set_cached_pause_media_while_dictating(
+                settings.pause_media_while_dictating,
+            );
             let prev_voice_device = taurine_core::settings::get_cached_voice_input_device();
             taurine_core::settings::set_cached_voice_input_device(
                 settings.voice_input_device.clone(),

@@ -140,6 +140,10 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
         ),
         ("voice_dictionary", settings.voice_dictionary.clone()),
         ("voice_keep_loaded", settings.voice_keep_loaded.to_string()),
+        (
+            "pause_media_while_dictating",
+            settings.pause_media_while_dictating.to_string(),
+        ),
     ];
 
     // Calculate key column width
@@ -409,6 +413,33 @@ mod tests {
             execute_reset("voice_keep_loaded".to_string(), false)?;
             let conn = init::setup()?;
             let reset_val = SettingsManager::new(&conn).load_all().voice_keep_loaded;
+
+            Ok((set_val, reset_val))
+        })
+        .unwrap();
+
+        assert!(set_val);
+        assert!(!reset_val);
+    }
+
+    #[test]
+    fn set_and_reset_pause_media_while_dictating_persists() {
+        let (set_val, reset_val) = with_test_db(|| -> taurine_core::error::Result<(bool, bool)> {
+            execute_set(
+                Some("pause_media_while_dictating".to_string()),
+                Some("true".to_string()),
+                false,
+            )?;
+            let conn = init::setup()?;
+            let set_val = SettingsManager::new(&conn)
+                .load_all()
+                .pause_media_while_dictating;
+
+            execute_reset("pause_media_while_dictating".to_string(), false)?;
+            let conn = init::setup()?;
+            let reset_val = SettingsManager::new(&conn)
+                .load_all()
+                .pause_media_while_dictating;
 
             Ok((set_val, reset_val))
         })
