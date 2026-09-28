@@ -16,8 +16,7 @@ pub use downloader::{
 };
 pub use format::format_transcript;
 pub use gate::{
-    GateDecision, GateWitnesses, RankedVoiceMatch, TriggerMatch, evaluate_gate,
-    rank_voice_invocations, rank_voice_triggers, score_trigger,
+    RankedVoiceMatch, TriggerMatch, rank_voice_invocations, rank_voice_triggers, score_trigger,
 };
 pub use memory::{format_mb, model_disk_size_mb, process_rss_mb};
 pub use models::{
