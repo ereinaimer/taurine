@@ -139,6 +139,7 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
             settings.voice_handsfree_hotkey.clone(),
         ),
         ("voice_dictionary", settings.voice_dictionary.clone()),
+        ("voice_keep_loaded", settings.voice_keep_loaded.to_string()),
     ];
 
     // Calculate key column width
@@ -196,6 +197,23 @@ pub fn execute_set(
 
     if actual_key == "voice_model" {
         let canonical = taurine_core::voice::resolve_configured_model(&value);
+        if let Err(e) = super::progress::ensure_voice_model_downloaded(canonical, json) {
+            tracing::warn!(error = %e, "Voice model '{}' download failed", canonical);
+            if !json {
+                eprintln!(
+                    "Warning: Voice model '{}' could not be downloaded right now. Setting saved.",
+                    canonical
+                );
+            }
+        }
+    }
+
+    if actual_key == "voice_keep_loaded"
+        && value.trim().eq_ignore_ascii_case("true")
+        && let Ok(conn) = init::setup()
+    {
+        let current = SettingsManager::new(&conn).load_all().voice_model;
+        let canonical = taurine_core::voice::resolve_configured_model(&current);
         if let Err(e) = super::progress::ensure_voice_model_downloaded(canonical, json) {
             tracing::warn!(error = %e, "Voice model '{}' download failed", canonical);
             if !json {
@@ -375,6 +393,29 @@ mod tests {
 
         assert_eq!(persisted.as_deref(), Some("External Microphone"));
         assert_eq!(reset_val, None);
+    }
+
+    #[test]
+    fn set_and_reset_voice_keep_loaded_persists() {
+        let (set_val, reset_val) = with_test_db(|| -> taurine_core::error::Result<(bool, bool)> {
+            execute_set(
+                Some("voice_keep_loaded".to_string()),
+                Some("1".to_string()),
+                false,
+            )?;
+            let conn = init::setup()?;
+            let set_val = SettingsManager::new(&conn).load_all().voice_keep_loaded;
+
+            execute_reset("voice_keep_loaded".to_string(), false)?;
+            let conn = init::setup()?;
+            let reset_val = SettingsManager::new(&conn).load_all().voice_keep_loaded;
+
+            Ok((set_val, reset_val))
+        })
+        .unwrap();
+
+        assert!(set_val);
+        assert!(!reset_val);
     }
 
     #[test]

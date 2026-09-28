@@ -43,6 +43,8 @@ static CACHED_VOICE_DICTIONARY: parking_lot::RwLock<Option<String>> =
     parking_lot::RwLock::new(None);
 static CACHED_VOICE_INPUT_DEVICE: parking_lot::RwLock<Option<String>> =
     parking_lot::RwLock::new(None);
+static CACHED_VOICE_KEEP_LOADED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 // Bumped on every cached-settings write so background loops can poll this
 // single counter instead of re-reading the database while idle.
@@ -279,6 +281,15 @@ pub fn get_cached_voice_input_device() -> Option<String> {
     CACHED_VOICE_INPUT_DEVICE.read().clone()
 }
 
+pub fn set_cached_voice_keep_loaded(keep: bool) {
+    CACHED_VOICE_KEEP_LOADED.store(keep, Ordering::Relaxed);
+    bump_settings_version();
+}
+
+pub fn get_cached_voice_keep_loaded() -> bool {
+    CACHED_VOICE_KEEP_LOADED.load(Ordering::Relaxed)
+}
+
 pub const DEFAULT_AI_SYSTEM_PROMPT: &str = "You are Tau, an inline text expander. Provide complete but highly concise answers. Plain text only. No markdown, lists, code fences, or newlines. No filler, greetings, explanations, or extra context. Output your entire response as one continuous string.";
 
 mod apply;
@@ -424,10 +435,11 @@ pub enum SettingKey {
     VoiceHandsfreeHotkey,
     VoiceDictionary,
     VoiceInputDevice,
+    VoiceKeepLoaded,
 }
 
 impl SettingKey {
-    pub const ALL: [Self; 42] = [
+    pub const ALL: [Self; 43] = [
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
         Self::PauseAudioEnabled,
@@ -470,6 +482,7 @@ impl SettingKey {
         Self::VoiceHandsfreeHotkey,
         Self::VoiceDictionary,
         Self::VoiceInputDevice,
+        Self::VoiceKeepLoaded,
     ];
 
     pub const fn storage_key(self) -> &'static str {
@@ -516,6 +529,7 @@ impl SettingKey {
             Self::VoiceHandsfreeHotkey => "voice_handsfree_hotkey",
             Self::VoiceDictionary => "voice_dictionary",
             Self::VoiceInputDevice => "voice_input_device",
+            Self::VoiceKeepLoaded => "voice_keep_loaded",
         }
     }
 }
@@ -569,6 +583,7 @@ pub struct Settings {
     pub voice_handsfree_hotkey: String,
     pub voice_dictionary: String,
     pub voice_input_device: Option<String>,
+    pub voice_keep_loaded: bool,
 }
 
 impl std::fmt::Debug for Settings {
@@ -643,12 +658,13 @@ impl std::fmt::Debug for Settings {
             .field("voice_handsfree_hotkey", &self.voice_handsfree_hotkey)
             .field("voice_dictionary", &self.voice_dictionary)
             .field("voice_input_device", &self.voice_input_device)
+            .field("voice_keep_loaded", &self.voice_keep_loaded)
             .finish()
     }
 }
 
 impl Settings {
-    pub const ALL_KEYS: [&'static str; 42] = [
+    pub const ALL_KEYS: [&'static str; 43] = [
         "pause_hotkey",
         "pause_notifications_enabled",
         "pause_audio_enabled",
@@ -691,6 +707,7 @@ impl Settings {
         "voice_handsfree_hotkey",
         "voice_dictionary",
         "voice_input_device",
+        "voice_keep_loaded",
     ];
 
     pub fn resolve_key(key: &str) -> &str {
@@ -761,6 +778,8 @@ impl Settings {
             "voice_dictionary" | "voice_vocab" | "voice_words" => "voice_dictionary",
             "voice_input_device" | "voice_device" | "voice_mic" | "input_device" | "mic"
             | "microphone" => "voice_input_device",
+            "voice_keep_loaded" => "voice_keep_loaded",
+            "keep_loaded" | "voice_keep" => "voice_keep_loaded",
             other => other,
         }
     }
@@ -877,6 +896,7 @@ impl Default for Settings {
             voice_handsfree_hotkey: "win+lctrl+lalt".to_string(),
             voice_dictionary: String::new(),
             voice_input_device: None,
+            voice_keep_loaded: false,
         }
     }
 }
@@ -987,6 +1007,14 @@ mod tests {
         let json = serde_json::to_value(&settings).unwrap();
         assert!(json.get("_voice_always_on").is_none());
         assert!(json.get("voice_always_on").is_none());
+    }
+
+    #[test]
+    fn voice_keep_loaded_defaults_off_and_key_registered() {
+        assert!(!Settings::default().voice_keep_loaded);
+        assert!(Settings::ALL_KEYS.contains(&"voice_keep_loaded"));
+        assert_eq!(Settings::resolve_key("keep_loaded"), "voice_keep_loaded");
+        assert!(!get_cached_voice_keep_loaded());
     }
 
     #[test]

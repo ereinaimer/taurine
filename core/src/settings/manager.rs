@@ -252,6 +252,11 @@ impl<'a> SettingsManager<'a> {
         {
             settings.voice_input_device = v;
         }
+        if let Some(val) = map.get("voice_keep_loaded")
+            && let Ok(v) = serde_json::from_str::<bool>(val)
+        {
+            settings.voice_keep_loaded = v;
+        }
 
         settings
     }
@@ -307,6 +312,16 @@ mod tests {
 
         let settings = manager.load_all();
         assert!(!settings.system_tray_enabled);
+    }
+
+    #[test]
+    fn load_all_reads_voice_keep_loaded_from_db() {
+        let (_dir, conn) = open_test_db();
+        let manager = SettingsManager::new(&conn);
+
+        manager.update_setting("voice_keep_loaded", true).unwrap();
+
+        assert!(manager.load_all().voice_keep_loaded);
     }
 
     #[test]

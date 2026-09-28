@@ -79,6 +79,7 @@ struct WorkerState {
     model: String,
     model_dir: PathBuf,
     slot: Option<Slot>,
+    keep_loaded: bool,
     /// Model load running off the serve loop; awaited before first decode.
     loading: Option<(String, tokio::task::JoinHandle<Box<dyn Transcriber>>)>,
     buffers: HashMap<String, Vec<f32>>,
@@ -165,6 +166,9 @@ impl WorkerState {
     }
 
     fn sweep(&mut self) {
+        if self.keep_loaded {
+            return;
+        }
         if let Some(ref slot) = self.slot
             && slot.last_used.elapsed() > slot.hold
         {
@@ -201,6 +205,7 @@ async fn handle_frame(
                 state.model = header.model.clone().unwrap_or_else(|| "auto".to_string());
                 state.model =
                     taurine_core::voice::resolve_configured_model(&state.model).to_string();
+                state.keep_loaded = header.keep_loaded;
                 let mut ready = Header::op(proto::OP_READY);
                 ready.version = Some(own_version.to_string());
                 ready.model = Some(state.model.clone());
@@ -391,6 +396,7 @@ where
         model: "auto".to_string(),
         model_dir,
         slot: None,
+        keep_loaded: false,
         loading: None,
         buffers: HashMap::new(),
         warned_missing: false,
@@ -516,6 +522,7 @@ mod tests {
             model: "parakeet-tdt-ctc-110m".to_string(),
             model_dir: std::env::temp_dir().join("taurine-worker-test-models"),
             slot: None,
+            keep_loaded: false,
             loading: None,
             buffers: HashMap::new(),
             warned_missing: false,
@@ -685,6 +692,7 @@ mod tests {
             model: "auto".to_string(),
             model_dir: dir.clone(),
             slot: None,
+            keep_loaded: false,
             loading: None,
             buffers: HashMap::new(),
             warned_missing: false,
@@ -716,6 +724,7 @@ mod tests {
             model: "auto".to_string(),
             model_dir: dir.clone(),
             slot: None,
+            keep_loaded: false,
             loading: None,
             buffers: HashMap::new(),
             warned_missing: false,
@@ -844,6 +853,14 @@ mod tests {
             state.slot.as_ref().expect("slot").hold,
             Duration::from_secs(10)
         );
+    }
+
+    #[test]
+    fn test_sweep_skips_eviction_when_keep_loaded() {
+        let mut state = runged_state(10, Duration::from_secs(3600));
+        state.keep_loaded = true;
+        state.sweep();
+        assert!(state.slot.is_some(), "keep_loaded must skip idle eviction");
     }
 
     #[test]

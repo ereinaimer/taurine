@@ -144,6 +144,7 @@ async fn connect_pipe(
         ready.version = Some(version);
         ready.model = Some(model);
         ready.token = Some(token);
+        ready.keep_loaded = taurine_core::settings::get_cached_voice_keep_loaded();
         let mut stream = stream;
         let (resp, _) = transact(&mut stream, ready, &[], Duration::from_secs(5)).await?;
         if resp.op == proto::OP_READY {
@@ -365,6 +366,7 @@ impl WorkerClient {
             hello.version = Some(env!("CARGO_PKG_VERSION").to_string());
             hello.model = Some(model.to_string());
             hello.token = Some(token);
+            hello.keep_loaded = taurine_core::settings::get_cached_voice_keep_loaded();
             let bound = match inner.stream.as_mut() {
                 Some(stream) => block_on_client(
                     &self.rt,

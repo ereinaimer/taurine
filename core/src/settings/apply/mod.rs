@@ -156,6 +156,15 @@ pub fn apply_setting_input_with_manager(
             )?;
             ApplySettingOutcome::default()
         }
+        "voice_keep_loaded" => {
+            let enabled = parse_boolean_setting_value_with_key(
+                actual_key,
+                require_non_empty(value, actual_key)?,
+            )?;
+            crate::settings::set_cached_voice_keep_loaded(enabled);
+            manager.update_setting(actual_key, enabled)?;
+            ApplySettingOutcome::default()
+        }
         "clipboard_history_enabled" => {
             let enabled = parse_boolean_setting_value_with_key(
                 actual_key,

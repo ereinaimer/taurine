@@ -410,6 +410,9 @@ impl VoiceSessionManager {
             self.recover_stranded_session();
             return;
         }
+        if taurine_core::settings::get_cached_voice_keep_loaded() {
+            return;
+        }
         let mut guard = self.meta.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(ref meta) = *guard
             && meta.last_used.elapsed() > meta.hold
@@ -708,6 +711,19 @@ impl VoiceSessionManager {
             format_mb(rss_before),
             format_mb(rss_after),
         );
+    }
+
+    /// Unloads only when a model is resident; silent no-op otherwise so
+    /// unrelated reloads never log a bogus eviction.
+    pub fn unload_model_if_resident(&self) {
+        let resident = self
+            .meta
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .is_some();
+        if resident {
+            self.unload_model();
+        }
     }
 
     fn ensure_model_loaded(
@@ -2738,6 +2754,38 @@ mod tests {
         assert!(session.meta.lock().unwrap().is_some());
 
         session.unload_model();
+        assert!(session.meta.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn test_keep_loaded_skips_idle_eviction() {
+        let (session, _) = create_test_session();
+        session.set_test_meta(
+            "parakeet-tdt-ctc-110m",
+            Instant::now() - Duration::from_secs(3600),
+        );
+        taurine_core::settings::set_cached_voice_keep_loaded(true);
+        session.clean_expired_transcriber();
+        assert!(
+            session.meta.lock().unwrap().is_some(),
+            "keep_loaded must skip idle eviction"
+        );
+        taurine_core::settings::set_cached_voice_keep_loaded(false);
+        session.clean_expired_transcriber();
+        assert!(
+            session.meta.lock().unwrap().is_none(),
+            "disabling keep_loaded resumes idle eviction"
+        );
+    }
+
+    #[test]
+    fn test_unload_model_if_resident_only_evicts_when_loaded() {
+        let (session, _) = create_test_session();
+        session.unload_model_if_resident();
+        assert!(session.meta.lock().unwrap().is_none());
+
+        session.set_test_meta("parakeet-tdt-ctc-110m", Instant::now());
+        session.unload_model_if_resident();
         assert!(session.meta.lock().unwrap().is_none());
     }
 

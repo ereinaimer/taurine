@@ -201,6 +201,7 @@ pub fn start() -> taurine_core::error::Result<()> {
     );
     taurine_core::settings::set_cached_voice_dictionary(settings.voice_dictionary.clone());
     taurine_core::settings::set_cached_voice_input_device(settings.voice_input_device.clone());
+    taurine_core::settings::set_cached_voice_keep_loaded(settings.voice_keep_loaded);
     // Reconcile saved mic against actually-present devices: stale pick -> System
     // Default (persisted), saved pick present -> kept, nothing enumerated -> keep
     // and let the runtime monitor retry once audio is ready.
@@ -399,7 +400,15 @@ pub fn start() -> taurine_core::error::Result<()> {
                 let _ = crate::platform::panic::catch_worker_panic(
                     "tau-voice-warm",
                     std::panic::AssertUnwindSafe(move || {
-                        warm.warm_worker();
+                        if taurine_core::settings::get_cached_voice_keep_loaded() {
+                            if let Err(e) = warm.ensure_worker_ready() {
+                                tracing::debug!(
+                                    "voice keep-loaded preload failed (lazy fallback): {e}"
+                                );
+                            }
+                        } else {
+                            warm.warm_worker();
+                        }
                         // Park the cue output sink too, so the first press of
                         // the process plays warm. Silent when no device exists.
                         crate::services::audio::prewarm_voice_sink();
@@ -422,7 +431,15 @@ pub fn start() -> taurine_core::error::Result<()> {
                         std::panic::AssertUnwindSafe(move || {
                             for delay in [15, 45] {
                                 std::thread::sleep(std::time::Duration::from_secs(delay));
-                                session.warm_worker();
+                                if taurine_core::settings::get_cached_voice_keep_loaded() {
+                                    if let Err(e) = session.ensure_worker_ready() {
+                                        tracing::debug!(
+                                            "voice keep-loaded preload failed (lazy fallback): {e}"
+                                        );
+                                    }
+                                } else {
+                                    session.warm_worker();
+                                }
                                 crate::services::audio::prewarm_voice_sink();
                             }
                         }),
@@ -588,7 +605,23 @@ pub fn start() -> taurine_core::error::Result<()> {
                     #[cfg(target_os = "linux")]
                     crate::platform::linux::toplevel::start_listener(state_for_coordinator.clone());
                     // 3. Voice engine stays unloaded until the next
-                    // Push-to-Talk or Hands-Free session (on-demand).
+                    // Push-to-Talk or Hands-Free session (on-demand),
+                    // unless keep-loaded restores residency in the background.
+                    if taurine_core::settings::get_cached_voice_keep_loaded()
+                        && let Some(session) = crate::VOICE_SESSION.get()
+                    {
+                        let session = session.clone();
+                        std::thread::Builder::new()
+                            .name("tau-voice-resume".to_string())
+                            .spawn(move || {
+                                if let Err(e) = session.ensure_worker_ready() {
+                                    tracing::debug!(
+                                        "voice resume preload failed (lazy fallback): {e}"
+                                    );
+                                }
+                            })
+                            .ok();
+                    }
                 }
 
                 if pause_notifications_enabled_for_coordinator.load(Ordering::Relaxed) {

@@ -55,6 +55,7 @@ impl SettingKeyMeta for SettingKey {
             Self::VoiceHandsfreeHotkey => "Voice Hands-free Hotkey",
             Self::VoiceDictionary => "Voice Personal Dictionary",
             Self::VoiceInputDevice => "Voice Input Device",
+            Self::VoiceKeepLoaded => "Keep Voice Model Loaded",
         }
     }
 
@@ -146,6 +147,9 @@ impl SettingKeyMeta for SettingKey {
             Self::VoiceInputDevice => {
                 "Microphone device name for voice dictation (leave empty for system default)"
             }
+            Self::VoiceKeepLoaded => {
+                "Keep the dictation model in memory for instant start (uses extra RAM)"
+            }
         }
     }
 
@@ -167,7 +171,8 @@ impl SettingKeyMeta for SettingKey {
             | Self::InlineCurrencyToWordsEnabled
             | Self::InlineDictionaryEnabled
             | Self::InlineAiEnabled
-            | Self::NotifyOnUpdate => EditorKind::Toggle,
+            | Self::NotifyOnUpdate
+            | Self::VoiceKeepLoaded => EditorKind::Toggle,
             Self::Wpm
             | Self::AudioVolume
             | Self::ClipboardRestoreDelayMs
@@ -254,6 +259,7 @@ impl SettingKeyMeta for SettingKey {
                 taurine_core::settings::InlineDictionaryMode::Full => "full".to_string(),
             },
             Self::NotifyOnUpdate => settings.notify_on_update.to_string(),
+            Self::VoiceKeepLoaded => settings.voice_keep_loaded.to_string(),
             Self::VoiceModel => settings.voice_model.clone(),
             Self::VoicePttHotkey => settings.voice_ptt_hotkey.clone(),
             Self::VoiceHandsfreeHotkey => settings.voice_handsfree_hotkey.clone(),
@@ -310,7 +316,8 @@ impl SettingKeyMeta for SettingKey {
             | Self::InlineCurrencyToWordsEnabled
             | Self::InlineDictionaryEnabled
             | Self::InlineDictionaryMode
-            | Self::NotifyOnUpdate => self.display_value(settings),
+            | Self::NotifyOnUpdate
+            | Self::VoiceKeepLoaded => self.display_value(settings),
             Self::AiTemperature => {
                 optional_value_label(settings.ai_temperature.map(|v| v.to_string()).as_deref())
                     .to_string()

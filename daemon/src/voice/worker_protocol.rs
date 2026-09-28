@@ -73,6 +73,9 @@ pub struct Header {
     /// Optional per-utterance hotwords for `transcribe`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hotwords: Option<String>,
+    /// Keep-resident flag for `hello`: skip idle eviction while true.
+    #[serde(default)]
+    pub keep_loaded: bool,
 }
 
 impl Header {
@@ -90,6 +93,7 @@ impl Header {
             duration_secs: None,
             message: None,
             hotwords: None,
+            keep_loaded: false,
         }
     }
 }
@@ -250,6 +254,24 @@ mod tests {
         assert!(check_hello(&foreign, "9.9.9", "tok").is_err());
 
         assert!(check_hello(&Header::op(OP_PING), "9.9.9", "tok").is_err());
+    }
+
+    #[test]
+    fn test_keep_loaded_header_round_trip() {
+        let mut header = Header::op(OP_HELLO);
+        header.keep_loaded = true;
+        let bytes = encode_frame(&header, &[]).expect("encode");
+        let mut buf = bytes;
+        let (got, _) = decode_frame(&mut buf).expect("decode").expect("full frame");
+        assert!(got.keep_loaded);
+        let legacy = br#"{"op":"hello"}"#.to_vec();
+        let mut legacy_buf = [0u8, 0, 0, 0, 0, 0, 0, 0].to_vec();
+        legacy_buf[..4].copy_from_slice(&(legacy.len() as u32).to_le_bytes());
+        legacy_buf.extend_from_slice(&legacy);
+        let (legacy_got, _) = decode_frame(&mut legacy_buf)
+            .expect("decode")
+            .expect("full frame");
+        assert!(!legacy_got.keep_loaded);
     }
 
     #[test]

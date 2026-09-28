@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Keep Voice Model Loaded**: Optional setting to keep the dictation model in memory for instant start after long idle periods at the cost of extra RAM.
+
 ## [1.0.0-alpha.19] - 2026-09-27
 
 ### Added
