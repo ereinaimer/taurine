@@ -257,6 +257,11 @@ impl<'a> SettingsManager<'a> {
         {
             settings.voice_keep_loaded = v;
         }
+        if let Some(val) = map.get("pause_media_while_dictating")
+            && let Ok(v) = serde_json::from_str::<bool>(val)
+        {
+            settings.pause_media_while_dictating = v;
+        }
 
         settings
     }

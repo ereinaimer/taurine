@@ -45,6 +45,8 @@ static CACHED_VOICE_INPUT_DEVICE: parking_lot::RwLock<Option<String>> =
     parking_lot::RwLock::new(None);
 static CACHED_VOICE_KEEP_LOADED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
+static CACHED_PAUSE_MEDIA_WHILE_DICTATING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 // Bumped on every cached-settings write so background loops can poll this
 // single counter instead of re-reading the database while idle.
@@ -290,6 +292,15 @@ pub fn get_cached_voice_keep_loaded() -> bool {
     CACHED_VOICE_KEEP_LOADED.load(Ordering::Relaxed)
 }
 
+pub fn set_cached_pause_media_while_dictating(enabled: bool) {
+    CACHED_PAUSE_MEDIA_WHILE_DICTATING.store(enabled, Ordering::Relaxed);
+    bump_settings_version();
+}
+
+pub fn get_cached_pause_media_while_dictating() -> bool {
+    CACHED_PAUSE_MEDIA_WHILE_DICTATING.load(Ordering::Relaxed)
+}
+
 pub const DEFAULT_AI_SYSTEM_PROMPT: &str = "You are Tau, an inline text expander. Provide complete but highly concise answers. Plain text only. No markdown, lists, code fences, or newlines. No filler, greetings, explanations, or extra context. Output your entire response as one continuous string.";
 
 mod apply;
@@ -436,10 +447,11 @@ pub enum SettingKey {
     VoiceDictionary,
     VoiceInputDevice,
     VoiceKeepLoaded,
+    PauseMediaWhileDictating,
 }
 
 impl SettingKey {
-    pub const ALL: [Self; 43] = [
+    pub const ALL: [Self; 44] = [
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
         Self::PauseAudioEnabled,
@@ -483,6 +495,7 @@ impl SettingKey {
         Self::VoiceDictionary,
         Self::VoiceInputDevice,
         Self::VoiceKeepLoaded,
+        Self::PauseMediaWhileDictating,
     ];
 
     pub const fn storage_key(self) -> &'static str {
@@ -530,6 +543,7 @@ impl SettingKey {
             Self::VoiceDictionary => "voice_dictionary",
             Self::VoiceInputDevice => "voice_input_device",
             Self::VoiceKeepLoaded => "voice_keep_loaded",
+            Self::PauseMediaWhileDictating => "pause_media_while_dictating",
         }
     }
 }
@@ -584,6 +598,7 @@ pub struct Settings {
     pub voice_dictionary: String,
     pub voice_input_device: Option<String>,
     pub voice_keep_loaded: bool,
+    pub pause_media_while_dictating: bool,
 }
 
 impl std::fmt::Debug for Settings {
@@ -659,12 +674,16 @@ impl std::fmt::Debug for Settings {
             .field("voice_dictionary", &self.voice_dictionary)
             .field("voice_input_device", &self.voice_input_device)
             .field("voice_keep_loaded", &self.voice_keep_loaded)
+            .field(
+                "pause_media_while_dictating",
+                &self.pause_media_while_dictating,
+            )
             .finish()
     }
 }
 
 impl Settings {
-    pub const ALL_KEYS: [&'static str; 43] = [
+    pub const ALL_KEYS: [&'static str; 44] = [
         "pause_hotkey",
         "pause_notifications_enabled",
         "pause_audio_enabled",
@@ -708,6 +727,7 @@ impl Settings {
         "voice_dictionary",
         "voice_input_device",
         "voice_keep_loaded",
+        "pause_media_while_dictating",
     ];
 
     pub fn resolve_key(key: &str) -> &str {
@@ -780,6 +800,8 @@ impl Settings {
             | "microphone" => "voice_input_device",
             "voice_keep_loaded" => "voice_keep_loaded",
             "keep_loaded" | "voice_keep" => "voice_keep_loaded",
+            "pause_media_while_dictating" => "pause_media_while_dictating",
+            "pause_media" => "pause_media_while_dictating",
             other => other,
         }
     }
@@ -897,6 +919,7 @@ impl Default for Settings {
             voice_dictionary: String::new(),
             voice_input_device: None,
             voice_keep_loaded: false,
+            pause_media_while_dictating: false,
         }
     }
 }
@@ -1015,6 +1038,17 @@ mod tests {
         assert!(Settings::ALL_KEYS.contains(&"voice_keep_loaded"));
         assert_eq!(Settings::resolve_key("keep_loaded"), "voice_keep_loaded");
         assert!(!get_cached_voice_keep_loaded());
+    }
+
+    #[test]
+    fn pause_media_while_dictating_defaults_off_and_key_registered() {
+        assert!(!Settings::default().pause_media_while_dictating);
+        assert!(Settings::ALL_KEYS.contains(&"pause_media_while_dictating"));
+        assert_eq!(
+            Settings::resolve_key("pause_media"),
+            "pause_media_while_dictating"
+        );
+        assert!(!get_cached_pause_media_while_dictating());
     }
 
     #[test]

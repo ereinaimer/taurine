@@ -165,6 +165,15 @@ pub fn apply_setting_input_with_manager(
             manager.update_setting(actual_key, enabled)?;
             ApplySettingOutcome::default()
         }
+        "pause_media_while_dictating" => {
+            let enabled = parse_boolean_setting_value_with_key(
+                actual_key,
+                require_non_empty(value, actual_key)?,
+            )?;
+            crate::settings::set_cached_pause_media_while_dictating(enabled);
+            manager.update_setting(actual_key, enabled)?;
+            ApplySettingOutcome::default()
+        }
         "clipboard_history_enabled" => {
             let enabled = parse_boolean_setting_value_with_key(
                 actual_key,
