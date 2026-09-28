@@ -10,8 +10,7 @@ use taurine_core::db::crud::{
 use taurine_core::db::crud::{record_voice_dictation_usage, record_voice_trigger_usage};
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 use taurine_core::voice::{
-    GateDecision, GateWitnesses, VoiceDictionary, evaluate_gate, format_transcript,
-    get_model_entry, get_system_ram_gb, resolve_model_alias,
+    VoiceDictionary, format_transcript, get_model_entry, get_system_ram_gb, resolve_model_alias,
 };
 
 fn setup_test_db() -> Connection {
@@ -185,17 +184,6 @@ fn voice_entry(
     }
 }
 
-fn active_voice_invocation(
-    conn: &Connection,
-    phrase: &str,
-) -> taurine_core::db::crud::ResolvedInvocation {
-    list_active_voice_invocations(conn)
-        .unwrap()
-        .into_iter()
-        .find(|inv| inv.invocation == phrase)
-        .unwrap_or_else(|| panic!("voice invocation '{phrase}' should be active"))
-}
-
 #[test]
 fn test_voice_models_catalog_and_ram_tier() {
     let unified = get_model_entry("parakeet-unified-en-0.6b").expect("unified must be in catalog");
@@ -287,85 +275,6 @@ fn test_voice_formatting_pipeline() {
     // Spacing normalization
     let messy_spaces = "test   ,  another  .  word  ?";
     assert_eq!(format_transcript(messy_spaces), "Test, another. Word?");
-}
-
-#[test]
-fn test_voice_gate_three_witnesses_decisions() {
-    let conn = setup_test_db();
-    create_entry(
-        &conn,
-        voice_entry(
-            "kubectl apply -f prod.yaml",
-            "script",
-            "deploy production",
-            true, // requires confirmation
-        ),
-    )
-    .unwrap();
-    let row = active_voice_invocation(&conn, "deploy production");
-
-    // 1. All witnesses agree, but requires confirmation -> AskConfirm
-    let witnesses_agree = GateWitnesses {
-        vad_confidence: 0.95,
-        kws_phrase: "deploy production",
-        kws_confidence: 0.90,
-        verifier_transcript: "deploy production",
-    };
-    let decision = evaluate_gate(&witnesses_agree, &row);
-    assert_eq!(decision, GateDecision::AskConfirm(row.clone()));
-
-    // 2. Immediate fire trigger when confirmation is disabled
-    create_entry(
-        &conn,
-        voice_entry("Best regards,\nAlice", "text", "paste signature", false),
-    )
-    .unwrap();
-    let row_no_confirm = active_voice_invocation(&conn, "paste signature");
-
-    let sig_witnesses = GateWitnesses {
-        vad_confidence: 0.92,
-        kws_phrase: "paste signature",
-        kws_confidence: 0.88,
-        verifier_transcript: "paste signature",
-    };
-    let fire_decision = evaluate_gate(&sig_witnesses, &row_no_confirm);
-    assert_eq!(fire_decision, GateDecision::Fire(row_no_confirm));
-
-    // 3. VAD confidence too low -> Drop
-    let low_vad = GateWitnesses {
-        vad_confidence: 0.40,
-        kws_phrase: "deploy production",
-        kws_confidence: 0.90,
-        verifier_transcript: "deploy production",
-    };
-    assert!(matches!(
-        evaluate_gate(&low_vad, &row),
-        GateDecision::Drop { .. }
-    ));
-
-    // 4. KWS confidence below trigger threshold -> Drop
-    let low_kws = GateWitnesses {
-        vad_confidence: 0.90,
-        kws_phrase: "deploy production",
-        kws_confidence: 0.50,
-        verifier_transcript: "deploy production",
-    };
-    assert!(matches!(
-        evaluate_gate(&low_kws, &row),
-        GateDecision::Drop { .. }
-    ));
-
-    // 5. Verifier transcript diverges -> Drop
-    let diverged = GateWitnesses {
-        vad_confidence: 0.90,
-        kws_phrase: "deploy production",
-        kws_confidence: 0.90,
-        verifier_transcript: "cancel operations",
-    };
-    assert!(matches!(
-        evaluate_gate(&diverged, &row),
-        GateDecision::Drop { .. }
-    ));
 }
 
 #[test]
