@@ -19,8 +19,8 @@ use taurine_core::voice::{
 };
 
 use super::capture::{
-    MAX_BUFFER_SAMPLES, leading_silence_frames, normalize_snippet_rms,
-    slice_utterance_with_postroll, slice_utterance_with_preroll, trailing_silence_frames,
+    leading_silence_frames, normalize_snippet_rms, slice_utterance_with_postroll,
+    slice_utterance_with_preroll, trailing_silence_frames,
 };
 use super::factory::create_transcriber;
 use super::session::{MIN_SAMPLES_COUNT, MIN_SPEECH_RMS_ENERGY};
@@ -238,10 +238,6 @@ async fn handle_frame(
                 Ok(samples) => {
                     let buf = state.buffers.entry(id).or_default();
                     buf.extend_from_slice(&samples);
-                    if buf.len() > MAX_BUFFER_SAMPLES {
-                        let overflow = buf.len() - MAX_BUFFER_SAMPLES;
-                        buf.drain(..overflow);
-                    }
                     let mut ack = Header::op(proto::OP_ACK);
                     ack.seq = header.seq;
                     vec![respond(ack)]

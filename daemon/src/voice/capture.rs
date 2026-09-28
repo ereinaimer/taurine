@@ -5,11 +5,6 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::{debug, error, info, warn};
 
-/// Maximum buffered samples (5 minutes of 16kHz mono audio = 4,800,000 samples).
-/// Retained for the worker-side mirror in `worker.rs`; Task 5 removes both.
-/// No longer enforced by `AudioFrameBuffer`.
-pub const MAX_BUFFER_SAMPLES: usize = 16_000 * 60 * 5;
-
 /// Thread-safe audio frame buffer storing 16kHz mono f32 samples.
 #[derive(Debug, Default)]
 pub struct AudioFrameBuffer {
