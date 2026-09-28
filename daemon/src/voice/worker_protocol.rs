@@ -21,6 +21,8 @@ pub const OP_APPEND: &str = "append_chunk";
 /// Request ops, sent daemon to worker.
 pub const OP_TRANSCRIBE: &str = "transcribe";
 /// Request ops, sent daemon to worker.
+pub const OP_DISCARD: &str = "discard";
+/// Request ops, sent daemon to worker.
 pub const OP_PING: &str = "ping";
 /// Request ops, sent daemon to worker.
 pub const OP_UNLOAD: &str = "unload";

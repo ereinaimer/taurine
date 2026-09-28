@@ -449,6 +449,27 @@ impl WorkerClient {
         }
     }
 
+    /// Drop the buffered audio keyed by `req_id` without decoding.
+    pub fn discard(&self, req_id: &str) -> Result<(), String> {
+        let mut inner = lock_client(&self.inner);
+        let stream = inner
+            .stream
+            .as_mut()
+            .ok_or("voice worker is not running".to_string())?;
+        let mut header = Header::op(proto::OP_DISCARD);
+        header.req_id = Some(req_id.to_string());
+        match block_on_client(
+            &self.rt,
+            transact(stream, header, &[], Duration::from_secs(5)),
+        ) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                self.drop_locked(&mut inner);
+                Err(e)
+            }
+        }
+    }
+
     /// Best-effort immediate model unload; never fails the caller.
     pub fn unload_model(&self) {
         let mut inner = lock_client(&self.inner);
@@ -558,7 +579,9 @@ mod tests {
                         resp.confidence = Some(0.9);
                         resp.duration_secs = Some(1.0);
                     }
-                    proto::OP_UNLOAD | proto::OP_SHUTDOWN => resp = Header::op(proto::OP_ACK),
+                    proto::OP_UNLOAD | proto::OP_SHUTDOWN | proto::OP_DISCARD => {
+                        resp = Header::op(proto::OP_ACK)
+                    }
                     _ => {
                         resp = Header::op(proto::OP_ERROR);
                         resp.message = Some("unknown op".to_string());

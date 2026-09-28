@@ -267,6 +267,11 @@ async fn handle_frame(
             }
             vec![respond(transcribe_buffer(state, &samples, hotwords))]
         }
+        proto::OP_DISCARD => {
+            let id = req_id.clone().unwrap_or_default();
+            state.buffers.remove(&id);
+            vec![respond(Header::op(proto::OP_ACK))]
+        }
         proto::OP_PING => vec![respond(Header::op(proto::OP_PONG))],
         proto::OP_UNLOAD => {
             if let Some((_, handle)) = state.loading.take() {
@@ -632,6 +637,23 @@ mod tests {
         let out = transcribe_buffer(&mut state, &vec![0.5f32; 500], None);
         assert!(out.text.is_none());
         assert!(state.slot.is_none(), "short audio must not load the model");
+    }
+
+    #[tokio::test]
+    async fn test_discard_drops_buffer_without_decoding() {
+        let mut state = slotted_state();
+        state.buffers.insert("r1".to_string(), vec![0.5f32; 16000]);
+        let mut header = Header::op(proto::OP_DISCARD);
+        header.req_id = Some("r1".to_string());
+        let version = env!("CARGO_PKG_VERSION").to_string();
+        let out = handle_frame(&mut state, header, Vec::new(), &version, "tok").await;
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].0.op, proto::OP_ACK);
+        assert_eq!(out[0].0.req_id.as_deref(), Some("r1"));
+        assert!(
+            !state.buffers.contains_key("r1"),
+            "discard must drop the buffered audio"
+        );
     }
 
     #[test]

@@ -1120,7 +1120,8 @@ impl VoiceSessionManager {
             self.processing_windows
                 .store(windows.len() as u64, Ordering::Relaxed);
             let mut parts: Vec<String> = Vec::with_capacity(windows.len());
-            for (offset, len) in windows {
+            if windows.len() == 1 {
+                let (offset, len) = windows[0];
                 let window = &drained[offset..offset + len];
                 if sent <= offset {
                     let seq = entry.progress.seq.load(Ordering::Relaxed);
@@ -1138,6 +1139,29 @@ impl VoiceSessionManager {
                         .transcribe(&req_id, per_window_timeout, hotwords.as_deref())?;
                 if !part.text.trim().is_empty() {
                     parts.push(part.text.trim().to_string());
+                }
+            } else {
+                // Window isolation: the worker drains a buffer on transcribe,
+                // so reusing one req_id would decode the whole streamed prefix
+                // on the first call. Drop it, then decode each window under a
+                // distinct req_id fed only that window's samples.
+                let _ = self.worker.discard(&req_id);
+                for (i, (offset, len)) in windows.into_iter().enumerate() {
+                    let window_req = format!("{req_id}-w{i}");
+                    let window = &drained[offset..offset + len];
+                    let seq = entry.progress.seq.load(Ordering::Relaxed);
+                    self.worker.append(&window_req, seq, window)?;
+                    let per_window_timeout = Duration::from_secs(60)
+                        .checked_add(Duration::from_secs((len as u64).div_ceil(16_000)))
+                        .unwrap_or(Duration::from_secs(120));
+                    let part = self.worker.transcribe(
+                        &window_req,
+                        per_window_timeout,
+                        hotwords.as_deref(),
+                    )?;
+                    if !part.text.trim().is_empty() {
+                        parts.push(part.text.trim().to_string());
+                    }
                 }
             }
             let transcript_text = parts.join(" ");
@@ -1163,6 +1187,7 @@ impl VoiceSessionManager {
                     });
             }
             self.record_use(target);
+            self.processing_windows.store(0, Ordering::Relaxed);
             self.inject_transcript(&transcript_text)
         } else {
             Ok(None)
@@ -3192,6 +3217,222 @@ mod tests {
         assert!(
             lat.recording_at <= lat.transcript_at,
             "transcript must follow capture"
+        );
+    }
+
+    /// Consuming fake peer: appends accumulate per req_id, transcribe drains
+    /// the buffer (like the real worker), discard drops without decoding.
+    /// Decode recorder: (req_id, samples decoded) per transcribe call.
+    type DecodeLog = Arc<Mutex<Vec<(String, usize)>>>;
+    /// Discard recorder: req_id per discard call.
+    type DiscardLog = Arc<Mutex<Vec<String>>>;
+    async fn consuming_stub_peer(
+        mut peer: tokio::io::DuplexStream,
+        decodes: DecodeLog,
+        discards: DiscardLog,
+    ) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut buf = Vec::new();
+        let mut buffers: HashMap<String, Vec<f32>> = HashMap::new();
+        let mut count: usize = 0;
+        loop {
+            let mut chunk = [0u8; 65536];
+            let n = match peer.read(&mut chunk).await {
+                Ok(n) => n,
+                Err(_) => return,
+            };
+            if n == 0 {
+                return;
+            }
+            buf.extend_from_slice(&chunk[..n]);
+            while let Some((header, body)) = proto::decode_frame(&mut buf).unwrap_or(None) {
+                let mut resp = match header.op.as_str() {
+                    proto::OP_HELLO => {
+                        let mut r = proto::Header::op(proto::OP_READY);
+                        r.version = header.version.clone();
+                        r.model = header.model.clone();
+                        r
+                    }
+                    proto::OP_PING => proto::Header::op(proto::OP_PONG),
+                    proto::OP_APPEND => {
+                        let id = header.req_id.clone().unwrap_or_default();
+                        if let Ok(samples) = proto::decode_samples(&body) {
+                            buffers.entry(id).or_default().extend(samples);
+                        }
+                        let mut r = proto::Header::op(proto::OP_ACK);
+                        r.seq = header.seq;
+                        r
+                    }
+                    proto::OP_TRANSCRIBE => {
+                        let id = header.req_id.clone().unwrap_or_default();
+                        let taken = buffers.remove(&id).unwrap_or_default();
+                        decodes
+                            .lock()
+                            .unwrap_or_else(|p| p.into_inner())
+                            .push((id, taken.len()));
+                        let word = if count == 0 { "alpha" } else { "bravo" };
+                        count += 1;
+                        let mut r = proto::Header::op(proto::OP_RESULT);
+                        r.text = Some(word.to_string());
+                        r.confidence = Some(0.9);
+                        r.duration_secs = Some(1.0);
+                        r
+                    }
+                    proto::OP_DISCARD => {
+                        let id = header.req_id.clone().unwrap_or_default();
+                        buffers.remove(&id);
+                        discards.lock().unwrap_or_else(|p| p.into_inner()).push(id);
+                        proto::Header::op(proto::OP_ACK)
+                    }
+                    _ => proto::Header::op(proto::OP_ACK),
+                };
+                resp.req_id = header.req_id.clone();
+                let bytes = proto::encode_frame(&resp, &[]).expect("encode");
+                if peer.write_all(&bytes).await.is_err() {
+                    return;
+                }
+            }
+        }
+    }
+
+    /// Session wired to the consuming fake, plus decode/discard recorders
+    /// for window-isolation assertions.
+    fn create_consuming_session() -> (VoiceSessionManager, DecodeLog, DiscardLog) {
+        let buffer = Arc::new(super::super::capture::AudioFrameBuffer::new());
+        let capture = Arc::new(AudioCapture::new(buffer));
+        let paused = Arc::new(AtomicBool::new(false));
+        let spawner: SpawnFn = Arc::new(move |_, _| {
+            #[cfg(all(unix, not(target_os = "android")))]
+            let child = Command::new("true")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()?;
+            #[cfg(target_os = "windows")]
+            let child = {
+                use std::os::windows::process::CommandExt;
+                Command::new("cmd")
+                    .arg("/C")
+                    .arg("exit")
+                    .arg("0")
+                    .creation_flags(0x0800_0000)
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn()?
+            };
+            #[cfg(target_os = "android")]
+            let child = Command::new("true").spawn()?;
+            Ok(child)
+        });
+        let decodes = Arc::new(Mutex::new(Vec::new()));
+        let discards = Arc::new(Mutex::new(Vec::new()));
+        let decodes_connector = Arc::clone(&decodes);
+        let discards_connector = Arc::clone(&discards);
+        let connector: ConnectFn = Arc::new(move |_, model, version, _| {
+            let decodes = Arc::clone(&decodes_connector);
+            let discards = Arc::clone(&discards_connector);
+            Box::pin(async move {
+                let (client, peer) = tokio::io::duplex(256 * 1024);
+                tokio::spawn(consuming_stub_peer(peer, decodes, discards));
+                let mut ready = proto::Header::op(proto::OP_HELLO);
+                ready.version = Some(version);
+                ready.model = Some(model);
+                let mut client: DynStream = Box::new(client);
+                let (resp, _) = transact(&mut client, ready, &[], Duration::from_secs(5)).await?;
+                if resp.op != proto::OP_READY {
+                    return Err("stub handshake failed".to_string());
+                }
+                Ok(client)
+            }) as Pin<Box<dyn Future<Output = Result<DynStream, String>> + Send>>
+        });
+        let worker = WorkerClient::with_hooks(spawner, connector).expect("test client");
+        (
+            VoiceSessionManager::new(capture, paused).with_worker(worker),
+            decodes,
+            discards,
+        )
+    }
+
+    #[test]
+    fn test_segmented_finalize_isolates_windows_against_consuming_worker() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let (session, decodes, discards) = create_consuming_session();
+        crate::platform::test_injector().clear();
+        session.start_ptt().expect("ptt start");
+        // Two windows: one full 60s window plus a short tail.
+        let total = TRANSCRIBE_WINDOW_SAMPLES + 8000;
+        session
+            .capture()
+            .buffer()
+            .push_samples(&vec![0.5f32; total]);
+        let res = session.stop_ptt().expect("ptt stop");
+        let expected = taurine_core::voice::format_transcript("alpha bravo");
+        assert_eq!(
+            res.as_deref(),
+            Some(expected.as_str()),
+            "windows must join with a space"
+        );
+        let got = decodes.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        assert_eq!(
+            got.len(),
+            2,
+            "each window must decode exactly once, got {got:?}"
+        );
+        assert_eq!(
+            got[0].1, TRANSCRIBE_WINDOW_SAMPLES,
+            "first decode must see exactly one window"
+        );
+        assert_eq!(got[1].1, 8000, "second decode must see only the tail");
+        assert_ne!(got[0].0, got[1].0, "windows must use distinct req_ids");
+        let dropped = discards.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        assert_eq!(
+            dropped.len(),
+            1,
+            "streamed prefix must be discarded once, got {dropped:?}"
+        );
+        assert!(
+            got[0].0.starts_with(&format!("{}-", dropped[0]))
+                && got[1].0.starts_with(&format!("{}-", dropped[0])),
+            "window ids must derive from the discarded req_id"
+        );
+        assert_eq!(
+            session.processing_windows.load(Ordering::Relaxed),
+            0,
+            "window counter must reset after finalize"
+        );
+    }
+
+    #[test]
+    fn test_single_window_finalize_skips_discard() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let (session, decodes, discards) = create_consuming_session();
+        crate::platform::test_injector().clear();
+        session.start_ptt().expect("ptt start");
+        session.capture().buffer().push_samples(&[0.5; 3200]);
+        let res = session.stop_ptt().expect("ptt stop");
+        assert!(res.is_some(), "stub worker must return a transcript");
+        let got = decodes.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        assert_eq!(got.len(), 1, "single window must decode once");
+        assert!(
+            discards
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .is_empty(),
+            "single window must not discard"
+        );
+        assert_eq!(
+            session.processing_windows.load(Ordering::Relaxed),
+            0,
+            "window counter must reset after finalize"
         );
     }
 
