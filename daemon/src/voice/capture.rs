@@ -6,6 +6,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::{debug, error, info, warn};
 
 /// Maximum buffered samples (5 minutes of 16kHz mono audio = 4,800,000 samples).
+/// Retained for the worker-side mirror in `worker.rs`; Task 5 removes both.
+/// No longer enforced by `AudioFrameBuffer`.
 pub const MAX_BUFFER_SAMPLES: usize = 16_000 * 60 * 5;
 
 /// Thread-safe audio frame buffer storing 16kHz mono f32 samples.
@@ -22,15 +24,9 @@ impl AudioFrameBuffer {
         }
     }
 
-    /// Append 16kHz mono samples into the buffer, discarding oldest samples if capacity exceeds `MAX_BUFFER_SAMPLES`.
+    /// Append 16kHz mono samples into the buffer. The buffer is unbounded; long sessions are drained and segmented at transcribe time.
     pub fn push_samples(&self, incoming: &[f32]) {
         let mut lock = self.samples.lock().unwrap_or_else(|p| p.into_inner());
-        let total = lock.len() + incoming.len();
-        if total > MAX_BUFFER_SAMPLES {
-            let overflow = total - MAX_BUFFER_SAMPLES;
-            let drain_count = overflow.min(lock.len());
-            lock.drain(..drain_count);
-        }
         lock.extend_from_slice(incoming);
     }
 
@@ -43,9 +39,6 @@ impl AudioFrameBuffer {
         let mut new_samples = Vec::with_capacity(lock.len() + incoming.len());
         new_samples.extend_from_slice(incoming);
         new_samples.extend_from_slice(&lock);
-        if new_samples.len() > MAX_BUFFER_SAMPLES {
-            new_samples.truncate(MAX_BUFFER_SAMPLES);
-        }
         *lock = new_samples;
     }
 
@@ -1178,17 +1171,29 @@ mod tests {
     #[test]
     fn test_audio_frame_buffer_overflow_cap() {
         let buffer = AudioFrameBuffer::new();
-        // Push MAX_BUFFER_SAMPLES
+        // Push 4,800,000 samples (old 5-minute cap worth of audio)
         let chunk = vec![0.5f32; 100_000];
         for _ in 0..48 {
             buffer.push_samples(&chunk);
         }
         assert_eq!(buffer.len(), 4_800_000);
 
-        // Push another 10,000 samples — total length must still be capped at MAX_BUFFER_SAMPLES
+        // Push another 10,000 samples — buffer is unbounded, nothing is dropped
         let extra = vec![1.0f32; 10_000];
         buffer.push_samples(&extra);
-        assert_eq!(buffer.len(), MAX_BUFFER_SAMPLES);
+        assert_eq!(buffer.len(), 4_810_000);
+    }
+
+    #[test]
+    fn buffer_keeps_long_dictation_without_dropping_oldest() {
+        let buffer = AudioFrameBuffer::new();
+        let chunk = vec![0.5f32; 16_000 * 60];
+        for _ in 0..8 {
+            buffer.push_samples(&chunk);
+        }
+        assert_eq!(buffer.len(), 16_000 * 60 * 8);
+        let head = buffer.peek_tail(16_000 * 60 * 8);
+        assert!(head.iter().all(|&s| s == 0.5));
     }
 
     #[test]
