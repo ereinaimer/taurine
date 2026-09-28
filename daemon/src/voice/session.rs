@@ -54,6 +54,20 @@ fn next_rung(hold: Duration) -> Duration {
 /// Chunk cadence for live streaming while recording.
 const STREAM_POLL_INTERVAL: Duration = Duration::from_millis(150);
 
+/// 60s decode window at 16kHz: each window gets its own transcribe call.
+const TRANSCRIBE_WINDOW_SAMPLES: usize = 16_000 * 60;
+
+fn segment_audio_windows(total: usize, window: usize) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let mut offset = 0;
+    while offset < total {
+        let len = (total - offset).min(window);
+        out.push((offset, len));
+        offset += len;
+    }
+    out
+}
+
 /// TTL bookkeeping for the worker-side model. The audio and the recognizer
 /// live in the `--voice-daemon` worker; this stays lean by design.
 struct EngineMeta {
@@ -156,6 +170,8 @@ pub struct VoiceSessionManager {
     /// When the current Processing state was entered; None otherwise. Bounds
     /// a wedged worker so one dead transcription cannot silence voice.
     processing_since: Mutex<Option<Instant>>,
+    /// Window count for the in-flight segmented decode (Task 7 watchdog scaling).
+    processing_windows: AtomicU64,
     #[cfg(test)]
     last_latency: Mutex<Option<RequestLatency>>,
     #[cfg(test)]
@@ -190,6 +206,7 @@ impl VoiceSessionManager {
             last_stop: Mutex::new(None),
             ptt_started_at: Mutex::new(None),
             processing_since: Mutex::new(None),
+            processing_windows: AtomicU64::new(0),
             #[cfg(test)]
             last_latency: Mutex::new(None),
             #[cfg(test)]
@@ -538,6 +555,7 @@ impl VoiceSessionManager {
     /// a discard poke frees the worker-side buffer for the next session.
     fn reset_stranded_processing(&self) {
         self.pending_press.store(false, Ordering::Relaxed);
+        self.processing_windows.store(0, Ordering::Relaxed);
         *self.mode.lock().unwrap_or_else(|p| p.into_inner()) = VoiceMode::Idle;
         *self
             .processing_since
@@ -1067,10 +1085,6 @@ impl VoiceSessionManager {
             let target = entry.target.clone();
             let timing = entry.timing;
             self.worker.ensure_worker(&target)?;
-            if sent < drained.len() {
-                let seq = entry.progress.seq.load(Ordering::Relaxed);
-                self.worker.append(&req_id, seq, &drained[sent..])?;
-            }
             let hotwords = {
                 let dict = self.dictionary.lock().unwrap_or_else(|p| p.into_inner());
                 let active_app =
@@ -1101,11 +1115,32 @@ impl VoiceSessionManager {
                 };
                 taurine_core::voice::build_hotwords_payload(&dict, &triggers)
             };
-            // Long hands-free audio needs headroom past old load budgets;
-            // the worker already popped the buffer, so a timeout loses audio.
-            let transcript =
-                self.worker
-                    .transcribe(&req_id, Duration::from_secs(60), hotwords.as_deref())?;
+            // Segmented decode: each 60s window gets its own transcribe call so arbitrary-length sessions complete; per-window timeout scales with window length.
+            let windows = segment_audio_windows(drained.len(), TRANSCRIBE_WINDOW_SAMPLES);
+            self.processing_windows
+                .store(windows.len() as u64, Ordering::Relaxed);
+            let mut parts: Vec<String> = Vec::with_capacity(windows.len());
+            for (offset, len) in windows {
+                let window = &drained[offset..offset + len];
+                if sent <= offset {
+                    let seq = entry.progress.seq.load(Ordering::Relaxed);
+                    self.worker.append(&req_id, seq, window)?;
+                } else if sent < offset + len {
+                    let seq = entry.progress.seq.load(Ordering::Relaxed);
+                    self.worker
+                        .append(&req_id, seq, &window[(sent - offset)..])?;
+                }
+                let per_window_timeout = Duration::from_secs(60)
+                    .checked_add(Duration::from_secs((len as u64).div_ceil(16_000)))
+                    .unwrap_or(Duration::from_secs(120));
+                let part =
+                    self.worker
+                        .transcribe(&req_id, per_window_timeout, hotwords.as_deref())?;
+                if !part.text.trim().is_empty() {
+                    parts.push(part.text.trim().to_string());
+                }
+            }
+            let transcript_text = parts.join(" ");
             let transcript_at = Instant::now();
             debug!(
                 "VoiceSessionManager: voice latency press_to_cue_ms={:.2} press_to_recording_ms={:.2} press_to_transcript_ms={:.2}",
@@ -1128,7 +1163,7 @@ impl VoiceSessionManager {
                     });
             }
             self.record_use(target);
-            self.inject_transcript(&transcript.text)
+            self.inject_transcript(&transcript_text)
         } else {
             Ok(None)
         }
@@ -3632,5 +3667,25 @@ mod tests {
             "toggle-based hands-free is exempt from the key-up net"
         );
         *session.mode.lock().unwrap() = VoiceMode::Idle;
+    }
+
+    #[test]
+    fn segments_long_audio_into_60s_windows() {
+        let windows = segment_audio_windows(16_000 * 60 * 3 + 8000, 16_000 * 60);
+        assert_eq!(
+            windows,
+            vec![
+                (0, 960_000),
+                (960_000, 960_000),
+                (1_920_000, 960_000),
+                (2_880_000, 8000)
+            ]
+        );
+    }
+
+    #[test]
+    fn segments_short_audio_into_single_window() {
+        let windows = segment_audio_windows(8000, 16_000 * 60);
+        assert_eq!(windows, vec![(0, 8000)]);
     }
 }
