@@ -1166,7 +1166,7 @@ mod tests {
     #[test]
     fn buffer_grows_without_cap() {
         let buffer = AudioFrameBuffer::new();
-        // Push 4,800,000 samples (old 5-minute cap worth of audio)
+        // Push 4,800,000 samples (5 minutes of audio at 16kHz)
         let chunk = vec![0.5f32; 100_000];
         for _ in 0..48 {
             buffer.push_samples(&chunk);

@@ -586,6 +586,10 @@ impl VoiceSessionManager {
     /// a discard poke frees the worker-side buffer for the next session.
     fn reset_stranded_processing(&self) {
         self.pending_press.store(false, Ordering::Relaxed);
+        // Snapshot the window count before clearing: a stranded multi-window
+        // decode leaves one worker buffer per window id plus the base id,
+        // and all of them must be dropped below.
+        let windows = self.processing_windows.load(Ordering::Relaxed);
         self.processing_windows.store(0, Ordering::Relaxed);
         *self.mode.lock().unwrap_or_else(|p| p.into_inner()) = VoiceMode::Idle;
         *self
@@ -608,15 +612,29 @@ impl VoiceSessionManager {
         {
             entry.progress.alive.store(false, Ordering::Relaxed);
             std::mem::drop(entry.handle);
-            let worker = self.worker.clone();
-            std::thread::Builder::new()
-                .name("taurine-voice-discard".to_string())
-                .spawn(move || {
-                    let _ = worker.transcribe(&req_id, Duration::from_secs(5), None);
-                })
-                .ok();
+            self.discard_session_buffers(&req_id, windows);
         }
         debug!("VoiceSessionManager: stranded session reset");
+    }
+
+    /// Drop one session's worker-side buffers without decoding: the base
+    /// streamed prefix plus every per-window id from segmented decode.
+    /// Best-effort and asynchronous: failures leave orphaned buffers that
+    /// die with the worker, never user-visible state.
+    fn discard_session_buffers(&self, req_id: &str, windows: u64) {
+        let worker = self.worker.clone();
+        let base = req_id.to_string();
+        std::thread::Builder::new()
+            .name("taurine-voice-discard".to_string())
+            .spawn(move || {
+                let _ = worker.discard(&base);
+                if windows > 1 {
+                    for i in 0..windows {
+                        let _ = worker.discard(&format!("{base}-w{i}"));
+                    }
+                }
+            })
+            .ok();
     }
 
     /// Refresh a fresh model timestamp so a session starting on a stale-but
@@ -1522,13 +1540,12 @@ impl VoiceSessionManager {
             if let Some(handle) = entry.handle {
                 let _ = handle.join();
             }
-            let worker = self.worker.clone();
-            std::thread::Builder::new()
-                .name("taurine-voice-discard".to_string())
-                .spawn(move || {
-                    let _ = worker.transcribe(&req_id, Duration::from_secs(5), None);
-                })
-                .ok();
+            // Cancel voids the decode plan: drop the base prefix and any
+            // window buffers, and clear the count so a later watchdog
+            // never scales off this session.
+            let windows = self.processing_windows.load(Ordering::Relaxed);
+            self.processing_windows.store(0, Ordering::Relaxed);
+            self.discard_session_buffers(&req_id, windows);
         }
         debug!("VoiceSessionManager: Dictation cancelled");
     }
@@ -2208,7 +2225,7 @@ mod tests {
             .unwrap_or_else(|e| e.into_inner());
         let _data = TempDataDir::new();
         mock_keystore::use_mock_keystore();
-        let (error_hook, fired) = error_counter();
+        let (error_hook, _fired) = error_counter();
         let (session, _) = create_ordering_session(None, Some(Arc::new(|| Ok(()))), None);
         let session = session.with_error_hook(error_hook);
         session.start_ptt().expect("ptt start");
@@ -2218,9 +2235,75 @@ mod tests {
         assert_eq!(res, None);
         assert_eq!(session.current_mode(), VoiceMode::Idle);
         assert_eq!(
-            fired.load(Ordering::Relaxed),
+            session.processing_windows.load(Ordering::Relaxed),
             0,
-            "tap-too-short must stay silent"
+            "window counter must reset after finalize"
+        );
+    }
+
+    #[test]
+    fn stranded_reset_discards_all_window_buffers() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let (session, _decodes, discards) = create_consuming_session();
+        // finalize_request ensures the worker before any discard; the
+        // stranded path assumes a live stream the same way.
+        session
+            .worker
+            .ensure_worker("parakeet-tdt-ctc-110m")
+            .expect("stub worker must bind");
+        // Stage a stranded multi-window Processing state: the owner thread
+        // is gone while two window buffers plus the base prefix live on.
+        let now = Instant::now();
+        session.processing_windows.store(2, Ordering::Relaxed);
+        *session.active_req.lock().unwrap_or_else(|p| p.into_inner()) = Some("r9".to_string());
+        session
+            .streams
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(
+                "r9".to_string(),
+                StreamEntry {
+                    progress: Arc::new(StreamProgress::new()),
+                    handle: None,
+                    target: "parakeet-tdt-ctc-110m".to_string(),
+                    timing: PttTiming {
+                        press_at: now,
+                        cue_at: now,
+                        recording_at: now,
+                    },
+                },
+            );
+        *session.mode.lock().unwrap_or_else(|p| p.into_inner()) = VoiceMode::Processing;
+        session.set_processing_since_for_test(now - Duration::from_secs(9999));
+        session.clean_expired_transcriber();
+        assert_eq!(
+            session.current_mode(),
+            VoiceMode::Idle,
+            "wedged multi-window decode must reset"
+        );
+        // Discards run on a spawned thread: poll with a deadline.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let n = discards.lock().unwrap_or_else(|p| p.into_inner()).len();
+            if n >= 3 || Instant::now() > deadline {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let dropped = discards.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        assert_eq!(
+            dropped,
+            vec!["r9".to_string(), "r9-w0".to_string(), "r9-w1".to_string()],
+            "stranded reset must drop base plus every window buffer"
+        );
+        assert_eq!(
+            session.processing_windows.load(Ordering::Relaxed),
+            0,
+            "window counter must clear on stranded reset"
         );
     }
 
