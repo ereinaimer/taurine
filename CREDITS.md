@@ -40,7 +40,7 @@ Taurine is built on the shoulders of some outstanding open source projects.
 
 | Asset / Library | Role |
 |---|---|
-| [uisfx](https://github.com/romainsimon/uisfx) | Sound library providing curated UI audio packs for pause and resume audio cues |
+| [uisfx](https://github.com/romainsimon/uisfx) | Sound library providing curated UI audio packs for pause, resume, dictation, and error audio cues |
 
 ### Tooling
 
