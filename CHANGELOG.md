@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Smarter Custom Words**: Your personal dictionary and voice shortcuts now take priority over everyday speech.
 - **Keep Voice Model Loaded**: Optional setting to keep the dictation model in memory for instant start after long idle periods at the cost of extra RAM.
 - **Voice Error Sound**: Play a distinct error tone when dictation fails because the microphone or voice engine is unavailable.
+- **Pause Media While Dictating**: Optionally pause music and video while recording and resume afterwards via a new setting.
 
 ## [1.0.0-alpha.19] - 2026-09-27
 
