@@ -474,6 +474,10 @@ impl WorkerClient {
                 debug!("voice worker unload unanswered: {e}");
             }
         }
+        // The slot is gone (or going): mark unbound so the next ensure
+        // re-handshakes with hello and the worker reloads in the background
+        // instead of short-circuiting on a ping against an empty slot.
+        inner.model.clear();
     }
 
     /// Best-effort full shutdown of the worker process.
@@ -622,6 +626,105 @@ mod tests {
             .expect("transcribe");
         assert_eq!(t.text, "hello stub");
         assert_eq!(t.confidence, 0.9);
+    }
+
+    #[test]
+    fn test_unload_marks_unbound_so_next_ensure_rehandshakes() {
+        // After an unload the worker slot is empty: the next ensure must
+        // re-handshake with hello (which kicks the background reload),
+        // not short-circuit on a ping against the empty slot.
+        let hellos = Arc::new(AtomicUsize::new(0));
+        let spawns = Arc::new(AtomicUsize::new(0));
+        let connector: ConnectFn = {
+            let hellos = Arc::clone(&hellos);
+            Arc::new(move |_, model, version, _| {
+                let hellos = Arc::clone(&hellos);
+                Box::pin(async move {
+                    let (client, peer) = tokio::io::duplex(256 * 1024);
+                    let mut peer = peer;
+                    tokio::spawn(async move {
+                        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                        let mut buf = Vec::new();
+                        loop {
+                            let mut chunk = [0u8; 4096];
+                            let n = match peer.read(&mut chunk).await {
+                                Ok(n) => n,
+                                Err(_) => return,
+                            };
+                            if n == 0 {
+                                return;
+                            }
+                            buf.extend_from_slice(&chunk[..n]);
+                            while let Some((header, _)) =
+                                proto::decode_frame(&mut buf).unwrap_or(None)
+                            {
+                                let mut resp = match header.op.as_str() {
+                                    proto::OP_HELLO => {
+                                        hellos.fetch_add(1, Ordering::SeqCst);
+                                        let mut r = Header::op(proto::OP_READY);
+                                        r.version = header.version.clone();
+                                        r.model = header.model.clone();
+                                        r
+                                    }
+                                    proto::OP_PING => Header::op(proto::OP_PONG),
+                                    _ => Header::op(proto::OP_ACK),
+                                };
+                                resp.req_id = header.req_id.clone();
+                                let bytes = proto::encode_frame(&resp, &[]).expect("encode");
+                                if peer.write_all(&bytes).await.is_err() {
+                                    return;
+                                }
+                            }
+                        }
+                    });
+                    let mut ready = Header::op(proto::OP_HELLO);
+                    ready.version = Some(version);
+                    ready.model = Some(model);
+                    let mut client: DynStream = Box::new(client);
+                    let (resp, _) =
+                        transact(&mut client, ready, &[], Duration::from_secs(5)).await?;
+                    if resp.op != proto::OP_READY {
+                        return Err("stub handshake failed".to_string());
+                    }
+                    Ok(client)
+                })
+                    as Pin<Box<dyn Future<Output = Result<DynStream, String>> + Send>>
+            })
+        };
+        let spawner: SpawnFn = Arc::new({
+            let spawns = Arc::clone(&spawns);
+            move |_, _| {
+                spawns.fetch_add(1, Ordering::SeqCst);
+                #[cfg(all(unix, not(target_os = "android")))]
+                let child = Command::new("true").spawn()?;
+                #[cfg(target_os = "windows")]
+                let child = {
+                    use std::os::windows::process::CommandExt;
+                    let mut cmd = Command::new("cmd");
+                    cmd.arg("/C").arg("exit").arg("0");
+                    cmd.creation_flags(0x0800_0000);
+                    cmd.spawn()?
+                };
+                #[cfg(target_os = "android")]
+                let child = Command::new("true").spawn()?;
+                Ok(child)
+            }
+        });
+        let client = WorkerClient::with_hooks(spawner, connector).expect("test client");
+        client
+            .ensure_worker("parakeet-tdt-ctc-110m")
+            .expect("ensure");
+        assert_eq!(hellos.load(Ordering::SeqCst), 1);
+        client
+            .ensure_worker("parakeet-tdt-ctc-110m")
+            .expect("ping reuse");
+        assert_eq!(hellos.load(Ordering::SeqCst), 1);
+        client.unload_model();
+        client
+            .ensure_worker("parakeet-tdt-ctc-110m")
+            .expect("ensure after unload");
+        assert_eq!(hellos.load(Ordering::SeqCst), 2);
+        assert_eq!(spawns.load(Ordering::SeqCst), 1);
     }
 
     #[test]
