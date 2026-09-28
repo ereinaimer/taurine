@@ -1161,6 +1161,9 @@ impl VoiceSessionManager {
         self.stop_capture();
         info!("VoiceSessionManager: Push-To-Talk recording stopped; processing audio");
         let result = self.finalize_request();
+        if result.is_err() {
+            self.fire_error_cue();
+        }
         {
             let mut mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
             *mode = VoiceMode::Idle;
@@ -1280,6 +1283,9 @@ impl VoiceSessionManager {
                 // that stays silent until restart while expansions (a
                 // separate pipeline) keep working and hide the outage.
                 let result = self.finalize_request();
+                if result.is_err() {
+                    self.fire_error_cue();
+                }
                 {
                     let mut mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
                     *mode = VoiceMode::Idle;
@@ -1358,6 +1364,9 @@ impl VoiceSessionManager {
         self.stop_capture();
         info!("VoiceSessionManager: Escape pressed; terminating voice session and transcribing");
         let result = self.finalize_request();
+        if result.is_err() {
+            self.fire_error_cue();
+        }
         {
             let mut mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
             *mode = VoiceMode::Idle;
@@ -1991,6 +2000,138 @@ mod tests {
         let (mode, _) = session.toggle_handsfree().expect("toggle on again");
         assert_eq!(mode, VoiceMode::HandsFree);
         session.cancel();
+    }
+
+    /// Block until the chunk forwarder registers the live request, so
+    /// finalize takes the worker path (which always fails in tests: no
+    /// worker). Same polling shape as
+    /// test_handsfree_toggle_off_failure_resets_to_idle.
+    fn wait_for_forwarder(session: &VoiceSessionManager) {
+        let req = session.active_request().expect("active request");
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !session
+            .streams
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains_key(&req)
+        {
+            assert!(Instant::now() < deadline, "forwarder never registered");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    /// Error-hook stub counting fires; asserts exact-once semantics.
+    fn error_counter() -> (CueHook, Arc<AtomicUsize>) {
+        let fired = Arc::new(AtomicUsize::new(0));
+        let count = Arc::clone(&fired);
+        let hook: CueHook = Arc::new(move || {
+            count.fetch_add(1, Ordering::Relaxed);
+        });
+        (hook, fired)
+    }
+
+    #[test]
+    fn test_stop_ptt_engine_failure_fires_error_cue() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let (error_hook, fired) = error_counter();
+        let (session, _) = create_ordering_session(None, Some(Arc::new(|| Ok(()))), None);
+        let session = session.with_error_hook(error_hook);
+        session.start_ptt().expect("ptt start");
+        assert_eq!(session.current_mode(), VoiceMode::PushToTalk);
+        wait_for_forwarder(&session);
+        session.capture.buffer().push_samples(&[0.5; 3200]);
+        let err = session
+            .stop_ptt()
+            .expect_err("stop must surface the worker error");
+        assert!(err.contains("no worker"), "unexpected error surface: {err}");
+        assert_eq!(session.current_mode(), VoiceMode::Idle);
+        assert_eq!(
+            fired.load(Ordering::Relaxed),
+            1,
+            "engine failure must fire error cue exactly once"
+        );
+    }
+
+    #[test]
+    fn test_handsfree_toggle_off_engine_failure_fires_error_cue() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let (error_hook, fired) = error_counter();
+        let (session, _) =
+            create_ordering_session(Some(Arc::new(|| {})), None, Some(Arc::new(|| {})));
+        let session = session.with_error_hook(error_hook);
+        let (mode, _) = session.toggle_handsfree().expect("toggle on");
+        assert_eq!(mode, VoiceMode::HandsFree);
+        wait_for_forwarder(&session);
+        session.capture.buffer().push_samples(&[0.5; 3200]);
+        let err = session
+            .toggle_handsfree()
+            .expect_err("toggle off must surface the worker error");
+        assert!(err.contains("no worker"), "unexpected error surface: {err}");
+        assert_eq!(session.current_mode(), VoiceMode::Idle);
+        assert_eq!(
+            fired.load(Ordering::Relaxed),
+            1,
+            "engine failure must fire error cue exactly once"
+        );
+        session.cancel();
+    }
+
+    #[test]
+    fn test_escape_engine_failure_fires_error_cue() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let (error_hook, fired) = error_counter();
+        let (session, _) =
+            create_ordering_session(Some(Arc::new(|| {})), None, Some(Arc::new(|| {})));
+        let session = session.with_error_hook(error_hook);
+        let (mode, _) = session.toggle_handsfree().expect("toggle on");
+        assert_eq!(mode, VoiceMode::HandsFree);
+        wait_for_forwarder(&session);
+        session.capture.buffer().push_samples(&[0.5; 3200]);
+        let err = session
+            .on_escape_pressed()
+            .expect_err("escape must surface the worker error");
+        assert!(err.contains("no worker"), "unexpected error surface: {err}");
+        assert_eq!(session.current_mode(), VoiceMode::Idle);
+        assert_eq!(
+            fired.load(Ordering::Relaxed),
+            1,
+            "engine failure must fire error cue exactly once"
+        );
+    }
+
+    #[test]
+    fn test_stop_ptt_tap_short_stays_silent() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let (error_hook, fired) = error_counter();
+        let (session, _) = create_ordering_session(None, Some(Arc::new(|| Ok(()))), None);
+        let session = session.with_error_hook(error_hook);
+        session.start_ptt().expect("ptt start");
+        // No samples pushed: tap-too-short path returns Ok(None) with no
+        // worker contact, so no error cue may fire.
+        let res = session.stop_ptt().expect("tap-short stop");
+        assert_eq!(res, None);
+        assert_eq!(session.current_mode(), VoiceMode::Idle);
+        assert_eq!(
+            fired.load(Ordering::Relaxed),
+            0,
+            "tap-too-short must stay silent"
+        );
     }
 
     #[test]
