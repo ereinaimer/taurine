@@ -89,11 +89,12 @@ pub(crate) fn visible_range(total: usize, selected: usize, visible_count: usize)
 
 pub(crate) fn visible_library_item_capacity(available_height: u16) -> usize {
     const LIBRARY_ITEM_HEIGHT: u16 = 2;
-    const LIBRARY_ITEM_GAP: u16 = 1;
+    const LIBRARY_ITEM_PADDING: u16 = 1;
+    const ROW_HEIGHT: u16 = LIBRARY_ITEM_HEIGHT + 2 * LIBRARY_ITEM_PADDING;
     if available_height < LIBRARY_ITEM_HEIGHT {
         return 0;
     }
-    usize::from((available_height + LIBRARY_ITEM_GAP) / (LIBRARY_ITEM_HEIGHT + LIBRARY_ITEM_GAP))
+    usize::from(available_height / ROW_HEIGHT).max(1)
 }
 
 pub(crate) fn render_modal_block(

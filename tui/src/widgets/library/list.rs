@@ -1,6 +1,6 @@
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::Rect,
     style::{Modifier, Style},
     widgets::{Block, Paragraph},
 };
@@ -10,7 +10,7 @@ use crate::widgets::library::state::LibraryPageState;
 use crate::widgets::util;
 
 const LIBRARY_ITEM_HEIGHT: u16 = 2;
-const LIBRARY_ITEM_GAP: u16 = 1;
+const LIBRARY_ITEM_PADDING: u16 = 1;
 
 pub fn render_library_list(frame: &mut Frame, area: Rect, theme: &Theme, state: &LibraryPageState) {
     if let Some(message) = state.load_error() {
@@ -52,9 +52,9 @@ pub fn render_library_list(frame: &mut Frame, area: Rect, theme: &Theme, state: 
     for (visible_index, filtered_index) in (start..end).enumerate() {
         let row_area = Rect {
             x: area.x,
-            y: area.y + (visible_index as u16 * (LIBRARY_ITEM_HEIGHT + LIBRARY_ITEM_GAP)),
+            y: area.y + (visible_index as u16 * (LIBRARY_ITEM_HEIGHT + 2 * LIBRARY_ITEM_PADDING)),
             width: area.width,
-            height: LIBRARY_ITEM_HEIGHT,
+            height: LIBRARY_ITEM_HEIGHT + 2 * LIBRARY_ITEM_PADDING,
         };
 
         let Some(item) = state.item_at_filtered(filtered_index) else {
@@ -78,92 +78,58 @@ fn render_library_item(
     theme: &Theme,
     selected: bool,
 ) {
-    let row_bg = if selected {
-        theme.surface
+    let row_style = if selected {
+        Style::default().bg(theme.surface)
     } else {
-        ratatui::style::Color::Reset
+        Style::default()
     };
-    frame.render_widget(Block::default().style(Style::default().bg(row_bg)), area);
+    frame.render_widget(Block::default().style(row_style), area);
 
-    let kind_width = (item.kind_label().chars().count() as u16).min(area.width.saturating_sub(2));
-    let metadata = item.metadata_label();
-    let metadata_width = (metadata.chars().count() as u16).min(area.width.saturating_sub(2));
+    let content = Rect {
+        x: area.x.saturating_add(LIBRARY_ITEM_PADDING),
+        y: area.y.saturating_add(LIBRARY_ITEM_PADDING),
+        width: area.width.saturating_sub(2 * LIBRARY_ITEM_PADDING),
+        height: area.height.saturating_sub(2 * LIBRARY_ITEM_PADDING),
+    };
+    if content.width == 0 || content.height == 0 {
+        return;
+    }
 
     let top_area = Rect {
-        x: area.x,
-        y: area.y,
-        width: area.width,
+        x: content.x,
+        y: content.y,
+        width: content.width,
         height: 1,
     };
     let bottom_area = Rect {
-        x: area.x,
-        y: area.y + 1,
-        width: area.width,
+        x: content.x,
+        y: content.y + 1,
+        width: content.width,
         height: 1,
     };
-
-    let top_sections = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(0), Constraint::Length(kind_width)])
-        .split(top_area);
-    let bottom_sections = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(0), Constraint::Length(metadata_width)])
-        .split(bottom_area);
 
     let trigger_style = if selected {
         Style::default()
             .fg(theme.text)
-            .bg(row_bg)
+            .bg(theme.surface)
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(theme.text).add_modifier(Modifier::BOLD)
     };
-    let kind_style = if selected {
-        Style::default().fg(theme.text_muted).bg(row_bg)
-    } else {
-        Style::default().fg(theme.text_muted)
-    };
     let preview_style = if selected {
-        Style::default()
-            .fg(theme.text_muted)
-            .bg(row_bg)
-            .add_modifier(Modifier::DIM)
+        Style::default().fg(theme.description).bg(theme.surface)
     } else {
-        Style::default()
-            .fg(theme.text_muted)
-            .add_modifier(Modifier::DIM)
+        Style::default().fg(theme.description)
     };
 
     frame.render_widget(
-        Paragraph::new(util::truncate_to_width(
-            item.trigger(),
-            top_sections[0].width,
-        ))
-        .style(trigger_style),
-        top_sections[0],
+        Paragraph::new(util::truncate_to_width(item.trigger(), top_area.width))
+            .style(trigger_style),
+        top_area,
     );
     frame.render_widget(
-        Paragraph::new(util::truncate_to_width(
-            item.kind_label(),
-            top_sections[1].width,
-        ))
-        .alignment(ratatui::layout::Alignment::Right)
-        .style(kind_style),
-        top_sections[1],
-    );
-    frame.render_widget(
-        Paragraph::new(util::truncate_to_width(
-            item.preview(),
-            bottom_sections[0].width,
-        ))
-        .style(preview_style),
-        bottom_sections[0],
-    );
-    frame.render_widget(
-        Paragraph::new(util::truncate_to_width(&metadata, bottom_sections[1].width))
-            .alignment(ratatui::layout::Alignment::Right)
+        Paragraph::new(util::truncate_to_width(item.preview(), bottom_area.width))
             .style(preview_style),
-        bottom_sections[1],
+        bottom_area,
     );
 }

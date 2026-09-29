@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pause Media While Dictating**: Pause music and video while recording and resume afterwards, on by default via a new setting.
 - **Cleaner Trigger List**: Listing shows one line per trigger with just the trigger and result, plus multi-tag filtering.
 - **Always-Visible Setting Descriptions**: Every setting now shows its explanation under the title at any window size, wrapping to extra lines when narrow.
+- **Press-to-Set Hotkeys**: Capture the pause and voice dictation hotkeys by pressing them instead of typing, with clashing system shortcuts rejected.
 
 ## [1.0.0-alpha.19] - 2026-09-27
 

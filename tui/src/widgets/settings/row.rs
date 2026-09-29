@@ -27,10 +27,20 @@ pub fn render_setting_row(
     };
     frame.render_widget(Block::default().style(row_style), area);
 
+    let content = Rect {
+        x: area.x.saturating_add(1),
+        y: area.y.saturating_add(1),
+        width: area.width.saturating_sub(2),
+        height: area.height.saturating_sub(2),
+    };
+    if content.width == 0 || content.height == 0 {
+        return;
+    }
+
     let sections = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Min(0), Constraint::Length(control_width)])
-        .split(area);
+        .split(content);
 
     let label_style = if selected {
         Style::default()
@@ -51,7 +61,7 @@ pub fn render_setting_row(
 
     let title_area = Rect {
         x: sections[0].x,
-        y: area.y,
+        y: content.y,
         width: sections[0].width,
         height: 1,
     };
@@ -61,7 +71,7 @@ pub fn render_setting_row(
     );
     let value_area = Rect {
         x: sections[1].x,
-        y: area.y,
+        y: content.y,
         width: sections[1].width,
         height: 1,
     };
@@ -78,18 +88,16 @@ pub fn render_setting_row(
         value_area,
     );
 
-    let description_style = Style::default()
-        .fg(theme.text_muted)
-        .add_modifier(Modifier::DIM);
+    let description_style = Style::default().fg(theme.description);
     for (index, line) in description_lines
         .iter()
-        .take(usize::from(area.height.saturating_sub(1)))
+        .take(usize::from(content.height.saturating_sub(1)))
         .enumerate()
     {
         let description_area = Rect {
-            x: area.x,
-            y: area.y + 1 + index as u16,
-            width: area.width,
+            x: content.x,
+            y: content.y + 1 + index as u16,
+            width: content.width,
             height: 1,
         };
         frame.render_widget(

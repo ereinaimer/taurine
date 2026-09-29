@@ -120,10 +120,6 @@ impl LibraryTrigger {
         self.kind.label()
     }
 
-    pub(crate) fn metadata_label(&self) -> String {
-        format!("{} // {} uses", self.target_os, self.uses)
-    }
-
     pub(crate) fn matches_query(&self, query: &str) -> bool {
         if query.is_empty() {
             return true;

@@ -25,6 +25,7 @@ pub struct Theme {
     pub surface: Color,
     pub text: Color,
     pub text_muted: Color,
+    pub description: Color,
     pub accent: Color,
     pub error: Color,
     pub warning: Color,

@@ -75,11 +75,12 @@ pub fn render_settings_content(
     let control_width = control_column_width(state.settings(), list_area.width);
     let description_lines: Vec<Vec<String>> = all_keys
         .iter()
-        .map(|key| wrap_description_lines(key.description(), list_area.width))
+        .map(|key| wrap_description_lines(key.description(), list_area.width.saturating_sub(2)))
         .collect();
+    // honey: each row is 1 pad + title + descriptions + 1 pad.
     let heights: Vec<u16> = description_lines
         .iter()
-        .map(|lines| 1 + lines.len() as u16)
+        .map(|lines| 3 + lines.len() as u16)
         .collect();
     let (start, end) = visible_variable_range(&heights, state.selected_index(), list_area.height);
 

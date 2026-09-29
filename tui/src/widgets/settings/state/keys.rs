@@ -193,15 +193,15 @@ impl SettingKeyMeta for SettingKey {
             | Self::VoiceInputDevice => EditorKind::OptionalTextInput,
             Self::InlineDictionaryMode => EditorKind::InlineDictionaryModeSelect,
             Self::InlineEmojiTriggerChar => EditorKind::SingleCharInput,
-            Self::PauseHotkey
-            | Self::AiModel
+            Self::PauseHotkey | Self::VoicePttHotkey | Self::VoiceHandsfreeHotkey => {
+                EditorKind::HotkeyCapture
+            }
+            Self::AiModel
             | Self::InlineDatetimeDateFormat
             | Self::InlineDatetimeTimeFormat
             | Self::InlineDatetimeDatetimeFormat
             | Self::InlineDatetimeDialect
             | Self::VoiceModel
-            | Self::VoicePttHotkey
-            | Self::VoiceHandsfreeHotkey
             | Self::VoiceDictionary => EditorKind::TextInput,
         }
     }
@@ -345,6 +345,7 @@ impl SettingKeyMeta for SettingKey {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EditorKind {
     Toggle,
+    HotkeyCapture,
     SingleCharInput,
     TextInput,
     OptionalTextInput,

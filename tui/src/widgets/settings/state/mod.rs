@@ -1,6 +1,8 @@
+mod hotkey_capture;
 mod keys;
 mod modals;
 
+pub(crate) use hotkey_capture::HotkeyCaptureModalState;
 pub(crate) use keys::{EditorKind, SettingKey, SettingKeyMeta};
 pub(crate) use modals::{ConfirmResetModalState, InputModalState, SelectModalState};
 
@@ -135,6 +137,7 @@ impl SettingsPageState {
         match self.modal.as_ref() {
             Some(SettingsModal::Select(_)) => "j/k Move   ↑/↓ Move   Enter Save   Esc Cancel",
             Some(SettingsModal::Input(_)) => "Type Edit   Enter Save   Esc Cancel",
+            Some(SettingsModal::HotkeyCapture(_)) => "Press Keys   Enter Save   Esc Cancel",
             Some(SettingsModal::ConfirmReset(_)) => "←/h Yes   →/l No   y Confirm   n/Esc Cancel",
             None => "j/k Move   ↑/↓ Move   Enter Toggle/Edit   r Reset   q Quit",
         }
@@ -224,6 +227,9 @@ impl SettingsPageState {
                     key.display_value(&self.settings),
                 )))
             }
+            EditorKind::HotkeyCapture => Some(SettingsModal::HotkeyCapture(
+                HotkeyCaptureModalState::new(key, key.edit_value(&self.settings)),
+            )),
             EditorKind::SingleCharInput
             | EditorKind::TextInput
             | EditorKind::OptionalTextInput
@@ -243,6 +249,7 @@ impl SettingsPageState {
             SettingsModal::Input(state) => state.handle_key(key),
             SettingsModal::Select(state) => state.handle_key(key),
             SettingsModal::ConfirmReset(state) => state.handle_key(key),
+            SettingsModal::HotkeyCapture(state) => state.handle_key(key),
         }
     }
 }
@@ -252,6 +259,7 @@ pub(crate) enum SettingsModal {
     Input(InputModalState),
     Select(SelectModalState),
     ConfirmReset(ConfirmResetModalState),
+    HotkeyCapture(HotkeyCaptureModalState),
 }
 
 impl SettingsModal {
@@ -260,6 +268,7 @@ impl SettingsModal {
             Self::Input(state) => state.error = Some(error),
             Self::Select(state) => state.error = Some(error),
             Self::ConfirmReset(state) => state.error = Some(error),
+            Self::HotkeyCapture(state) => state.error = Some(error),
         }
     }
 }

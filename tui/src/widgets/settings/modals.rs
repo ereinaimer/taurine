@@ -1,14 +1,15 @@
 use ratatui::{
     Frame,
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Margin, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Clear, List, ListItem, ListState, Paragraph},
+    widgets::{Block, Clear, List, ListItem, ListState, Paragraph},
 };
 
 use crate::theme::Theme;
 use crate::widgets::settings::state::{
-    ConfirmResetModalState, InputModalState, SelectModalState, SettingKeyMeta, SettingsModal,
+    ConfirmResetModalState, HotkeyCaptureModalState, InputModalState, SelectModalState,
+    SettingKeyMeta, SettingsModal,
 };
 use crate::widgets::util;
 
@@ -17,6 +18,9 @@ pub fn render_settings_modal(frame: &mut Frame, area: Rect, theme: &Theme, modal
         SettingsModal::Input(state) => render_input_modal(frame, area, theme, state),
         SettingsModal::Select(state) => render_select_modal(frame, area, theme, state),
         SettingsModal::ConfirmReset(state) => render_confirm_reset_modal(frame, area, theme, state),
+        SettingsModal::HotkeyCapture(state) => {
+            render_hotkey_capture_modal(frame, area, theme, state)
+        }
     }
 }
 
@@ -65,11 +69,7 @@ fn render_input_modal(frame: &mut Frame, area: Rect, theme: &Theme, state: &Inpu
         .split(inner);
 
     frame.render_widget(
-        Paragraph::new(state.key().description()).style(
-            Style::default()
-                .fg(theme.text_muted)
-                .add_modifier(Modifier::DIM),
-        ),
+        Paragraph::new(state.key().description()).style(Style::default().fg(theme.description)),
         sections[0],
     );
     frame.render_widget(
@@ -89,6 +89,85 @@ fn render_input_modal(frame: &mut Frame, area: Rect, theme: &Theme, state: &Inpu
             .add_modifier(Modifier::DIM)
     };
     frame.render_widget(Paragraph::new(feedback).style(feedback_style), sections[2]);
+}
+
+fn render_hotkey_capture_modal(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    state: &HotkeyCaptureModalState,
+) {
+    let content_width = if area.width > 32 {
+        area.width.saturating_sub(4).min(64)
+    } else {
+        area.width.max(1)
+    };
+    let popup = centered_rect(content_width.saturating_add(4), 6 + 4, area);
+    // honey: Clear wipes underlying glyphs (Block alone only repaints styles,
+    // leaving text visible through the background color).
+    frame.render_widget(Clear, popup);
+    frame.render_widget(
+        Block::default().style(Style::default().bg(ratatui::style::Color::Rgb(0x1E, 0x1E, 0x1E))),
+        popup,
+    );
+    let inner = popup.inner(Margin::new(2, 2));
+
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(2),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+
+    frame.render_widget(
+        Paragraph::new(state.key().display_name())
+            .style(Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
+        sections[0],
+    );
+    frame.render_widget(
+        Paragraph::new(state.key().description()).style(Style::default().fg(theme.description)),
+        sections[1],
+    );
+    frame.render_widget(
+        Paragraph::new(format!("Current: {}", state.current())).style(
+            Style::default()
+                .fg(theme.text_muted)
+                .add_modifier(Modifier::DIM),
+        ),
+        sections[2],
+    );
+
+    let capture_line = match state.captured() {
+        Some(captured) => Span::styled(
+            captured.to_string(),
+            Style::default()
+                .fg(theme.text)
+                .bg(theme.surface)
+                .add_modifier(Modifier::BOLD),
+        ),
+        None => Span::styled(
+            state.preview().unwrap_or("Press keys…").to_string(),
+            Style::default()
+                .fg(theme.text_muted)
+                .add_modifier(Modifier::DIM),
+        ),
+    };
+    frame.render_widget(Paragraph::new(Line::from(capture_line)), sections[3]);
+
+    if let Some(error) = state.error() {
+        frame.render_widget(
+            Paragraph::new(error).style(
+                Style::default()
+                    .fg(theme.error)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            sections[4],
+        );
+    }
 }
 
 fn render_select_modal(frame: &mut Frame, area: Rect, theme: &Theme, state: &SelectModalState) {

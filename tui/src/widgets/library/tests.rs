@@ -508,23 +508,6 @@ fn no_match_search_reports_no_match_state() {
 }
 
 #[test]
-fn metadata_uses_double_slash_separator() {
-    let item = LibraryTrigger::from(list_item(
-        "id-gm",
-        None,
-        TriggerType::Word,
-        "gm",
-        "Good Morning",
-        "text",
-        "all",
-        9,
-        None,
-    ));
-
-    assert_eq!(item.metadata_label(), "all // 9 uses");
-}
-
-#[test]
 fn normalized_modal_text_preserves_meaningful_outer_whitespace() {
     assert_eq!(
         normalized_modal_text(Some("  padded body  ")).as_deref(),
