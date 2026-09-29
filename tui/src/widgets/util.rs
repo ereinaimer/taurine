@@ -342,3 +342,57 @@ pub(crate) fn render_modal_key_value_row(
         sections[1],
     );
 }
+
+/// Shared bottom search block: padded query line, surface highlight only
+/// while typing. `placeholder` shows when the query is empty and inactive.
+pub(crate) fn render_search_block(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    query: &str,
+    is_active: bool,
+    cursor: usize,
+    placeholder: &str,
+) {
+    let row_style = if is_active {
+        Style::default().bg(theme.surface)
+    } else {
+        Style::default()
+    };
+    frame.render_widget(Block::default().style(row_style), area);
+
+    let content = Rect {
+        x: area.x.saturating_add(1),
+        y: area.y.saturating_add(1),
+        width: area.width.saturating_sub(2),
+        height: area.height.saturating_sub(2),
+    };
+    if content.width == 0 || content.height == 0 {
+        return;
+    }
+
+    let title_style = if is_active {
+        Style::default()
+            .fg(theme.text)
+            .bg(theme.surface)
+            .add_modifier(Modifier::BOLD)
+    } else if query.is_empty() {
+        Style::default().fg(theme.description)
+    } else {
+        Style::default().fg(theme.text).add_modifier(Modifier::BOLD)
+    };
+    let title = if is_active {
+        input_cursor_line(query, cursor)
+    } else if query.is_empty() {
+        Line::from(placeholder.to_string())
+    } else {
+        Line::from(query.to_string())
+    };
+    frame.render_widget(
+        Paragraph::new(title).style(title_style),
+        Rect {
+            height: 1,
+            ..content
+        },
+    );
+}

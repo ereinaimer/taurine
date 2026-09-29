@@ -20,6 +20,15 @@ pub fn render_library_content(
     theme: &Theme,
     state: &LibraryPageState,
 ) {
+    let area = Rect {
+        x: area.x.saturating_add(1),
+        y: area.y.saturating_add(1),
+        width: area.width.saturating_sub(2),
+        height: area.height.saturating_sub(1),
+    };
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
     if let Some(message) = state.load_error() {
         frame.render_widget(
             ratatui::widgets::Paragraph::new(message).style(
@@ -38,23 +47,23 @@ pub fn render_library_content(
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
                 Constraint::Min(0),
+                Constraint::Length(1),
+                Constraint::Length(3),
             ])
             .split(area)
     } else {
         Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(1),
-                Constraint::Length(1),
                 Constraint::Min(0),
+                Constraint::Length(1),
+                Constraint::Length(3),
             ])
             .split(area)
     };
 
-    let search_index = if has_status {
+    let (list_area, search_area) = if has_status {
         if let Some(message) = state.status_message() {
             frame.render_widget(
                 ratatui::widgets::Paragraph::new(message).style(
@@ -65,20 +74,18 @@ pub fn render_library_content(
                 sections[0],
             );
         }
-        1
+        (sections[1], sections[3])
     } else {
-        0
+        (sections[0], sections[2])
     };
 
+    list::render_library_list(frame, list_area, theme, state);
     search::render_library_search_bar(
         frame,
-        sections[search_index],
+        search_area,
         theme,
         state.search_query(),
         state.is_search_active(),
         state.search_query().chars().count(),
     );
-
-    let list_area = sections[search_index + 2];
-    list::render_library_list(frame, list_area, theme, state);
 }

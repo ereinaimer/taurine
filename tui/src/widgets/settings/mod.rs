@@ -5,7 +5,7 @@ pub(crate) use state::*;
 
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Margin, Rect},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     widgets::Paragraph,
 };
@@ -20,7 +20,12 @@ pub fn render_settings_content(
     theme: &Theme,
     state: &SettingsPageState,
 ) {
-    let area = area.inner(Margin::new(1, 1));
+    let area = Rect {
+        x: area.x.saturating_add(1),
+        y: area.y.saturating_add(1),
+        width: area.width.saturating_sub(2),
+        height: area.height.saturating_sub(1),
+    };
     if area.width == 0 || area.height == 0 {
         return;
     }
@@ -44,14 +49,19 @@ pub fn render_settings_content(
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(1),
-                Constraint::Length(1),
                 Constraint::Min(0),
+                Constraint::Length(1),
+                Constraint::Length(3),
             ])
             .split(area)
     } else {
         Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Min(0)])
+            .constraints([
+                Constraint::Min(0),
+                Constraint::Length(1),
+                Constraint::Length(3),
+            ])
             .split(area)
     };
 
@@ -66,12 +76,30 @@ pub fn render_settings_content(
         );
     }
 
-    let list_area = sections[sections.len() - 1];
+    let list_area = sections[if has_status { 1 } else { 0 }];
+    let search_area = sections[sections.len() - 1];
+    crate::widgets::util::render_search_block(
+        frame,
+        search_area,
+        theme,
+        state.search_query(),
+        state.is_search_active(),
+        state.search_query().chars().count(),
+        "Search settings…",
+    );
     if list_area.height == 0 {
         return;
     }
 
     let all_keys = state.visible_keys();
+    if all_keys.is_empty() {
+        frame.render_widget(
+            Paragraph::new("No settings match your search.")
+                .style(Style::default().fg(theme.description)),
+            list_area,
+        );
+        return;
+    }
     let control_width = control_column_width(state.settings(), list_area.width);
     let description_lines: Vec<Vec<String>> = all_keys
         .iter()

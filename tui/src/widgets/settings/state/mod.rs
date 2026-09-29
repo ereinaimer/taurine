@@ -30,6 +30,8 @@ pub(crate) struct SettingsPageState {
     pub(crate) modal: Option<SettingsModal>,
     pub(crate) status_message: Option<String>,
     pub(crate) load_error: Option<String>,
+    pub(crate) search_query: String,
+    pub(crate) search_active: bool,
 }
 
 impl SettingsPageState {
@@ -52,7 +54,22 @@ impl SettingsPageState {
                     && *k != SettingKey::InlineDatetimeDialect
             });
         }
+        let needle = self.search_query.trim().to_ascii_lowercase();
+        if !needle.is_empty() {
+            keys.retain(|k| {
+                k.display_name().to_ascii_lowercase().contains(&needle)
+                    || k.description().to_ascii_lowercase().contains(&needle)
+            });
+        }
         keys
+    }
+
+    pub(crate) fn search_query(&self) -> &str {
+        &self.search_query
+    }
+
+    pub(crate) const fn is_search_active(&self) -> bool {
+        self.search_active
     }
 
     pub(crate) fn selected_key(&self) -> SettingKey {
@@ -104,9 +121,18 @@ impl SettingsPageState {
             return self.handle_modal_key(key);
         }
 
+        if self.search_active {
+            self.handle_search_key(key);
+            return SettingsInteraction::handled();
+        }
+
         self.status_message = None;
 
         match (key.code, key.modifiers) {
+            (KeyCode::Char('/'), KeyModifiers::NONE) => {
+                self.search_active = true;
+                SettingsInteraction::handled()
+            }
             (KeyCode::Char('j'), KeyModifiers::NONE) | (KeyCode::Down, KeyModifiers::NONE) => {
                 self.move_selection(1);
                 SettingsInteraction::handled()
@@ -116,12 +142,18 @@ impl SettingsPageState {
                 SettingsInteraction::handled()
             }
             (KeyCode::Char('r'), KeyModifiers::NONE) => {
+                if self.visible_keys().is_empty() {
+                    return SettingsInteraction::handled();
+                }
                 self.modal = Some(SettingsModal::ConfirmReset(ConfirmResetModalState::new(
                     self.selected_key(),
                 )));
                 SettingsInteraction::handled()
             }
             (KeyCode::Enter, KeyModifiers::NONE) => {
+                if self.visible_keys().is_empty() {
+                    return SettingsInteraction::handled();
+                }
                 if self.selected_key().editor_kind() == EditorKind::Toggle {
                     self.toggle_selected_setting()
                 } else {
@@ -133,13 +165,33 @@ impl SettingsPageState {
         }
     }
 
+    fn handle_search_key(&mut self, key: KeyEvent) {
+        match (key.code, key.modifiers) {
+            (KeyCode::Esc, KeyModifiers::NONE) | (KeyCode::Enter, KeyModifiers::NONE) => {
+                self.search_active = false;
+            }
+            (KeyCode::Backspace, KeyModifiers::NONE) => {
+                self.search_query.pop();
+                self.selected = 0;
+            }
+            (KeyCode::Char(ch), modifiers)
+                if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                self.search_query.push(ch);
+                self.selected = 0;
+            }
+            _ => {}
+        }
+    }
+
     pub(crate) fn footer_text(&self) -> &'static str {
         match self.modal.as_ref() {
             Some(SettingsModal::Select(_)) => "j/k Move   ↑/↓ Move   Enter Save   Esc Cancel",
             Some(SettingsModal::Input(_)) => "Type Edit   Enter Save   Esc Cancel",
             Some(SettingsModal::HotkeyCapture(_)) => "Press Keys   Enter Save   Esc Cancel",
             Some(SettingsModal::ConfirmReset(_)) => "←/h Yes   →/l No   y Confirm   n/Esc Cancel",
-            None => "j/k Move   ↑/↓ Move   Enter Toggle/Edit   r Reset   q Quit",
+            None if self.search_active => "Type Search   Enter Finish   Esc Cancel",
+            None => "j/k Move   ↑/↓ Move   Enter Toggle/Edit   r Reset   / Search   q Quit",
         }
     }
 
@@ -483,6 +535,84 @@ mod tests {
 
         let interaction = state.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
         assert!(interaction.pending_save().is_none());
+        assert!(state.modal.is_none());
+    }
+
+    fn type_query(state: &mut SettingsPageState, query: &str) {
+        state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+        assert!(state.is_search_active());
+        for ch in query.chars() {
+            state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+        }
+    }
+
+    #[test]
+    fn test_search_filters_by_display_name() {
+        let mut state = SettingsPageState::default();
+        type_query(&mut state, "audio");
+        let keys = state.visible_keys();
+        assert!(!keys.is_empty());
+        assert!(
+            keys.iter()
+                .all(|k| k.display_name().to_ascii_lowercase().contains("audio"))
+        );
+        assert!(keys.contains(&SettingKey::AudioTheme));
+    }
+
+    #[test]
+    fn test_search_matches_descriptions() {
+        let mut state = SettingsPageState::default();
+        type_query(&mut state, "extra ram");
+        assert!(state.visible_keys().contains(&SettingKey::VoiceKeepLoaded));
+    }
+
+    #[test]
+    fn test_search_keystroke_resets_selection() {
+        let mut state = SettingsPageState {
+            selected: 10,
+            ..SettingsPageState::default()
+        };
+        type_query(&mut state, "audio");
+        assert_eq!(state.selected_index(), 0);
+    }
+
+    #[test]
+    fn test_search_enter_keeps_query_and_exits() {
+        let mut state = SettingsPageState::default();
+        type_query(&mut state, "audio");
+        state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(!state.is_search_active());
+        assert_eq!(state.search_query(), "audio");
+        assert!(
+            state
+                .visible_keys()
+                .iter()
+                .all(|k| k.display_name().to_ascii_lowercase().contains("audio"))
+        );
+    }
+
+    #[test]
+    fn test_search_esc_exits_and_keeps_query() {
+        let mut state = SettingsPageState::default();
+        type_query(&mut state, "audio");
+        state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(!state.is_search_active());
+        assert_eq!(state.search_query(), "audio");
+    }
+
+    #[test]
+    fn test_empty_search_result_ignores_action_keys() {
+        let mut state = SettingsPageState::default();
+        type_query(&mut state, "zzz-no-such-setting");
+        assert!(state.visible_keys().is_empty());
+        for code in [KeyCode::Char('r'), KeyCode::Char('j')] {
+            let interaction = state.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
+            assert!(interaction.pending_save().is_none());
+            assert!(state.modal.is_none());
+        }
+        assert!(state.is_search_active());
+        state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(!state.is_search_active());
         assert!(state.modal.is_none());
     }
 }
