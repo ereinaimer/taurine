@@ -87,18 +87,10 @@ fn render_page_content(
     theme: &Theme,
 ) {
     use ratatui::{
-        style::Modifier,
         symbols::border,
-        text::Span,
         widgets::{Block, Borders},
     };
     let content_block = Block::default()
-        .title(Span::styled(
-            format!(" {} ", app.active_page().title()),
-            ratatui::style::Style::default()
-                .fg(theme.text)
-                .add_modifier(Modifier::BOLD),
-        ))
         .borders(Borders::ALL)
         .border_set(border::ROUNDED)
         .border_style(ratatui::style::Style::default().fg(theme.border));
