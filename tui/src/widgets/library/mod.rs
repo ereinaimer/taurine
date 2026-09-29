@@ -14,6 +14,45 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 
 use crate::theme::Theme;
 
+/// Split the page into left (list) and right (detail) panes with a
+/// one-column gutter, shared by rendering and mouse hit-testing.
+pub(crate) fn content_halves(area: Rect) -> (Rect, Rect) {
+    if area.width < 5 {
+        return (area, Rect::default());
+    }
+    let left_width = area.width.saturating_sub(1) / 2;
+    (
+        Rect {
+            x: area.x,
+            y: area.y,
+            width: left_width,
+            height: area.height,
+        },
+        Rect {
+            x: area.x.saturating_add(left_width).saturating_add(1),
+            y: area.y,
+            width: area.width.saturating_sub(left_width).saturating_sub(1),
+            height: area.height,
+        },
+    )
+}
+
+/// Pane border strip shared by rendering and hit-testing.
+fn pane_inner(area: Rect) -> Rect {
+    Rect {
+        x: area.x.saturating_add(1),
+        y: area.y.saturating_add(1),
+        width: area.width.saturating_sub(2),
+        height: area.height.saturating_sub(2),
+    }
+}
+
+/// List content inside the left pane: pane border plus the page padding.
+fn left_content(area: Rect) -> Rect {
+    let (left, _) = content_halves(area);
+    page_area(pane_inner(left))
+}
+
 /// Page inset shared by rendering and mouse hit-testing.
 pub(crate) fn page_area(area: Rect) -> Rect {
     Rect {
@@ -59,10 +98,11 @@ pub fn render_library_content(
     theme: &Theme,
     state: &LibraryPageState,
 ) {
-    let area = page_area(area);
-    if area.width == 0 || area.height == 0 {
-        return;
-    }
+    let (left, right) = content_halves(area);
+    render_pane(frame, left, theme);
+    render_pane(frame, right, theme);
+    let content = left_content(area);
+
     if let Some(message) = state.load_error() {
         frame.render_widget(
             ratatui::widgets::Paragraph::new(message).style(
@@ -70,13 +110,13 @@ pub fn render_library_content(
                     .fg(theme.error)
                     .add_modifier(ratatui::style::Modifier::BOLD),
             ),
-            area,
+            content,
         );
         return;
     }
 
     let has_status = state.status_message().is_some();
-    let (list_area, search_area) = content_sections(area, has_status);
+    let (list_area, search_area) = content_sections(content, has_status);
 
     if has_status && let Some(message) = state.status_message() {
         frame.render_widget(
@@ -86,9 +126,9 @@ pub fn render_library_content(
                     .add_modifier(ratatui::style::Modifier::BOLD),
             ),
             Rect {
-                x: area.x,
-                y: area.y,
-                width: area.width,
+                x: content.x,
+                y: content.y,
+                width: content.width,
                 height: 1,
             },
         );
@@ -103,4 +143,16 @@ pub fn render_library_content(
         state.is_search_active(),
         state.search_query().chars().count(),
     );
+}
+
+/// Bordered pane shell shared by both halves; the right one stays empty.
+fn render_pane(frame: &mut Frame, area: Rect, theme: &Theme) {
+    use ratatui::symbols::border;
+    use ratatui::widgets::{Block, Borders};
+
+    let pane = Block::default()
+        .borders(Borders::ALL)
+        .border_set(border::ROUNDED)
+        .border_style(ratatui::style::Style::default().fg(theme.border));
+    frame.render_widget(pane, area);
 }

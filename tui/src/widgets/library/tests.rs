@@ -2017,6 +2017,15 @@ fn hit_test_finds_rows_and_search() {
     assert_eq!(list::hit_test(area, &state, 79, 5), None);
 }
 
+#[test]
+fn right_pane_clicks_hit_nothing() {
+    let state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 80, 30);
+
+    assert_eq!(list::hit_test(area, &state, 60, 5), None);
+    assert_eq!(list::hit_test(area, &state, 60, 28), None);
+}
+
 fn six_item_state() -> LibraryPageState {
     let mut state = LibraryPageState::default();
     state.replace_items(

@@ -10,7 +10,7 @@ use crate::theme::Theme;
 use crate::widgets::library::state::LibraryPageState;
 use crate::widgets::util;
 
-use super::{content_sections, page_area};
+use super::{content_sections, left_content};
 
 const LIBRARY_ITEM_HEIGHT: u16 = 2;
 const LIBRARY_ITEM_PADDING: u16 = 1;
@@ -31,11 +31,11 @@ pub(crate) fn hit_test(
     column: u16,
     row: u16,
 ) -> Option<LibraryHit> {
-    let area = page_area(area);
-    if area.width == 0 || area.height == 0 {
+    let content = left_content(area);
+    if content.width == 0 || content.height == 0 {
         return None;
     }
-    let (list_area, search_area) = content_sections(area, state.status_message().is_some());
+    let (list_area, search_area) = content_sections(content, state.status_message().is_some());
     if mouse::contains(search_area, column, row) {
         return Some(LibraryHit::Search);
     }
@@ -56,11 +56,11 @@ pub(crate) fn hit_test(
 /// Window start for the current state, used to anchor the view when a
 /// visible row is clicked so the list does not jump.
 pub(crate) fn window_start(area: Rect, state: &LibraryPageState) -> usize {
-    let area = page_area(area);
-    if area.width == 0 || area.height == 0 {
+    let content = left_content(area);
+    if content.width == 0 || content.height == 0 {
         return 0;
     }
-    let (list_area, _) = content_sections(area, state.status_message().is_some());
+    let (list_area, _) = content_sections(content, state.status_message().is_some());
     let visible_count = util::visible_library_item_capacity(list_area.height);
     state.visible_window(visible_count).0
 }

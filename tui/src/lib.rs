@@ -85,21 +85,21 @@ fn render_page_content(
         symbols::border,
         widgets::{Block, Borders},
     };
-    let content_block = Block::default()
-        .borders(Borders::ALL)
-        .border_set(border::ROUNDED)
-        .border_style(ratatui::style::Style::default().fg(theme.border));
-    let inner = content_block.inner(area);
-    frame.render_widget(content_block, area);
-
     match app.active_page() {
         Page::Library => {
-            library::render_library_content(frame, inner, theme, app.library_page());
+            library::render_library_content(frame, area, theme, app.library_page());
             if let Some(modal) = app.library_page().modal() {
                 library::modals::render_library_modal(frame, area, theme, modal);
             }
         }
         Page::Settings => {
+            let content_block = Block::default()
+                .borders(Borders::ALL)
+                .border_set(border::ROUNDED)
+                .border_style(ratatui::style::Style::default().fg(theme.border));
+            let inner = content_block.inner(area);
+            frame.render_widget(content_block, area);
+
             settings::render_settings_content(frame, inner, theme, app.settings_page());
             if let Some(modal) = app.settings_page().modal() {
                 settings::modals::render_settings_modal(frame, area, theme, modal);
@@ -186,15 +186,15 @@ fn handle_tui_mouse_event(
             let layout = terminal::mouse::frame_layout(area);
             match app.active_page() {
                 Page::Library => {
-                    let inner = terminal::mouse::page_inner(layout.page);
                     match library::list::hit_test(
-                        inner,
+                        layout.page,
                         app.library_page(),
                         mouse.column,
                         mouse.row,
                     ) {
                         Some(library::list::LibraryHit::Item(position)) => {
-                            let anchor = library::list::window_start(inner, app.library_page());
+                            let anchor =
+                                library::list::window_start(layout.page, app.library_page());
                             let interaction = app.library_page_mut().click_item(position, anchor);
                             apply_library_interaction(app, interaction);
                         }
