@@ -179,6 +179,10 @@ pub struct VoiceSessionManager {
     active_req: Mutex<Option<String>>,
     media: Arc<dyn super::media_suspend::MediaSuspender>,
     media_paused: Arc<std::sync::Mutex<Vec<super::media_suspend::PausedSession>>>,
+    /// Synchronous in-flight marker for the suspend worker. Set before spawn
+    /// so an immediate stop waits for the token instead of draining empty
+    /// and leaving a stale guard; cleared by the worker after writing.
+    media_suspend_inflight: Arc<AtomicBool>,
     streams: Arc<Mutex<HashMap<String, StreamEntry>>>,
     req_counter: AtomicU64,
     /// Press remembered while busy: a press landing during decode cannot
@@ -243,6 +247,7 @@ impl VoiceSessionManager {
                 m
             },
             media_paused: Arc::new(Mutex::new(Vec::new())),
+            media_suspend_inflight: Arc::new(AtomicBool::new(false)),
             streams: Arc::new(Mutex::new(HashMap::new())),
             req_counter: AtomicU64::new(0),
             pending_press: AtomicBool::new(false),
@@ -920,9 +925,14 @@ impl VoiceSessionManager {
 
     /// Snapshot-pause SMTC media on a background thread. Skipped unless the
     /// setting is on and a real recording is starting; overlapping starts
-    /// share one guard (non-empty check) so mash/busy never double-pauses.
+    /// share one guard (in-flight marker plus non-empty check) so mash/busy
+    /// never double-pauses. The marker is set synchronously before spawn so
+    /// an immediate stop waits for the token instead of draining empty.
     fn suspend_media(&self) {
         if !taurine_core::settings::get_cached_pause_media_while_dictating() {
+            return;
+        }
+        if self.media_suspend_inflight.swap(true, Ordering::SeqCst) {
             return;
         }
         if !self
@@ -931,34 +941,58 @@ impl VoiceSessionManager {
             .unwrap_or_else(|p| p.into_inner())
             .is_empty()
         {
+            self.media_suspend_inflight.store(false, Ordering::SeqCst);
             return;
         }
         let media = Arc::clone(&self.media);
         let paused_slot = Arc::clone(&self.media_paused);
+        let inflight = Arc::clone(&self.media_suspend_inflight);
         if std::thread::Builder::new()
             .name("tau-media-suspend".to_string())
             .spawn(move || {
                 let paused = media.suspend_playing();
                 *paused_slot.lock().unwrap_or_else(|p| p.into_inner()) = paused;
+                inflight.store(false, Ordering::SeqCst);
             })
             .is_err()
         {
+            self.media_suspend_inflight.store(false, Ordering::SeqCst);
             debug!("media suspend: thread spawn failed");
         }
     }
 
-    /// Resume exactly what suspend paused, on a background thread. Drains the
-    /// guard first so a concurrent start cannot resume its own pause.
+    /// Resume exactly what suspend paused, on a background thread. The wait
+    /// for an in-flight suspend lives inside the resume thread (bounded ~2s
+    /// poll), never on the hotkey caller, so stops stay non-blocking while
+    /// an immediate stop still resumes the token once it lands.
     fn resume_media(&self) {
-        let paused =
-            std::mem::take(&mut *self.media_paused.lock().unwrap_or_else(|p| p.into_inner()));
-        if paused.is_empty() {
+        if !self.media_suspend_inflight.load(Ordering::SeqCst)
+            && self
+                .media_paused
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .is_empty()
+        {
             return;
         }
         let media = Arc::clone(&self.media);
+        let paused_slot = Arc::clone(&self.media_paused);
+        let inflight = Arc::clone(&self.media_suspend_inflight);
         if std::thread::Builder::new()
             .name("tau-media-resume".to_string())
             .spawn(move || {
+                let deadline = Instant::now() + Duration::from_secs(2);
+                while inflight.load(Ordering::SeqCst) {
+                    if Instant::now() >= deadline {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                let paused =
+                    std::mem::take(&mut *paused_slot.lock().unwrap_or_else(|p| p.into_inner()));
+                if paused.is_empty() {
+                    return;
+                }
                 media.resume(&paused);
             })
             .is_err()
@@ -2627,6 +2661,22 @@ mod tests {
         }
     }
 
+    /// Poll until the mash gate clears (or a 5 s deadline expires). A stop
+    /// stamps `last_stop`, so an immediate restart would defer to the rescue
+    /// waiter instead of starting; race tests must wait for a genuine start.
+    fn wait_for_mash_clear(session: &VoiceSessionManager) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if !session.in_mash_window() {
+                return true;
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
     /// Counting suspender for tests where `FakeMediaSuspender` cannot
     /// observe: it records suspend calls, not just resume tokens.
     struct CountingMedia {
@@ -2637,6 +2687,35 @@ mod tests {
     impl super::super::media_suspend::MediaSuspender for CountingMedia {
         fn suspend_playing(&self) -> Vec<super::super::media_suspend::PausedSession> {
             self.suspends.fetch_add(1, Ordering::Relaxed);
+            vec![super::super::media_suspend::PausedSession {
+                source_id: "fake-player".to_string(),
+                display_name: "fake".to_string(),
+            }]
+        }
+        fn resume(&self, sessions: &[super::super::media_suspend::PausedSession]) {
+            self.resumes.fetch_add(sessions.len(), Ordering::Relaxed);
+        }
+    }
+
+    /// Suspender whose suspend blocks until released, forcing the
+    /// start/stop race deterministically: the stop drain runs while the
+    /// suspend write is still in flight. Hermetic: plain atomics, no host.
+    struct GatedMedia {
+        suspends: AtomicUsize,
+        resumes: AtomicUsize,
+        release: AtomicBool,
+    }
+
+    impl super::super::media_suspend::MediaSuspender for GatedMedia {
+        fn suspend_playing(&self) -> Vec<super::super::media_suspend::PausedSession> {
+            self.suspends.fetch_add(1, Ordering::Relaxed);
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !self.release.load(Ordering::Relaxed) {
+                if Instant::now() >= deadline {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
             vec![super::super::media_suspend::PausedSession {
                 source_id: "fake-player".to_string(),
                 display_name: "fake".to_string(),
@@ -2820,6 +2899,76 @@ mod tests {
             "cancel must resume the single pause"
         );
         assert_eq!(concrete.resumes.load(Ordering::Relaxed), 1);
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+        taurine_core::settings::set_cached_pause_media_while_dictating(false);
+    }
+
+    #[test]
+    fn test_media_immediate_stop_then_restart_pauses_fresh() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
+        taurine_core::settings::set_cached_pause_media_while_dictating(true);
+        let concrete = Arc::new(GatedMedia {
+            suspends: AtomicUsize::new(0),
+            resumes: AtomicUsize::new(0),
+            release: AtomicBool::new(false),
+        });
+        let media: Arc<dyn super::super::media_suspend::MediaSuspender> = concrete.clone();
+        let (session, _) = create_ordering_session(
+            Some(Arc::new(|| {})),
+            Some(Arc::new(|| Ok(()))),
+            Some(Arc::new(|| {})),
+        );
+        let session = session.with_media(media);
+        session.start_ptt().expect("first press starts");
+        assert_eq!(session.current_mode(), VoiceMode::PushToTalk);
+        // Immediate stop with the suspend still gated: the stop drain races
+        // the in-flight suspend write (the stale-guard bug drained empty).
+        let res = session.stop_ptt().expect("tap-short stop");
+        assert_eq!(res, None);
+        assert_eq!(session.current_mode(), VoiceMode::Idle);
+        concrete.release.store(true, Ordering::Relaxed);
+        // The exit must still resume exactly the one pause once it lands.
+        assert!(
+            wait_for_counter(&concrete.resumes, 1),
+            "immediate stop must resume the in-flight pause"
+        );
+        assert!(
+            session
+                .media_paused
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .is_empty(),
+            "no stale guard may linger while idle"
+        );
+        assert!(
+            wait_for_mash_clear(&session),
+            "mash window must clear before the restart"
+        );
+        session.start_ptt().expect("restart starts");
+        assert_eq!(session.current_mode(), VoiceMode::PushToTalk);
+        assert!(
+            wait_for_counter(&concrete.suspends, 2),
+            "restart must pause exactly once per real start"
+        );
+        assert!(wait_for_media_paused(&session), "restart suspend must land");
+        session.cancel();
+        assert!(
+            wait_for_counter(&concrete.resumes, 2),
+            "restart stop must resume"
+        );
+        assert!(
+            session
+                .media_paused
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .is_empty(),
+            "no stale guard may linger after restart"
+        );
         crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
         taurine_core::settings::set_cached_pause_media_while_dictating(false);
     }

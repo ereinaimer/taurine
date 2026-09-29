@@ -56,10 +56,12 @@ impl Default for FakeMediaSuspender {
 #[cfg(test)]
 impl MediaSuspender for FakeMediaSuspender {
     fn suspend_playing(&self) -> Vec<PausedSession> {
-        vec![PausedSession {
+        let paused = vec![PausedSession {
             source_id: "fake-player".to_string(),
             display_name: "fake".to_string(),
-        }]
+        }];
+        *self.paused.lock().unwrap_or_else(|p| p.into_inner()) = paused.clone();
+        paused
     }
     fn resume(&self, sessions: &[PausedSession]) {
         self.resumes
@@ -197,5 +199,18 @@ mod tests {
         let paused = m.suspend_playing();
         assert!(paused.is_empty());
         m.resume(&paused);
+    }
+    #[test]
+    fn fake_suspender_records_pause_token() {
+        let m = FakeMediaSuspender::new();
+        let paused = m.suspend_playing();
+        assert_eq!(paused.len(), 1);
+        assert_eq!(
+            *m.paused.lock().unwrap_or_else(|p| p.into_inner()),
+            paused,
+            "fake must record what it paused"
+        );
+        m.resume(&paused);
+        assert_eq!(m.resumes.load(std::sync::atomic::Ordering::Relaxed), 1);
     }
 }
