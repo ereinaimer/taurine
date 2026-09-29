@@ -4,8 +4,8 @@ use taurine_core::db::crud::{
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 
 use crate::widgets::library::actions::{
-    build_metadata_rows, build_search_text, display_target_os, entry_display,
-    modal_content_from_row, preview_from_item,
+    build_metadata_rows, build_search_text, display_target_os, modal_content_from_row,
+    preview_from_item,
 };
 
 use super::LibraryMetadataRow;
@@ -33,11 +33,7 @@ impl LibraryKind {
             .iter()
             .find(|a| a.invocation_type == InvocationType::Word)
             .or_else(|| invocations.first())
-            .map(|a| match a.invocation_type {
-                InvocationType::Hotkey => TriggerType::Hotkey,
-                InvocationType::Regex => TriggerType::Regex,
-                InvocationType::Word | InvocationType::Voice => TriggerType::Word,
-            })
+            .map(|a| trigger_type_of(a.invocation_type))
             .unwrap_or(TriggerType::Word);
         Self::from_parts(trigger_type, action_type)
     }
@@ -87,6 +83,14 @@ impl LibraryKind {
     }
 }
 
+const fn trigger_type_of(invocation_type: InvocationType) -> TriggerType {
+    match invocation_type {
+        InvocationType::Hotkey => TriggerType::Hotkey,
+        InvocationType::Regex => TriggerType::Regex,
+        InvocationType::Word | InvocationType::Voice => TriggerType::Word,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LibraryTrigger {
     id: String,
@@ -96,10 +100,49 @@ pub(crate) struct LibraryTrigger {
     kind: LibraryKind,
     pub(crate) target_os: String,
     search_text: String,
-    uses: u64,
 }
 
 impl LibraryTrigger {
+    /// One list row per invocation alias; entries without invocations fall
+    /// back to a single row showing the display string.
+    pub(crate) fn expand(item: TriggerListItem) -> Vec<Self> {
+        let target_os = display_target_os(&item.target_os).to_string();
+        if item.invocations.is_empty() {
+            let kind = LibraryKind::from_invocations(&item.invocations, &item.action_type);
+            return vec![Self::row(&item, &target_os, item.display.clone(), kind)];
+        }
+        item.invocations
+            .iter()
+            .map(|alias| {
+                let kind = LibraryKind::from_parts(
+                    trigger_type_of(alias.invocation_type),
+                    item.action_type.as_str(),
+                );
+                Self::row(&item, &target_os, alias.invocation.clone(), kind)
+            })
+            .collect()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn single(item: TriggerListItem) -> Self {
+        Self::expand(item)
+            .pop()
+            .expect("trigger has at least one row")
+    }
+
+    fn row(item: &TriggerListItem, target_os: &str, trigger: String, kind: LibraryKind) -> Self {
+        let search_text = build_search_text(item, kind.label(), target_os, &trigger);
+        Self {
+            id: item.id.clone(),
+            name: item.name.clone(),
+            trigger,
+            preview: preview_from_item(item),
+            kind,
+            target_os: target_os.to_string(),
+            search_text,
+        }
+    }
+
     pub(crate) fn name(&self) -> &str {
         &self.name
     }
@@ -127,27 +170,6 @@ impl LibraryTrigger {
 
         let needle = query.to_ascii_lowercase();
         self.search_text.contains(&needle)
-    }
-}
-
-impl From<TriggerListItem> for LibraryTrigger {
-    fn from(item: TriggerListItem) -> Self {
-        let kind = LibraryKind::from_invocations(&item.invocations, item.action_type.as_str());
-        let preview = preview_from_item(&item);
-        let target_os = display_target_os(&item.target_os).to_string();
-        let search_text = build_search_text(&item, kind.label(), &target_os);
-        let trigger = entry_display(&item);
-
-        Self {
-            id: item.id,
-            name: item.name,
-            trigger,
-            preview,
-            kind,
-            target_os,
-            search_text,
-            uses: item.usage_count.max(0) as u64,
-        }
     }
 }
 

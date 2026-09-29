@@ -148,8 +148,14 @@ impl App {
     pub(crate) fn handle_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
         match (code, modifiers) {
             (KeyCode::Char('1'), _) => self.active_page = Page::Home,
-            (KeyCode::Char('2'), _) => self.active_page = Page::Library,
-            (KeyCode::Char('3'), _) => self.active_page = Page::Settings,
+            (KeyCode::Char('2'), _) => {
+                self.active_page = Page::Library;
+                self.library_page.focus_search();
+            }
+            (KeyCode::Char('3'), _) => {
+                self.active_page = Page::Settings;
+                self.settings_page.focus_search();
+            }
             (KeyCode::Char('t'), KeyModifiers::CONTROL) => self.toggle_theme(),
             (KeyCode::Char('q'), KeyModifiers::NONE) => self.should_quit = true,
             _ => {}
@@ -178,17 +184,21 @@ mod tests {
     }
 
     #[test]
-    fn pressing_two_selects_library() {
+    fn pressing_two_focuses_library_search() {
         let mut app = App::default();
         app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
         assert_eq!(app.active_page(), Page::Library);
+        assert!(app.library_page().is_search_active());
+        assert_eq!(app.library_page().search_query(), "");
     }
 
     #[test]
-    fn pressing_three_selects_settings() {
+    fn pressing_three_focuses_settings_search() {
         let mut app = App::default();
         app.handle_key(KeyCode::Char('3'), KeyModifiers::NONE);
         assert_eq!(app.active_page(), Page::Settings);
+        assert!(app.settings_page().is_search_active());
+        assert_eq!(app.settings_page().search_query(), "");
     }
 
     #[test]

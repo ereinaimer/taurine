@@ -354,12 +354,10 @@ pub(crate) fn render_search_block(
     cursor: usize,
     placeholder: &str,
 ) {
-    let row_style = if is_active {
-        Style::default().bg(theme.surface)
-    } else {
-        Style::default()
-    };
-    frame.render_widget(Block::default().style(row_style), area);
+    frame.render_widget(
+        Block::default().style(Style::default().bg(theme.surface)),
+        area,
+    );
 
     let content = Rect {
         x: area.x.saturating_add(1),
@@ -377,9 +375,12 @@ pub(crate) fn render_search_block(
             .bg(theme.surface)
             .add_modifier(Modifier::BOLD)
     } else if query.is_empty() {
-        Style::default().fg(theme.description)
+        Style::default().fg(theme.description).bg(theme.surface)
     } else {
-        Style::default().fg(theme.text).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(theme.text)
+            .bg(theme.surface)
+            .add_modifier(Modifier::BOLD)
     };
     let title = if is_active {
         input_cursor_line(query, cursor)

@@ -16,7 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Cleaner Trigger List**: Listing shows one line per trigger with just the trigger and result, plus multi-tag filtering.
 - **Always-Visible Setting Descriptions**: Every setting now shows its explanation under the title at any window size, wrapping to extra lines when narrow.
 - **Press-to-Set Hotkeys**: Capture the pause and voice dictation hotkeys by pressing them instead of typing, with clashing system shortcuts rejected.
-- **Bottom Search Bars**: Library search moved to the bottom next to the footer hints, and settings gained the same filterable search matching names and descriptions via /.
+- **Bottom Search Bars**: Library search moved to the bottom next to the footer hints, and settings gained the same filterable search matching names and descriptions, focused automatically on page entry.
+- **One Row Per Trigger**: Library entries with several word, hotkey, or regex triggers now list each trigger on its own row instead of a grouped count.
 
 ## [1.0.0-alpha.19] - 2026-09-27
 

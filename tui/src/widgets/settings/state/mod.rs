@@ -72,6 +72,12 @@ impl SettingsPageState {
         self.search_active
     }
 
+    pub(crate) fn focus_search(&mut self) {
+        self.search_active = true;
+        self.search_query.clear();
+        self.selected = 0;
+    }
+
     pub(crate) fn selected_key(&self) -> SettingKey {
         let keys = self.visible_keys();
         keys[self.selected.min(keys.len().saturating_sub(1))]

@@ -161,6 +161,13 @@ impl LibraryPageState {
         self.search_mode
     }
 
+    pub(crate) fn focus_search(&mut self) {
+        self.search_mode = true;
+        self.search_query.clear();
+        self.selected = 0;
+        self.rebuild_filter();
+    }
+
     pub(crate) const fn is_modal_open(&self) -> bool {
         self.modal.is_some()
     }

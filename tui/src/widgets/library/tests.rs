@@ -103,7 +103,7 @@ fn trigger_row(
 fn sample_state() -> LibraryPageState {
     let mut state = LibraryPageState::default();
     state.replace_items(vec![
-        LibraryTrigger::from(list_item(
+        LibraryTrigger::single(list_item(
             "id-gm",
             None,
             TriggerType::Word,
@@ -114,7 +114,7 @@ fn sample_state() -> LibraryPageState {
             9,
             None,
         )),
-        LibraryTrigger::from(list_item(
+        LibraryTrigger::single(list_item(
             "id-deploy",
             None,
             TriggerType::Word,
@@ -125,7 +125,7 @@ fn sample_state() -> LibraryPageState {
             4,
             Some("npm run build && npm publish"),
         )),
-        LibraryTrigger::from(list_item(
+        LibraryTrigger::single(list_item(
             "id-alt+r",
             Some("Open Reddit"),
             TriggerType::Hotkey,
@@ -142,7 +142,7 @@ fn sample_state() -> LibraryPageState {
 
 #[test]
 fn word_text_maps_to_snippet() {
-    let item = LibraryTrigger::from(list_item(
+    let item = LibraryTrigger::single(list_item(
         "id-gm",
         None,
         TriggerType::Word,
@@ -158,7 +158,7 @@ fn word_text_maps_to_snippet() {
 
 #[test]
 fn word_script_maps_to_script() {
-    let item = LibraryTrigger::from(list_item(
+    let item = LibraryTrigger::single(list_item(
         "id-deploy",
         None,
         TriggerType::Word,
@@ -174,7 +174,7 @@ fn word_script_maps_to_script() {
 
 #[test]
 fn hotkey_text_maps_to_hotkey_snippet() {
-    let item = LibraryTrigger::from(list_item(
+    let item = LibraryTrigger::single(list_item(
         "id-thanks",
         None,
         TriggerType::Hotkey,
@@ -190,7 +190,7 @@ fn hotkey_text_maps_to_hotkey_snippet() {
 
 #[test]
 fn hotkey_script_maps_to_hotkey_script() {
-    let item = LibraryTrigger::from(list_item(
+    let item = LibraryTrigger::single(list_item(
         "id-alt+r",
         None,
         TriggerType::Hotkey,
@@ -206,7 +206,7 @@ fn hotkey_script_maps_to_hotkey_script() {
 
 #[test]
 fn preview_prefers_description_before_other_content() {
-    let item = LibraryTrigger::from(list_item(
+    let item = LibraryTrigger::single(list_item(
         "id-alt+r",
         Some("Open Reddit"),
         TriggerType::Hotkey,
@@ -223,7 +223,7 @@ fn preview_prefers_description_before_other_content() {
 
 #[test]
 fn placeholder_script_description_does_not_block_real_script_preview() {
-    let item = LibraryTrigger::from(list_item(
+    let item = LibraryTrigger::single(list_item(
         "id-alt+r",
         Some("Shell script (CLI argument)"),
         TriggerType::Hotkey,
@@ -240,7 +240,7 @@ fn placeholder_script_description_does_not_block_real_script_preview() {
 
 #[test]
 fn preview_falls_back_to_text_output_when_description_is_empty() {
-    let item = LibraryTrigger::from(list_item(
+    let item = LibraryTrigger::single(list_item(
         "id-gm",
         Some("   "),
         TriggerType::Word,
@@ -257,7 +257,7 @@ fn preview_falls_back_to_text_output_when_description_is_empty() {
 
 #[test]
 fn preview_falls_back_to_script_content_when_description_is_empty() {
-    let item = LibraryTrigger::from(list_item(
+    let item = LibraryTrigger::single(list_item(
         "id-alt+r",
         None,
         TriggerType::Hotkey,
@@ -274,7 +274,7 @@ fn preview_falls_back_to_script_content_when_description_is_empty() {
 
 #[test]
 fn script_preview_does_not_use_script_language_placeholder() {
-    let item = LibraryTrigger::from(list_item(
+    let item = LibraryTrigger::single(list_item(
         "id-deploy",
         None,
         TriggerType::Word,
@@ -292,7 +292,7 @@ fn script_preview_does_not_use_script_language_placeholder() {
 
 #[test]
 fn script_preview_does_not_use_shell_script_description_placeholder() {
-    let item = LibraryTrigger::from(list_item(
+    let item = LibraryTrigger::single(list_item(
         "id-deploy",
         Some("Shell script (CLI argument)"),
         TriggerType::Word,
@@ -310,7 +310,7 @@ fn script_preview_does_not_use_shell_script_description_placeholder() {
 
 #[test]
 fn empty_script_content_falls_back_safely() {
-    let item = LibraryTrigger::from(list_item(
+    let item = LibraryTrigger::single(list_item(
         "id-deploy",
         Some("Shell script (CLI argument)"),
         TriggerType::Word,
@@ -349,13 +349,13 @@ fn search_matches_trigger() {
     item.invocations
         .push(alias_row("id-gm", TriggerType::Word, "goodmorning"));
     let mut state = LibraryPageState::default();
-    state.replace_items(vec![LibraryTrigger::from(item)]);
+    state.replace_items(LibraryTrigger::expand(item));
     state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
     for ch in "goodmorning".chars() {
         state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
     }
     assert_eq!(state.filtered_len(), 1);
-    assert_eq!(state.item_at_filtered(0).unwrap().trigger(), "gm (+1)");
+    assert_eq!(state.item_at_filtered(0).unwrap().trigger(), "goodmorning");
 }
 
 #[test]
@@ -385,7 +385,7 @@ fn search_matches_description_when_available() {
 #[test]
 fn search_matches_name_when_it_differs_from_trigger() {
     let mut state = LibraryPageState::default();
-    state.replace_items(vec![LibraryTrigger::from(TriggerListItem {
+    state.replace_items(vec![LibraryTrigger::single(TriggerListItem {
         id: "id-alt+r".to_string(),
         name: "Reddit opener".to_string(),
         description: Some("Open Reddit".to_string()),
@@ -410,7 +410,7 @@ fn search_matches_name_when_it_differs_from_trigger() {
     }
 
     assert_eq!(state.filtered_len(), 1);
-    assert_eq!(state.item_at_filtered(0).unwrap().trigger(), "alt+r (+1)");
+    assert_eq!(state.item_at_filtered(0).unwrap().trigger(), "alt+r");
 }
 
 #[test]
@@ -1250,7 +1250,7 @@ fn select_after_delete_chooses_nearest_remaining_item() {
     state.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
     state.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
     state.replace_items(vec![
-        LibraryTrigger::from(list_item(
+        LibraryTrigger::single(list_item(
             "id-gm",
             None,
             TriggerType::Word,
@@ -1261,7 +1261,7 @@ fn select_after_delete_chooses_nearest_remaining_item() {
             9,
             None,
         )),
-        LibraryTrigger::from(list_item(
+        LibraryTrigger::single(list_item(
             "id-deploy",
             None,
             TriggerType::Word,
@@ -1885,20 +1885,50 @@ fn multi_alias_trigger_row() -> TriggerRow {
 }
 
 #[test]
-fn grouped_row_appends_remaining_alias_count() {
-    assert_eq!(
-        LibraryTrigger::from(multi_alias_list_item()).trigger(),
-        "gs (+2)"
-    );
+fn multi_alias_entry_expands_to_one_row_per_alias() {
+    let rows = LibraryTrigger::expand(multi_alias_list_item());
+
+    let triggers: Vec<&str> = rows.iter().map(|row| row.trigger()).collect();
+    assert_eq!(triggers, vec!["gs", "gst", "ctrl+g"]);
+    assert!(rows.iter().all(|row| row.id() == "id-multi"));
+    assert_eq!(rows[0].kind_label(), "snippet");
+    assert_eq!(rows[2].kind_label(), "hotkey snippet");
 }
 
 #[test]
-fn named_row_counts_all_invocations() {
+fn named_entry_still_expands_per_alias_without_count_suffix() {
     let mut item = multi_alias_list_item();
     item.name = "Git status".to_string();
     item.display = "Git status".to_string();
 
-    assert_eq!(LibraryTrigger::from(item).trigger(), "Git status (+3)");
+    let rows = LibraryTrigger::expand(item);
+    assert_eq!(rows.len(), 3);
+    assert!(rows.iter().all(|row| !row.trigger().contains("(+")));
+    assert_eq!(rows[0].trigger(), "gs");
+}
+
+#[test]
+fn alias_search_matches_only_its_own_row() {
+    let mut state = LibraryPageState::default();
+    state.replace_items(LibraryTrigger::expand(multi_alias_list_item()));
+    state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+    for ch in "gst".chars() {
+        state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+
+    assert_eq!(state.filtered_len(), 1);
+    assert_eq!(state.item_at_filtered(0).unwrap().trigger(), "gst");
+}
+
+#[test]
+fn entry_without_invocations_falls_back_to_display_row() {
+    let mut item = multi_alias_list_item();
+    item.invocations.clear();
+    item.display = "Git status".to_string();
+
+    let rows = LibraryTrigger::expand(item);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].trigger(), "Git status");
 }
 
 #[test]

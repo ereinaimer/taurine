@@ -190,7 +190,9 @@ fn handle_tui_key_event<C: DaemonController>(
         return;
     }
 
-    if app.active_page() == Page::Settings && app.settings_page().is_modal_open() {
+    if app.active_page() == Page::Settings
+        && (app.settings_page().is_modal_open() || app.settings_page().is_search_active())
+    {
         let interaction = app.settings_page_mut().handle_key(key);
         apply_settings_interaction(app, interaction);
         return;
@@ -396,7 +398,7 @@ fn refresh_library_page(app: &mut App) {
         Ok(items) => {
             let items = items
                 .into_iter()
-                .map(library::LibraryTrigger::from)
+                .flat_map(library::LibraryTrigger::expand)
                 .collect();
             app.library_page_mut().replace_items(items);
         }
@@ -812,7 +814,6 @@ mod tests {
         let controller = MockController::default();
         app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
 
-        handle_tui_key_event(&mut app, plain_key('/'), &controller);
         handle_tui_key_event(&mut app, plain_key('q'), &controller);
 
         assert!(!app.should_quit());
@@ -825,7 +826,6 @@ mod tests {
         let controller = MockController::default();
         app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
 
-        handle_tui_key_event(&mut app, plain_key('/'), &controller);
         handle_tui_key_event(&mut app, plain_key('1'), &controller);
 
         assert_eq!(app.active_page(), Page::Library);
@@ -847,7 +847,7 @@ mod tests {
     }
 
     #[test]
-    fn slash_does_not_activate_library_search_while_modal_is_open() {
+    fn slash_goes_to_modal_while_library_modal_is_open() {
         let mut app = App::default();
         let controller = MockController::default();
         app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
@@ -856,8 +856,8 @@ mod tests {
 
         handle_tui_key_event(&mut app, plain_key('/'), &controller);
 
-        assert!(!app.library_page().is_search_active());
         assert!(app.library_page().is_modal_open());
+        assert_eq!(app.library_page().search_query(), "");
     }
 
     #[test]
@@ -866,7 +866,7 @@ mod tests {
         let controller = MockController::default();
         app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
         app.library_page_mut()
-            .replace_items(vec![LibraryTrigger::from(TriggerListItem {
+            .replace_items(vec![LibraryTrigger::single(TriggerListItem {
                 id: "test".to_string(),
                 name: "Test".to_string(),
                 description: None,
@@ -886,6 +886,11 @@ mod tests {
                 behavior: None,
             })]);
 
+        handle_tui_key_event(
+            &mut app,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+            &controller,
+        );
         handle_tui_key_event(&mut app, plain_key('d'), &controller);
         handle_tui_key_event(&mut app, plain_key('q'), &controller);
 
@@ -899,7 +904,7 @@ mod tests {
         let controller = MockController::default();
         app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
         app.library_page_mut()
-            .replace_items(vec![LibraryTrigger::from(TriggerListItem {
+            .replace_items(vec![LibraryTrigger::single(TriggerListItem {
                 id: "test".to_string(),
                 name: "Test".to_string(),
                 description: None,
@@ -919,6 +924,11 @@ mod tests {
                 behavior: None,
             })]);
 
+        handle_tui_key_event(
+            &mut app,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+            &controller,
+        );
         handle_tui_key_event(&mut app, plain_key('d'), &controller);
         handle_tui_key_event(&mut app, plain_key('/'), &controller);
 
@@ -950,6 +960,11 @@ mod tests {
         let controller = MockController::default();
         app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
 
+        handle_tui_key_event(
+            &mut app,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+            &controller,
+        );
         handle_tui_key_event(&mut app, plain_key('n'), &controller);
 
         assert_eq!(app.active_page(), Page::Library);
