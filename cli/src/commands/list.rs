@@ -1,7 +1,6 @@
 use crate::args::SortBy;
 use taurine_core::db::crud::{TriggerListItem, get_triggers_list};
 use taurine_core::db::init;
-use time::OffsetDateTime;
 
 pub fn execute(
     sort: Option<SortBy>,
@@ -48,75 +47,36 @@ pub fn execute(
     };
 
     // Sort the list
-    triggers.sort_by(|a, b| {
-        let cmp = match effective_sort {
-            SortBy::Alpha => a.display.cmp(&b.display),
-            SortBy::Usage => a.usage_count.cmp(&b.usage_count),
-            SortBy::Created => a.created_at.cmp(&b.created_at),
-            SortBy::Recent => {
-                let a_last = a.last_used_at.unwrap_or(0);
-                let b_last = b.last_used_at.unwrap_or(0);
-                a_last.cmp(&b_last)
-            }
-        };
+    if !matches!(effective_sort, SortBy::Alpha) {
+        triggers.sort_by(|a, b| {
+            let cmp = match effective_sort {
+                SortBy::Alpha => a.display.cmp(&b.display),
+                SortBy::Usage => a.usage_count.cmp(&b.usage_count),
+                SortBy::Created => a.created_at.cmp(&b.created_at),
+                SortBy::Recent => {
+                    let a_last = a.last_used_at.unwrap_or(0);
+                    let b_last = b.last_used_at.unwrap_or(0);
+                    a_last.cmp(&b_last)
+                }
+            };
 
-        if is_desc { cmp.reverse() } else { cmp }
-    });
+            if is_desc { cmp.reverse() } else { cmp }
+        });
+    }
 
     if json {
         println!("{}", serde_json::to_string(&triggers).unwrap());
         return Ok(());
     }
 
-    // Build rows for plain output
-    struct Row {
-        trigger: String,
-        output: String,
-        sort_col: Option<String>,
-        tags: String,
-        aliases: Vec<String>,
+    // Build rows for plain output: one row per invocation.
+    let mut rows = flatten_rows(&triggers, voice);
+    if matches!(effective_sort, SortBy::Alpha) {
+        rows.sort_by(|a, b| {
+            let cmp = a.trigger.cmp(&b.trigger);
+            if is_desc { cmp.reverse() } else { cmp }
+        });
     }
-
-    let rows: Vec<Row> = triggers
-        .iter()
-        .map(|item| {
-            let display_output = if item.action_type == "script" {
-                item.script_content.clone().unwrap_or_default()
-            } else {
-                item.output.clone()
-            }
-            .replace('\r', "")
-            .replace('\n', " ");
-
-            let tags: Vec<String> = serde_json::from_str(&item.tags).unwrap_or_default();
-            let tags_str = tags.join(", ");
-
-            let sort_col = match effective_sort {
-                SortBy::Usage => Some(item.usage_count.to_string()),
-                SortBy::Created => Some(format_relative_time(item.created_at)),
-                _ => None,
-            };
-
-            Row {
-                trigger: entry_display(item),
-                output: truncate(&display_output, 60),
-                sort_col,
-                tags: tags_str,
-                aliases: item
-                    .invocations
-                    .iter()
-                    .map(|a| {
-                        let mut line =
-                            format!("{}: {}", a.invocation_type.as_db_str(), a.invocation);
-                        if a.require_confirmation {
-                            line.push_str(" (confirm)");
-                        }
-                        line
-                    })
-                    .collect(),
-            }
-        })
-        .collect();
 
     if rows.is_empty() {
         return Ok(());
@@ -125,122 +85,88 @@ pub fn execute(
     // Calculate column widths
     let mut tw = 7; // "TRIGGER" min width
     let mut ow = 6; // "OUTPUT" min width
-    let mut sw = 0; // sort column
-    let mut taw = 4; // "TAGS" min width
 
     for r in &rows {
         tw = tw.max(r.trigger.len());
         ow = ow.max(r.output.len());
-        if let Some(ref s) = r.sort_col {
-            sw = sw.max(s.len());
-        }
-        taw = taw.max(r.tags.len());
     }
 
     // Print header
-    let sort_header = match effective_sort {
-        SortBy::Usage => "USAGE",
-        SortBy::Created => "CREATED AT",
-        _ => "",
-    };
-    sw = sw.max(sort_header.len());
-
     let pad = 3usize;
 
-    if sort_header.is_empty() {
-        println!(
-            "{:tw$}{:pad$}{:ow$}{:pad$}TAGS",
-            "TRIGGER",
-            "",
-            "OUTPUT",
-            "",
-            tw = tw,
-            pad = pad,
-            ow = ow,
-        );
-    } else {
-        println!(
-            "{:tw$}{:pad$}{:ow$}{:pad$}{:sw$}{:pad$}TAGS",
-            "TRIGGER",
-            "",
-            "OUTPUT",
-            "",
-            sort_header,
-            "",
-            tw = tw,
-            pad = pad,
-            ow = ow,
-            sw = sw,
-        );
-    }
+    println!(
+        "{:tw$}{:pad$}{:ow$}",
+        "TRIGGER",
+        "",
+        "OUTPUT",
+        tw = tw,
+        pad = pad,
+        ow = ow,
+    );
 
     // Print rows
     for r in &rows {
-        if let Some(ref s) = r.sort_col {
-            println!(
-                "{:tw$}{:pad$}{:ow$}{:pad$}{:sw$}{:pad$}{}",
-                r.trigger,
-                "",
-                r.output,
-                "",
-                s,
-                "",
-                r.tags,
-                tw = tw,
-                pad = pad,
-                ow = ow,
-                sw = sw,
-            );
-        } else {
-            println!(
-                "{:tw$}{:pad$}{:ow$}{:pad$}{}",
-                r.trigger,
-                "",
-                r.output,
-                "",
-                r.tags,
-                tw = tw,
-                pad = pad,
-                ow = ow,
-            );
-        }
-        for alias in &r.aliases {
-            println!("  {alias}");
-        }
+        println!(
+            "{:tw$}{:pad$}{:ow$}",
+            r.trigger,
+            "",
+            r.output,
+            tw = tw,
+            pad = pad,
+            ow = ow,
+        );
     }
 
     Ok(())
 }
 
 fn matches_tags(item_tags_json: &str, wanted: &[String]) -> bool {
-    let normalized: Vec<String> = wanted
+    let normalized: std::collections::HashSet<String> = wanted
         .iter()
         .flat_map(|s| s.split(','))
         .map(|s| s.trim().to_lowercase())
         .filter(|s| !s.is_empty())
-        .collect::<std::collections::HashSet<_>>()
-        .into_iter()
         .collect();
     if normalized.is_empty() {
         return true;
     }
-    let stored: Vec<String> = serde_json::from_str(item_tags_json).unwrap_or_default();
+    let stored: std::collections::HashSet<String> =
+        serde_json::from_str::<Vec<String>>(item_tags_json)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|s| s.trim().to_lowercase())
+            .filter(|s| !s.is_empty())
+            .collect();
     normalized.iter().all(|t| stored.contains(t))
 }
 
-/// Entry display per §0.11: `display (+N)` where N counts aliases beyond the
-/// display string (all aliases when display is a --name, else len - 1).
-fn entry_display(item: &TriggerListItem) -> String {
-    let extra = if item.name.is_empty() {
-        item.invocations.len().saturating_sub(1)
-    } else {
-        item.invocations.len()
-    };
-    if extra == 0 {
-        item.display.clone()
-    } else {
-        format!("{} (+{extra})", item.display)
-    }
+struct Row {
+    trigger: String,
+    output: String,
+}
+
+fn flatten_rows(items: &[TriggerListItem], voice: bool) -> Vec<Row> {
+    items
+        .iter()
+        .flat_map(|item| {
+            let raw = if item.action_type == "script" {
+                item.script_content.clone().unwrap_or_default()
+            } else {
+                item.output.clone()
+            };
+            let output = truncate(&raw.replace('\r', "").replace('\n', " "), 60);
+            item.invocations
+                .iter()
+                .filter(|a| {
+                    !voice || a.invocation_type == taurine_core::db::crud::InvocationType::Voice
+                })
+                .map(|a| Row {
+                    trigger: a.invocation.clone(),
+                    output: output.clone(),
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
 }
 
 fn truncate(s: &str, max: usize) -> String {
@@ -249,38 +175,6 @@ fn truncate(s: &str, max: usize) -> String {
     } else {
         format!("{}...", &s[..max.saturating_sub(3)])
     }
-}
-
-fn format_relative_time(timestamp: i64) -> String {
-    let now = OffsetDateTime::now_utc().unix_timestamp();
-    let diff = now - timestamp;
-
-    if diff < 60 {
-        return "just now".to_string();
-    }
-
-    let mins = diff / 60;
-    if mins < 60 {
-        return format!("{}m ago", mins);
-    }
-
-    let hours = mins / 60;
-    if hours < 24 {
-        return format!("{}h ago", hours);
-    }
-
-    let days = hours / 24;
-    if days < 30 {
-        return format!("{}d ago", days);
-    }
-
-    let months = days / 30;
-    if months < 12 {
-        return format!("{}mo ago", months);
-    }
-
-    let years = days / 365;
-    format!("{}y ago", years)
 }
 
 #[cfg(test)]
@@ -395,24 +289,6 @@ mod tests {
         assert!(json.contains("\"behavior\":null"));
         assert!(json.contains("\"description\":null"));
         assert!(json.contains("\"last_used_at\":null"));
-    }
-
-    #[test]
-    fn test_relative_time_format() {
-        use super::format_relative_time;
-        use std::time::{SystemTime, UNIX_EPOCH};
-
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
-
-        assert_eq!(format_relative_time(now - 10), "just now");
-        assert_eq!(format_relative_time(now - 120), "2m ago");
-        assert_eq!(format_relative_time(now - 7200), "2h ago");
-        assert_eq!(format_relative_time(now - 172800), "2d ago");
-        assert_eq!(format_relative_time(now - 5184000), "2mo ago");
-        assert_eq!(format_relative_time(now - 63072000), "2y ago");
     }
 
     #[test]
@@ -573,5 +449,118 @@ mod tests {
             &[" Work , EMAIL ".to_string()]
         ));
         assert!(super::matches_tags(r#"["work"]"#, &["".to_string()]));
+        assert!(super::matches_tags(r#"["work"]"#, &[]));
+        assert!(super::matches_tags(
+            r#"["Work","EMAIL"]"#,
+            &["work".to_string(), "email".to_string()]
+        ));
+    }
+
+    fn list_item(
+        id: &str,
+        display: &str,
+        output: &str,
+        invocations: Vec<TriggerAliasRow>,
+    ) -> TriggerListItem {
+        TriggerListItem {
+            id: id.to_string(),
+            name: "".to_string(),
+            description: None,
+            invocations,
+            display: display.to_string(),
+            output: output.to_string(),
+            action_type: "text".to_string(),
+            target_os: "all".to_string(),
+            only_apps: None,
+            except_apps: None,
+            usage_count: 0,
+            last_used_at: None,
+            created_at: 0,
+            tags: "[]".to_string(),
+            script_content: None,
+            interpreter: None,
+            behavior: None,
+        }
+    }
+
+    #[test]
+    fn flatten_lists_each_invocation_on_its_own_row() {
+        let items = vec![list_item(
+            "e1",
+            "1080p",
+            "1080p output",
+            vec![
+                alias_row("1080p", InvocationType::Word),
+                alias_row("lalt+f7", InvocationType::Hotkey),
+                alias_row("normal mode", InvocationType::Voice),
+            ],
+        )];
+
+        let rows = super::flatten_rows(&items, false);
+        let triggers: Vec<&str> = rows.iter().map(|r| r.trigger.as_str()).collect();
+        assert_eq!(triggers, vec!["1080p", "lalt+f7", "normal mode"]);
+        for r in &rows {
+            assert!(!r.trigger.contains("(+"));
+            assert!(!r.trigger.contains(':'));
+        }
+        assert!(rows.iter().all(|r| r.output == rows[0].output));
+    }
+
+    #[test]
+    fn voice_flatten_shows_only_voice_without_confirm() {
+        let mut confirm = alias_row("do it", InvocationType::Voice);
+        confirm.require_confirmation = true;
+        let items = vec![
+            list_item(
+                "w1",
+                "type me",
+                "word out",
+                vec![alias_row("type me", InvocationType::Word)],
+            ),
+            list_item(
+                "h1",
+                "lalt+f7",
+                "hotkey out",
+                vec![alias_row("lalt+f7", InvocationType::Hotkey)],
+            ),
+            list_item("v1", "do it", "voice out", vec![confirm]),
+            list_item(
+                "v2",
+                "normal mode",
+                "voice out",
+                vec![alias_row("normal mode", InvocationType::Voice)],
+            ),
+        ];
+
+        let rows = super::flatten_rows(&items, true);
+        let triggers: Vec<&str> = rows.iter().map(|r| r.trigger.as_str()).collect();
+        assert_eq!(triggers, vec!["do it", "normal mode"]);
+        for r in &rows {
+            assert!(!r.trigger.contains("(confirm)"));
+            assert!(!r.trigger.contains(':'));
+        }
+    }
+
+    #[test]
+    fn alpha_sort_orders_flattened_rows_by_trigger() {
+        let items = vec![
+            list_item(
+                "z1",
+                "zzz",
+                "z out",
+                vec![alias_row("zzz", InvocationType::Word)],
+            ),
+            list_item(
+                "a1",
+                "aaa",
+                "a out",
+                vec![alias_row("aaa", InvocationType::Word)],
+            ),
+        ];
+
+        let mut rows = super::flatten_rows(&items, false);
+        rows.sort_by(|a, b| a.trigger.cmp(&b.trigger));
+        let triggers: Vec<&str> = rows.iter().map(|r| r.trigger.as_str()).collect();
+        assert_eq!(triggers, vec!["aaa", "zzz"]);
     }
 }
