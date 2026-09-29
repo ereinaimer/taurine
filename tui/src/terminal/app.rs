@@ -12,29 +12,9 @@ pub(crate) enum Page {
     Settings,
 }
 
-impl Page {
-    pub(crate) const ALL: [Self; 2] = [Self::Library, Self::Settings];
-
-    pub(crate) const fn title(self) -> &'static str {
-        match self {
-            Self::Library => "Library",
-            Self::Settings => "Settings",
-        }
-    }
-
-    #[allow(dead_code)]
-    pub(crate) const fn nav_index(self) -> usize {
-        match self {
-            Self::Library => 0,
-            Self::Settings => 1,
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct App {
     active_page: Page,
-    nav_visible: bool,
     library_page: LibraryPageState,
     settings_page: SettingsPageState,
     should_quit: bool,
@@ -46,7 +26,6 @@ impl Default for App {
     fn default() -> Self {
         Self {
             active_page: Page::Library,
-            nav_visible: true,
             library_page: LibraryPageState::default(),
             settings_page: SettingsPageState::default(),
             should_quit: false,
@@ -76,10 +55,6 @@ impl App {
         self.active_page
     }
 
-    pub(crate) const fn nav_visible(&self) -> bool {
-        self.nav_visible
-    }
-
     pub(crate) const fn library_page(&self) -> &LibraryPageState {
         &self.library_page
     }
@@ -98,10 +73,6 @@ impl App {
 
     pub(crate) const fn should_quit(&self) -> bool {
         self.should_quit
-    }
-
-    pub(crate) fn toggle_nav_visibility(&mut self) {
-        self.nav_visible = !self.nav_visible;
     }
 
     pub(crate) fn notification(&self) -> Option<&str> {
@@ -177,22 +148,6 @@ mod tests {
         let mut app = App::default();
         app.handle_key(KeyCode::Char('c'), KeyModifiers::CONTROL);
         assert!(!app.should_quit());
-    }
-
-    #[test]
-    fn nav_is_visible_by_default() {
-        let app = App::default();
-        assert!(app.nav_visible());
-    }
-
-    #[test]
-    fn toggling_nav_visibility_hides_and_restores_rail() {
-        let mut app = App::default();
-        app.toggle_nav_visibility();
-        assert!(!app.nav_visible());
-
-        app.toggle_nav_visibility();
-        assert!(app.nav_visible());
     }
 
     #[test]

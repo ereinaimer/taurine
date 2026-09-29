@@ -27,7 +27,7 @@ use ratatui::{Terminal, backend::CrosstermBackend, style::Style, widgets::Block}
 use terminal::app::{App, Page};
 use terminal::event::{Event, EventHandler};
 use tracing::error;
-use widgets::{nav, notification};
+use widgets::notification;
 
 const EVENT_TICK_RATE: Duration = Duration::from_millis(250);
 
@@ -52,14 +52,9 @@ pub fn run() -> taurine_core::Result<()> {
                 area,
             );
 
-            let layout = terminal::mouse::frame_layout(area, app.nav_visible());
+            let layout = terminal::mouse::frame_layout(area);
 
-            if let Some(nav_area) = layout.nav {
-                nav::render_navigation(frame, nav_area, theme, app.active_page());
-                render_page_content(frame, layout.page, &app, theme);
-            } else {
-                render_page_content(frame, layout.page, &app, theme);
-            }
+            render_page_content(frame, layout.page, &app, theme);
 
             if let Some(msg) = app.notification() {
                 notification::render_notification(frame, area, theme, msg);
@@ -115,15 +110,6 @@ fn render_page_content(
 
 fn handle_tui_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
     app.clear_notification();
-
-    if matches!(key.code, crossterm::event::KeyCode::Char('b' | 'B'))
-        && key
-            .modifiers
-            .contains(crossterm::event::KeyModifiers::CONTROL)
-    {
-        app.toggle_nav_visibility();
-        return;
-    }
 
     if app.active_page() == Page::Settings
         && (app.settings_page().is_modal_open() || app.settings_page().is_search_active())
@@ -197,17 +183,7 @@ fn handle_tui_mouse_event(
             if modal_open {
                 return;
             }
-            let layout = terminal::mouse::frame_layout(area, app.nav_visible());
-            if let Some(nav_area) = layout.nav
-                && let Some(tab) = nav::tab_at(nav_area, mouse.column, mouse.row)
-            {
-                let code = match Page::ALL.get(tab).copied().unwrap_or(Page::Settings) {
-                    Page::Library => '1',
-                    Page::Settings => '2',
-                };
-                app.handle_key(KeyCode::Char(code), KeyModifiers::NONE);
-                return;
-            }
+            let layout = terminal::mouse::frame_layout(area);
             match app.active_page() {
                 Page::Library => {
                     let inner = terminal::mouse::page_inner(layout.page);
@@ -669,36 +645,6 @@ mod tests {
     }
 
     #[test]
-    fn pressing_ctrl_b_toggles_navigation_visibility() {
-        let mut app = App::default();
-
-        handle_tui_key_event(
-            &mut app,
-            KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL),
-        );
-        assert!(!app.nav_visible());
-
-        handle_tui_key_event(
-            &mut app,
-            KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL),
-        );
-        assert!(app.nav_visible());
-    }
-
-    #[test]
-    fn pressing_ctrl_b_does_not_change_active_page() {
-        let mut app = App::default();
-        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
-
-        handle_tui_key_event(
-            &mut app,
-            KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL),
-        );
-
-        assert_eq!(app.active_page(), Page::Settings);
-    }
-
-    #[test]
     fn typing_q_while_library_search_is_active_does_not_quit() {
         let mut app = App::default();
         app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
@@ -861,22 +807,6 @@ mod tests {
     }
 
     const TEST_AREA: ratatui::layout::Rect = ratatui::layout::Rect::new(0, 0, 100, 30);
-
-    #[test]
-    fn clicking_library_tab_switches_page() {
-        let mut app = App::default();
-        handle_tui_mouse_event(&mut app, left_click(5, 2), TEST_AREA);
-
-        assert_eq!(app.active_page(), Page::Library);
-    }
-
-    #[test]
-    fn clicking_settings_tab_switches_page() {
-        let mut app = App::default();
-        handle_tui_mouse_event(&mut app, left_click(5, 3), TEST_AREA);
-
-        assert_eq!(app.active_page(), Page::Settings);
-    }
 
     #[test]
     fn clicking_settings_search_bar_focuses_search() {

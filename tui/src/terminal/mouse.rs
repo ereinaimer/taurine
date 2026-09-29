@@ -1,44 +1,20 @@
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::layout::Rect;
 
-/// Rectangles of the main TUI chrome, computed from the terminal area.
+/// Rectangle of the main TUI content, computed from the terminal area.
 /// Single source of truth shared by rendering (`lib.rs` draw closure) and
 /// mouse hit-testing so clicks land where the widgets are drawn.
 pub(crate) struct FrameLayout {
-    pub(crate) nav: Option<Rect>,
     pub(crate) page: Rect,
 }
 
-pub(crate) fn frame_layout(area: Rect, nav_visible: bool) -> FrameLayout {
-    let inner = Rect {
+pub(crate) fn frame_layout(area: Rect) -> FrameLayout {
+    let page = Rect {
         x: area.x.saturating_add(2),
         y: area.y.saturating_add(1),
         width: area.width.saturating_sub(4),
         height: area.height.saturating_sub(2),
     };
-    let body = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(0)])
-        .split(inner)[0];
-
-    if nav_visible {
-        let columns = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Length(22),
-                Constraint::Length(1),
-                Constraint::Min(0),
-            ])
-            .split(body);
-        FrameLayout {
-            nav: Some(columns[0]),
-            page: columns[2],
-        }
-    } else {
-        FrameLayout {
-            nav: None,
-            page: body,
-        }
-    }
+    FrameLayout { page }
 }
 
 /// Content area inside the bordered page block (1-cell border each side).
@@ -64,17 +40,8 @@ mod tests {
 
     #[test]
     fn layout_matches_draw_chain_on_standard_terminal() {
-        let layout = frame_layout(Rect::new(0, 0, 100, 30), true);
+        let layout = frame_layout(Rect::new(0, 0, 100, 30));
 
-        assert_eq!(layout.nav, Some(Rect::new(2, 1, 22, 28)));
-        assert_eq!(layout.page, Rect::new(25, 1, 73, 28));
-    }
-
-    #[test]
-    fn hidden_nav_gives_full_width_page() {
-        let layout = frame_layout(Rect::new(0, 0, 100, 30), false);
-
-        assert_eq!(layout.nav, None);
         assert_eq!(layout.page, Rect::new(2, 1, 96, 28));
     }
 
