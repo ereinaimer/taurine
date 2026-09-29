@@ -8,17 +8,14 @@ pub fn execute(
     asc: bool,
     desc: bool,
     json: bool,
-    tag: Option<String>,
+    tags: Option<Vec<String>>,
     voice: bool,
 ) -> taurine_core::error::Result<()> {
     let conn = init::setup()?;
     let mut triggers = get_triggers_list(&conn)?;
 
-    if let Some(ref t) = tag {
-        triggers.retain(|item| {
-            let tags: Vec<String> = serde_json::from_str(&item.tags).unwrap_or_default();
-            tags.contains(t)
-        });
+    if let Some(ref wanted) = tags {
+        triggers.retain(|item| matches_tags(&item.tags, wanted));
     }
 
     if voice {
@@ -213,6 +210,22 @@ pub fn execute(
     }
 
     Ok(())
+}
+
+fn matches_tags(item_tags_json: &str, wanted: &[String]) -> bool {
+    let normalized: Vec<String> = wanted
+        .iter()
+        .flat_map(|s| s.split(','))
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    if normalized.is_empty() {
+        return true;
+    }
+    let stored: Vec<String> = serde_json::from_str(item_tags_json).unwrap_or_default();
+    normalized.iter().all(|t| stored.contains(t))
 }
 
 /// Entry display per §0.11: `display (+N)` where N counts aliases beyond the
@@ -543,5 +556,22 @@ mod tests {
         let pos_a = json.find("\"a\"").unwrap();
         let pos_b = json.rfind("\"b\"").unwrap();
         assert!(pos_a < pos_b, "alpha sort: 'a' should appear before 'b'");
+    }
+
+    #[test]
+    fn tags_filter_requires_all_requested() {
+        assert!(super::matches_tags(
+            r#"["work","email"]"#,
+            &["work".to_string(), "email".to_string()]
+        ));
+        assert!(!super::matches_tags(
+            r#"["work"]"#,
+            &["work".to_string(), "email".to_string()]
+        ));
+        assert!(super::matches_tags(
+            r#"["work","email"]"#,
+            &[" Work , EMAIL ".to_string()]
+        ));
+        assert!(super::matches_tags(r#"["work"]"#, &["".to_string()]));
     }
 }

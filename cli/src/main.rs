@@ -127,10 +127,10 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
             sort,
             asc,
             desc,
-            tag,
+            tags,
             voice,
         }) => {
-            commands::list::execute(sort, asc, desc, json, tag, voice)?;
+            commands::list::execute(sort, asc, desc, json, tags, voice)?;
         }
         Some(Commands::Export { path, yes }) => {
             commands::export::execute(path, yes)?;

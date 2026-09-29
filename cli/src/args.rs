@@ -113,9 +113,9 @@ pub(crate) enum Commands {
         #[arg(long, conflicts_with = "asc")]
         desc: bool,
 
-        /// Filter by tag
-        #[arg(long)]
-        tag: Option<String>,
+        /// Filter by tags (repeatable or comma-separated, ALL must match)
+        #[arg(long = "tags", alias = "tag", value_delimiter = ',', num_args = 1..)]
+        tags: Option<Vec<String>>,
 
         /// Show voice triggers only
         #[arg(long)]
