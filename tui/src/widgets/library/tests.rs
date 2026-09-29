@@ -1948,3 +1948,120 @@ fn detail_lists_each_invocation_as_type_colon_invocation() {
         vec![("Alias", "word: hi"), ("Alias", "voice: say hi (confirm)")]
     );
 }
+
+#[test]
+fn arrows_move_selection_while_searching() {
+    let mut state = sample_state();
+    state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+    state.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+
+    assert_eq!(state.selected_index(), Some(1));
+    assert!(state.is_search_active());
+
+    state.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+    assert_eq!(state.selected_index(), Some(0));
+    assert!(state.is_search_active());
+}
+
+#[test]
+fn unbound_character_starts_search_immediately() {
+    let mut state = sample_state();
+    assert!(!state.is_search_active());
+
+    state.handle_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE));
+
+    assert!(state.is_search_active());
+    assert_eq!(state.search_query(), "g");
+}
+
+#[test]
+fn reserved_keys_never_start_library_search() {
+    for ch in ['1', '2', '3', 'q'] {
+        let mut state = sample_state();
+        state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+        assert!(!state.is_search_active());
+        assert_eq!(state.search_query(), "");
+    }
+}
+
+#[test]
+fn click_selects_then_opens() {
+    let mut state = sample_state();
+
+    let interaction = state.click_item(1, 0);
+    assert_eq!(state.selected_index(), Some(1));
+    assert!(interaction.into_open_request().is_none());
+
+    let id = state.item_at_filtered(1).unwrap().id().to_string();
+    let interaction = state.click_item(1, 0);
+    assert_eq!(
+        interaction.into_open_request(),
+        Some(LibraryOpenRequest::Selected(id))
+    );
+}
+
+#[test]
+fn hit_test_finds_rows_and_search() {
+    let state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 80, 30);
+
+    assert_eq!(
+        list::hit_test(area, &state, 5, 2),
+        Some(list::LibraryHit::Item(0))
+    );
+    assert_eq!(
+        list::hit_test(area, &state, 5, 6),
+        Some(list::LibraryHit::Item(1))
+    );
+    assert_eq!(
+        list::hit_test(area, &state, 5, 28),
+        Some(list::LibraryHit::Search)
+    );
+    assert_eq!(list::hit_test(area, &state, 79, 5), None);
+}
+
+fn six_item_state() -> LibraryPageState {
+    let mut state = LibraryPageState::default();
+    state.replace_items(
+        ["t0", "t1", "t2", "t3", "t4", "t5"]
+            .into_iter()
+            .enumerate()
+            .map(|(index, trigger)| {
+                LibraryTrigger::single(list_item(
+                    &format!("id-{trigger}"),
+                    None,
+                    TriggerType::Word,
+                    trigger,
+                    "out",
+                    "text",
+                    "all",
+                    index as i64,
+                    None,
+                ))
+            })
+            .collect(),
+    );
+    state
+}
+
+#[test]
+fn clicked_window_holds_while_default_policy_would_jump() {
+    let mut state = six_item_state();
+    for _ in 0..4 {
+        state.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+    }
+    assert_eq!(state.selected_index(), Some(4));
+    assert_eq!(state.visible_window(2), (3, 5));
+
+    state.click_item(3, 3);
+    assert_eq!(state.selected_index(), Some(3));
+    assert_eq!(state.visible_window(2), (3, 5));
+}
+
+#[test]
+fn stale_anchor_falls_back_to_default_window() {
+    let mut state = six_item_state();
+    state.click_item(0, 3);
+    assert_eq!(state.selected_index(), Some(0));
+    assert_eq!(state.visible_window(2), (0, 2));
+}

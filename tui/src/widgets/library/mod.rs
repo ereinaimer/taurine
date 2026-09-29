@@ -14,34 +14,19 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 
 use crate::theme::Theme;
 
-pub fn render_library_content(
-    frame: &mut Frame,
-    area: Rect,
-    theme: &Theme,
-    state: &LibraryPageState,
-) {
-    let area = Rect {
+/// Page inset shared by rendering and mouse hit-testing.
+pub(crate) fn page_area(area: Rect) -> Rect {
+    Rect {
         x: area.x.saturating_add(1),
         y: area.y.saturating_add(1),
         width: area.width.saturating_sub(2),
         height: area.height.saturating_sub(1),
-    };
-    if area.width == 0 || area.height == 0 {
-        return;
     }
-    if let Some(message) = state.load_error() {
-        frame.render_widget(
-            ratatui::widgets::Paragraph::new(message).style(
-                ratatui::style::Style::default()
-                    .fg(theme.error)
-                    .add_modifier(ratatui::style::Modifier::BOLD),
-            ),
-            area,
-        );
-        return;
-    }
+}
 
-    let has_status = state.status_message().is_some();
+/// Split the page into list and search areas, shared by rendering and
+/// mouse hit-testing so clicks land where rows are drawn.
+pub(crate) fn content_sections(area: Rect, has_status: bool) -> (Rect, Rect) {
     let sections = if has_status {
         Layout::default()
             .direction(Direction::Vertical)
@@ -62,22 +47,52 @@ pub fn render_library_content(
             ])
             .split(area)
     };
+    (
+        sections[if has_status { 1 } else { 0 }],
+        sections[sections.len() - 1],
+    )
+}
 
-    let (list_area, search_area) = if has_status {
-        if let Some(message) = state.status_message() {
-            frame.render_widget(
-                ratatui::widgets::Paragraph::new(message).style(
-                    ratatui::style::Style::default()
-                        .fg(theme.text)
-                        .add_modifier(ratatui::style::Modifier::BOLD),
-                ),
-                sections[0],
-            );
-        }
-        (sections[1], sections[3])
-    } else {
-        (sections[0], sections[2])
-    };
+pub fn render_library_content(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    state: &LibraryPageState,
+) {
+    let area = page_area(area);
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    if let Some(message) = state.load_error() {
+        frame.render_widget(
+            ratatui::widgets::Paragraph::new(message).style(
+                ratatui::style::Style::default()
+                    .fg(theme.error)
+                    .add_modifier(ratatui::style::Modifier::BOLD),
+            ),
+            area,
+        );
+        return;
+    }
+
+    let has_status = state.status_message().is_some();
+    let (list_area, search_area) = content_sections(area, has_status);
+
+    if has_status && let Some(message) = state.status_message() {
+        frame.render_widget(
+            ratatui::widgets::Paragraph::new(message).style(
+                ratatui::style::Style::default()
+                    .fg(theme.text)
+                    .add_modifier(ratatui::style::Modifier::BOLD),
+            ),
+            Rect {
+                x: area.x,
+                y: area.y,
+                width: area.width,
+                height: 1,
+            },
+        );
+    }
 
     list::render_library_list(frame, list_area, theme, state);
     search::render_library_search_bar(

@@ -32,6 +32,7 @@ pub(crate) struct SettingsPageState {
     pub(crate) load_error: Option<String>,
     pub(crate) search_query: String,
     pub(crate) search_active: bool,
+    pub(crate) window_anchor: Option<usize>,
 }
 
 impl SettingsPageState {
@@ -72,10 +73,29 @@ impl SettingsPageState {
         self.search_active
     }
 
-    pub(crate) fn focus_search(&mut self) {
+    pub(crate) fn activate_search(&mut self) {
         self.search_active = true;
-        self.search_query.clear();
-        self.selected = 0;
+    }
+
+    /// Click parity with Enter: first click selects the row, clicking the
+    /// selected row toggles booleans or opens the editor. Selecting records
+    /// the click-time window start so the list does not jump.
+    pub(crate) fn click_setting(&mut self, key: SettingKey, anchor: usize) -> SettingsInteraction {
+        let position = self
+            .visible_keys()
+            .iter()
+            .position(|k| *k == key)
+            .unwrap_or(self.selected);
+        if self.selected_key() == key {
+            if key.editor_kind() == EditorKind::Toggle {
+                return self.toggle_selected_setting();
+            }
+            self.open_editor_for_selected();
+            return SettingsInteraction::handled();
+        }
+        self.selected = position;
+        self.window_anchor = Some(anchor);
+        SettingsInteraction::handled()
     }
 
     pub(crate) fn selected_key(&self) -> SettingKey {
@@ -104,6 +124,7 @@ impl SettingsPageState {
         self.modal = None;
         self.load_error = None;
         self.status_message = None;
+        self.window_anchor = None;
     }
 
     pub(crate) fn set_load_error(&mut self, error: String) {
@@ -167,6 +188,20 @@ impl SettingsPageState {
                     SettingsInteraction::handled()
                 }
             }
+            // honey: navigation and quit keys never start a search; any other
+            // bare character filters the list immediately (type-to-search).
+            (KeyCode::Char('1' | '2' | '3' | 'q'), KeyModifiers::NONE) => {
+                SettingsInteraction::default()
+            }
+            (KeyCode::Char(ch), modifiers)
+                if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                self.search_active = true;
+                self.search_query.push(ch);
+                self.selected = 0;
+                self.window_anchor = None;
+                SettingsInteraction::handled()
+            }
             _ => SettingsInteraction::default(),
         }
     }
@@ -176,15 +211,19 @@ impl SettingsPageState {
             (KeyCode::Esc, KeyModifiers::NONE) | (KeyCode::Enter, KeyModifiers::NONE) => {
                 self.search_active = false;
             }
+            (KeyCode::Up, KeyModifiers::NONE) => self.move_selection(-1),
+            (KeyCode::Down, KeyModifiers::NONE) => self.move_selection(1),
             (KeyCode::Backspace, KeyModifiers::NONE) => {
                 self.search_query.pop();
                 self.selected = 0;
+                self.window_anchor = None;
             }
             (KeyCode::Char(ch), modifiers)
                 if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
                 self.search_query.push(ch);
                 self.selected = 0;
+                self.window_anchor = None;
             }
             _ => {}
         }
@@ -205,6 +244,7 @@ impl SettingsPageState {
         let max_index = self.visible_keys().len().saturating_sub(1) as isize;
         let next = (self.selected as isize + delta).clamp(0, max_index);
         self.selected = next as usize;
+        self.window_anchor = None;
     }
 
     fn toggle_selected_setting(&mut self) -> SettingsInteraction {
@@ -620,5 +660,74 @@ mod tests {
         state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert!(!state.is_search_active());
         assert!(state.modal.is_none());
+    }
+
+    #[test]
+    fn test_arrows_move_selection_while_searching() {
+        let mut state = SettingsPageState::default();
+        type_query(&mut state, "audio");
+        assert!(state.visible_keys().len() > 1);
+
+        state.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        assert_eq!(state.selected_index(), 1);
+        assert!(state.is_search_active());
+
+        state.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+        assert_eq!(state.selected_index(), 0);
+        assert!(state.is_search_active());
+    }
+
+    #[test]
+    fn test_click_selects_then_toggles() {
+        let mut state = SettingsPageState::default();
+        let idx = state
+            .visible_keys()
+            .iter()
+            .position(|k| *k == SettingKey::VoiceKeepLoaded)
+            .expect("VoiceKeepLoaded should be visible");
+
+        let interaction = state.click_setting(SettingKey::VoiceKeepLoaded, 0);
+        assert!(interaction.pending_save().is_none());
+        assert_eq!(state.selected_index(), idx);
+
+        let interaction = state.click_setting(SettingKey::VoiceKeepLoaded, 0);
+        let pending = interaction.pending_save().expect("second click toggles");
+        assert_eq!(pending.key, SettingKey::VoiceKeepLoaded);
+    }
+
+    #[test]
+    fn test_click_selected_non_toggle_opens_editor() {
+        let mut state = SettingsPageState::default();
+        let idx = state
+            .visible_keys()
+            .iter()
+            .position(|k| *k == SettingKey::AudioTheme)
+            .expect("AudioTheme should be visible");
+        state.selected = idx;
+
+        let interaction = state.click_setting(SettingKey::AudioTheme, idx);
+        assert!(interaction.pending_save().is_none());
+        assert!(matches!(state.modal, Some(SettingsModal::Select(_))));
+    }
+
+    #[test]
+    fn test_unbound_character_starts_search_immediately() {
+        let mut state = SettingsPageState::default();
+        assert!(!state.is_search_active());
+
+        state.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+
+        assert!(state.is_search_active());
+        assert_eq!(state.search_query(), "a");
+    }
+
+    #[test]
+    fn test_reserved_keys_never_start_search() {
+        for ch in ['1', '2', '3', 'q'] {
+            let mut state = SettingsPageState::default();
+            state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+            assert!(!state.is_search_active());
+            assert_eq!(state.search_query(), "");
+        }
     }
 }

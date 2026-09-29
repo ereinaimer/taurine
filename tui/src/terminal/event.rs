@@ -1,10 +1,11 @@
 use std::io;
 use std::time::{Duration, Instant};
 
-use crossterm::event::{self, Event as CrosstermEvent, KeyEvent, KeyEventKind};
+use crossterm::event::{self, Event as CrosstermEvent, KeyEvent, KeyEventKind, MouseEvent};
 
 pub(crate) enum Event {
     Key(KeyEvent),
+    Mouse(MouseEvent),
     Tick,
 }
 
@@ -30,6 +31,9 @@ impl EventHandler {
                     if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) =>
                 {
                     return Ok(Event::Key(key));
+                }
+                CrosstermEvent::Mouse(mouse) => {
+                    return Ok(Event::Mouse(mouse));
                 }
                 _ => {
                     self.last_tick = Instant::now();

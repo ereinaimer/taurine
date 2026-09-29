@@ -47,3 +47,45 @@ pub fn render_navigation(frame: &mut Frame, area: Rect, theme: &Theme, active_pa
     state.select(Some(active_page.nav_index()));
     frame.render_stateful_widget(navigation, area, &mut state);
 }
+
+/// Tab index at terminal cell `(column, row)`, if it lands on a page row
+/// inside the navigation borders.
+pub fn tab_at(nav_area: Rect, column: u16, row: u16) -> Option<usize> {
+    if nav_area.width < 3 {
+        return None;
+    }
+    Page::ALL.iter().enumerate().find_map(|(index, _)| {
+        (row == nav_area.y.saturating_add(1 + index as u16)
+            && column >= nav_area.x.saturating_add(1)
+            && column < nav_area.x.saturating_add(nav_area.width).saturating_sub(1))
+        .then_some(index)
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::layout::Rect;
+
+    const NAV_AREA: Rect = Rect::new(2, 3, 22, 24);
+
+    #[test]
+    fn tab_rows_hit_each_page() {
+        assert_eq!(tab_at(NAV_AREA, 5, 4), Some(0));
+        assert_eq!(tab_at(NAV_AREA, 5, 5), Some(1));
+        assert_eq!(tab_at(NAV_AREA, 5, 6), Some(2));
+    }
+
+    #[test]
+    fn borders_and_gaps_miss() {
+        assert_eq!(tab_at(NAV_AREA, 2, 4), None);
+        assert_eq!(tab_at(NAV_AREA, 23, 4), None);
+        assert_eq!(tab_at(NAV_AREA, 5, 3), None);
+        assert_eq!(tab_at(NAV_AREA, 5, 7), None);
+    }
+
+    #[test]
+    fn narrow_area_never_hits() {
+        assert_eq!(tab_at(Rect::new(2, 3, 2, 24), 3, 4), None);
+    }
+}

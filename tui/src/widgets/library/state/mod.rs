@@ -97,6 +97,7 @@ pub(crate) struct LibraryPageState {
     selected: usize,
     search_query: String,
     search_mode: bool,
+    window_anchor: Option<usize>,
     pub(crate) modal: Option<LibraryModal>,
     status_message: Option<String>,
     load_error: Option<String>,
@@ -108,6 +109,7 @@ impl LibraryPageState {
         self.items = items;
         self.load_error = None;
         self.status_message = None;
+        self.window_anchor = None;
         self.rebuild_filter();
     }
 
@@ -159,13 +161,6 @@ impl LibraryPageState {
 
     pub(crate) const fn is_search_active(&self) -> bool {
         self.search_mode
-    }
-
-    pub(crate) fn focus_search(&mut self) {
-        self.search_mode = true;
-        self.search_query.clear();
-        self.selected = 0;
-        self.rebuild_filter();
     }
 
     pub(crate) const fn is_modal_open(&self) -> bool {
@@ -248,6 +243,24 @@ impl LibraryPageState {
         }
     }
 
+    /// Visible window preferring a click-time anchor so a clicked row stays
+    /// where it was; falls back to bottom-anchored scrolling when stale.
+    pub(crate) fn visible_window(&self, capacity: usize) -> (usize, usize) {
+        let total = self.filtered_len();
+        if capacity == 0 || total == 0 {
+            return (0, 0);
+        }
+        let selected = self.selected_index().unwrap_or(0);
+        if let Some(anchor) = self.window_anchor {
+            let start = anchor.min(total.saturating_sub(1));
+            let end = start.saturating_add(capacity).min(total);
+            if selected >= start && selected < end {
+                return (start, end);
+            }
+        }
+        crate::widgets::util::visible_range(total, selected, capacity)
+    }
+
     pub(crate) fn filtered_len(&self) -> usize {
         self.filtered_indices.len()
     }
@@ -259,6 +272,7 @@ impl LibraryPageState {
     }
 
     pub(crate) fn select_item_by_id(&mut self, id: &str) {
+        self.window_anchor = None;
         if let Some(position) = self
             .filtered_indices
             .iter()
@@ -269,6 +283,7 @@ impl LibraryPageState {
     }
 
     pub(crate) fn select_after_delete(&mut self, previous_index: usize) {
+        self.window_anchor = None;
         if self.filtered_indices.is_empty() {
             self.selected = 0;
         } else {
@@ -328,6 +343,21 @@ impl LibraryPageState {
                 .selected_item()
                 .map(|item| LibraryInteraction::open_selected(item.id().to_string()))
                 .unwrap_or_default(),
+            // honey: navigation and quit keys never start a search; any other
+            // bare character filters the list immediately (type-to-search).
+            (KeyCode::Char('1' | '2' | '3' | 'q'), KeyModifiers::NONE) => {
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Char(ch), modifiers)
+                if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                self.search_mode = true;
+                self.search_query.push(ch);
+                self.selected = 0;
+                self.window_anchor = None;
+                self.rebuild_filter();
+                LibraryInteraction::handled()
+            }
             _ => LibraryInteraction::handled(),
         }
     }
@@ -455,6 +485,8 @@ impl LibraryPageState {
         match (key.code, key.modifiers) {
             (KeyCode::Esc, KeyModifiers::NONE) => self.search_mode = false,
             (KeyCode::Enter, KeyModifiers::NONE) => self.search_mode = false,
+            (KeyCode::Up, KeyModifiers::NONE) => self.move_selection(-1),
+            (KeyCode::Down, KeyModifiers::NONE) => self.move_selection(1),
             (KeyCode::Backspace, KeyModifiers::NONE) => {
                 self.search_query.pop();
                 self.rebuild_filter();
@@ -470,6 +502,7 @@ impl LibraryPageState {
     }
 
     fn move_selection(&mut self, delta: isize) {
+        self.window_anchor = None;
         let Some(current) = self.selected_index() else {
             self.selected = 0;
             return;
@@ -481,6 +514,7 @@ impl LibraryPageState {
     }
 
     fn rebuild_filter(&mut self) {
+        self.window_anchor = None;
         let previously_selected = self.selected_item().cloned();
         self.filtered_indices = self
             .items
@@ -510,5 +544,28 @@ impl LibraryPageState {
     fn selected_item(&self) -> Option<&LibraryTrigger> {
         self.selected_index()
             .and_then(|selected| self.item_at_filtered(selected))
+    }
+
+    pub(crate) fn activate_search(&mut self) {
+        self.search_mode = true;
+    }
+
+    /// Click parity with Enter: first click selects the row, clicking the
+    /// selected row opens it. Selecting records the click-time window start
+    /// so the list does not jump.
+    pub(crate) fn click_item(
+        &mut self,
+        filtered_position: usize,
+        anchor: usize,
+    ) -> LibraryInteraction {
+        if self.selected_index() == Some(filtered_position) {
+            return self
+                .selected_item()
+                .map(|item| LibraryInteraction::open_selected(item.id().to_string()))
+                .unwrap_or_default();
+        }
+        self.selected = filtered_position;
+        self.window_anchor = Some(anchor);
+        LibraryInteraction::handled()
     }
 }

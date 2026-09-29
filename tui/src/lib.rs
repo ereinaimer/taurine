@@ -19,16 +19,11 @@ use crate::widgets::library;
 use crate::widgets::settings;
 use crossterm::{
     cursor::Show,
+    event::{DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{
-    Terminal,
-    backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout, Margin},
-    style::Style,
-    widgets::Block,
-};
+use ratatui::{Terminal, backend::CrosstermBackend, style::Style, widgets::Block};
 use terminal::app::{App, Page};
 use terminal::control::{
     DaemonController, SystemDaemonController, action_for_status, toggle_daemon,
@@ -53,10 +48,12 @@ pub fn run() -> taurine_core::Result<()> {
     setup_signal_handler(|code| std::process::exit(code));
     let mut events = EventHandler::new(EVENT_TICK_RATE);
     let mut last_status_refresh = Instant::now();
+    let mut last_area = ratatui::layout::Rect::default();
 
     loop {
         terminal.terminal.draw(|frame| {
             let area = frame.area();
+            last_area = area;
             let theme = app.theme();
 
             frame.render_widget(
@@ -64,47 +61,24 @@ pub fn run() -> taurine_core::Result<()> {
                 area,
             );
 
-            let inner = area.inner(Margin {
-                vertical: 1,
-                horizontal: 2,
-            });
-
-            let sections = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Length(1),
-                    Constraint::Length(1),
-                    Constraint::Min(0),
-                    Constraint::Length(1),
-                    Constraint::Length(1),
-                ])
-                .split(inner);
+            let layout = terminal::mouse::frame_layout(area, app.nav_visible());
 
             frame.render_widget(
                 HeaderWidget {
                     theme,
                     daemon_status: app.daemon_status(),
                 },
-                sections[0],
+                layout.header,
             );
 
-            if app.nav_visible() {
-                let body = Layout::default()
-                    .direction(Direction::Horizontal)
-                    .constraints([
-                        Constraint::Length(22),
-                        Constraint::Length(1),
-                        Constraint::Min(0),
-                    ])
-                    .split(sections[2]);
-
-                nav::render_navigation(frame, body[0], theme, app.active_page());
-                render_page_content(frame, body[2], &app, theme);
+            if let Some(nav_area) = layout.nav {
+                nav::render_navigation(frame, nav_area, theme, app.active_page());
+                render_page_content(frame, layout.page, &app, theme);
             } else {
-                render_page_content(frame, sections[2], &app, theme);
+                render_page_content(frame, layout.page, &app, theme);
             }
 
-            frame.render_widget(FooterWidget { theme, app: &app }, sections[4]);
+            frame.render_widget(FooterWidget { theme, app: &app }, layout.footer);
 
             if let Some(msg) = app.notification() {
                 notification::render_notification(frame, area, theme, msg);
@@ -113,6 +87,9 @@ pub fn run() -> taurine_core::Result<()> {
 
         match events.next()? {
             Event::Key(key) => handle_tui_key_event(&mut app, key, &daemon_controller),
+            Event::Mouse(mouse) => {
+                handle_tui_mouse_event(&mut app, mouse, last_area, &daemon_controller)
+            }
             Event::Tick => {
                 if last_status_refresh.elapsed() >= STATUS_REFRESH_INTERVAL {
                     app.set_daemon_status(terminal::status::probe_daemon_status());
@@ -250,6 +227,97 @@ fn handle_tui_key_event<C: DaemonController>(
                 error!(error = %err, "Failed to toggle daemon lifecycle from the TUI");
             }
         }
+    }
+}
+
+fn handle_tui_mouse_event<C: DaemonController>(
+    app: &mut App,
+    mouse: crossterm::event::MouseEvent,
+    area: ratatui::layout::Rect,
+    daemon_controller: &C,
+) {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEventKind};
+
+    fn scroll_key(down: bool) -> KeyEvent {
+        KeyEvent::new(
+            if down { KeyCode::Down } else { KeyCode::Up },
+            KeyModifiers::NONE,
+        )
+    }
+
+    app.clear_notification();
+
+    let modal_open = match app.active_page() {
+        Page::Home => false,
+        Page::Library => app.library_page().is_modal_open(),
+        Page::Settings => app.settings_page().is_modal_open(),
+    };
+
+    match mouse.kind {
+        MouseEventKind::ScrollDown | MouseEventKind::ScrollUp => {
+            if modal_open {
+                return;
+            }
+            handle_tui_key_event(
+                app,
+                scroll_key(mouse.kind == MouseEventKind::ScrollDown),
+                daemon_controller,
+            );
+        }
+        MouseEventKind::Down(MouseButton::Left) => {
+            if modal_open {
+                return;
+            }
+            let layout = terminal::mouse::frame_layout(area, app.nav_visible());
+            if let Some(nav_area) = layout.nav
+                && let Some(tab) = nav::tab_at(nav_area, mouse.column, mouse.row)
+            {
+                let code = match Page::ALL.get(tab).copied().unwrap_or(Page::Settings) {
+                    Page::Home => '1',
+                    Page::Library => '2',
+                    Page::Settings => '3',
+                };
+                app.handle_key(KeyCode::Char(code), KeyModifiers::NONE);
+                return;
+            }
+            match app.active_page() {
+                Page::Home => {}
+                Page::Library => {
+                    let inner = terminal::mouse::page_inner(layout.page);
+                    match library::list::hit_test(
+                        inner,
+                        app.library_page(),
+                        mouse.column,
+                        mouse.row,
+                    ) {
+                        Some(library::list::LibraryHit::Item(position)) => {
+                            let anchor = library::list::window_start(inner, app.library_page());
+                            let interaction = app.library_page_mut().click_item(position, anchor);
+                            apply_library_interaction(app, interaction);
+                        }
+                        Some(library::list::LibraryHit::Search) => {
+                            app.library_page_mut().activate_search();
+                        }
+                        None => {}
+                    }
+                }
+                Page::Settings => {
+                    let inner = terminal::mouse::page_inner(layout.page);
+                    match settings::hit_test(inner, app.settings_page(), mouse.column, mouse.row) {
+                        Some(settings::SettingsHit::Row(key)) => {
+                            let anchor = settings::visible_window_start(inner, app.settings_page());
+                            let interaction = app.settings_page_mut().click_setting(key, anchor);
+                            apply_settings_interaction(app, interaction);
+                        }
+                        Some(settings::SettingsHit::Search) => {
+                            app.settings_page_mut().activate_search();
+                        }
+                        None => {}
+                    }
+                }
+            }
+        }
+        _ => {}
     }
 }
 
@@ -456,6 +524,10 @@ impl TerminalGuard {
             restore_terminal();
             return Err(error);
         }
+        if let Err(error) = execute!(stdout, EnableMouseCapture) {
+            restore_terminal();
+            return Err(error);
+        }
 
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = match Terminal::new(backend) {
@@ -572,7 +644,12 @@ where
 
 fn restore_terminal() {
     let _ = disable_raw_mode();
-    let _ = execute!(io::stdout(), LeaveAlternateScreen, Show);
+    let _ = execute!(
+        io::stdout(),
+        LeaveAlternateScreen,
+        DisableMouseCapture,
+        Show
+    );
 }
 
 #[cfg(test)]
@@ -619,7 +696,9 @@ mod tests {
         assert!(called.load(std::sync::atomic::Ordering::SeqCst));
     }
 
-    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use crossterm::event::{
+        KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    };
     use taurine_core::{
         db::crud::{InvocationType, TriggerAliasRow, TriggerListItem, TriggerRow},
         engine::shell::{ScriptBehavior, ScriptInterpreter, compress},
@@ -820,6 +899,7 @@ mod tests {
         let controller = MockController::default();
         app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
 
+        handle_tui_key_event(&mut app, plain_key('/'), &controller);
         handle_tui_key_event(&mut app, plain_key('q'), &controller);
 
         assert!(!app.should_quit());
@@ -827,26 +907,26 @@ mod tests {
     }
 
     #[test]
-    fn navigating_to_library_does_not_type_into_focused_search() {
+    fn navigating_to_library_leaves_search_inactive() {
         let mut app = App::default();
         let controller = MockController::default();
 
         handle_tui_key_event(&mut app, plain_key('2'), &controller);
 
         assert_eq!(app.active_page(), Page::Library);
-        assert!(app.library_page().is_search_active());
+        assert!(!app.library_page().is_search_active());
         assert_eq!(app.library_page().search_query(), "");
     }
 
     #[test]
-    fn navigating_to_settings_does_not_type_into_focused_search() {
+    fn navigating_to_settings_leaves_search_inactive() {
         let mut app = App::default();
         let controller = MockController::default();
 
         handle_tui_key_event(&mut app, plain_key('3'), &controller);
 
         assert_eq!(app.active_page(), Page::Settings);
-        assert!(app.settings_page().is_search_active());
+        assert!(!app.settings_page().is_search_active());
         assert_eq!(app.settings_page().search_query(), "");
     }
 
@@ -856,6 +936,7 @@ mod tests {
         let controller = MockController::default();
         app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
 
+        handle_tui_key_event(&mut app, plain_key('/'), &controller);
         handle_tui_key_event(&mut app, plain_key('1'), &controller);
 
         assert_eq!(app.active_page(), Page::Library);
@@ -982,6 +1063,168 @@ mod tests {
 
         assert_eq!(app.active_page(), Page::Library);
         assert!(!app.library_page().is_modal_open());
+    }
+
+    fn mouse_at(column: u16, row: u16, kind: MouseEventKind) -> MouseEvent {
+        MouseEvent {
+            kind,
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
+        }
+    }
+
+    fn left_click(column: u16, row: u16) -> MouseEvent {
+        mouse_at(column, row, MouseEventKind::Down(MouseButton::Left))
+    }
+
+    const TEST_AREA: ratatui::layout::Rect = ratatui::layout::Rect::new(0, 0, 100, 30);
+
+    #[test]
+    fn clicking_library_tab_switches_page() {
+        let mut app = App::default();
+        let controller = MockController::default();
+
+        handle_tui_mouse_event(&mut app, left_click(5, 5), TEST_AREA, &controller);
+
+        assert_eq!(app.active_page(), Page::Library);
+    }
+
+    #[test]
+    fn clicking_settings_tab_switches_page() {
+        let mut app = App::default();
+        let controller = MockController::default();
+
+        handle_tui_mouse_event(&mut app, left_click(5, 6), TEST_AREA, &controller);
+
+        assert_eq!(app.active_page(), Page::Settings);
+    }
+
+    #[test]
+    fn clicking_settings_search_bar_focuses_search() {
+        let mut app = App::default();
+        let controller = MockController::default();
+        app.handle_key(KeyCode::Char('3'), KeyModifiers::NONE);
+        assert!(!app.settings_page().is_search_active());
+
+        handle_tui_mouse_event(&mut app, left_click(30, 24), TEST_AREA, &controller);
+
+        assert!(app.settings_page().is_search_active());
+        assert_eq!(app.settings_page().search_query(), "");
+    }
+
+    #[test]
+    fn clicking_settings_row_selects_without_activating() {
+        let mut app = App::default();
+        let controller = MockController::default();
+        app.handle_key(KeyCode::Char('3'), KeyModifiers::NONE);
+        app.settings_page_mut().selected = 1;
+
+        handle_tui_mouse_event(&mut app, left_click(30, 5), TEST_AREA, &controller);
+
+        assert_eq!(app.settings_page().selected_index(), 0);
+        assert!(app.settings_page().modal().is_none());
+    }
+
+    #[test]
+    fn clicking_library_row_selects_without_opening() {
+        let mut app = App::default();
+        let controller = MockController::default();
+        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
+        app.library_page_mut().replace_items(vec![
+            LibraryTrigger::single(TriggerListItem {
+                id: "mouse-aaa".to_string(),
+                name: String::new(),
+                description: None,
+                invocations: vec![hotkey_alias("mouse-aaa", "aaa")],
+                display: "aaa".to_string(),
+                output: "aaa out".to_string(),
+                action_type: "text".to_string(),
+                target_os: "all".to_string(),
+                only_apps: None,
+                except_apps: None,
+                usage_count: 0,
+                last_used_at: None,
+                created_at: 0,
+                tags: "[]".to_string(),
+                script_content: None,
+                interpreter: None,
+                behavior: None,
+            }),
+            LibraryTrigger::single(TriggerListItem {
+                id: "mouse-bbb".to_string(),
+                name: String::new(),
+                description: None,
+                invocations: vec![hotkey_alias("mouse-bbb", "bbb")],
+                display: "bbb".to_string(),
+                output: "bbb out".to_string(),
+                action_type: "text".to_string(),
+                target_os: "all".to_string(),
+                only_apps: None,
+                except_apps: None,
+                usage_count: 0,
+                last_used_at: None,
+                created_at: 0,
+                tags: "[]".to_string(),
+                script_content: None,
+                interpreter: None,
+                behavior: None,
+            }),
+        ]);
+
+        handle_tui_mouse_event(&mut app, left_click(30, 10), TEST_AREA, &controller);
+
+        assert_eq!(app.library_page().selected_index(), Some(1));
+        assert!(!app.library_page().is_modal_open());
+    }
+
+    #[test]
+    fn wheel_scroll_moves_settings_selection() {
+        let mut app = App::default();
+        let controller = MockController::default();
+        app.handle_key(KeyCode::Char('3'), KeyModifiers::NONE);
+
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(30, 10, MouseEventKind::ScrollDown),
+            TEST_AREA,
+            &controller,
+        );
+
+        assert_eq!(app.settings_page().selected_index(), 1);
+    }
+
+    #[test]
+    fn wheel_scroll_moves_selection_while_search_focused() {
+        let mut app = App::default();
+        let controller = MockController::default();
+        app.handle_key(KeyCode::Char('3'), KeyModifiers::NONE);
+        handle_tui_key_event(&mut app, plain_key('/'), &controller);
+        assert!(app.settings_page().is_search_active());
+
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(30, 10, MouseEventKind::ScrollDown),
+            TEST_AREA,
+            &controller,
+        );
+
+        assert_eq!(app.settings_page().selected_index(), 1);
+        assert!(app.settings_page().is_search_active());
+    }
+
+    #[test]
+    fn clicks_are_ignored_while_library_modal_is_open() {
+        let mut app = App::default();
+        let controller = MockController::default();
+        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
+        app.library_page_mut()
+            .open_editor_modal(sample_library_modal());
+
+        handle_tui_mouse_event(&mut app, left_click(30, 10), TEST_AREA, &controller);
+
+        assert!(app.library_page().is_modal_open());
+        assert_eq!(app.library_page().selected_index(), None);
     }
 
     #[test]
