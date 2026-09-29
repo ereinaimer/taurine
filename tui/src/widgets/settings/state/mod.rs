@@ -113,7 +113,6 @@ impl SettingsPageState {
                 self.move_selection(-1);
                 SettingsInteraction::handled()
             }
-            (KeyCode::Char(' '), KeyModifiers::NONE) => self.toggle_selected_setting(),
             (KeyCode::Char('r'), KeyModifiers::NONE) => {
                 self.modal = Some(SettingsModal::ConfirmReset(ConfirmResetModalState::new(
                     self.selected_key(),
@@ -121,8 +120,12 @@ impl SettingsPageState {
                 SettingsInteraction::handled()
             }
             (KeyCode::Enter, KeyModifiers::NONE) => {
-                self.open_editor_for_selected();
-                SettingsInteraction::handled()
+                if self.selected_key().editor_kind() == EditorKind::Toggle {
+                    self.toggle_selected_setting()
+                } else {
+                    self.open_editor_for_selected();
+                    SettingsInteraction::handled()
+                }
             }
             _ => SettingsInteraction::default(),
         }
@@ -133,7 +136,7 @@ impl SettingsPageState {
             Some(SettingsModal::Select(_)) => "j/k Move   ↑/↓ Move   Enter Save   Esc Cancel",
             Some(SettingsModal::Input(_)) => "Type Edit   Enter Save   Esc Cancel",
             Some(SettingsModal::ConfirmReset(_)) => "←/h Yes   →/l No   y Confirm   n/Esc Cancel",
-            None => "j/k Move   ↑/↓ Move   Space Toggle   Enter Edit   r Reset   q Quit",
+            None => "j/k Move   ↑/↓ Move   Enter Toggle/Edit   r Reset   q Quit",
         }
     }
 
@@ -425,6 +428,52 @@ mod tests {
         assert_eq!(pending.value.as_deref(), Some("false"));
 
         state.open_editor_for_selected();
+        assert!(state.modal.is_none());
+    }
+
+    #[test]
+    fn test_enter_toggles_boolean_setting() {
+        let mut state = SettingsPageState::default();
+        let idx = state
+            .visible_keys()
+            .iter()
+            .position(|k| *k == SettingKey::VoiceKeepLoaded)
+            .expect("VoiceKeepLoaded should be visible");
+        state.selected = idx;
+
+        let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let pending = interaction.pending_save().expect("enter toggles");
+        assert_eq!(pending.key, SettingKey::VoiceKeepLoaded);
+        assert!(state.modal.is_none());
+    }
+
+    #[test]
+    fn test_enter_opens_editor_for_non_toggle_setting() {
+        let mut state = SettingsPageState::default();
+        let idx = state
+            .visible_keys()
+            .iter()
+            .position(|k| *k == SettingKey::AudioTheme)
+            .expect("AudioTheme should be visible");
+        state.selected = idx;
+
+        let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(interaction.pending_save().is_none());
+        assert!(matches!(state.modal, Some(SettingsModal::Select(_))));
+    }
+
+    #[test]
+    fn test_space_no_longer_toggles() {
+        let mut state = SettingsPageState::default();
+        let idx = state
+            .visible_keys()
+            .iter()
+            .position(|k| *k == SettingKey::VoiceKeepLoaded)
+            .expect("VoiceKeepLoaded should be visible");
+        state.selected = idx;
+
+        let interaction = state.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+        assert!(interaction.pending_save().is_none());
         assert!(state.modal.is_none());
     }
 }

@@ -5,15 +5,14 @@ pub(crate) use state::*;
 
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, Layout, Margin, Rect},
     style::{Modifier, Style},
     widgets::Paragraph,
 };
 
 use crate::theme::Theme;
-use crate::widgets::settings::row::render_setting_row;
-use crate::widgets::settings::state::SettingsPageState;
-use crate::widgets::util;
+use crate::widgets::settings::row::{render_setting_row, wrap_description_lines};
+use crate::widgets::settings::state::{SettingKeyMeta, SettingsPageState};
 
 pub fn render_settings_content(
     frame: &mut Frame,
@@ -21,6 +20,10 @@ pub fn render_settings_content(
     theme: &Theme,
     state: &SettingsPageState,
 ) {
+    let area = area.inner(Margin::new(1, 1));
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
     if let Some(message) = state.load_error() {
         frame.render_widget(
             Paragraph::new(message).style(
@@ -69,18 +72,30 @@ pub fn render_settings_content(
     }
 
     let all_keys = state.visible_keys();
-    let spacious = use_spacious_settings_layout(list_area.height, all_keys.len(), 0);
-    let row_height = if spacious { 2 } else { 1 };
-    let visible_count = usize::from((list_area.height / row_height).max(1));
-    let (start, end) = visible_setting_range(all_keys.len(), state.selected_index(), visible_count);
     let control_width = control_column_width(state.settings(), list_area.width);
+    let label_width = list_area.width.saturating_sub(control_width);
+    let description_lines: Vec<Vec<String>> = all_keys
+        .iter()
+        .map(|key| wrap_description_lines(key.description(), label_width))
+        .collect();
+    let heights: Vec<u16> = description_lines
+        .iter()
+        .map(|lines| 1 + lines.len() as u16)
+        .collect();
+    let (start, end) = visible_variable_range(&heights, state.selected_index(), list_area.height);
 
-    for (visible_index, key) in all_keys[start..end].iter().enumerate() {
+    let mut row_y = list_area.y;
+    for (index, key) in all_keys[start..end].iter().enumerate() {
+        let height = heights[start + index];
+        let remaining = (list_area.y + list_area.height).saturating_sub(row_y);
+        if remaining == 0 {
+            break;
+        }
         let row_area = Rect {
             x: list_area.x,
-            y: list_area.y + (visible_index as u16 * row_height),
+            y: row_y,
             width: list_area.width,
-            height: row_height,
+            height: height.min(remaining),
         };
 
         render_setting_row(
@@ -89,24 +104,37 @@ pub fn render_settings_content(
             key,
             state.settings(),
             Some(*key) == Some(state.selected_key()),
-            spacious,
             control_width,
+            &description_lines[start + index],
             theme,
         );
+        row_y = row_y.saturating_add(row_area.height);
     }
 }
 
-fn use_spacious_settings_layout(
-    available_height: u16,
-    settings_count: usize,
-    reserved_rows: u16,
-) -> bool {
-    let required_height = settings_count as u16 * 2 + reserved_rows;
-    available_height >= required_height
-}
-
-fn visible_setting_range(total: usize, selected: usize, visible_count: usize) -> (usize, usize) {
-    util::visible_range(total, selected, visible_count)
+/// Window `[start, end)` of variable-height rows containing `selected`
+/// that fits in `available` rows. Anchors `selected` at the bottom first
+/// (matching the previous fixed-height behavior), then fills below.
+fn visible_variable_range(heights: &[u16], selected: usize, available: u16) -> (usize, usize) {
+    if heights.is_empty() || available == 0 {
+        return (0, 0);
+    }
+    let selected = selected.min(heights.len().saturating_sub(1));
+    if heights[selected] > available {
+        return (selected, selected + 1);
+    }
+    let mut start = selected;
+    let mut end = selected + 1;
+    let mut used = heights[selected];
+    while start > 0 && used.saturating_add(heights[start - 1]) <= available {
+        start -= 1;
+        used = used.saturating_add(heights[start]);
+    }
+    while end < heights.len() && used.saturating_add(heights[end]) <= available {
+        used = used.saturating_add(heights[end]);
+        end += 1;
+    }
+    (start, end)
 }
 
 fn control_column_width(settings: &taurine_core::settings::Settings, area_width: u16) -> u16 {
@@ -123,5 +151,27 @@ fn control_column_width(settings: &taurine_core::settings::Settings, area_width:
         desired.min(max_width).max(10)
     } else {
         area_width.saturating_sub(2).max(1)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn variable_range_fits_all_when_tall_enough() {
+        assert_eq!(visible_variable_range(&[2, 2, 3], 0, 10), (0, 3));
+    }
+
+    #[test]
+    fn variable_range_keeps_selected_visible() {
+        let (start, end) = visible_variable_range(&[2, 2, 2, 2], 3, 4);
+        assert!(start <= 3 && 3 < end);
+        assert_eq!((start, end), (2, 4));
+    }
+
+    #[test]
+    fn oversized_selected_row_returns_selected_only() {
+        assert_eq!(visible_variable_range(&[2, 5, 2], 1, 3), (1, 2));
     }
 }
