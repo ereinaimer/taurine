@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Bottom Search Bars**: Library search moved to the bottom next to the footer hints, and settings gained the same filterable search matching names and descriptions, focused automatically on page entry.
 - **One Row Per Trigger**: Library entries with several word, hotkey, or regex triggers now list each trigger on its own row instead of a grouped count.
 - **Click Anything**: Switch pages from the navigation rail, pick settings and library rows (click again to open or toggle, clicked rows stay in place), focus search bars, and scroll lists with the wheel.
+- **Roomier Layout**: Removed the top header bar so the lists use the full terminal height.
+- **No More Footer**: Removed the bottom hints bar and its text machinery so content uses the full terminal height.
 - **Type to Filter**: Typing anywhere on the library or settings page starts filtering immediately with no need to press slash first, and arrow keys keep moving while search is focused.
 
 ## [1.0.0-alpha.19] - 2026-09-27

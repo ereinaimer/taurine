@@ -24,6 +24,7 @@ impl DaemonStatus {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) const fn label(self) -> &'static str {
         match self {
             Self::Running => "running",

@@ -633,7 +633,6 @@ fn import_modal_defaults_match_current_behavior() {
     assert_eq!(modal.path(), "");
     assert_eq!(modal.password_display_value(), "");
     assert_eq!(modal.conflict_mode(), LibraryImportConflictMode::Skip);
-    assert_eq!(state.footer_text(), LIBRARY_IMPORT_MODAL_FOOTER);
 }
 
 #[test]
@@ -754,7 +753,6 @@ fn import_result_modal_uses_reliable_result_lines() {
         panic!("expected import result modal");
     };
     assert_eq!(modal.lines()[0], "Imported 12 trigger(s).");
-    assert_eq!(state.footer_text(), LIBRARY_IMPORT_RESULT_FOOTER);
 }
 
 #[test]
@@ -851,7 +849,6 @@ fn export_modal_defaults_match_cli_behavior() {
     };
     assert!(modal.path().ends_with(".tau"));
     assert_eq!(modal.password_display_value(), "");
-    assert_eq!(state.footer_text(), LIBRARY_EXPORT_MODAL_FOOTER);
 }
 
 #[test]
@@ -1158,7 +1155,7 @@ fn snippet_modal_uses_actual_output_content() {
 }
 
 #[test]
-fn modal_footer_replaces_library_actions_while_open() {
+fn editor_modal_opens_over_library_list() {
     let mut state = sample_state();
     let detail = LibraryTriggerDetail::from_row(trigger_row(
         TriggerType::Word,
@@ -1173,7 +1170,7 @@ fn modal_footer_replaces_library_actions_while_open() {
 
     state.open_editor_modal(detail);
 
-    assert_eq!(state.footer_text(), LIBRARY_EDIT_MODAL_FOOTER);
+    assert!(state.is_modal_open());
 }
 
 #[test]

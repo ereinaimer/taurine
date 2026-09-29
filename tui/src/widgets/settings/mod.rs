@@ -331,11 +331,11 @@ mod tests {
     fn hit_test_finds_first_row_and_search() {
         use crate::widgets::settings::state::SettingKey;
 
-        let area = ratatui::layout::Rect::new(26, 4, 71, 22);
+        let area = ratatui::layout::Rect::new(26, 2, 71, 24);
         let state = SettingsPageState::default();
 
         assert_eq!(
-            hit_test(area, &state, 30, 5),
+            hit_test(area, &state, 30, 3),
             Some(SettingsHit::Row(SettingKey::PauseHotkey))
         );
         assert_eq!(hit_test(area, &state, 30, 24), Some(SettingsHit::Search));
@@ -350,8 +350,8 @@ mod tests {
             ..SettingsPageState::default()
         };
 
-        let area = ratatui::layout::Rect::new(26, 4, 71, 22);
-        assert_eq!(hit_test(area, &state, 30, 5), None);
+        let area = ratatui::layout::Rect::new(26, 2, 71, 24);
+        assert_eq!(hit_test(area, &state, 30, 3), None);
         assert_eq!(hit_test(area, &state, 30, 24), Some(SettingsHit::Search));
     }
 
@@ -372,7 +372,7 @@ mod tests {
     fn clicked_row_hit_tests_stable_across_selection() {
         use crate::widgets::settings::state::SettingKey;
 
-        let area = ratatui::layout::Rect::new(26, 4, 71, 22);
+        let area = ratatui::layout::Rect::new(26, 2, 71, 24);
         let mut state = SettingsPageState::default();
 
         let first = hit_test(area, &state, 30, 14);

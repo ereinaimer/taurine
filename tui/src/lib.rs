@@ -31,7 +31,7 @@ use terminal::control::{
 };
 use terminal::event::{Event, EventHandler};
 use tracing::error;
-use widgets::{footer::FooterWidget, header::HeaderWidget, home, nav, notification};
+use widgets::{home, nav, notification};
 
 const EVENT_TICK_RATE: Duration = Duration::from_millis(250);
 const STATUS_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
@@ -63,22 +63,12 @@ pub fn run() -> taurine_core::Result<()> {
 
             let layout = terminal::mouse::frame_layout(area, app.nav_visible());
 
-            frame.render_widget(
-                HeaderWidget {
-                    theme,
-                    daemon_status: app.daemon_status(),
-                },
-                layout.header,
-            );
-
             if let Some(nav_area) = layout.nav {
                 nav::render_navigation(frame, nav_area, theme, app.active_page());
                 render_page_content(frame, layout.page, &app, theme);
             } else {
                 render_page_content(frame, layout.page, &app, theme);
             }
-
-            frame.render_widget(FooterWidget { theme, app: &app }, layout.footer);
 
             if let Some(msg) = app.notification() {
                 notification::render_notification(frame, area, theme, msg);
@@ -1085,7 +1075,7 @@ mod tests {
         let mut app = App::default();
         let controller = MockController::default();
 
-        handle_tui_mouse_event(&mut app, left_click(5, 5), TEST_AREA, &controller);
+        handle_tui_mouse_event(&mut app, left_click(5, 3), TEST_AREA, &controller);
 
         assert_eq!(app.active_page(), Page::Library);
     }
@@ -1095,7 +1085,7 @@ mod tests {
         let mut app = App::default();
         let controller = MockController::default();
 
-        handle_tui_mouse_event(&mut app, left_click(5, 6), TEST_AREA, &controller);
+        handle_tui_mouse_event(&mut app, left_click(5, 4), TEST_AREA, &controller);
 
         assert_eq!(app.active_page(), Page::Settings);
     }
@@ -1107,7 +1097,7 @@ mod tests {
         app.handle_key(KeyCode::Char('3'), KeyModifiers::NONE);
         assert!(!app.settings_page().is_search_active());
 
-        handle_tui_mouse_event(&mut app, left_click(30, 24), TEST_AREA, &controller);
+        handle_tui_mouse_event(&mut app, left_click(30, 26), TEST_AREA, &controller);
 
         assert!(app.settings_page().is_search_active());
         assert_eq!(app.settings_page().search_query(), "");

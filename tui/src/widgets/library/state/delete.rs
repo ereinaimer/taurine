@@ -1,8 +1,6 @@
 use super::editor::LibraryEditorModalState;
 use super::trigger::LibraryTrigger;
 
-pub(crate) const LIBRARY_DELETE_MODAL_FOOTER: &str = "Esc Cancel";
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LibraryDeleteModalState {
     trigger_id: String,

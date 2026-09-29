@@ -4,8 +4,6 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 /// Single source of truth shared by rendering (`lib.rs` draw closure) and
 /// mouse hit-testing so clicks land where the widgets are drawn.
 pub(crate) struct FrameLayout {
-    pub(crate) header: Rect,
-    pub(crate) footer: Rect,
     pub(crate) nav: Option<Rect>,
     pub(crate) page: Rect,
 }
@@ -17,38 +15,28 @@ pub(crate) fn frame_layout(area: Rect, nav_visible: bool) -> FrameLayout {
         width: area.width.saturating_sub(4),
         height: area.height.saturating_sub(2),
     };
-    let sections = Layout::default()
+    let body = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Min(0),
-            Constraint::Length(1),
-            Constraint::Length(1),
-        ])
-        .split(inner);
+        .constraints([Constraint::Min(0)])
+        .split(inner)[0];
 
     if nav_visible {
-        let body = Layout::default()
+        let columns = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
                 Constraint::Length(22),
                 Constraint::Length(1),
                 Constraint::Min(0),
             ])
-            .split(sections[2]);
+            .split(body);
         FrameLayout {
-            header: sections[0],
-            footer: sections[4],
-            nav: Some(body[0]),
-            page: body[2],
+            nav: Some(columns[0]),
+            page: columns[2],
         }
     } else {
         FrameLayout {
-            header: sections[0],
-            footer: sections[4],
             nav: None,
-            page: sections[2],
+            page: body,
         }
     }
 }
@@ -78,10 +66,8 @@ mod tests {
     fn layout_matches_draw_chain_on_standard_terminal() {
         let layout = frame_layout(Rect::new(0, 0, 100, 30), true);
 
-        assert_eq!(layout.header, Rect::new(2, 1, 96, 1));
-        assert_eq!(layout.nav, Some(Rect::new(2, 3, 22, 24)));
-        assert_eq!(layout.page, Rect::new(25, 3, 73, 24));
-        assert_eq!(layout.footer, Rect::new(2, 28, 96, 1));
+        assert_eq!(layout.nav, Some(Rect::new(2, 1, 22, 28)));
+        assert_eq!(layout.page, Rect::new(25, 1, 73, 28));
     }
 
     #[test]
@@ -89,7 +75,7 @@ mod tests {
         let layout = frame_layout(Rect::new(0, 0, 100, 30), false);
 
         assert_eq!(layout.nav, None);
-        assert_eq!(layout.page, Rect::new(2, 3, 96, 24));
+        assert_eq!(layout.page, Rect::new(2, 1, 96, 28));
     }
 
     #[test]

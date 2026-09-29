@@ -67,25 +67,25 @@ mod tests {
     use super::*;
     use ratatui::layout::Rect;
 
-    const NAV_AREA: Rect = Rect::new(2, 3, 22, 24);
+    const NAV_AREA: Rect = Rect::new(2, 1, 22, 26);
 
     #[test]
     fn tab_rows_hit_each_page() {
-        assert_eq!(tab_at(NAV_AREA, 5, 4), Some(0));
-        assert_eq!(tab_at(NAV_AREA, 5, 5), Some(1));
-        assert_eq!(tab_at(NAV_AREA, 5, 6), Some(2));
+        assert_eq!(tab_at(NAV_AREA, 5, 2), Some(0));
+        assert_eq!(tab_at(NAV_AREA, 5, 3), Some(1));
+        assert_eq!(tab_at(NAV_AREA, 5, 4), Some(2));
     }
 
     #[test]
     fn borders_and_gaps_miss() {
-        assert_eq!(tab_at(NAV_AREA, 2, 4), None);
-        assert_eq!(tab_at(NAV_AREA, 23, 4), None);
-        assert_eq!(tab_at(NAV_AREA, 5, 3), None);
-        assert_eq!(tab_at(NAV_AREA, 5, 7), None);
+        assert_eq!(tab_at(NAV_AREA, 2, 2), None);
+        assert_eq!(tab_at(NAV_AREA, 23, 2), None);
+        assert_eq!(tab_at(NAV_AREA, 5, 1), None);
+        assert_eq!(tab_at(NAV_AREA, 5, 5), None);
     }
 
     #[test]
     fn narrow_area_never_hits() {
-        assert_eq!(tab_at(Rect::new(2, 3, 2, 24), 3, 4), None);
+        assert_eq!(tab_at(Rect::new(2, 1, 2, 26), 3, 2), None);
     }
 }

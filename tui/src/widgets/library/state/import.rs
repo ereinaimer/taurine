@@ -8,9 +8,6 @@ use crate::widgets::library::actions::{
 use super::trigger::LibrarySelectState;
 use super::{ButtonSelection, LibraryImportModalField};
 
-pub(crate) const LIBRARY_IMPORT_MODAL_FOOTER: &str = "↑/↓ Move   Tab Next";
-pub(crate) const LIBRARY_IMPORT_RESULT_FOOTER: &str = "Enter Close   Esc Close";
-pub(crate) const LIBRARY_IMPORT_RUN_VARIABLES_FOOTER: &str = "y Continue   n Cancel   Esc Cancel";
 pub(crate) const IMPORT_MODAL_FIELDS: [LibraryImportModalField; 4] = [
     LibraryImportModalField::Path,
     LibraryImportModalField::Password,
@@ -147,14 +144,6 @@ impl LibraryImportModalState {
 
     pub(crate) fn set_error(&mut self, error: String) {
         self.error = Some(error);
-    }
-
-    pub(crate) fn footer_text(&self) -> &'static str {
-        if self.selector.is_some() {
-            "j/k Move   ↑/↓ Move   Enter Save   Esc Cancel"
-        } else {
-            LIBRARY_IMPORT_MODAL_FOOTER
-        }
     }
 
     pub(crate) fn selector(&self) -> Option<&LibrarySelectState> {
@@ -530,10 +519,6 @@ impl LibraryImportResultModalState {
 
     pub(crate) fn lines(&self) -> &[String] {
         &self.lines
-    }
-
-    pub(crate) const fn footer_text(&self) -> &'static str {
-        LIBRARY_IMPORT_RESULT_FOOTER
     }
 
     pub(crate) fn set_error(&mut self, _error: String) {}

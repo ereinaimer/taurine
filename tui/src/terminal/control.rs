@@ -47,18 +47,6 @@ pub(crate) const fn action_for_status(status: DaemonStatus) -> LifecycleAction {
     }
 }
 
-#[allow(dead_code)]
-pub(crate) const fn home_footer_label(status: DaemonStatus) -> &'static str {
-    match status {
-        DaemonStatus::Starting => "Starting...   q Quit",
-        DaemonStatus::Stopping => "Stopping...   q Quit",
-        _ => match action_for_status(status) {
-            LifecycleAction::Start => "x Start   q Quit",
-            LifecycleAction::Stop => "x Stop   q Quit",
-        },
-    }
-}
-
 pub(crate) const fn transition_status_for_action(action: LifecycleAction) -> DaemonStatus {
     match action {
         LifecycleAction::Start => DaemonStatus::Starting,
@@ -144,45 +132,6 @@ mod tests {
             action_for_status(DaemonStatus::Stopped),
             LifecycleAction::Start
         );
-    }
-
-    #[test]
-    fn home_footer_is_stop_for_running() {
-        assert_eq!(home_footer_label(DaemonStatus::Running), "x Stop   q Quit");
-    }
-
-    #[test]
-    fn home_footer_is_stop_for_paused() {
-        assert_eq!(home_footer_label(DaemonStatus::Paused), "x Stop   q Quit");
-    }
-
-    #[test]
-    fn home_footer_is_start_for_stopped() {
-        assert_eq!(home_footer_label(DaemonStatus::Stopped), "x Start   q Quit");
-    }
-
-    #[test]
-    fn home_footer_shows_transition_message_while_starting() {
-        assert_eq!(
-            home_footer_label(DaemonStatus::Starting),
-            "Starting...   q Quit"
-        );
-    }
-
-    #[test]
-    fn home_footer_shows_transition_message_while_stopping() {
-        assert_eq!(
-            home_footer_label(DaemonStatus::Stopping),
-            "Stopping...   q Quit"
-        );
-    }
-
-    #[test]
-    fn home_footer_does_not_include_navigation_labels() {
-        let footer = home_footer_label(DaemonStatus::Stopped);
-        assert!(!footer.contains("Home"));
-        assert!(!footer.contains("Library"));
-        assert!(!footer.contains("Settings"));
     }
 
     #[test]

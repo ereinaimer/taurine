@@ -12,10 +12,6 @@ use crate::widgets::library::actions::{
 use super::trigger::{LibraryKind, LibrarySelectState, LibraryTriggerDetail};
 use super::{LibraryMetadataRow, LibraryModalField};
 
-pub(crate) const LIBRARY_EDIT_MODAL_FOOTER: &str =
-    "Ctrl+S Save   Esc Cancel   Tab Next   Shift+Tab Prev";
-pub(crate) const LIBRARY_CREATE_MODAL_FOOTER: &str =
-    "Ctrl+S Save   Esc Cancel   Tab Next   Shift+Tab Prev";
 pub(crate) const SCRIPT_LANGUAGE_OPTIONS: [ScriptInterpreter; 5] = [
     ScriptInterpreter::Bash,
     ScriptInterpreter::PowerShell,
@@ -608,16 +604,6 @@ impl LibraryEditorModalState {
 
     fn follow_content_cursor(&mut self) {
         self.content_scroll = self.current_content_line().saturating_sub(2);
-    }
-
-    pub(crate) fn footer_text(&self) -> &'static str {
-        if self.selector.is_some() {
-            "j/k Move   ↑/↓ Move   Enter Save   Esc Cancel"
-        } else if self.mode == LibraryEditorMode::Edit {
-            LIBRARY_EDIT_MODAL_FOOTER
-        } else {
-            LIBRARY_CREATE_MODAL_FOOTER
-        }
     }
 
     pub(crate) fn selector(&self) -> Option<&LibrarySelectState> {

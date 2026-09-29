@@ -18,9 +18,6 @@ use crate::widgets::library::actions::{
     LibraryImportOutcome, LibraryInteraction, PendingLibraryDelete, PreparedLibraryImport,
 };
 
-pub(crate) const LIBRARY_FOOTER: &str =
-    "/ Search   n New   i Import   x Export   d Delete   Enter Edit   q Quit";
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LibraryModalField {
     Trigger,
@@ -135,24 +132,6 @@ impl LibraryPageState {
 
     pub(crate) fn load_error(&self) -> Option<&str> {
         self.load_error.as_deref()
-    }
-
-    pub(crate) fn footer_text(&self) -> &'static str {
-        if let Some(modal) = &self.modal {
-            match modal {
-                LibraryModal::Editor(state) => state.footer_text(),
-                LibraryModal::Export(state) => state.footer_text(),
-                LibraryModal::ExportResult(state) => state.footer_text(),
-                LibraryModal::Import(state) => state.footer_text(),
-                LibraryModal::ImportResult(state) => state.footer_text(),
-                LibraryModal::ConfirmImportRunVariables(_) => LIBRARY_IMPORT_RUN_VARIABLES_FOOTER,
-                LibraryModal::ConfirmDelete(_) => LIBRARY_DELETE_MODAL_FOOTER,
-            }
-        } else if self.search_mode {
-            "Type Search   Enter Finish   Esc Cancel"
-        } else {
-            LIBRARY_FOOTER
-        }
     }
 
     pub(crate) fn search_query(&self) -> &str {

@@ -8,8 +8,6 @@ use crate::widgets::library::actions::{
 
 use super::ButtonSelection;
 
-pub(crate) const LIBRARY_EXPORT_MODAL_FOOTER: &str = "↑/↓ Move   Tab Next";
-pub(crate) const LIBRARY_EXPORT_RESULT_FOOTER: &str = "Enter Close   Esc Close";
 pub(crate) const EXPORT_MODAL_FIELDS: [LibraryExportModalField; 3] = [
     LibraryExportModalField::Path,
     LibraryExportModalField::Password,
@@ -116,10 +114,6 @@ impl LibraryExportModalState {
 
     fn visible_fields(&self) -> &'static [LibraryExportModalField] {
         &EXPORT_MODAL_FIELDS
-    }
-
-    pub(crate) fn footer_text(&self) -> &'static str {
-        LIBRARY_EXPORT_MODAL_FOOTER
     }
 
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> LibraryInteraction {
@@ -376,10 +370,6 @@ impl LibraryExportResultModalState {
 
     pub(crate) fn body(&self) -> &str {
         &self.body
-    }
-
-    pub(crate) const fn footer_text(&self) -> &'static str {
-        LIBRARY_EXPORT_RESULT_FOOTER
     }
 
     pub(crate) fn set_error(&mut self, _error: String) {}

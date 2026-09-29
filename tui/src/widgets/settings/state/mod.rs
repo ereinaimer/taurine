@@ -229,17 +229,6 @@ impl SettingsPageState {
         }
     }
 
-    pub(crate) fn footer_text(&self) -> &'static str {
-        match self.modal.as_ref() {
-            Some(SettingsModal::Select(_)) => "j/k Move   ↑/↓ Move   Enter Save   Esc Cancel",
-            Some(SettingsModal::Input(_)) => "Type Edit   Enter Save   Esc Cancel",
-            Some(SettingsModal::HotkeyCapture(_)) => "Press Keys   Enter Save   Esc Cancel",
-            Some(SettingsModal::ConfirmReset(_)) => "←/h Yes   →/l No   y Confirm   n/Esc Cancel",
-            None if self.search_active => "Type Search   Enter Finish   Esc Cancel",
-            None => "j/k Move   ↑/↓ Move   Enter Toggle/Edit   r Reset   / Search   q Quit",
-        }
-    }
-
     fn move_selection(&mut self, delta: isize) {
         let max_index = self.visible_keys().len().saturating_sub(1) as isize;
         let next = (self.selected as isize + delta).clamp(0, max_index);
