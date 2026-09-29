@@ -211,7 +211,13 @@ fn handle_tui_key_event<C: DaemonController>(
         return;
     }
 
+    let previous_page = app.active_page();
     app.handle_key_event(key);
+    if app.active_page() != previous_page {
+        // honey: the navigation key itself must not leak into the fresh page
+        // (its search field autofocuses on entry).
+        return;
+    }
 
     if app.active_page() == Page::Library {
         let interaction = app.library_page_mut().handle_key(key);
@@ -818,6 +824,30 @@ mod tests {
 
         assert!(!app.should_quit());
         assert_eq!(app.library_page().search_query(), "q");
+    }
+
+    #[test]
+    fn navigating_to_library_does_not_type_into_focused_search() {
+        let mut app = App::default();
+        let controller = MockController::default();
+
+        handle_tui_key_event(&mut app, plain_key('2'), &controller);
+
+        assert_eq!(app.active_page(), Page::Library);
+        assert!(app.library_page().is_search_active());
+        assert_eq!(app.library_page().search_query(), "");
+    }
+
+    #[test]
+    fn navigating_to_settings_does_not_type_into_focused_search() {
+        let mut app = App::default();
+        let controller = MockController::default();
+
+        handle_tui_key_event(&mut app, plain_key('3'), &controller);
+
+        assert_eq!(app.active_page(), Page::Settings);
+        assert!(app.settings_page().is_search_active());
+        assert_eq!(app.settings_page().search_query(), "");
     }
 
     #[test]
