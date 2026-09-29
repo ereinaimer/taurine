@@ -422,7 +422,7 @@ mod tests {
         let interaction = state.toggle_selected_setting();
         let pending = interaction.pending_save().expect("toggle saves");
         assert_eq!(pending.key, SettingKey::PauseMediaWhileDictating);
-        assert_eq!(pending.value.as_deref(), Some("true"));
+        assert_eq!(pending.value.as_deref(), Some("false"));
 
         state.open_editor_for_selected();
         assert!(state.modal.is_none());

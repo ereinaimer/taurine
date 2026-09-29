@@ -446,7 +446,7 @@ mod tests {
         .unwrap();
 
         assert!(set_val);
-        assert!(!reset_val);
+        assert!(reset_val);
     }
 
     #[test]

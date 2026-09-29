@@ -345,7 +345,7 @@ fn sweep_covers_defaults_set_and_reset_for_all_keys() {
         voice_dictionary: "Rust, Taurine".to_string(),
         voice_input_device: Some("External Mic".to_string()),
         voice_keep_loaded: false,
-        pause_media_while_dictating: false,
+        pause_media_while_dictating: true,
     };
     assert_eq!(manager.load_all(), expected);
 

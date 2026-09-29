@@ -46,7 +46,7 @@ static CACHED_VOICE_INPUT_DEVICE: parking_lot::RwLock<Option<String>> =
 static CACHED_VOICE_KEEP_LOADED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 static CACHED_PAUSE_MEDIA_WHILE_DICTATING: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+    std::sync::atomic::AtomicBool::new(true);
 
 // Bumped on every cached-settings write so background loops can poll this
 // single counter instead of re-reading the database while idle.
@@ -919,7 +919,7 @@ impl Default for Settings {
             voice_dictionary: String::new(),
             voice_input_device: None,
             voice_keep_loaded: false,
-            pause_media_while_dictating: false,
+            pause_media_while_dictating: true,
         }
     }
 }
@@ -1041,14 +1041,14 @@ mod tests {
     }
 
     #[test]
-    fn pause_media_while_dictating_defaults_off_and_key_registered() {
-        assert!(!Settings::default().pause_media_while_dictating);
+    fn pause_media_while_dictating_defaults_on_and_key_registered() {
+        assert!(Settings::default().pause_media_while_dictating);
         assert!(Settings::ALL_KEYS.contains(&"pause_media_while_dictating"));
         assert_eq!(
             Settings::resolve_key("pause_media"),
             "pause_media_while_dictating"
         );
-        assert!(!get_cached_pause_media_while_dictating());
+        assert!(get_cached_pause_media_while_dictating());
     }
 
     #[test]

@@ -152,7 +152,7 @@ impl SettingKeyMeta for SettingKey {
                 "Keep the dictation model in memory for instant start (uses extra RAM)"
             }
             Self::PauseMediaWhileDictating => {
-                "Pause music and video while dictating, then resume afterwards (off by default)"
+                "Pause music and video while dictating, then resume afterwards (on by default)"
             }
         }
     }
