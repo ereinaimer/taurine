@@ -87,9 +87,9 @@ pub fn render_setting_row(
         .enumerate()
     {
         let description_area = Rect {
-            x: sections[0].x,
+            x: area.x,
             y: area.y + 1 + index as u16,
-            width: sections[0].width,
+            width: area.width,
             height: 1,
         };
         frame.render_widget(

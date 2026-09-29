@@ -73,10 +73,9 @@ pub fn render_settings_content(
 
     let all_keys = state.visible_keys();
     let control_width = control_column_width(state.settings(), list_area.width);
-    let label_width = list_area.width.saturating_sub(control_width);
     let description_lines: Vec<Vec<String>> = all_keys
         .iter()
-        .map(|key| wrap_description_lines(key.description(), label_width))
+        .map(|key| wrap_description_lines(key.description(), list_area.width))
         .collect();
     let heights: Vec<u16> = description_lines
         .iter()
