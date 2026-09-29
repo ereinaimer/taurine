@@ -12,7 +12,7 @@ pub use overlay::{
 mod widgets;
 
 use std::io;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::theme::Theme;
 use crate::widgets::library;
@@ -25,29 +25,20 @@ use crossterm::{
 };
 use ratatui::{Terminal, backend::CrosstermBackend, style::Style, widgets::Block};
 use terminal::app::{App, Page};
-use terminal::control::{
-    DaemonController, SystemDaemonController, action_for_status, toggle_daemon,
-    transition_status_for_action,
-};
 use terminal::event::{Event, EventHandler};
 use tracing::error;
-use widgets::{home, nav, notification};
+use widgets::{nav, notification};
 
 const EVENT_TICK_RATE: Duration = Duration::from_millis(250);
-const STATUS_REFRESH_INTERVAL: Duration = Duration::from_secs(1);
 
 pub fn run() -> taurine_core::Result<()> {
     let mut app = App::default();
-    app.set_daemon_status(terminal::status::probe_daemon_status());
-    refresh_home_stats(&mut app);
     refresh_library_page(&mut app);
     refresh_settings_page(&mut app);
-    let daemon_controller = SystemDaemonController;
 
     let mut terminal = TerminalGuard::new()?;
     setup_signal_handler(|code| std::process::exit(code));
     let mut events = EventHandler::new(EVENT_TICK_RATE);
-    let mut last_status_refresh = Instant::now();
     let mut last_area = ratatui::layout::Rect::default();
 
     loop {
@@ -76,17 +67,9 @@ pub fn run() -> taurine_core::Result<()> {
         })?;
 
         match events.next()? {
-            Event::Key(key) => handle_tui_key_event(&mut app, key, &daemon_controller),
-            Event::Mouse(mouse) => {
-                handle_tui_mouse_event(&mut app, mouse, last_area, &daemon_controller)
-            }
-            Event::Tick => {
-                if last_status_refresh.elapsed() >= STATUS_REFRESH_INTERVAL {
-                    app.set_daemon_status(terminal::status::probe_daemon_status());
-                    refresh_home_stats(&mut app);
-                    last_status_refresh = Instant::now();
-                }
-            }
+            Event::Key(key) => handle_tui_key_event(&mut app, key),
+            Event::Mouse(mouse) => handle_tui_mouse_event(&mut app, mouse, last_area),
+            Event::Tick => {}
         }
 
         if app.should_quit() {
@@ -123,9 +106,6 @@ fn render_page_content(
     frame.render_widget(content_block, area);
 
     match app.active_page() {
-        Page::Home => {
-            home::render_home_content(frame, inner, theme, app.home_stats());
-        }
         Page::Library => {
             library::render_library_content(frame, inner, theme, app.library_page());
             if let Some(modal) = app.library_page().modal() {
@@ -141,11 +121,7 @@ fn render_page_content(
     }
 }
 
-fn handle_tui_key_event<C: DaemonController>(
-    app: &mut App,
-    key: crossterm::event::KeyEvent,
-    daemon_controller: &C,
-) {
+fn handle_tui_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
     app.clear_notification();
 
     if matches!(key.code, crossterm::event::KeyCode::Char('b' | 'B'))
@@ -181,8 +157,7 @@ fn handle_tui_key_event<C: DaemonController>(
     let previous_page = app.active_page();
     app.handle_key_event(key);
     if app.active_page() != previous_page {
-        // honey: the navigation key itself must not leak into the fresh page
-        // (its search field autofocuses on entry).
+        // honey: the navigation key itself must not leak into the fresh page.
         return;
     }
 
@@ -195,36 +170,13 @@ fn handle_tui_key_event<C: DaemonController>(
     if app.active_page() == Page::Settings {
         let interaction = app.settings_page_mut().handle_key(key);
         apply_settings_interaction(app, interaction);
-        return;
-    }
-
-    if key.code == crossterm::event::KeyCode::Char('x')
-        && key.modifiers == crossterm::event::KeyModifiers::NONE
-        && app.active_page() == Page::Home
-    {
-        let current_status = app.daemon_status();
-        if current_status.is_transitioning() {
-            return;
-        }
-
-        let action = action_for_status(current_status);
-        app.set_daemon_status(transition_status_for_action(action));
-
-        match toggle_daemon(daemon_controller, current_status) {
-            Ok(outcome) => app.set_daemon_status(outcome.status),
-            Err(err) => {
-                app.set_daemon_status(terminal::status::probe_daemon_status());
-                error!(error = %err, "Failed to toggle daemon lifecycle from the TUI");
-            }
-        }
     }
 }
 
-fn handle_tui_mouse_event<C: DaemonController>(
+fn handle_tui_mouse_event(
     app: &mut App,
     mouse: crossterm::event::MouseEvent,
     area: ratatui::layout::Rect,
-    daemon_controller: &C,
 ) {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEventKind};
 
@@ -238,7 +190,6 @@ fn handle_tui_mouse_event<C: DaemonController>(
     app.clear_notification();
 
     let modal_open = match app.active_page() {
-        Page::Home => false,
         Page::Library => app.library_page().is_modal_open(),
         Page::Settings => app.settings_page().is_modal_open(),
     };
@@ -248,11 +199,7 @@ fn handle_tui_mouse_event<C: DaemonController>(
             if modal_open {
                 return;
             }
-            handle_tui_key_event(
-                app,
-                scroll_key(mouse.kind == MouseEventKind::ScrollDown),
-                daemon_controller,
-            );
+            handle_tui_key_event(app, scroll_key(mouse.kind == MouseEventKind::ScrollDown));
         }
         MouseEventKind::Down(MouseButton::Left) => {
             if modal_open {
@@ -263,15 +210,13 @@ fn handle_tui_mouse_event<C: DaemonController>(
                 && let Some(tab) = nav::tab_at(nav_area, mouse.column, mouse.row)
             {
                 let code = match Page::ALL.get(tab).copied().unwrap_or(Page::Settings) {
-                    Page::Home => '1',
-                    Page::Library => '2',
-                    Page::Settings => '3',
+                    Page::Library => '1',
+                    Page::Settings => '2',
                 };
                 app.handle_key(KeyCode::Char(code), KeyModifiers::NONE);
                 return;
             }
             match app.active_page() {
-                Page::Home => {}
                 Page::Library => {
                     let inner = terminal::mouse::page_inner(layout.page);
                     match library::list::hit_test(
@@ -443,15 +388,6 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
         library::LibraryOpenRequest::Create => {
             app.library_page_mut().open_create_modal();
         }
-    }
-}
-
-fn refresh_home_stats(app: &mut App) {
-    match taurine_core::db::init::setup()
-        .and_then(|conn| taurine_core::stats::load_home_stats(&conn))
-    {
-        Ok(home_stats) => app.set_home_stats(home_stats),
-        Err(err) => error!(error = %err, "Failed to refresh TUI home stats"),
     }
 }
 
@@ -644,8 +580,6 @@ fn restore_terminal() {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
-
     #[cfg(unix)]
     #[tokio::test]
     async fn test_signal_handler_restores_terminal() {
@@ -697,32 +631,6 @@ mod tests {
     use super::*;
     use crate::widgets::library::LibraryTrigger;
 
-    static MOCK_KEYRING: std::sync::Once = std::sync::Once::new();
-
-    fn install_mock_keyring() {
-        MOCK_KEYRING.call_once(|| {
-            keyring::set_default_credential_builder(keyring::mock::default_credential_builder());
-        });
-    }
-
-    #[derive(Default)]
-    struct MockController {
-        start_calls: Cell<usize>,
-        stop_calls: Cell<usize>,
-    }
-
-    impl DaemonController for MockController {
-        fn start(&self) -> taurine_core::Result<()> {
-            self.start_calls.set(self.start_calls.get() + 1);
-            Ok(())
-        }
-
-        fn stop(&self) -> taurine_core::Result<()> {
-            self.stop_calls.set(self.stop_calls.get() + 1);
-            Ok(())
-        }
-    }
-
     fn plain_key(ch: char) -> KeyEvent {
         KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)
     }
@@ -769,101 +677,18 @@ mod tests {
     }
 
     #[test]
-    fn pressing_x_on_home_calls_start_when_stopped() {
-        install_mock_keyring();
-        let mut app = App::default();
-        app.set_daemon_status(terminal::status::DaemonStatus::Stopped);
-        let controller = MockController::default();
-
-        handle_tui_key_event(&mut app, plain_key('x'), &controller);
-
-        assert_eq!(controller.start_calls.get(), 1);
-        assert_eq!(controller.stop_calls.get(), 0);
-    }
-
-    #[test]
-    fn pressing_x_on_home_calls_stop_when_running() {
-        install_mock_keyring();
-        let mut app = App::default();
-        app.set_daemon_status(terminal::status::DaemonStatus::Running);
-        let controller = MockController::default();
-
-        handle_tui_key_event(&mut app, plain_key('x'), &controller);
-
-        assert_eq!(controller.start_calls.get(), 0);
-        assert_eq!(controller.stop_calls.get(), 1);
-    }
-
-    #[test]
-    fn pressing_x_on_home_calls_stop_when_paused() {
-        install_mock_keyring();
-        let mut app = App::default();
-        app.set_daemon_status(terminal::status::DaemonStatus::Paused);
-        let controller = MockController::default();
-
-        handle_tui_key_event(&mut app, plain_key('x'), &controller);
-
-        assert_eq!(controller.start_calls.get(), 0);
-        assert_eq!(controller.stop_calls.get(), 1);
-    }
-
-    #[test]
-    fn pressing_x_on_home_ignores_duplicate_requests_while_starting() {
-        install_mock_keyring();
-        let mut app = App::default();
-        app.set_daemon_status(terminal::status::DaemonStatus::Starting);
-        let controller = MockController::default();
-
-        handle_tui_key_event(&mut app, plain_key('x'), &controller);
-
-        assert_eq!(controller.start_calls.get(), 0);
-        assert_eq!(controller.stop_calls.get(), 0);
-        assert_eq!(
-            app.daemon_status(),
-            terminal::status::DaemonStatus::Starting
-        );
-    }
-
-    #[test]
-    fn pressing_x_on_library_does_not_call_lifecycle() {
-        let mut app = App::default();
-        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
-        let controller = MockController::default();
-
-        handle_tui_key_event(&mut app, plain_key('x'), &controller);
-
-        assert_eq!(controller.start_calls.get(), 0);
-        assert_eq!(controller.stop_calls.get(), 0);
-    }
-
-    #[test]
-    fn pressing_x_on_settings_does_not_call_lifecycle() {
-        let mut app = App::default();
-        app.handle_key(KeyCode::Char('3'), KeyModifiers::NONE);
-        let controller = MockController::default();
-
-        handle_tui_key_event(&mut app, plain_key('x'), &controller);
-
-        assert_eq!(controller.start_calls.get(), 0);
-        assert_eq!(controller.stop_calls.get(), 0);
-    }
-
-    #[test]
     fn pressing_ctrl_b_toggles_navigation_visibility() {
         let mut app = App::default();
-        let controller = MockController::default();
 
         handle_tui_key_event(
             &mut app,
             KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL),
-            &controller,
         );
         assert!(!app.nav_visible());
 
         handle_tui_key_event(
             &mut app,
             KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL),
-            &controller,
         );
         assert!(app.nav_visible());
     }
@@ -871,13 +696,11 @@ mod tests {
     #[test]
     fn pressing_ctrl_b_does_not_change_active_page() {
         let mut app = App::default();
-        app.handle_key(KeyCode::Char('3'), KeyModifiers::NONE);
-        let controller = MockController::default();
+        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
 
         handle_tui_key_event(
             &mut app,
             KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL),
-            &controller,
         );
 
         assert_eq!(app.active_page(), Page::Settings);
@@ -886,11 +709,10 @@ mod tests {
     #[test]
     fn typing_q_while_library_search_is_active_does_not_quit() {
         let mut app = App::default();
-        let controller = MockController::default();
-        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
+        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
 
-        handle_tui_key_event(&mut app, plain_key('/'), &controller);
-        handle_tui_key_event(&mut app, plain_key('q'), &controller);
+        handle_tui_key_event(&mut app, plain_key('/'));
+        handle_tui_key_event(&mut app, plain_key('q'));
 
         assert!(!app.should_quit());
         assert_eq!(app.library_page().search_query(), "q");
@@ -899,9 +721,7 @@ mod tests {
     #[test]
     fn navigating_to_library_leaves_search_inactive() {
         let mut app = App::default();
-        let controller = MockController::default();
-
-        handle_tui_key_event(&mut app, plain_key('2'), &controller);
+        handle_tui_key_event(&mut app, plain_key('1'));
 
         assert_eq!(app.active_page(), Page::Library);
         assert!(!app.library_page().is_search_active());
@@ -911,9 +731,7 @@ mod tests {
     #[test]
     fn navigating_to_settings_leaves_search_inactive() {
         let mut app = App::default();
-        let controller = MockController::default();
-
-        handle_tui_key_event(&mut app, plain_key('3'), &controller);
+        handle_tui_key_event(&mut app, plain_key('2'));
 
         assert_eq!(app.active_page(), Page::Settings);
         assert!(!app.settings_page().is_search_active());
@@ -923,11 +741,10 @@ mod tests {
     #[test]
     fn typing_one_while_library_search_is_active_does_not_change_page() {
         let mut app = App::default();
-        let controller = MockController::default();
-        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
+        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
 
-        handle_tui_key_event(&mut app, plain_key('/'), &controller);
-        handle_tui_key_event(&mut app, plain_key('1'), &controller);
+        handle_tui_key_event(&mut app, plain_key('/'));
+        handle_tui_key_event(&mut app, plain_key('1'));
 
         assert_eq!(app.active_page(), Page::Library);
         assert_eq!(app.library_page().search_query(), "1");
@@ -936,12 +753,11 @@ mod tests {
     #[test]
     fn typing_q_while_library_modal_is_open_does_not_quit() {
         let mut app = App::default();
-        let controller = MockController::default();
-        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
+        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
         app.library_page_mut()
             .open_editor_modal(sample_library_modal());
 
-        handle_tui_key_event(&mut app, plain_key('q'), &controller);
+        handle_tui_key_event(&mut app, plain_key('q'));
 
         assert!(!app.should_quit());
         assert!(app.library_page().is_modal_open());
@@ -950,12 +766,11 @@ mod tests {
     #[test]
     fn slash_goes_to_modal_while_library_modal_is_open() {
         let mut app = App::default();
-        let controller = MockController::default();
-        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
+        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
         app.library_page_mut()
             .open_editor_modal(sample_library_modal());
 
-        handle_tui_key_event(&mut app, plain_key('/'), &controller);
+        handle_tui_key_event(&mut app, plain_key('/'));
 
         assert!(app.library_page().is_modal_open());
         assert_eq!(app.library_page().search_query(), "");
@@ -964,8 +779,7 @@ mod tests {
     #[test]
     fn typing_q_while_library_delete_confirmation_is_open_does_not_quit() {
         let mut app = App::default();
-        let controller = MockController::default();
-        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
+        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
         app.library_page_mut()
             .replace_items(vec![LibraryTrigger::single(TriggerListItem {
                 id: "test".to_string(),
@@ -987,13 +801,9 @@ mod tests {
                 behavior: None,
             })]);
 
-        handle_tui_key_event(
-            &mut app,
-            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-            &controller,
-        );
-        handle_tui_key_event(&mut app, plain_key('d'), &controller);
-        handle_tui_key_event(&mut app, plain_key('q'), &controller);
+        handle_tui_key_event(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        handle_tui_key_event(&mut app, plain_key('d'));
+        handle_tui_key_event(&mut app, plain_key('q'));
 
         assert!(!app.should_quit());
         assert!(app.library_page().is_modal_open());
@@ -1002,8 +812,7 @@ mod tests {
     #[test]
     fn slash_does_not_activate_search_while_library_delete_confirmation_is_open() {
         let mut app = App::default();
-        let controller = MockController::default();
-        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
+        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
         app.library_page_mut()
             .replace_items(vec![LibraryTrigger::single(TriggerListItem {
                 id: "test".to_string(),
@@ -1025,13 +834,9 @@ mod tests {
                 behavior: None,
             })]);
 
-        handle_tui_key_event(
-            &mut app,
-            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-            &controller,
-        );
-        handle_tui_key_event(&mut app, plain_key('d'), &controller);
-        handle_tui_key_event(&mut app, plain_key('/'), &controller);
+        handle_tui_key_event(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        handle_tui_key_event(&mut app, plain_key('d'));
+        handle_tui_key_event(&mut app, plain_key('/'));
 
         assert!(!app.library_page().is_search_active());
         assert!(app.library_page().is_modal_open());
@@ -1040,16 +845,11 @@ mod tests {
     #[test]
     fn escape_closes_library_modal_without_changing_page() {
         let mut app = App::default();
-        let controller = MockController::default();
-        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
+        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
         app.library_page_mut()
             .open_editor_modal(sample_library_modal());
 
-        handle_tui_key_event(
-            &mut app,
-            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-            &controller,
-        );
+        handle_tui_key_event(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
 
         assert_eq!(app.active_page(), Page::Library);
         assert!(!app.library_page().is_modal_open());
@@ -1073,9 +873,7 @@ mod tests {
     #[test]
     fn clicking_library_tab_switches_page() {
         let mut app = App::default();
-        let controller = MockController::default();
-
-        handle_tui_mouse_event(&mut app, left_click(5, 3), TEST_AREA, &controller);
+        handle_tui_mouse_event(&mut app, left_click(5, 2), TEST_AREA);
 
         assert_eq!(app.active_page(), Page::Library);
     }
@@ -1083,9 +881,7 @@ mod tests {
     #[test]
     fn clicking_settings_tab_switches_page() {
         let mut app = App::default();
-        let controller = MockController::default();
-
-        handle_tui_mouse_event(&mut app, left_click(5, 4), TEST_AREA, &controller);
+        handle_tui_mouse_event(&mut app, left_click(5, 3), TEST_AREA);
 
         assert_eq!(app.active_page(), Page::Settings);
     }
@@ -1093,11 +889,10 @@ mod tests {
     #[test]
     fn clicking_settings_search_bar_focuses_search() {
         let mut app = App::default();
-        let controller = MockController::default();
-        app.handle_key(KeyCode::Char('3'), KeyModifiers::NONE);
+        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
         assert!(!app.settings_page().is_search_active());
 
-        handle_tui_mouse_event(&mut app, left_click(30, 26), TEST_AREA, &controller);
+        handle_tui_mouse_event(&mut app, left_click(30, 26), TEST_AREA);
 
         assert!(app.settings_page().is_search_active());
         assert_eq!(app.settings_page().search_query(), "");
@@ -1106,11 +901,10 @@ mod tests {
     #[test]
     fn clicking_settings_row_selects_without_activating() {
         let mut app = App::default();
-        let controller = MockController::default();
-        app.handle_key(KeyCode::Char('3'), KeyModifiers::NONE);
+        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
         app.settings_page_mut().selected = 1;
 
-        handle_tui_mouse_event(&mut app, left_click(30, 5), TEST_AREA, &controller);
+        handle_tui_mouse_event(&mut app, left_click(30, 5), TEST_AREA);
 
         assert_eq!(app.settings_page().selected_index(), 0);
         assert!(app.settings_page().modal().is_none());
@@ -1119,8 +913,7 @@ mod tests {
     #[test]
     fn clicking_library_row_selects_without_opening() {
         let mut app = App::default();
-        let controller = MockController::default();
-        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
+        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
         app.library_page_mut().replace_items(vec![
             LibraryTrigger::single(TriggerListItem {
                 id: "mouse-aaa".to_string(),
@@ -1162,7 +955,7 @@ mod tests {
             }),
         ]);
 
-        handle_tui_mouse_event(&mut app, left_click(30, 10), TEST_AREA, &controller);
+        handle_tui_mouse_event(&mut app, left_click(30, 10), TEST_AREA);
 
         assert_eq!(app.library_page().selected_index(), Some(1));
         assert!(!app.library_page().is_modal_open());
@@ -1171,14 +964,12 @@ mod tests {
     #[test]
     fn wheel_scroll_moves_settings_selection() {
         let mut app = App::default();
-        let controller = MockController::default();
-        app.handle_key(KeyCode::Char('3'), KeyModifiers::NONE);
+        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
 
         handle_tui_mouse_event(
             &mut app,
             mouse_at(30, 10, MouseEventKind::ScrollDown),
             TEST_AREA,
-            &controller,
         );
 
         assert_eq!(app.settings_page().selected_index(), 1);
@@ -1187,16 +978,14 @@ mod tests {
     #[test]
     fn wheel_scroll_moves_selection_while_search_focused() {
         let mut app = App::default();
-        let controller = MockController::default();
-        app.handle_key(KeyCode::Char('3'), KeyModifiers::NONE);
-        handle_tui_key_event(&mut app, plain_key('/'), &controller);
+        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
+        handle_tui_key_event(&mut app, plain_key('/'));
         assert!(app.settings_page().is_search_active());
 
         handle_tui_mouse_event(
             &mut app,
             mouse_at(30, 10, MouseEventKind::ScrollDown),
             TEST_AREA,
-            &controller,
         );
 
         assert_eq!(app.settings_page().selected_index(), 1);
@@ -1206,12 +995,11 @@ mod tests {
     #[test]
     fn clicks_are_ignored_while_library_modal_is_open() {
         let mut app = App::default();
-        let controller = MockController::default();
-        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
+        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
         app.library_page_mut()
             .open_editor_modal(sample_library_modal());
 
-        handle_tui_mouse_event(&mut app, left_click(30, 10), TEST_AREA, &controller);
+        handle_tui_mouse_event(&mut app, left_click(30, 10), TEST_AREA);
 
         assert!(app.library_page().is_modal_open());
         assert_eq!(app.library_page().selected_index(), None);
@@ -1220,15 +1008,10 @@ mod tests {
     #[test]
     fn pressing_n_on_library_opens_create_modal_without_changing_page() {
         let mut app = App::default();
-        let controller = MockController::default();
-        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
+        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
 
-        handle_tui_key_event(
-            &mut app,
-            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-            &controller,
-        );
-        handle_tui_key_event(&mut app, plain_key('n'), &controller);
+        handle_tui_key_event(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        handle_tui_key_event(&mut app, plain_key('n'));
 
         assert_eq!(app.active_page(), Page::Library);
         assert!(app.library_page().is_modal_open());

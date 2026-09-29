@@ -324,9 +324,7 @@ impl LibraryPageState {
                 .unwrap_or_default(),
             // honey: navigation and quit keys never start a search; any other
             // bare character filters the list immediately (type-to-search).
-            (KeyCode::Char('1' | '2' | '3' | 'q'), KeyModifiers::NONE) => {
-                LibraryInteraction::handled()
-            }
+            (KeyCode::Char('1' | '2' | 'q'), KeyModifiers::NONE) => LibraryInteraction::handled(),
             (KeyCode::Char(ch), modifiers)
                 if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {

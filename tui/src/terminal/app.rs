@@ -1,7 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use taurine_core::stats::HomeStats;
 
-use crate::terminal::status::DaemonStatus;
 use crate::theme::Theme;
 use crate::theme::builtin::{DARK_THEME, LIGHT_THEME};
 use crate::widgets::library::LibraryPageState;
@@ -10,17 +8,15 @@ use crate::widgets::settings::state::SettingsPageState;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum Page {
     #[default]
-    Home,
     Library,
     Settings,
 }
 
 impl Page {
-    pub(crate) const ALL: [Self; 3] = [Self::Home, Self::Library, Self::Settings];
+    pub(crate) const ALL: [Self; 2] = [Self::Library, Self::Settings];
 
     pub(crate) const fn title(self) -> &'static str {
         match self {
-            Self::Home => "Home",
             Self::Library => "Library",
             Self::Settings => "Settings",
         }
@@ -29,9 +25,8 @@ impl Page {
     #[allow(dead_code)]
     pub(crate) const fn nav_index(self) -> usize {
         match self {
-            Self::Home => 0,
-            Self::Library => 1,
-            Self::Settings => 2,
+            Self::Library => 0,
+            Self::Settings => 1,
         }
     }
 }
@@ -40,8 +35,6 @@ impl Page {
 pub(crate) struct App {
     active_page: Page,
     nav_visible: bool,
-    daemon_status: DaemonStatus,
-    home_stats: HomeStats,
     library_page: LibraryPageState,
     settings_page: SettingsPageState,
     should_quit: bool,
@@ -52,10 +45,8 @@ pub(crate) struct App {
 impl Default for App {
     fn default() -> Self {
         Self {
-            active_page: Page::Home,
+            active_page: Page::Library,
             nav_visible: true,
-            daemon_status: DaemonStatus::Stopped,
-            home_stats: HomeStats::default(),
             library_page: LibraryPageState::default(),
             settings_page: SettingsPageState::default(),
             should_quit: false,
@@ -85,16 +76,8 @@ impl App {
         self.active_page
     }
 
-    pub(crate) const fn daemon_status(&self) -> DaemonStatus {
-        self.daemon_status
-    }
-
     pub(crate) const fn nav_visible(&self) -> bool {
         self.nav_visible
-    }
-
-    pub(crate) const fn home_stats(&self) -> &HomeStats {
-        &self.home_stats
     }
 
     pub(crate) const fn library_page(&self) -> &LibraryPageState {
@@ -115,14 +98,6 @@ impl App {
 
     pub(crate) const fn should_quit(&self) -> bool {
         self.should_quit
-    }
-
-    pub(crate) fn set_daemon_status(&mut self, daemon_status: DaemonStatus) {
-        self.daemon_status = daemon_status;
-    }
-
-    pub(crate) fn set_home_stats(&mut self, home_stats: HomeStats) {
-        self.home_stats = home_stats;
     }
 
     pub(crate) fn toggle_nav_visibility(&mut self) {
@@ -147,9 +122,8 @@ impl App {
 
     pub(crate) fn handle_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
         match (code, modifiers) {
-            (KeyCode::Char('1'), _) => self.active_page = Page::Home,
-            (KeyCode::Char('2'), _) => self.active_page = Page::Library,
-            (KeyCode::Char('3'), _) => self.active_page = Page::Settings,
+            (KeyCode::Char('1'), _) => self.active_page = Page::Library,
+            (KeyCode::Char('2'), _) => self.active_page = Page::Settings,
             (KeyCode::Char('t'), KeyModifiers::CONTROL) => self.toggle_theme(),
             (KeyCode::Char('q'), KeyModifiers::NONE) => self.should_quit = true,
             _ => {}
@@ -162,32 +136,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_to_home_page() {
+    fn defaults_to_library_page() {
         let app = App::default();
-        assert_eq!(app.active_page(), Page::Home);
+        assert_eq!(app.active_page(), Page::Library);
     }
 
     #[test]
-    fn pressing_one_selects_home() {
+    fn pressing_one_selects_library() {
         let mut app = App {
             active_page: Page::Settings,
             ..App::default()
         };
         app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
-        assert_eq!(app.active_page(), Page::Home);
-    }
-
-    #[test]
-    fn pressing_two_selects_library() {
-        let mut app = App::default();
-        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
         assert_eq!(app.active_page(), Page::Library);
     }
 
     #[test]
-    fn pressing_three_selects_settings() {
+    fn pressing_two_selects_settings() {
         let mut app = App::default();
-        app.handle_key(KeyCode::Char('3'), KeyModifiers::NONE);
+        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
         assert_eq!(app.active_page(), Page::Settings);
     }
 
@@ -210,12 +177,6 @@ mod tests {
         let mut app = App::default();
         app.handle_key(KeyCode::Char('c'), KeyModifiers::CONTROL);
         assert!(!app.should_quit());
-    }
-
-    #[test]
-    fn defaults_home_stats_to_empty_state() {
-        let app = App::default();
-        assert_eq!(app.home_stats(), &HomeStats::default());
     }
 
     #[test]

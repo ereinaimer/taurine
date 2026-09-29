@@ -190,9 +190,7 @@ impl SettingsPageState {
             }
             // honey: navigation and quit keys never start a search; any other
             // bare character filters the list immediately (type-to-search).
-            (KeyCode::Char('1' | '2' | '3' | 'q'), KeyModifiers::NONE) => {
-                SettingsInteraction::default()
-            }
+            (KeyCode::Char('1' | '2' | 'q'), KeyModifiers::NONE) => SettingsInteraction::default(),
             (KeyCode::Char(ch), modifiers)
                 if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
@@ -712,11 +710,19 @@ mod tests {
 
     #[test]
     fn test_reserved_keys_never_start_search() {
-        for ch in ['1', '2', '3', 'q'] {
+        for ch in ['1', '2', 'q'] {
             let mut state = SettingsPageState::default();
             state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
             assert!(!state.is_search_active());
             assert_eq!(state.search_query(), "");
         }
+    }
+
+    #[test]
+    fn test_freed_digit_starts_search() {
+        let mut state = SettingsPageState::default();
+        state.handle_key(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE));
+        assert!(state.is_search_active());
+        assert_eq!(state.search_query(), "3");
     }
 }

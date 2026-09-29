@@ -1973,7 +1973,7 @@ fn unbound_character_starts_search_immediately() {
 
 #[test]
 fn reserved_keys_never_start_library_search() {
-    for ch in ['1', '2', '3', 'q'] {
+    for ch in ['1', '2', 'q'] {
         let mut state = sample_state();
         state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
         assert!(!state.is_search_active());

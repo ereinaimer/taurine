@@ -73,7 +73,6 @@ mod tests {
     fn tab_rows_hit_each_page() {
         assert_eq!(tab_at(NAV_AREA, 5, 2), Some(0));
         assert_eq!(tab_at(NAV_AREA, 5, 3), Some(1));
-        assert_eq!(tab_at(NAV_AREA, 5, 4), Some(2));
     }
 
     #[test]
@@ -81,6 +80,7 @@ mod tests {
         assert_eq!(tab_at(NAV_AREA, 2, 2), None);
         assert_eq!(tab_at(NAV_AREA, 23, 2), None);
         assert_eq!(tab_at(NAV_AREA, 5, 1), None);
+        assert_eq!(tab_at(NAV_AREA, 5, 4), None);
         assert_eq!(tab_at(NAV_AREA, 5, 5), None);
     }
 

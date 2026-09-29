@@ -23,33 +23,6 @@ pub(crate) fn truncate_to_width(value: &str, max_chars: u16) -> String {
     }
 }
 
-pub(crate) fn format_number(value: u64) -> String {
-    if value >= 1_000_000 {
-        format!("{:.1}M", value as f64 / 1_000_000.0)
-    } else if value >= 10_000 {
-        format!("{}k", value / 1_000)
-    } else if value >= 1_000 {
-        format!("{:.1}k", value as f64 / 1_000.0)
-    } else {
-        value.to_string()
-    }
-}
-
-pub(crate) fn format_time_saved(time_saved_ms: u64) -> String {
-    let total_seconds = time_saved_ms / 1000;
-    if total_seconds >= 3600 {
-        let hours = total_seconds / 3600;
-        let minutes = (total_seconds % 3600) / 60;
-        format!("{hours}h {minutes}m")
-    } else if total_seconds >= 60 {
-        let minutes = total_seconds / 60;
-        let seconds = total_seconds % 60;
-        format!("{minutes}m {seconds}s")
-    } else {
-        format!("{total_seconds}s")
-    }
-}
-
 pub(crate) fn input_cursor_line(value: &str, cursor: usize) -> Line<'static> {
     let before = value.chars().take(cursor).collect::<String>();
     let at = value.chars().nth(cursor);

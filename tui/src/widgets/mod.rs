@@ -1,7 +1,5 @@
-pub mod home;
 pub mod library;
 pub mod nav;
 pub mod notification;
 pub mod settings;
-pub mod stat_card;
 pub mod util;
