@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Click Anything**: Switch pages from the navigation rail, pick settings and library rows (click again to open or toggle, clicked rows stay in place), focus search bars, and scroll lists with the wheel.
 - **Roomier Layout**: Removed the top header bar so the lists use the full terminal height.
 - **No More Footer**: Removed the bottom hints bar and its text machinery so content uses the full terminal height.
-- **Library Split View**: The library page now shows the trigger list beside an empty bordered detail pane.
+- **Library Split View**: The library page now shows the trigger list beside an empty detail pane, divided by a full-height line with borderless panes.
 
 ### Removed
 - **Home Page**: The TUI now opens directly on the library page with settings one key away; daemon start and stop remain available via the CLI and service.

@@ -14,6 +14,16 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 
 use crate::theme::Theme;
 
+/// Divider column between the two panes for a full-frame line. None when
+/// too narrow to split.
+pub(crate) fn divider_column(area: Rect) -> Option<u16> {
+    if area.width < 5 {
+        return None;
+    }
+    let (left, _) = content_halves(area);
+    Some(left.x.saturating_add(left.width))
+}
+
 /// Split the page into left (list) and right (detail) panes with a
 /// one-column gutter, shared by rendering and mouse hit-testing.
 pub(crate) fn content_halves(area: Rect) -> (Rect, Rect) {
@@ -37,20 +47,10 @@ pub(crate) fn content_halves(area: Rect) -> (Rect, Rect) {
     )
 }
 
-/// Pane border strip shared by rendering and hit-testing.
-fn pane_inner(area: Rect) -> Rect {
-    Rect {
-        x: area.x.saturating_add(1),
-        y: area.y.saturating_add(1),
-        width: area.width.saturating_sub(2),
-        height: area.height.saturating_sub(2),
-    }
-}
-
-/// List content inside the left pane: pane border plus the page padding.
+/// List content inside the left pane with the page padding.
 fn left_content(area: Rect) -> Rect {
     let (left, _) = content_halves(area);
-    page_area(pane_inner(left))
+    page_area(left)
 }
 
 /// Page inset shared by rendering and mouse hit-testing.
@@ -98,9 +98,6 @@ pub fn render_library_content(
     theme: &Theme,
     state: &LibraryPageState,
 ) {
-    let (left, right) = content_halves(area);
-    render_pane(frame, left, theme);
-    render_pane(frame, right, theme);
     let content = left_content(area);
 
     if let Some(message) = state.load_error() {
@@ -143,16 +140,4 @@ pub fn render_library_content(
         state.is_search_active(),
         state.search_query().chars().count(),
     );
-}
-
-/// Bordered pane shell shared by both halves; the right one stays empty.
-fn render_pane(frame: &mut Frame, area: Rect, theme: &Theme) {
-    use ratatui::symbols::border;
-    use ratatui::widgets::{Block, Borders};
-
-    let pane = Block::default()
-        .borders(Borders::ALL)
-        .border_set(border::ROUNDED)
-        .border_style(ratatui::style::Style::default().fg(theme.border));
-    frame.render_widget(pane, area);
 }

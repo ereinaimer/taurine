@@ -56,6 +56,25 @@ pub fn run() -> taurine_core::Result<()> {
 
             render_page_content(frame, layout.page, &app, theme);
 
+            if app.active_page() == Page::Library
+                && let Some(column) = library::divider_column(layout.page)
+                && area.height > 0
+            {
+                use ratatui::text::Line;
+
+                let glyphs = vec![Line::from("│"); area.height as usize];
+                frame.render_widget(
+                    ratatui::widgets::Paragraph::new(glyphs)
+                        .style(ratatui::style::Style::default().fg(theme.border)),
+                    ratatui::layout::Rect {
+                        x: column,
+                        y: area.y,
+                        width: 1,
+                        height: area.height,
+                    },
+                );
+            }
+
             if let Some(msg) = app.notification() {
                 notification::render_notification(frame, area, theme, msg);
             }
@@ -877,7 +896,7 @@ mod tests {
             }),
         ]);
 
-        handle_tui_mouse_event(&mut app, left_click(30, 10), TEST_AREA);
+        handle_tui_mouse_event(&mut app, left_click(30, 9), TEST_AREA);
 
         assert_eq!(app.library_page().selected_index(), Some(1));
         assert!(!app.library_page().is_modal_open());
