@@ -1998,23 +1998,42 @@ fn click_selects_then_opens() {
 }
 
 #[test]
-fn hit_test_finds_rows_and_search() {
+fn hit_test_finds_bottom_anchored_rows_and_search() {
     let state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
 
+    assert_eq!(list::hit_test(area, &state, 5, 2), None);
     assert_eq!(
-        list::hit_test(area, &state, 5, 2),
+        list::hit_test(area, &state, 5, 15),
         Some(list::LibraryHit::Item(0))
     );
     assert_eq!(
-        list::hit_test(area, &state, 5, 6),
+        list::hit_test(area, &state, 5, 19),
         Some(list::LibraryHit::Item(1))
+    );
+    assert_eq!(
+        list::hit_test(area, &state, 5, 23),
+        Some(list::LibraryHit::Item(2))
     );
     assert_eq!(
         list::hit_test(area, &state, 5, 28),
         Some(list::LibraryHit::Search)
     );
     assert_eq!(list::hit_test(area, &state, 79, 5), None);
+}
+
+#[test]
+fn select_last_targets_final_row() {
+    let mut state = sample_state();
+    state.select_last();
+    assert_eq!(state.selected_index(), Some(2));
+}
+
+#[test]
+fn select_last_on_empty_state_stays_zero() {
+    let mut state = LibraryPageState::default();
+    state.select_last();
+    assert_eq!(state.selected_index(), None);
 }
 
 #[test]

@@ -152,7 +152,7 @@ pub(crate) fn hit_test(
         return None;
     }
     let rows = compute_rows(list_area, state);
-    let mut row_y = list_area.y;
+    let mut row_y = rows_origin(list_area, &rows.heights, rows.start, rows.end);
     for (index, key) in all_keys[rows.start..rows.end].iter().enumerate() {
         let remaining = (list_area.y + list_area.height).saturating_sub(row_y);
         if remaining == 0 {
@@ -229,14 +229,21 @@ pub fn render_settings_content(
         frame.render_widget(
             Paragraph::new("No settings match your search.")
                 .style(Style::default().fg(theme.description)),
-            list_area,
+            Rect {
+                x: list_area.x,
+                y: list_area
+                    .y
+                    .saturating_add(list_area.height.saturating_sub(1)),
+                width: list_area.width,
+                height: 1.min(list_area.height),
+            },
         );
         return;
     }
     let rows = compute_rows(list_area, state);
     let (start, end) = (rows.start, rows.end);
 
-    let mut row_y = list_area.y;
+    let mut row_y = rows_origin(list_area, &rows.heights, start, end);
     for (index, key) in all_keys[start..end].iter().enumerate() {
         let height = rows.heights[start + index];
         let remaining = (list_area.y + list_area.height).saturating_sub(row_y);
@@ -261,6 +268,20 @@ pub fn render_settings_content(
             theme,
         );
         row_y = row_y.saturating_add(row_area.height);
+    }
+}
+
+/// First-row y so the visible stack sits directly above the search bar
+/// when it is shorter than the list area; overflowing stacks stay
+/// top-aligned. Shared by rendering and hit-testing.
+fn rows_origin(list_area: Rect, heights: &[u16], start: usize, end: usize) -> u16 {
+    let used: u16 = heights[start..end].iter().sum();
+    if used >= list_area.height {
+        list_area.y
+    } else {
+        list_area
+            .y
+            .saturating_add(list_area.height.saturating_sub(used))
     }
 }
 
@@ -335,7 +356,7 @@ mod tests {
         let state = SettingsPageState::default();
 
         assert_eq!(
-            hit_test(area, &state, 30, 3),
+            hit_test(area, &state, 30, 6),
             Some(SettingsHit::Row(SettingKey::PauseHotkey))
         );
         assert_eq!(hit_test(area, &state, 30, 24), Some(SettingsHit::Search));

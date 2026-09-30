@@ -22,6 +22,19 @@ pub(crate) enum LibraryHit {
     Search,
 }
 
+/// First-row y so the visible stack sits directly above the search bar
+/// when it is shorter than the list area; overflowing stacks stay
+/// top-aligned. Shared by rendering and hit-testing.
+pub(crate) fn list_origin(list_area: Rect, visible_count: usize) -> u16 {
+    let used = (visible_count as u16).saturating_mul(LIBRARY_ROW_HEIGHT);
+    if used >= list_area.height {
+        list_area.y
+    } else {
+        list_area
+            .y
+            .saturating_add(list_area.height.saturating_sub(used))
+    }
+}
 /// Hit-test a click at terminal cell `(column, row)` against the layout
 /// `render_library_content` produces for the same `area` and `state`.
 /// Returns the filtered-list position for item hits.
@@ -44,8 +57,9 @@ pub(crate) fn hit_test(
     }
     let visible_count = util::visible_library_item_capacity(list_area.height);
     let (start, end) = state.visible_window(visible_count);
+    let origin_y = list_origin(list_area, end.saturating_sub(start));
     for (visible_index, filtered_position) in (start..end).enumerate() {
-        let row_y = list_area.y + (visible_index as u16 * LIBRARY_ROW_HEIGHT);
+        let row_y = origin_y + (visible_index as u16 * LIBRARY_ROW_HEIGHT);
         if row >= row_y && row < row_y.saturating_add(LIBRARY_ROW_HEIGHT) {
             return Some(LibraryHit::Item(filtered_position));
         }
@@ -89,18 +103,24 @@ pub fn render_library_list(frame: &mut Frame, area: Rect, theme: &Theme, state: 
                     .fg(theme.text_muted)
                     .add_modifier(Modifier::DIM),
             ),
-            area,
+            Rect {
+                x: area.x,
+                y: area.y.saturating_add(area.height.saturating_sub(1)),
+                width: area.width,
+                height: 1.min(area.height),
+            },
         );
         return;
     }
 
     let visible_count = util::visible_library_item_capacity(area.height);
     let (start, end) = state.visible_window(visible_count);
+    let origin_y = list_origin(area, end.saturating_sub(start));
 
     for (visible_index, filtered_index) in (start..end).enumerate() {
         let row_area = Rect {
             x: area.x,
-            y: area.y + (visible_index as u16 * LIBRARY_ROW_HEIGHT),
+            y: origin_y + (visible_index as u16 * LIBRARY_ROW_HEIGHT),
             width: area.width,
             height: LIBRARY_ROW_HEIGHT,
         };

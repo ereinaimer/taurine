@@ -35,6 +35,9 @@ pub fn run() -> taurine_core::Result<()> {
     let mut app = App::default();
     refresh_library_page(&mut app);
     refresh_settings_page(&mut app);
+    // honey: bottom-anchored lists open on the row touching the search bar.
+    app.library_page_mut().select_last();
+    app.settings_page_mut().select_last();
 
     let mut terminal = TerminalGuard::new()?;
     setup_signal_handler(|code| std::process::exit(code));
@@ -896,7 +899,7 @@ mod tests {
             }),
         ]);
 
-        handle_tui_mouse_event(&mut app, left_click(30, 9), TEST_AREA);
+        handle_tui_mouse_event(&mut app, left_click(30, 22), TEST_AREA);
 
         assert_eq!(app.library_page().selected_index(), Some(1));
         assert!(!app.library_page().is_modal_open());

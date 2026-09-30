@@ -44,6 +44,10 @@ impl SettingsPageState {
         self.selected
     }
 
+    pub(crate) fn select_last(&mut self) {
+        self.selected = self.visible_keys().len().saturating_sub(1);
+    }
+
     pub(crate) fn visible_keys(&self) -> Vec<SettingKey> {
         let mut keys = SettingKey::ALL.to_vec();
 
@@ -724,5 +728,36 @@ mod tests {
         state.handle_key(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE));
         assert!(state.is_search_active());
         assert_eq!(state.search_query(), "3");
+    }
+
+    #[test]
+    fn test_select_last_targets_final_key() {
+        let mut state = SettingsPageState::default();
+        state.select_last();
+        assert_eq!(
+            state.selected_index(),
+            state.visible_keys().len().saturating_sub(1)
+        );
+        assert_eq!(state.selected_key(), SettingKey::PauseMediaWhileDictating);
+    }
+
+    #[test]
+    fn test_select_last_on_empty_results_stays_zero() {
+        let mut state = SettingsPageState {
+            search_query: "zzz-no-such-setting".to_string(),
+            ..SettingsPageState::default()
+        };
+        assert!(state.visible_keys().is_empty());
+        state.select_last();
+        assert_eq!(state.selected_index(), 0);
+    }
+
+    #[test]
+    fn test_up_from_last_moves_up_the_stack() {
+        let mut state = SettingsPageState::default();
+        state.select_last();
+        let last = state.selected_index();
+        state.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+        assert_eq!(state.selected_index(), last.saturating_sub(1));
     }
 }

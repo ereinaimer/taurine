@@ -244,6 +244,10 @@ impl LibraryPageState {
         self.filtered_indices.len()
     }
 
+    pub(crate) fn select_last(&mut self) {
+        self.selected = self.filtered_indices.len().saturating_sub(1);
+    }
+
     pub(crate) fn item_at_filtered(&self, index: usize) -> Option<&LibraryTrigger> {
         self.filtered_indices
             .get(index)
