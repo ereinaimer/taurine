@@ -223,6 +223,7 @@ fn handle_tui_mouse_event(
                         Some(library::list::LibraryHit::Search) => {
                             app.library_page_mut().activate_search();
                         }
+                        // honey: right pane is read-only preview; clicks there do nothing.
                         None => {}
                     }
                 }
@@ -327,27 +328,6 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
         return;
     }
 
-    if let Some(pending_save) = interaction.pending_save() {
-        let contains_clip = pending_save.content.contains("[clip");
-        match pending_save.apply() {
-            Ok(trigger_id) => {
-                refresh_library_page(app);
-                app.library_page_mut().select_item_by_id(&trigger_id);
-                app.library_page_mut().clear_modal();
-                if contains_clip && let Ok(conn) = taurine_core::db::get_conn() {
-                    let settings = taurine_core::settings::SettingsManager::new(&conn).load_all();
-                    if !settings.clipboard_history_enabled {
-                        app.library_page_mut().set_status_message(
-                            "Warning: '[clip]' system variable won't work because clipboard history is disabled.".to_string()
-                        );
-                    }
-                }
-            }
-            Err(error) => app.library_page_mut().set_save_error(error.to_string()),
-        }
-        return;
-    }
-
     if let Some(pending_delete) = interaction.pending_delete() {
         let restore_index = pending_delete.restore_index();
         match pending_delete.apply() {
@@ -357,26 +337,6 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
                 app.library_page_mut().clear_modal();
             }
             Err(error) => app.library_page_mut().set_save_error(error.to_string()),
-        }
-        return;
-    }
-
-    let Some(open_request) = interaction.into_open_request() else {
-        return;
-    };
-
-    match open_request {
-        library::LibraryOpenRequest::Selected(id) => match load_library_trigger_detail(&id) {
-            Ok(Some(trigger)) => app.library_page_mut().open_editor_modal(trigger),
-            Ok(None) => error!(trigger_id = %id, "Selected library trigger no longer exists"),
-            Err(error) => error!(
-                trigger_id = %id,
-                error = %error,
-                "Failed to load TUI library trigger detail"
-            ),
-        },
-        library::LibraryOpenRequest::Create => {
-            app.library_page_mut().open_create_modal();
         }
     }
 }
@@ -397,21 +357,6 @@ fn refresh_library_page(app: &mut App) {
             app.library_page_mut().set_load_error(error.to_string());
         }
     }
-}
-
-fn load_library_trigger_detail(
-    id: &str,
-) -> taurine_core::Result<Option<library::LibraryTriggerDetail>> {
-    let conn = taurine_core::db::init::setup()?;
-    let Some(trigger) = taurine_core::db::crud::get_trigger(&conn, id)? else {
-        return Ok(None);
-    };
-
-    if trigger.is_deleted || !trigger.is_enabled {
-        return Ok(None);
-    }
-
-    library::LibraryTriggerDetail::from_row(trigger).map(Some)
 }
 
 fn refresh_settings_page(app: &mut App) {
@@ -613,10 +558,7 @@ mod tests {
     use crossterm::event::{
         KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
     };
-    use taurine_core::{
-        db::crud::{InvocationType, TriggerAliasRow, TriggerListItem, TriggerRow},
-        engine::shell::{ScriptBehavior, ScriptInterpreter, compress},
-    };
+    use taurine_core::db::crud::{InvocationType, TriggerAliasRow, TriggerListItem};
 
     use super::*;
     use crate::widgets::library::LibraryTrigger;
@@ -637,33 +579,27 @@ mod tests {
         }
     }
 
-    fn sample_library_modal() -> library::LibraryTriggerDetail {
-        library::LibraryTriggerDetail::from_row(TriggerRow {
-            id: "library-modal".to_string(),
-            name: "Library Modal".to_string(),
-            description: Some("Open Reddit".to_string()),
-            invocations: vec![hotkey_alias("library-modal", "alt+r")],
-            display: "alt+r".to_string(),
-            output: "[Script: powershell]".to_string(),
-            action_type: "script".to_string(),
-            target_os: "win".to_string(),
-            only_apps: None,
-            except_apps: None,
-            tags: "[]".to_string(),
-            usage_count: 6,
-            last_used_at: Some(1),
-            created_at: 1,
-            updated_at: 1,
-            version: 1,
-            is_deleted: false,
-            is_synced: true,
-            is_enabled: true,
-            auto_case: false,
-            interpreter: Some(ScriptInterpreter::PowerShell),
-            behavior: Some(ScriptBehavior::Silent),
-            script_binary: Some(compress("Start-Process https://reddit.com").unwrap()),
-        })
-        .unwrap()
+    fn seed_single_library_item(app: &mut App) {
+        app.library_page_mut()
+            .replace_items(vec![LibraryTrigger::single(TriggerListItem {
+                id: "test".to_string(),
+                name: "Test".to_string(),
+                description: None,
+                invocations: vec![hotkey_alias("test", "alt+t")],
+                display: "alt+t".to_string(),
+                output: "test".to_string(),
+                action_type: "text".to_string(),
+                target_os: "win".to_string(),
+                only_apps: None,
+                except_apps: None,
+                usage_count: 0,
+                last_used_at: None,
+                created_at: 0,
+                tags: "[]".to_string(),
+                script_content: None,
+                interpreter: None,
+                behavior: None,
+            })]);
     }
 
     #[test]
@@ -714,8 +650,8 @@ mod tests {
     fn typing_q_while_library_modal_is_open_does_not_quit() {
         let mut app = App::default();
         app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
-        app.library_page_mut()
-            .open_editor_modal(sample_library_modal());
+        seed_single_library_item(&mut app);
+        handle_tui_key_event(&mut app, plain_key('d'));
 
         handle_tui_key_event(&mut app, plain_key('q'));
 
@@ -727,8 +663,8 @@ mod tests {
     fn slash_goes_to_modal_while_library_modal_is_open() {
         let mut app = App::default();
         app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
-        app.library_page_mut()
-            .open_editor_modal(sample_library_modal());
+        seed_single_library_item(&mut app);
+        handle_tui_key_event(&mut app, plain_key('d'));
 
         handle_tui_key_event(&mut app, plain_key('/'));
 
@@ -806,8 +742,8 @@ mod tests {
     fn escape_closes_library_modal_without_changing_page() {
         let mut app = App::default();
         app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
-        app.library_page_mut()
-            .open_editor_modal(sample_library_modal());
+        seed_single_library_item(&mut app);
+        handle_tui_key_event(&mut app, plain_key('d'));
 
         handle_tui_key_event(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
 
@@ -940,17 +876,18 @@ mod tests {
     fn clicks_are_ignored_while_library_modal_is_open() {
         let mut app = App::default();
         app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
-        app.library_page_mut()
-            .open_editor_modal(sample_library_modal());
+        seed_single_library_item(&mut app);
+        handle_tui_key_event(&mut app, plain_key('d'));
+        let selected_before = app.library_page().selected_index();
 
         handle_tui_mouse_event(&mut app, left_click(30, 10), TEST_AREA);
 
         assert!(app.library_page().is_modal_open());
-        assert_eq!(app.library_page().selected_index(), None);
+        assert_eq!(app.library_page().selected_index(), selected_before);
     }
 
     #[test]
-    fn pressing_n_on_library_opens_create_modal_without_changing_page() {
+    fn pressing_n_on_library_stays_on_page_without_modal() {
         let mut app = App::default();
         app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
 
@@ -958,6 +895,6 @@ mod tests {
         handle_tui_key_event(&mut app, plain_key('n'));
 
         assert_eq!(app.active_page(), Page::Library);
-        assert!(app.library_page().is_modal_open());
+        assert!(!app.library_page().is_modal_open());
     }
 }

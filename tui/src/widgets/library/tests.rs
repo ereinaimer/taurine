@@ -1,10 +1,7 @@
 use super::*;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::path::PathBuf;
-use taurine_core::db::crud::{
-    InvocationType, TriggerAliasRow, TriggerListItem, TriggerRow, TriggerType,
-};
-use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
+use taurine_core::db::crud::{InvocationType, TriggerAliasRow, TriggerListItem, TriggerType};
 
 fn invocation_for(trigger_type: TriggerType) -> InvocationType {
     match trigger_type {
@@ -56,47 +53,6 @@ fn list_item(
         script_content: script_content.map(str::to_string),
         interpreter: None,
         behavior: None,
-    }
-}
-
-fn trigger_row(
-    trigger_type: TriggerType,
-    trigger: &str,
-    output: &str,
-    action_type: &str,
-    target_os: &str,
-    usage_count: i64,
-    script_content: Option<&str>,
-) -> TriggerRow {
-    TriggerRow {
-        id: format!("trigger-{trigger}"),
-        name: format!("Trigger {trigger}"),
-        description: Some("Open Reddit".to_string()),
-        invocations: vec![alias_row(
-            &format!("trigger-{trigger}"),
-            trigger_type,
-            trigger,
-        )],
-        display: trigger.to_string(),
-        output: output.to_string(),
-        action_type: action_type.to_string(),
-        target_os: target_os.to_string(),
-        only_apps: None,
-        except_apps: None,
-        tags: "[]".to_string(),
-        usage_count,
-        last_used_at: Some(1),
-        created_at: 1,
-        updated_at: 1,
-        version: 1,
-        is_deleted: false,
-        is_synced: true,
-        is_enabled: true,
-        auto_case: false,
-        interpreter: Some(ScriptInterpreter::PowerShell),
-        behavior: Some(ScriptBehavior::Silent),
-        script_binary: script_content
-            .map(|content| taurine_core::engine::shell::compress(content).unwrap()),
     }
 }
 
@@ -322,7 +278,7 @@ fn empty_script_content_falls_back_safely() {
         Some("   "),
     ));
 
-    assert_eq!(item.preview(), DEFAULT_SCRIPT_FALLBACK);
+    assert_eq!(item.preview(), "Script content unavailable.");
 }
 
 #[test]
@@ -508,100 +464,23 @@ fn no_match_search_reports_no_match_state() {
 }
 
 #[test]
-fn normalized_modal_text_preserves_meaningful_outer_whitespace() {
-    assert_eq!(
-        normalized_modal_text(Some("  padded body  ")).as_deref(),
-        Some("  padded body  ")
-    );
-    assert_eq!(
-        normalized_modal_text(Some("first\r\nsecond")).as_deref(),
-        Some("first\nsecond")
-    );
-}
-
-#[test]
-fn kind_selector_uses_kind_title() {
-    let detail = LibraryTriggerDetail::from_row(trigger_row(
-        TriggerType::Word,
-        "gm",
-        "Good Morning",
-        "text",
-        "all",
-        9,
-        None,
-    ))
-    .unwrap();
+fn pressing_enter_is_reserved_while_editor_is_removed() {
     let mut state = sample_state();
-    state.open_editor_modal(detail);
-
-    state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-
-    let Some(LibraryModal::Editor(modal)) = state.modal() else {
-        panic!("expected editor modal");
-    };
-    assert_eq!(
-        modal.selector().map(LibrarySelectState::title),
-        Some("Select Kind")
-    );
-}
-
-#[test]
-fn target_os_selector_uses_target_os_title() {
-    let detail = LibraryTriggerDetail::from_row(trigger_row(
-        TriggerType::Word,
-        "gm",
-        "Good Morning",
-        "text",
-        "all",
-        9,
-        None,
-    ))
-    .unwrap();
-    let mut state = sample_state();
-    state.open_editor_modal(detail);
-
-    state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-
-    let Some(LibraryModal::Editor(modal)) = state.modal() else {
-        panic!("expected editor modal");
-    };
-    assert_eq!(
-        modal.selector().map(LibrarySelectState::title),
-        Some("Select Target OS")
-    );
-}
-
-#[test]
-fn pressing_enter_requests_selected_trigger_modal() {
-    let mut state = sample_state();
-    let expected_id = state
-        .selected_index()
-        .and_then(|index| state.item_at_filtered(index))
-        .map(|item| item.id().to_string());
 
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
-    assert_eq!(
-        interaction.into_open_request(),
-        expected_id.map(LibraryOpenRequest::Selected)
-    );
+    assert!(interaction.pending_delete().is_none());
+    assert!(state.modal().is_none());
 }
 
 #[test]
-fn pressing_n_opens_editor_modal_in_create_mode() {
+fn pressing_n_is_reserved_while_editor_is_removed() {
     let mut state = sample_state();
 
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
 
-    assert_eq!(
-        interaction.into_open_request(),
-        Some(LibraryOpenRequest::Create)
-    );
+    assert!(interaction.pending_delete().is_none());
+    assert!(state.modal().is_none());
 }
 
 #[test]
@@ -970,228 +849,13 @@ fn pressing_d_with_selected_trigger_opens_delete_confirmation_modal() {
 }
 
 #[test]
-fn pressing_d_from_editor_edit_mode_keeps_editor_open() {
-    let mut state = sample_state();
-    let detail = LibraryTriggerDetail::from_row(trigger_row(
-        TriggerType::Word,
-        "gm",
-        "Good Morning",
-        "text",
-        "all",
-        9,
-        None,
-    ))
-    .unwrap();
-    state.open_editor_modal(detail);
-
-    state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
-
-    assert!(matches!(state.modal(), Some(LibraryModal::Editor(_))));
-}
-
-#[test]
-fn typing_d_in_create_modal_trigger_field_inserts_text() {
-    let mut state = sample_state();
-    state.open_create_modal();
-
-    state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
-
-    let Some(LibraryModal::Editor(modal)) = state.modal() else {
-        panic!("expected editor modal");
-    };
-    assert_eq!(modal.trigger(), "d");
-    assert!(modal.error().is_none());
-}
-
-#[test]
-fn typing_d_in_create_modal_content_field_inserts_text() {
-    let mut state = sample_state();
-    state.open_create_modal();
-    state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-
-    state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
-
-    let Some(LibraryModal::Editor(modal)) = state.modal() else {
-        panic!("expected editor modal");
-    };
-    assert_eq!(modal.content(), "d");
-    assert!(modal.error().is_none());
-}
-
-#[test]
-fn typing_d_in_edit_modal_trigger_field_inserts_text() {
-    let mut state = sample_state();
-    let detail = LibraryTriggerDetail::from_row(trigger_row(
-        TriggerType::Word,
-        "gm",
-        "Good Morning",
-        "text",
-        "all",
-        9,
-        None,
-    ))
-    .unwrap();
-    state.open_editor_modal(detail);
-
-    state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
-
-    let Some(LibraryModal::Editor(modal)) = state.modal() else {
-        panic!("expected editor modal");
-    };
-    assert_eq!(modal.trigger(), "gmd");
-    assert!(modal.error().is_none());
-}
-
-#[test]
-fn typing_d_in_edit_modal_content_field_inserts_text() {
-    let mut state = sample_state();
-    let detail = LibraryTriggerDetail::from_row(trigger_row(
-        TriggerType::Word,
-        "gm",
-        "Good Morning",
-        "text",
-        "all",
-        9,
-        None,
-    ))
-    .unwrap();
-    state.open_editor_modal(detail);
-    state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-
-    state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
-
-    let Some(LibraryModal::Editor(modal)) = state.modal() else {
-        panic!("expected editor modal");
-    };
-    assert_eq!(modal.content(), "Good Morningd");
-    assert!(modal.error().is_none());
-}
-
-#[test]
-fn pressing_d_from_create_mode_does_not_open_delete_confirmation() {
-    let mut state = sample_state();
-    state.open_create_modal();
-
-    state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
-
-    assert!(matches!(state.modal(), Some(LibraryModal::Editor(_))));
-}
-
-#[test]
-fn pressing_d_from_edit_mode_with_text_focus_does_not_open_delete_confirmation() {
-    let mut state = sample_state();
-    let detail = LibraryTriggerDetail::from_row(trigger_row(
-        TriggerType::Word,
-        "gm",
-        "Good Morning",
-        "text",
-        "all",
-        9,
-        None,
-    ))
-    .unwrap();
-    state.open_editor_modal(detail);
-
-    state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
-
-    assert!(matches!(state.modal(), Some(LibraryModal::Editor(_))));
-}
-
-#[test]
 fn pressing_escape_closes_open_modal() {
     let mut state = sample_state();
-    let detail = LibraryTriggerDetail::from_row(trigger_row(
-        TriggerType::Hotkey,
-        "alt+r",
-        "[Script: powershell]",
-        "script",
-        "win",
-        6,
-        Some("Start-Process https://reddit.com"),
-    ))
-    .unwrap();
-    state.open_editor_modal(detail);
+    state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
 
-    let interaction = state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
 
-    assert!(interaction.should_close_modal());
-}
-
-#[test]
-fn script_modal_uses_actual_script_content_instead_of_description() {
-    let mut row = trigger_row(
-        TriggerType::Hotkey,
-        "alt+r",
-        "[Script: powershell]",
-        "script",
-        "win",
-        6,
-        Some("Start-Process https://reddit.com"),
-    );
-    row.description = Some("Open Reddit".to_string());
-
-    let detail = LibraryTriggerDetail::from_row(row).unwrap();
-
-    assert_eq!(detail.content_label(), "Script");
-    assert_eq!(detail.content(), "Start-Process https://reddit.com");
-}
-
-#[test]
-fn snippet_modal_uses_actual_output_content() {
-    let row = trigger_row(
-        TriggerType::Word,
-        "gm",
-        "Good Morning",
-        "text",
-        "all",
-        9,
-        None,
-    );
-
-    let detail = LibraryTriggerDetail::from_row(row).unwrap();
-
-    assert_eq!(detail.content_label(), "Output");
-    assert_eq!(detail.content(), "Good Morning");
-}
-
-#[test]
-fn editor_modal_opens_over_library_list() {
-    let mut state = sample_state();
-    let detail = LibraryTriggerDetail::from_row(trigger_row(
-        TriggerType::Word,
-        "gm",
-        "Good Morning",
-        "text",
-        "all",
-        9,
-        None,
-    ))
-    .unwrap();
-
-    state.open_editor_modal(detail);
-
-    assert!(state.is_modal_open());
-}
-
-#[test]
-fn modal_owns_input_and_keeps_search_inactive() {
-    let mut state = sample_state();
-    let detail = LibraryTriggerDetail::from_row(trigger_row(
-        TriggerType::Word,
-        "gm",
-        "Good Morning",
-        "text",
-        "all",
-        9,
-        None,
-    ))
-    .unwrap();
-    state.open_editor_modal(detail);
-
-    state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
-
-    assert!(!state.is_search_active());
-    assert!(state.is_modal_open());
+    assert!(state.modal().is_none());
 }
 
 #[test]
@@ -1209,24 +873,13 @@ fn delete_confirmation_owns_input_and_keeps_search_inactive() {
 }
 
 #[test]
-fn delete_confirmation_cancel_restores_editor_modal() {
+fn delete_confirmation_cancel_closes_modal() {
     let mut state = sample_state();
-    let detail = LibraryTriggerDetail::from_row(trigger_row(
-        TriggerType::Word,
-        "gm",
-        "Good Morning",
-        "text",
-        "all",
-        9,
-        None,
-    ))
-    .unwrap();
-    state.open_editor_modal(detail);
     state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
 
     state.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
 
-    assert!(matches!(state.modal(), Some(LibraryModal::Editor(_))));
+    assert!(state.modal().is_none());
 }
 
 #[test]
@@ -1278,529 +931,12 @@ fn select_after_delete_chooses_nearest_remaining_item() {
 }
 
 #[test]
-fn tab_and_shift_tab_cycle_modal_focus() {
-    let mut modal = LibraryEditorModalState::new_edit(
-        LibraryTriggerDetail::from_row(trigger_row(
-            TriggerType::Word,
-            "gm",
-            "Good Morning",
-            "text",
-            "all",
-            9,
-            None,
-        ))
-        .unwrap(),
-    );
-
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    assert_eq!(modal.focus(), LibraryModalField::Content);
-
-    modal.handle_key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT));
-    assert_eq!(modal.focus(), LibraryModalField::Trigger);
-}
-
-#[test]
-fn content_focus_supports_cursor_navigation() {
-    let mut modal = LibraryEditorModalState::new_edit(
-        LibraryTriggerDetail::from_row(trigger_row(
-            TriggerType::Word,
-            "gm",
-            "line one\nline two\nline three",
-            "text",
-            "all",
-            9,
-            None,
-        ))
-        .unwrap(),
-    );
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-
-    modal.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
-
-    assert_eq!(modal.content_line_indicator(1).as_deref(), Some("2/3"));
-}
-
-#[test]
-fn editor_modal_initializes_editable_fields_from_selected_trigger() {
-    let modal = LibraryEditorModalState::new_edit(
-        LibraryTriggerDetail::from_row(trigger_row(
-            TriggerType::Hotkey,
-            "alt+r",
-            "[Script: powershell]",
-            "script",
-            "win",
-            6,
-            Some("Start-Process https://reddit.com"),
-        ))
-        .unwrap(),
-    );
-
-    assert_eq!(modal.trigger(), "alt+r");
-    assert_eq!(modal.content(), "Start-Process https://reddit.com");
-    assert_eq!(modal.kind_label(), "hotkey script");
-    assert_eq!(modal.target_os(), "windows");
-}
-
-#[test]
-fn editing_trigger_updates_modal_draft_state() {
-    let mut modal = LibraryEditorModalState::new_edit(
-        LibraryTriggerDetail::from_row(trigger_row(
-            TriggerType::Word,
-            "gm",
-            "Good Morning",
-            "text",
-            "all",
-            9,
-            None,
-        ))
-        .unwrap(),
-    );
-
-    modal.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Char('!'), KeyModifiers::SHIFT));
-
-    assert_eq!(modal.trigger(), "gm!");
-}
-
-#[test]
-fn editing_content_updates_modal_draft_state() {
-    let mut modal = LibraryEditorModalState::new_edit(
-        LibraryTriggerDetail::from_row(trigger_row(
-            TriggerType::Word,
-            "gm",
-            "Good",
-            "text",
-            "all",
-            9,
-            None,
-        ))
-        .unwrap(),
-    );
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Char('M'), KeyModifiers::SHIFT));
-
-    assert_eq!(modal.content(), "Good M");
-}
-
-#[test]
-fn kind_selector_updates_kind_on_enter() {
-    let mut modal = LibraryEditorModalState::new_edit(
-        LibraryTriggerDetail::from_row(trigger_row(
-            TriggerType::Word,
-            "gm",
-            "Good",
-            "text",
-            "all",
-            9,
-            None,
-        ))
-        .unwrap(),
-    );
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-
-    modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    assert!(modal.selector().is_some());
-    modal.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-
-    assert_eq!(modal.kind_label(), "script");
-    assert_eq!(modal.content_label(), "Script");
-}
-
-#[test]
-fn create_modal_initially_hides_language_and_mode_for_snippet() {
-    let modal = LibraryEditorModalState::new_create();
-
-    assert_eq!(modal.visible_fields(), &SNIPPET_MODAL_FIELDS);
-    assert!(!modal.is_script_kind());
-}
-
-#[test]
-fn changing_kind_to_script_shows_language_and_mode() {
-    let mut modal = LibraryEditorModalState::new_create();
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-
-    assert_eq!(modal.kind_label(), "script");
-    assert_eq!(modal.visible_fields(), &SCRIPT_MODAL_FIELDS);
-    assert_eq!(
-        modal.interpreter(),
-        default_script_interpreter_for_target_os("all")
-    );
-    assert_eq!(modal.mode_label(), "inline");
-}
-
-#[test]
-fn changing_kind_to_hotkey_script_shows_language_and_mode() {
-    let mut modal = LibraryEditorModalState::new_create();
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-
-    assert_eq!(modal.kind_label(), "hotkey script");
-    assert_eq!(modal.visible_fields(), &SCRIPT_MODAL_FIELDS);
-    assert_eq!(modal.mode_label(), "inline");
-}
-
-#[test]
-fn changing_kind_back_to_snippet_hides_language_and_mode() {
-    let mut modal = LibraryEditorModalState::new_create();
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-
-    assert_eq!(modal.kind_label(), "snippet");
-    assert_eq!(modal.visible_fields(), &SNIPPET_MODAL_FIELDS);
-    assert_eq!(modal.focus(), LibraryModalField::Kind);
-}
-
-#[test]
-fn new_script_mode_defaults_to_inline() {
-    let mut modal = LibraryEditorModalState::new_create();
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-
-    assert_eq!(modal.behavior(), ScriptBehavior::Inline);
-    assert_eq!(modal.mode_label(), "inline");
-}
-
-#[test]
-fn language_selector_uses_exact_supported_options() {
-    let mut modal = LibraryEditorModalState::new_edit(
-        LibraryTriggerDetail::from_row(trigger_row(
-            TriggerType::Hotkey,
-            "alt+r",
-            "[Script: powershell]",
-            "script",
-            "win",
-            6,
-            Some("Start-Process https://reddit.com"),
-        ))
-        .unwrap(),
-    );
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-
-    let selector = modal.selector().expect("language selector");
-    assert_eq!(selector.title(), "Select Language");
-    assert_eq!(
-        selector.options,
-        vec!["bash", "powershell", "python", "node", "cmd"]
-    );
-}
-
-#[test]
-fn mode_selector_uses_exact_supported_options() {
-    let mut modal = LibraryEditorModalState::new_edit(
-        LibraryTriggerDetail::from_row(trigger_row(
-            TriggerType::Hotkey,
-            "alt+r",
-            "[Script: powershell]",
-            "script",
-            "win",
-            6,
-            Some("Start-Process https://reddit.com"),
-        ))
-        .unwrap(),
-    );
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-
-    let selector = modal.selector().expect("mode selector");
-    assert_eq!(selector.title(), "Select Mode");
-    assert_eq!(selector.options, vec!["inline", "silent"]);
-}
-
-#[test]
-fn selecting_language_updates_draft_language() {
-    let mut modal = LibraryEditorModalState::new_edit(
-        LibraryTriggerDetail::from_row(trigger_row(
-            TriggerType::Hotkey,
-            "alt+r",
-            "[Script: powershell]",
-            "script",
-            "win",
-            6,
-            Some("Start-Process https://reddit.com"),
-        ))
-        .unwrap(),
-    );
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-
-    assert_eq!(modal.language_label(), "python");
-}
-
-#[test]
-fn selecting_mode_updates_draft_mode() {
-    let mut modal = LibraryEditorModalState::new_edit(
-        LibraryTriggerDetail::from_row(trigger_row(
-            TriggerType::Hotkey,
-            "alt+r",
-            "[Script: powershell]",
-            "script",
-            "win",
-            6,
-            Some("Start-Process https://reddit.com"),
-        ))
-        .unwrap(),
-    );
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-
-    assert_eq!(modal.behavior(), ScriptBehavior::Inline);
-    assert_eq!(modal.mode_label(), "inline");
-}
-
-#[test]
-fn tab_visits_language_and_mode_only_for_script_kinds() {
-    let mut modal = LibraryEditorModalState::new_edit(
-        LibraryTriggerDetail::from_row(trigger_row(
-            TriggerType::Hotkey,
-            "alt+r",
-            "[Script: powershell]",
-            "script",
-            "win",
-            6,
-            Some("Start-Process https://reddit.com"),
-        ))
-        .unwrap(),
-    );
-
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    assert_eq!(modal.focus(), LibraryModalField::Content);
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    assert_eq!(modal.focus(), LibraryModalField::Kind);
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    assert_eq!(modal.focus(), LibraryModalField::TargetOs);
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    assert_eq!(modal.focus(), LibraryModalField::Language);
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    assert_eq!(modal.focus(), LibraryModalField::Mode);
-}
-
-#[test]
-fn tab_skips_language_and_mode_for_snippet_kinds() {
-    let mut modal = LibraryEditorModalState::new_create();
-
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    assert_eq!(modal.focus(), LibraryModalField::Content);
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    assert_eq!(modal.focus(), LibraryModalField::Kind);
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    assert_eq!(modal.focus(), LibraryModalField::TargetOs);
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    assert_eq!(modal.focus(), LibraryModalField::Trigger);
-}
-
-#[test]
-fn typing_j_and_k_in_content_field() {
-    let mut modal = LibraryEditorModalState::new_create();
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)); // Focus content
-
-    modal.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
-
-    assert_eq!(modal.content(), "jk");
-}
-
-#[test]
-fn target_os_selector_updates_target_os_on_enter() {
-    let mut modal = LibraryEditorModalState::new_edit(
-        LibraryTriggerDetail::from_row(trigger_row(
-            TriggerType::Word,
-            "gm",
-            "Good",
-            "text",
-            "all",
-            9,
-            None,
-        ))
-        .unwrap(),
-    );
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-
-    modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    assert!(modal.selector().is_some());
-    modal.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-
-    assert_eq!(modal.target_os(), "windows");
-}
-
-#[test]
-fn ctrl_s_creates_pending_save_for_existing_trigger() {
-    let mut modal = LibraryEditorModalState::new_edit(
-        LibraryTriggerDetail::from_row(trigger_row(
-            TriggerType::Hotkey,
-            "alt+r",
-            "[Script: powershell]",
-            "script",
-            "win",
-            6,
-            Some("Start-Process https://reddit.com"),
-        ))
-        .unwrap(),
-    );
-
-    let interaction = modal.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
-    let pending = interaction.pending_save().unwrap();
-
-    assert_eq!(pending.kind, LibraryKind::HotkeyScript);
-    assert_eq!(pending.content, "Start-Process https://reddit.com");
-    assert_eq!(pending.interpreter, Some(ScriptInterpreter::PowerShell));
-    assert_eq!(pending.behavior, Some(ScriptBehavior::Silent));
-    assert!(matches!(
-        pending.mode(),
-        PendingLibrarySaveMode::Update { id, .. } if id == "trigger-alt+r"
-    ));
-}
-
-#[test]
-fn create_modal_initializes_empty_defaults() {
-    let modal = LibraryEditorModalState::new_create();
-
-    assert_eq!(modal.mode(), LibraryEditorMode::Create);
-    assert_eq!(modal.trigger(), "");
-    assert_eq!(modal.content(), "");
-    assert_eq!(modal.kind_label(), "snippet");
-    assert_eq!(modal.target_os(), "all");
-    assert_eq!(
-        modal.interpreter(),
-        default_script_interpreter_for_target_os("all")
-    );
-    assert_eq!(modal.behavior(), ScriptBehavior::Inline);
-}
-
-#[test]
-fn ctrl_s_creates_pending_save_for_new_trigger() {
-    let mut modal = LibraryEditorModalState::new_create();
-    modal.handle_key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Char('H'), KeyModifiers::SHIFT));
-    modal.handle_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE));
-
-    let interaction = modal.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
-    let pending = interaction.pending_save().unwrap();
-
-    assert!(matches!(pending.mode(), PendingLibrarySaveMode::Create));
-    assert_eq!(pending.kind, LibraryKind::Snippet);
-    assert_eq!(pending.target_os, "all");
-    assert_eq!(pending.trigger, "gm");
-    assert_eq!(pending.content, "Hi");
-    assert_eq!(pending.interpreter, None);
-    assert_eq!(pending.behavior, None);
-}
-
-#[test]
-fn ctrl_s_for_new_script_captures_language_and_mode() {
-    let mut modal = LibraryEditorModalState::new_create();
-    modal.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    let language_steps = match modal.interpreter() {
-        ScriptInterpreter::Bash => 2,
-        ScriptInterpreter::PowerShell => 1,
-        _ => 0,
-    };
-    for _ in 0..language_steps {
-        modal.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-    }
-    modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-    modal.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-
-    let interaction = modal.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
-    let pending = interaction.pending_save().unwrap();
-
-    assert_eq!(pending.kind, LibraryKind::Script);
-    assert_eq!(pending.interpreter, Some(ScriptInterpreter::Python));
-    assert_eq!(pending.behavior, Some(ScriptBehavior::Silent));
-}
-
-#[test]
-fn editing_existing_script_preserves_language_and_mode() {
-    let modal = LibraryEditorModalState::new_edit(
-        LibraryTriggerDetail::from_row(trigger_row(
-            TriggerType::Hotkey,
-            "alt+r",
-            "[Script: powershell]",
-            "script",
-            "win",
-            6,
-            Some("Start-Process https://reddit.com"),
-        ))
-        .unwrap(),
-    );
-
-    assert_eq!(modal.language_label(), "powershell");
-    assert_eq!(modal.mode_label(), "silent");
-}
-
-#[test]
 fn modal_keeps_library_selection_stable_after_close() {
     let mut state = sample_state();
     state.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
     let selected_before = state.selected_index();
 
-    let detail = LibraryTriggerDetail::from_row(trigger_row(
-        TriggerType::Word,
-        "deploy",
-        "[Script: bash]",
-        "script",
-        "linux",
-        4,
-        Some("npm run build && npm publish"),
-    ))
-    .unwrap();
-    state.open_editor_modal(detail);
+    state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
     state.clear_modal();
 
     assert_eq!(state.selected_index(), selected_before);
@@ -1847,37 +983,6 @@ fn multi_alias_list_item() -> TriggerListItem {
         script_content: None,
         interpreter: None,
         behavior: None,
-    }
-}
-
-fn multi_alias_trigger_row() -> TriggerRow {
-    TriggerRow {
-        id: "trigger-multi".to_string(),
-        name: String::new(),
-        description: None,
-        invocations: vec![
-            alias_fixture("trigger-multi", "hi", InvocationType::Word, false),
-            alias_fixture("trigger-multi", "say hi", InvocationType::Voice, true),
-        ],
-        display: "hi".to_string(),
-        output: "Hello!".to_string(),
-        action_type: "text".to_string(),
-        target_os: "all".to_string(),
-        only_apps: None,
-        except_apps: None,
-        tags: "[]".to_string(),
-        usage_count: 3,
-        last_used_at: Some(1),
-        created_at: 1,
-        updated_at: 1,
-        version: 1,
-        is_deleted: false,
-        is_synced: true,
-        is_enabled: true,
-        auto_case: false,
-        interpreter: None,
-        behavior: None,
-        script_binary: None,
     }
 }
 
@@ -1930,19 +1035,10 @@ fn entry_without_invocations_falls_back_to_display_row() {
 
 #[test]
 fn detail_lists_each_invocation_as_type_colon_invocation() {
-    let modal = LibraryEditorModalState::new_edit(
-        LibraryTriggerDetail::from_row(multi_alias_trigger_row()).unwrap(),
-    );
-    let aliases: Vec<(&str, &str)> = modal
-        .metadata_rows()
-        .iter()
-        .filter(|row| row.label() == "Alias")
-        .map(|row| (row.label(), row.value()))
-        .collect();
-
+    assert_eq!(alias_line("word", "hi", false), "word: hi");
     assert_eq!(
-        aliases,
-        vec![("Alias", "word: hi"), ("Alias", "voice: say hi (confirm)")]
+        alias_line("voice", "say hi", true),
+        "voice: say hi (confirm)"
     );
 }
 
@@ -1982,19 +1078,17 @@ fn reserved_keys_never_start_library_search() {
 }
 
 #[test]
-fn click_selects_then_opens() {
+fn click_selects_without_opening() {
     let mut state = sample_state();
 
     let interaction = state.click_item(1, 0);
     assert_eq!(state.selected_index(), Some(1));
-    assert!(interaction.into_open_request().is_none());
+    assert!(interaction.pending_delete().is_none());
 
-    let id = state.item_at_filtered(1).unwrap().id().to_string();
     let interaction = state.click_item(1, 0);
-    assert_eq!(
-        interaction.into_open_request(),
-        Some(LibraryOpenRequest::Selected(id))
-    );
+    assert_eq!(state.selected_index(), Some(1));
+    assert!(interaction.pending_delete().is_none());
+    assert!(state.modal().is_none());
 }
 
 #[test]

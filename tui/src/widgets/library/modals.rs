@@ -3,15 +3,15 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Clear, List, ListItem, ListState, Paragraph},
+    widgets::{Clear, List, ListItem, ListState, Paragraph},
 };
 
 use crate::theme::Theme;
 use crate::widgets::library::state::{
-    LibraryDeleteModalState, LibraryEditorModalState, LibraryExportModalField,
-    LibraryExportModalState, LibraryExportResultModalState, LibraryImportModalField,
-    LibraryImportModalState, LibraryImportResultModalState, LibraryImportRunVariablesModalState,
-    LibraryModal, LibraryModalField, LibrarySelectState,
+    LibraryDeleteModalState, LibraryExportModalField, LibraryExportModalState,
+    LibraryExportResultModalState, LibraryImportModalField, LibraryImportModalState,
+    LibraryImportResultModalState, LibraryImportRunVariablesModalState, LibraryModal,
+    LibrarySelectState,
 };
 use crate::widgets::util::{self};
 
@@ -24,7 +24,6 @@ const IMPORT_RUN_VARIABLES_WARNING_LINES: [&str; 3] = [
 
 pub fn render_library_modal(frame: &mut Frame, area: Rect, theme: &Theme, modal: &LibraryModal) {
     match modal {
-        LibraryModal::Editor(state) => render_library_editor_modal(frame, area, theme, state),
         LibraryModal::Export(state) => render_library_export_modal(frame, area, theme, state),
         LibraryModal::Import(state) => render_library_import_modal(frame, area, theme, state),
         LibraryModal::ExportResult(state) => {
@@ -59,219 +58,6 @@ fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
             Constraint::Length(width),
         ])
         .split(vertical[1])[1]
-}
-
-fn render_library_editor_modal(
-    frame: &mut Frame,
-    area: Rect,
-    theme: &Theme,
-    state: &LibraryEditorModalState,
-) {
-    let width = ((area.width as u32 * 4) / 5) as u16;
-    let height = ((area.height as u32 * 4) / 5) as u16;
-    let popup = centered_rect(width.max(48), height.max(12), area);
-    frame.render_widget(Clear, popup);
-    let inner = util::render_modal_block(frame, popup, "Trigger", theme);
-
-    let header_rows = 4;
-    let available_after_headers = inner.height.saturating_sub(header_rows);
-    let editable_metadata_rows = if state.is_script_kind() { 4 } else { 2 };
-    let metadata_len = state.metadata_rows().len() as u16 + editable_metadata_rows;
-    let min_content_height = if available_after_headers >= 6 {
-        4
-    } else {
-        available_after_headers.max(1)
-    };
-    let metadata_height = metadata_len.min(available_after_headers.saturating_sub(1));
-    let mut content_height = available_after_headers.saturating_sub(metadata_height);
-    if content_height < min_content_height {
-        content_height = min_content_height.min(available_after_headers.max(1));
-    }
-
-    let sections = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(content_height.max(1)),
-            Constraint::Min(0),
-            Constraint::Length(1),
-        ])
-        .split(inner);
-
-    util::render_modal_field_label(
-        frame,
-        sections[0],
-        "Trigger",
-        state.focus() == LibraryModalField::Trigger,
-        None,
-        theme,
-    );
-    util::render_modal_input_field(
-        frame,
-        sections[1],
-        state.trigger(),
-        state.trigger_cursor(),
-        state.focus() == LibraryModalField::Trigger,
-        theme,
-    );
-
-    util::render_modal_field_label(
-        frame,
-        sections[2],
-        state.content_label(),
-        state.focus() == LibraryModalField::Content,
-        state.content_line_indicator(sections[3].height),
-        theme,
-    );
-    render_modal_content_field(frame, sections[3], theme, state);
-
-    render_modal_metadata(frame, sections[4], theme, state, state.metadata_rows());
-    render_library_editor_feedback(frame, sections[5], theme, state);
-
-    if state.focus() == LibraryModalField::Trigger {
-        frame.set_cursor_position((
-            sections[1].x + 1 + state.trigger_cursor() as u16,
-            sections[1].y,
-        ));
-    } else if state.focus() == LibraryModalField::Content {
-        let (cursor_line, cursor_col) = crate::widgets::library::actions::line_col_for_char_index(
-            state.content(),
-            state.content_cursor(),
-        );
-        let scroll = state.effective_content_scroll(sections[3].height);
-        frame.set_cursor_position((
-            sections[3].x + 1 + cursor_col as u16,
-            sections[3].y + cursor_line.saturating_sub(scroll) as u16,
-        ));
-    }
-
-    if let Some(selector) = state.selector() {
-        render_library_select_modal(frame, area, theme, selector);
-    }
-}
-
-fn render_modal_content_field(
-    frame: &mut Frame,
-    area: Rect,
-    theme: &Theme,
-    state: &LibraryEditorModalState,
-) {
-    let focused = state.focus() == LibraryModalField::Content;
-    let bg = if focused {
-        theme.surface
-    } else {
-        theme.background
-    };
-    let block = Block::default().style(Style::default().bg(bg));
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-
-    let scroll = state.effective_content_scroll(inner.height);
-    let (cursor_line, cursor_col) = crate::widgets::library::actions::line_col_for_char_index(
-        state.content(),
-        state.content_cursor(),
-    );
-    let visible_lines = state.visible_content_lines(inner.height);
-    let rendered = visible_lines
-        .into_iter()
-        .enumerate()
-        .map(|(index, line)| {
-            let absolute_line = scroll + index;
-            if focused && absolute_line == cursor_line {
-                util::input_cursor_line(&line, cursor_col)
-            } else {
-                Line::from(line)
-            }
-        })
-        .collect::<Vec<_>>();
-
-    let content_style = if focused {
-        Style::default()
-            .fg(theme.text)
-            .bg(bg)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(theme.text).bg(bg)
-    };
-    frame.render_widget(Paragraph::new(rendered).style(content_style), inner);
-}
-
-fn render_modal_metadata(
-    frame: &mut Frame,
-    area: Rect,
-    theme: &Theme,
-    state: &LibraryEditorModalState,
-    metadata_rows: &[crate::widgets::library::state::LibraryMetadataRow],
-) {
-    let mut rows: Vec<(&str, String, bool, bool)> = Vec::with_capacity(metadata_rows.len() + 2);
-    rows.push((
-        "Kind",
-        state.kind_label().to_string(),
-        state.focus() == LibraryModalField::Kind,
-        false,
-    ));
-    rows.push((
-        "Target OS",
-        state.target_os().to_string(),
-        state.focus() == LibraryModalField::TargetOs,
-        false,
-    ));
-    if state.is_script_kind() {
-        rows.push((
-            "Language",
-            state.language_label().to_string(),
-            state.focus() == LibraryModalField::Language,
-            false,
-        ));
-        rows.push((
-            "Mode",
-            state.mode_label().to_string(),
-            state.focus() == LibraryModalField::Mode,
-            false,
-        ));
-    }
-    rows.extend(
-        metadata_rows
-            .iter()
-            .map(|row| (row.label(), row.value().to_string(), false, true)),
-    );
-
-    let render_count = rows.len().min(area.height as usize);
-    for (index, (label, value, focused, quiet)) in rows.into_iter().take(render_count).enumerate() {
-        let row_area = Rect {
-            x: area.x,
-            y: area.y + index as u16,
-            width: area.width,
-            height: 1,
-        };
-        util::render_modal_key_value_row(frame, row_area, label, &value, focused, quiet, theme);
-    }
-}
-
-fn render_library_editor_feedback(
-    frame: &mut Frame,
-    area: Rect,
-    theme: &Theme,
-    state: &LibraryEditorModalState,
-) {
-    let (text, style) = if let Some(error) = state.error() {
-        (
-            error,
-            Style::default()
-                .fg(theme.error)
-                .add_modifier(Modifier::BOLD),
-        )
-    } else {
-        (
-            "",
-            Style::default()
-                .fg(theme.text_muted)
-                .add_modifier(Modifier::DIM),
-        )
-    };
-    frame.render_widget(Paragraph::new(text).style(style), area);
 }
 
 fn render_library_delete_modal(

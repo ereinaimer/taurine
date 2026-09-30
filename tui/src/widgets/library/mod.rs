@@ -1,4 +1,6 @@
 pub mod actions;
+pub mod detail;
+pub mod icons;
 pub mod list;
 pub mod modals;
 pub mod search;
@@ -140,4 +142,5 @@ pub fn render_library_content(
         state.is_search_active(),
         state.search_query().chars().count(),
     );
+    detail::render_detail(frame, area, theme, state);
 }

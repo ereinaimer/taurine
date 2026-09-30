@@ -1,11 +1,9 @@
 mod delete;
-mod editor;
 mod export;
 mod import;
 mod trigger;
 
 pub(crate) use delete::*;
-pub(crate) use editor::*;
 pub(crate) use export::*;
 pub(crate) use import::*;
 pub(crate) use trigger::*;
@@ -17,16 +15,6 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use crate::widgets::library::actions::{
     LibraryImportOutcome, LibraryInteraction, PendingLibraryDelete, PreparedLibraryImport,
 };
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LibraryModalField {
-    Trigger,
-    Content,
-    Kind,
-    TargetOs,
-    Language,
-    Mode,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ButtonSelection {
@@ -42,29 +30,8 @@ pub(crate) enum LibraryImportModalField {
     ActionButton,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct LibraryMetadataRow {
-    label: &'static str,
-    value: String,
-}
-
-impl LibraryMetadataRow {
-    pub(crate) fn new(label: &'static str, value: String) -> Self {
-        Self { label, value }
-    }
-
-    pub(crate) const fn label(&self) -> &'static str {
-        self.label
-    }
-
-    pub(crate) fn value(&self) -> &str {
-        &self.value
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum LibraryModal {
-    Editor(LibraryEditorModalState),
     Export(LibraryExportModalState),
     ExportResult(LibraryExportResultModalState),
     Import(LibraryImportModalState),
@@ -76,7 +43,6 @@ pub(crate) enum LibraryModal {
 impl LibraryModal {
     pub(crate) fn set_error(&mut self, error: String) {
         match self {
-            Self::Editor(state) => state.set_error(error),
             Self::Export(state) => state.set_error(error),
             Self::ExportResult(state) => state.set_error(error),
             Self::Import(state) => state.set_error(error),
@@ -148,16 +114,6 @@ impl LibraryPageState {
 
     pub(crate) const fn modal(&self) -> Option<&LibraryModal> {
         self.modal.as_ref()
-    }
-
-    pub(crate) fn open_editor_modal(&mut self, trigger: LibraryTriggerDetail) {
-        self.modal = Some(LibraryModal::Editor(LibraryEditorModalState::new_edit(
-            trigger,
-        )));
-    }
-
-    pub(crate) fn open_create_modal(&mut self) {
-        self.modal = Some(LibraryModal::Editor(LibraryEditorModalState::new_create()));
     }
 
     pub(crate) fn open_export_modal(&mut self) {
@@ -254,17 +210,6 @@ impl LibraryPageState {
             .and_then(|item_index| self.items.get(*item_index))
     }
 
-    pub(crate) fn select_item_by_id(&mut self, id: &str) {
-        self.window_anchor = None;
-        if let Some(position) = self
-            .filtered_indices
-            .iter()
-            .position(|item_index| self.items[*item_index].id() == id)
-        {
-            self.selected = position;
-        }
-    }
-
     pub(crate) fn select_after_delete(&mut self, previous_index: usize) {
         self.window_anchor = None;
         if self.filtered_indices.is_empty() {
@@ -309,7 +254,8 @@ impl LibraryPageState {
                 self.move_selection(-1);
                 LibraryInteraction::handled()
             }
-            (KeyCode::Char('n'), KeyModifiers::NONE) => LibraryInteraction::open_create(),
+            // honey: trigger editor removed pending revamp; n/Enter reserved.
+            (KeyCode::Char('n'), KeyModifiers::NONE) => LibraryInteraction::handled(),
             (KeyCode::Char('i'), KeyModifiers::NONE) => {
                 self.open_import_modal();
                 LibraryInteraction::handled()
@@ -322,10 +268,7 @@ impl LibraryPageState {
                 self.open_delete_modal_for_selected();
                 LibraryInteraction::handled()
             }
-            (KeyCode::Enter, KeyModifiers::NONE) => self
-                .selected_item()
-                .map(|item| LibraryInteraction::open_selected(item.id().to_string()))
-                .unwrap_or_default(),
+            (KeyCode::Enter, KeyModifiers::NONE) => LibraryInteraction::handled(),
             // honey: navigation and quit keys never start a search; any other
             // bare character filters the list immediately (type-to-search).
             (KeyCode::Char('1' | '2' | 'q'), KeyModifiers::NONE) => LibraryInteraction::handled(),
@@ -349,13 +292,6 @@ impl LibraryPageState {
         };
 
         match modal {
-            LibraryModal::Editor(mut state) => {
-                let interaction = state.handle_key(key);
-                if !interaction.should_close_modal() {
-                    self.modal = Some(LibraryModal::Editor(state));
-                }
-                interaction
-            }
             LibraryModal::Export(mut state) => {
                 let interaction = state.handle_key(key);
                 if !interaction.should_close_modal() {
@@ -427,7 +363,7 @@ impl LibraryPageState {
                         self.modal = Some(LibraryModal::ConfirmDelete(state));
                         interaction
                     } else {
-                        self.restore_delete_modal_parent(state);
+                        self.modal = None;
                         LibraryInteraction::handled()
                     }
                 }
@@ -443,7 +379,7 @@ impl LibraryPageState {
                 (KeyCode::Char('n'), KeyModifiers::NONE)
                 | (KeyCode::Char('N'), KeyModifiers::NONE)
                 | (KeyCode::Esc, KeyModifiers::NONE) => {
-                    self.restore_delete_modal_parent(state);
+                    self.modal = None;
                     LibraryInteraction::handled()
                 }
                 _ => {
@@ -451,14 +387,6 @@ impl LibraryPageState {
                     LibraryInteraction::handled()
                 }
             },
-        }
-    }
-
-    fn restore_delete_modal_parent(&mut self, state: LibraryDeleteModalState) {
-        if let Some(editor) = state.return_to_editor {
-            self.modal = Some(LibraryModal::Editor(editor));
-        } else {
-            self.modal = None;
         }
     }
 
@@ -531,20 +459,14 @@ impl LibraryPageState {
         self.search_mode = true;
     }
 
-    /// Click parity with Enter: first click selects the row, clicking the
-    /// selected row opens it. Selecting records the click-time window start
-    /// so the list does not jump.
+    /// Click selects the row and records the click-time window start so the
+    /// list does not jump. The editor is removed pending revamp, so there is
+    /// no second-click open action.
     pub(crate) fn click_item(
         &mut self,
         filtered_position: usize,
         anchor: usize,
     ) -> LibraryInteraction {
-        if self.selected_index() == Some(filtered_position) {
-            return self
-                .selected_item()
-                .map(|item| LibraryInteraction::open_selected(item.id().to_string()))
-                .unwrap_or_default();
-        }
         self.selected = filtered_position;
         self.window_anchor = Some(anchor);
         LibraryInteraction::handled()

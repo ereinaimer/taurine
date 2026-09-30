@@ -1,4 +1,3 @@
-use super::editor::LibraryEditorModalState;
 use super::trigger::LibraryTrigger;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7,7 +6,6 @@ pub(crate) struct LibraryDeleteModalState {
     name: String,
     selected_yes: bool,
     restore_index: usize,
-    pub(crate) return_to_editor: Option<LibraryEditorModalState>,
     error: Option<String>,
 }
 
@@ -18,7 +16,6 @@ impl LibraryDeleteModalState {
             name: item.name().to_string(),
             selected_yes: true,
             restore_index,
-            return_to_editor: None,
             error: None,
         }
     }

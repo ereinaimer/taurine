@@ -18,13 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Press-to-Set Hotkeys**: Capture the pause and voice dictation hotkeys by pressing them instead of typing, with clashing system shortcuts rejected.
 - **Bottom Search Bars**: Library search moved to the bottom next to the footer hints, and settings gained the same filterable search matching names and descriptions, focused automatically on page entry.
 - **One Row Per Trigger**: Library entries with several word, hotkey, or regex triggers now list each trigger on its own row instead of a grouped count.
-- **Click Anything**: Switch pages from the navigation rail, pick settings and library rows (click again to open or toggle, clicked rows stay in place), focus search bars, and scroll lists with the wheel.
+- **Click Anything**: Switch pages from the navigation rail, pick settings and library rows (clicked rows stay in place), focus search bars, and scroll lists with the wheel.
 - **Roomier Layout**: Removed the top header bar so the lists use the full terminal height.
 - **No More Footer**: Removed the bottom hints bar and its text machinery so content uses the full terminal height.
-- **Library Split View**: The library page now shows the trigger list beside an empty detail pane, divided by a full-height line with borderless panes.
+- **Library Split View**: The library page now shows the trigger list beside a read-only detail preview with the trigger, type, OS icon, and content, divided by a full-height line with borderless panes.
 - **Bottom-Anchored Lists**: Library and settings rows now stack directly above the search bar with no dead gap, opening on the row that touches it.
 
 ### Removed
+- **Trigger Editor Popup**: The overlay editor is gone pending a revamped editor; use the CLI to add or edit triggers for now.
 - **Home Page**: The TUI now opens directly on the library page with settings one key away; daemon start and stop remain available via the CLI and service.
 - **Side Navigation Rail**: The tab rail and its toggle are gone along with the header, footer, and page titles, leaving a borderless full-width list experience.
 - **Type to Filter**: Typing anywhere on the library or settings page starts filtering immediately with no need to press slash first, and arrow keys keep moving while search is focused.

@@ -1,24 +1,14 @@
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
 use zeroize::Zeroize;
 
-use taurine_core::db::crud::{
-    ActionType, ExistingTriggerUpdate, NewTrigger, TriggerListItem, TriggerRow, create_trigger,
-    delete_trigger, update_existing_trigger,
-};
-use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter, decompress};
+use taurine_core::db::crud::{ActionType, TriggerListItem, delete_trigger};
 use taurine_core::exchange::{
     ExchangePayload, ImportConflictAction, decode_exchange_blob, encode_exchange_blob,
     export_triggers, import_payload_transactionally, payload_contains_run_variables,
     resolve_export_path,
 };
 
-use crate::widgets::library::state::{
-    LibraryImportModalState, LibraryKind, LibraryMetadataRow, LibraryTrigger,
-};
-
-pub(crate) const DEFAULT_SCRIPT_FALLBACK: &str = "Script content unavailable.";
-const DEFAULT_OUTPUT_FALLBACK: &str = "No output available.";
+use crate::widgets::library::state::{LibraryImportModalState, LibraryTrigger};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LibraryImportConflictMode {
@@ -48,102 +38,6 @@ impl LibraryImportConflictMode {
 pub enum RememberedConflictChoice {
     OverwriteAll,
     SkipAll,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum PendingLibrarySaveMode {
-    Update {
-        id: String,
-        name: String,
-        description: Option<String>,
-        tags_json: String,
-        usage_count: i64,
-        last_used_at: Option<i64>,
-        interpreter: Option<ScriptInterpreter>,
-        behavior: Option<ScriptBehavior>,
-    },
-    Create,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct PendingLibrarySave {
-    pub(crate) mode: PendingLibrarySaveMode,
-    pub(crate) trigger: String,
-    pub(crate) content: String,
-    pub(crate) kind: LibraryKind,
-    pub(crate) target_os: String,
-    pub(crate) interpreter: Option<ScriptInterpreter>,
-    pub(crate) behavior: Option<ScriptBehavior>,
-}
-
-impl PendingLibrarySave {
-    #[cfg(test)]
-    pub(crate) const fn mode(&self) -> &PendingLibrarySaveMode {
-        &self.mode
-    }
-
-    pub(crate) fn apply(&self) -> taurine_core::Result<String> {
-        let mut conn = taurine_core::db::init::setup()?;
-
-        let trigger_id = match &self.mode {
-            PendingLibrarySaveMode::Update {
-                id,
-                name,
-                description,
-                tags_json,
-                usage_count,
-                last_used_at,
-                interpreter,
-                behavior,
-            } => {
-                let existing_auto_case: bool = conn
-                    .query_row("SELECT auto_case FROM triggers WHERE id = ?1", [id], |r| {
-                        r.get(0)
-                    })
-                    .unwrap_or(false);
-
-                update_existing_trigger(
-                    &mut conn,
-                    ExistingTriggerUpdate {
-                        id,
-                        name,
-                        description: description.as_deref(),
-                        trigger_type: self.kind.trigger_type(),
-                        trigger: &self.trigger,
-                        content: &self.content,
-                        action_type: self.kind.action_type(),
-                        target_os: &self.target_os,
-                        tags_json,
-                        auto_case: existing_auto_case,
-                        usage_count: *usage_count,
-                        last_used_at: *last_used_at,
-                        interpreter: self.interpreter.or(*interpreter),
-                        behavior: self.behavior.or(*behavior),
-                    },
-                )?;
-                id.clone()
-            }
-            PendingLibrarySaveMode::Create => create_trigger(
-                &mut conn,
-                NewTrigger {
-                    name: None,
-                    description: None,
-                    trigger_type: self.kind.trigger_type(),
-                    trigger: &self.trigger,
-                    content: &self.content,
-                    action_type: self.kind.action_type(),
-                    target_os: &self.target_os,
-                    tags_json: "[]",
-                    auto_case: false,
-                    interpreter: self.interpreter,
-                    behavior: self.behavior.or(Some(ScriptBehavior::Inline)),
-                },
-            )?,
-        };
-
-        taurine_core::rpc::notify_daemon_reload();
-        Ok(trigger_id)
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -288,16 +182,8 @@ impl PreparedLibraryImport {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum LibraryOpenRequest {
-    Selected(String),
-    Create,
-}
-
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct LibraryInteraction {
-    open_request: Option<LibraryOpenRequest>,
-    pending_save: Option<PendingLibrarySave>,
     pending_delete: Option<PendingLibraryDelete>,
     pending_export: Option<PendingLibraryExport>,
     pending_import_prepare: Option<PendingLibraryImportPrepare>,
@@ -306,14 +192,6 @@ pub(crate) struct LibraryInteraction {
 }
 
 impl LibraryInteraction {
-    pub(crate) fn into_open_request(self) -> Option<LibraryOpenRequest> {
-        self.open_request
-    }
-
-    pub(crate) const fn pending_save(&self) -> Option<&PendingLibrarySave> {
-        self.pending_save.as_ref()
-    }
-
     pub(crate) const fn pending_delete(&self) -> Option<&PendingLibraryDelete> {
         self.pending_delete.as_ref()
     }
@@ -338,46 +216,8 @@ impl LibraryInteraction {
         Self::default()
     }
 
-    pub(crate) fn open_selected(id: String) -> Self {
-        Self {
-            open_request: Some(LibraryOpenRequest::Selected(id)),
-            pending_save: None,
-            pending_delete: None,
-            pending_export: None,
-            pending_import_prepare: None,
-            pending_import_commit: None,
-            close_modal: false,
-        }
-    }
-
-    pub(crate) fn open_create() -> Self {
-        Self {
-            open_request: Some(LibraryOpenRequest::Create),
-            pending_save: None,
-            pending_delete: None,
-            pending_export: None,
-            pending_import_prepare: None,
-            pending_import_commit: None,
-            close_modal: false,
-        }
-    }
-
-    pub(crate) fn save(pending_save: PendingLibrarySave) -> Self {
-        Self {
-            open_request: None,
-            pending_save: Some(pending_save),
-            pending_delete: None,
-            pending_export: None,
-            pending_import_prepare: None,
-            pending_import_commit: None,
-            close_modal: false,
-        }
-    }
-
     pub(crate) fn delete(pending_delete: PendingLibraryDelete) -> Self {
         Self {
-            open_request: None,
-            pending_save: None,
             pending_delete: Some(pending_delete),
             pending_export: None,
             pending_import_prepare: None,
@@ -388,8 +228,6 @@ impl LibraryInteraction {
 
     pub(crate) fn export(pending_export: PendingLibraryExport) -> Self {
         Self {
-            open_request: None,
-            pending_save: None,
             pending_delete: None,
             pending_export: Some(pending_export),
             pending_import_prepare: None,
@@ -400,8 +238,6 @@ impl LibraryInteraction {
 
     pub(crate) fn prepare_import(pending_import_prepare: PendingLibraryImportPrepare) -> Self {
         Self {
-            open_request: None,
-            pending_save: None,
             pending_delete: None,
             pending_export: None,
             pending_import_prepare: Some(pending_import_prepare),
@@ -412,8 +248,6 @@ impl LibraryInteraction {
 
     pub(crate) fn import(prepared: PreparedLibraryImport) -> Self {
         Self {
-            open_request: None,
-            pending_save: None,
             pending_delete: None,
             pending_export: None,
             pending_import_prepare: None,
@@ -424,8 +258,6 @@ impl LibraryInteraction {
 
     pub(crate) fn close() -> Self {
         Self {
-            open_request: None,
-            pending_save: None,
             pending_delete: None,
             pending_export: None,
             pending_import_prepare: None,
@@ -456,54 +288,7 @@ pub(crate) fn char_index_to_byte_index(value: &str, char_index: usize) -> usize 
         .unwrap_or(value.len())
 }
 
-pub(crate) fn split_lines_with_trailing(value: &str) -> Vec<&str> {
-    if value.is_empty() {
-        return vec![""];
-    }
-
-    value.split('\n').collect()
-}
-
-pub(crate) fn line_start_positions(value: &str) -> Vec<usize> {
-    let mut starts = vec![0];
-    let mut char_index = 0usize;
-    for ch in value.chars() {
-        char_index += 1;
-        if ch == '\n' {
-            starts.push(char_index);
-        }
-    }
-    starts
-}
-
-pub(crate) fn line_lengths(value: &str) -> Vec<usize> {
-    split_lines_with_trailing(value)
-        .into_iter()
-        .map(|line| line.chars().count())
-        .collect()
-}
-
-pub(crate) fn line_col_for_char_index(value: &str, char_index: usize) -> (usize, usize) {
-    let starts = line_start_positions(value);
-    let lengths = line_lengths(value);
-    let safe_index = char_index.min(value.chars().count());
-
-    for (line_index, start) in starts.iter().enumerate().rev() {
-        if safe_index >= *start {
-            let column = safe_index.saturating_sub(*start).min(lengths[line_index]);
-            return (line_index, column);
-        }
-    }
-
-    (0, safe_index)
-}
-
-pub(crate) fn char_index_for_line_col(value: &str, line_index: usize, column: usize) -> usize {
-    let starts = line_start_positions(value);
-    let lengths = line_lengths(value);
-    let safe_line = line_index.min(starts.len().saturating_sub(1));
-    starts[safe_line] + column.min(lengths[safe_line])
-}
+const SCRIPT_PREVIEW_FALLBACK: &str = "Script content unavailable.";
 
 pub(crate) fn preview_from_item(item: &TriggerListItem) -> String {
     if let Some(description) = normalized_preview_text(item.description.as_deref())
@@ -523,7 +308,7 @@ pub(crate) fn preview_from_item(item: &TriggerListItem) -> String {
             return output;
         }
 
-        return DEFAULT_SCRIPT_FALLBACK.to_string();
+        return SCRIPT_PREVIEW_FALLBACK.to_string();
     }
 
     if let Some(output) = normalized_preview_text(Some(item.output.as_str())) {
@@ -549,70 +334,6 @@ pub(crate) fn alias_line(
         line.push_str(" (confirm)");
     }
     line
-}
-
-pub(crate) fn modal_content_from_row(
-    row: &TriggerRow,
-    kind: LibraryKind,
-) -> taurine_core::Result<String> {
-    if kind.is_script() {
-        if let Some(script_content) = load_script_content(row)? {
-            return Ok(script_content);
-        }
-
-        if let Some(output) = normalized_modal_text(Some(row.output.as_str()))
-            && !is_script_placeholder(&output)
-        {
-            return Ok(output);
-        }
-
-        return Ok(DEFAULT_SCRIPT_FALLBACK.to_string());
-    }
-
-    Ok(normalized_modal_text(Some(row.output.as_str()))
-        .unwrap_or_else(|| DEFAULT_OUTPUT_FALLBACK.to_string()))
-}
-
-pub(crate) fn build_metadata_rows(row: &TriggerRow) -> Vec<LibraryMetadataRow> {
-    let mut rows = Vec::new();
-
-    rows.push(LibraryMetadataRow::new(
-        "Uses",
-        format_usage_count(row.usage_count.max(0) as u64),
-    ));
-
-    if let Some(last_used_at) = row.last_used_at.and_then(format_relative_time) {
-        rows.push(LibraryMetadataRow::new("Last used", last_used_at));
-    }
-
-    if let Some(created_at) = format_relative_time(row.created_at) {
-        rows.push(LibraryMetadataRow::new("Created", created_at));
-    }
-
-    if let Some(updated_at) = format_relative_time(row.updated_at) {
-        rows.push(LibraryMetadataRow::new("Updated", updated_at));
-    }
-
-    for alias in &row.invocations {
-        rows.push(LibraryMetadataRow::new(
-            "Alias",
-            alias_line(
-                alias.invocation_type.as_db_str(),
-                &alias.invocation,
-                alias.require_confirmation,
-            ),
-        ));
-    }
-
-    rows
-}
-
-fn load_script_content(row: &TriggerRow) -> taurine_core::Result<Option<String>> {
-    row.script_binary
-        .as_deref()
-        .map(decompress)
-        .transpose()
-        .map(|content| content.and_then(|content| normalized_modal_text(Some(content.as_str()))))
 }
 
 pub(crate) fn build_search_text(
@@ -661,11 +382,6 @@ fn normalized_preview_text(value: Option<&str>) -> Option<String> {
     (!collapsed.is_empty()).then_some(collapsed)
 }
 
-pub(crate) fn normalized_modal_text(value: Option<&str>) -> Option<String> {
-    let value = value?.replace("\r\n", "\n");
-    (!value.is_empty()).then_some(value)
-}
-
 fn is_script_placeholder(value: &str) -> bool {
     let normalized = value.trim();
     (normalized.starts_with("[Script:") && normalized.ends_with(']'))
@@ -679,71 +395,5 @@ pub(crate) fn display_target_os(target_os: &str) -> &str {
         os.display_name()
     } else {
         target_os
-    }
-}
-
-pub(crate) const fn interpreter_label(interpreter: ScriptInterpreter) -> &'static str {
-    interpreter.as_str()
-}
-
-pub(crate) const fn behavior_label(behavior: ScriptBehavior) -> &'static str {
-    behavior.as_str()
-}
-
-pub(crate) fn default_script_interpreter_for_target_os(target_os: &str) -> ScriptInterpreter {
-    let os =
-        taurine_core::db::TargetOs::parse_str(target_os).unwrap_or(taurine_core::db::TargetOs::All);
-    ScriptInterpreter::default_for_target_os(os)
-}
-
-fn format_usage_count(value: u64) -> String {
-    let digits = value.to_string();
-    let mut formatted = String::with_capacity(digits.len() + digits.len() / 3);
-
-    for (index, ch) in digits.chars().rev().enumerate() {
-        if index > 0 && index % 3 == 0 {
-            formatted.push(',');
-        }
-        formatted.push(ch);
-    }
-
-    formatted.chars().rev().collect()
-}
-
-fn format_relative_time(timestamp: i64) -> Option<String> {
-    if timestamp <= 0 {
-        return None;
-    }
-
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .ok()
-        .map(|duration| duration.as_secs() as i64)?;
-    let diff = now.saturating_sub(timestamp);
-
-    if diff < 60 {
-        Some("just now".to_string())
-    } else {
-        let minutes = diff / 60;
-        if minutes < 60 {
-            return Some(format!("{minutes}m ago"));
-        }
-
-        let hours = minutes / 60;
-        if hours < 24 {
-            return Some(format!("{hours}h ago"));
-        }
-
-        let days = hours / 24;
-        if days < 30 {
-            return Some(format!("{days}d ago"));
-        }
-
-        let months = days / 30;
-        if months < 12 {
-            return Some(format!("{months}mo ago"));
-        }
-
-        Some(format!("{}y ago", days / 365))
     }
 }
