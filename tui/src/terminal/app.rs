@@ -75,6 +75,10 @@ impl App {
         self.should_quit
     }
 
+    pub(crate) fn request_quit(&mut self) {
+        self.should_quit = true;
+    }
+
     pub(crate) fn notification(&self) -> Option<&str> {
         self.notification.as_deref()
     }
@@ -96,7 +100,8 @@ impl App {
             (KeyCode::Char('1'), _) => self.active_page = Page::Library,
             (KeyCode::Char('2'), _) => self.active_page = Page::Settings,
             (KeyCode::Char('t'), KeyModifiers::CONTROL) => self.toggle_theme(),
-            (KeyCode::Char('q'), KeyModifiers::NONE) => self.should_quit = true,
+            // honey: q never quits; Ctrl+C is handled globally in lib.rs so
+            // it exits cleanly from any page, modal, or search state.
             _ => {}
         }
     }
@@ -130,9 +135,16 @@ mod tests {
     }
 
     #[test]
-    fn pressing_q_marks_app_for_quit() {
+    fn pressing_q_does_not_quit() {
         let mut app = App::default();
         app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
+        assert!(!app.should_quit());
+    }
+
+    #[test]
+    fn request_quit_marks_app_for_quit() {
+        let mut app = App::default();
+        app.request_quit();
         assert!(app.should_quit());
     }
 

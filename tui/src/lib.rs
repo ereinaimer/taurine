@@ -141,6 +141,17 @@ fn render_page_content(
 fn handle_tui_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
     app.clear_notification();
 
+    // honey: Ctrl+C quits cleanly from anywhere, including modals and
+    // search, since raw mode delivers it as a key event, not a signal.
+    if key.code == crossterm::event::KeyCode::Char('c')
+        && key
+            .modifiers
+            .contains(crossterm::event::KeyModifiers::CONTROL)
+    {
+        app.request_quit();
+        return;
+    }
+
     if app.active_page() == Page::Settings
         && (app.settings_page().is_modal_open() || app.settings_page().is_search_active())
     {
@@ -1034,6 +1045,50 @@ mod tests {
 
         assert!(app.library_page().is_modal_open());
         assert_eq!(app.library_page().selected_index(), selected_before);
+    }
+
+    #[test]
+    fn pressing_ctrl_c_quits_without_changing_page() {
+        let mut app = App::default();
+        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
+
+        handle_tui_key_event(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+        );
+
+        assert_eq!(app.active_page(), Page::Library);
+        assert!(app.should_quit());
+    }
+
+    #[test]
+    fn pressing_ctrl_c_quits_while_search_is_active() {
+        let mut app = App::default();
+        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
+        handle_tui_key_event(&mut app, plain_key('/'));
+
+        handle_tui_key_event(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+        );
+
+        assert!(app.should_quit());
+    }
+
+    #[test]
+    fn pressing_ctrl_c_quits_while_modal_is_open() {
+        let mut app = App::default();
+        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
+        seed_single_library_item(&mut app);
+        handle_tui_key_event(&mut app, plain_key('d'));
+        assert!(app.library_page().is_modal_open());
+
+        handle_tui_key_event(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+        );
+
+        assert!(app.should_quit());
     }
 
     #[test]
