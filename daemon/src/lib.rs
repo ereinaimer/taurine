@@ -20,6 +20,7 @@ mod services;
 pub mod voice;
 
 pub use services::server::DaemonService;
+pub use services::sync_worker::{SyncStatus, SyncWorker};
 
 static FILE_LOG_GUARD: std::sync::OnceLock<Option<tracing_appender::non_blocking::WorkerGuard>> =
     std::sync::OnceLock::new();

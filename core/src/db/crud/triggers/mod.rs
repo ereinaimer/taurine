@@ -46,7 +46,11 @@ pub use trigger_set::{
     update_trigger_app_filters, upsert_entry_full, upsert_script, upsert_trigger,
     upsert_trigger_with_type, upsert_trigger_with_type_and_case,
 };
-pub use trigger_sync::get_syncable_triggers;
+pub use trigger_sync::{
+    CloudSnippetPayload, ReconcileOutcome, get_syncable_triggers, get_unsynced_triggers,
+    mark_trigger_synced, purge_deleted_tombstones, reconcile_cloud_snippet,
+    serialize_trigger_to_cloud_snippet,
+};
 pub use trigger_types::{
     ActionType, TriggerAction, TriggerConflict, TriggerLimits, TriggerListItem, TriggerRow,
     TriggerSummary, TriggerType, display_alias, display_for_aliases,
