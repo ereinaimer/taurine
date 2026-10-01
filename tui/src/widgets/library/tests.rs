@@ -444,20 +444,30 @@ fn search_is_case_insensitive() {
 #[test]
 fn selection_clamps_at_bounds() {
     let mut state = sample_state();
-    state.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
+    state.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
     assert_eq!(state.selected_index(), Some(0));
 
-    state.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
-    state.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
-    state.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+    state.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    state.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    state.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
 
     assert_eq!(state.selected_index(), Some(2));
 }
 
 #[test]
-fn selection_moves_to_first_match_when_filter_removes_selected_item() {
+fn jk_keys_filter_instead_of_moving() {
     let mut state = sample_state();
     state.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+
+    assert!(state.is_search_active());
+    assert_eq!(state.search_query(), "j");
+    assert_eq!(state.filtered_len(), 0);
+}
+
+#[test]
+fn selection_moves_to_first_match_when_filter_removes_selected_item() {
+    let mut state = sample_state();
+    state.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
     for ch in "good".chars() {
         state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
@@ -498,37 +508,46 @@ fn pressing_enter_is_reserved_while_editor_is_removed() {
 }
 
 #[test]
-fn pressing_n_is_reserved_while_editor_is_removed() {
+fn pressing_n_types_into_search() {
     let mut state = sample_state();
+    assert!(!state.is_search_active());
 
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
 
     assert!(interaction.pending_delete().is_none());
     assert!(state.modal().is_none());
+    assert!(state.is_search_active());
+    assert_eq!(state.search_query(), "n");
 }
 
 #[test]
-fn pressing_x_opens_export_modal() {
+fn pressing_x_types_into_search() {
     let mut state = sample_state();
+    assert!(!state.is_search_active());
 
     state.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
 
-    assert!(matches!(state.modal(), Some(LibraryModal::Export(_))));
+    assert!(state.modal().is_none());
+    assert!(state.is_search_active());
+    assert_eq!(state.search_query(), "x");
 }
 
 #[test]
-fn pressing_i_opens_import_modal() {
+fn pressing_i_types_into_search() {
     let mut state = sample_state();
+    assert!(!state.is_search_active());
 
     state.handle_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE));
 
-    assert!(matches!(state.modal(), Some(LibraryModal::Import(_))));
+    assert!(state.modal().is_none());
+    assert!(state.is_search_active());
+    assert_eq!(state.search_query(), "i");
 }
 
 #[test]
 fn import_modal_defaults_match_current_behavior() {
     let mut state = sample_state();
-    state.handle_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE));
+    state.open_import_modal();
 
     let Some(LibraryModal::Import(modal)) = state.modal() else {
         panic!("expected import modal");
@@ -585,7 +604,7 @@ fn import_modal_treats_foreign_file_as_unknown() {
 #[test]
 fn import_modal_requires_non_empty_path() {
     let mut state = sample_state();
-    state.handle_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE));
+    state.open_import_modal();
 
     let Some(LibraryModal::Import(modal)) = state.modal.as_mut() else {
         panic!("expected import modal");
@@ -604,7 +623,7 @@ fn import_modal_requires_non_empty_path() {
 #[test]
 fn import_modal_password_field_accepts_input_and_stays_masked() {
     let mut state = sample_state();
-    state.handle_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE));
+    state.open_import_modal();
 
     let Some(LibraryModal::Import(modal)) = state.modal.as_mut() else {
         panic!("expected import modal");
@@ -620,7 +639,7 @@ fn import_modal_password_field_accepts_input_and_stays_masked() {
 #[test]
 fn import_modal_conflict_selector_uses_safe_modes() {
     let mut state = sample_state();
-    state.handle_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE));
+    state.open_import_modal();
 
     let Some(LibraryModal::Import(modal)) = state.modal.as_mut() else {
         panic!("expected import modal");
@@ -637,7 +656,7 @@ fn import_modal_conflict_selector_uses_safe_modes() {
 #[test]
 fn import_modal_owns_input_and_keeps_search_inactive() {
     let mut state = sample_state();
-    state.handle_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE));
+    state.open_import_modal();
 
     state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
 
@@ -745,7 +764,7 @@ fn export_result_modal_owns_input_and_keeps_search_inactive() {
 #[test]
 fn export_modal_defaults_match_cli_behavior() {
     let mut state = sample_state();
-    state.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+    state.open_export_modal();
 
     let Some(LibraryModal::Export(modal)) = state.modal() else {
         panic!("expected export modal");
@@ -757,7 +776,7 @@ fn export_modal_defaults_match_cli_behavior() {
 #[test]
 fn export_modal_tab_moves_through_all_fields() {
     let mut state = sample_state();
-    state.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+    state.open_export_modal();
 
     let Some(LibraryModal::Export(modal)) = state.modal.as_mut() else {
         panic!("expected export modal");
@@ -772,7 +791,7 @@ fn export_modal_tab_moves_through_all_fields() {
 #[test]
 fn export_modal_rejects_short_password() {
     let mut state = sample_state();
-    state.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+    state.open_export_modal();
 
     let Some(LibraryModal::Export(modal)) = state.modal.as_mut() else {
         panic!("expected export modal");
@@ -796,7 +815,7 @@ fn export_modal_rejects_short_password() {
 #[test]
 fn export_modal_without_password_creates_passwordless_export() {
     let mut state = sample_state();
-    state.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+    state.open_export_modal();
 
     let Some(LibraryModal::Export(modal)) = state.modal.as_mut() else {
         panic!("expected export modal");
@@ -814,7 +833,7 @@ fn export_modal_without_password_creates_passwordless_export() {
 #[test]
 fn export_modal_password_field_stores_typed_characters() {
     let mut state = sample_state();
-    state.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+    state.open_export_modal();
 
     let Some(LibraryModal::Export(modal)) = state.modal.as_mut() else {
         panic!("expected export modal");
@@ -830,7 +849,7 @@ fn export_modal_password_field_stores_typed_characters() {
 #[test]
 fn enter_on_confirm_creates_pending_export_with_password() {
     let mut state = sample_state();
-    state.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+    state.open_export_modal();
 
     let Some(LibraryModal::Export(modal)) = state.modal.as_mut() else {
         panic!("expected export modal");
@@ -852,7 +871,7 @@ fn enter_on_confirm_creates_pending_export_with_password() {
 #[test]
 fn export_modal_owns_input_and_keeps_search_inactive() {
     let mut state = sample_state();
-    state.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+    state.open_export_modal();
 
     state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
 
@@ -861,21 +880,21 @@ fn export_modal_owns_input_and_keeps_search_inactive() {
 }
 
 #[test]
-fn pressing_d_with_selected_trigger_opens_delete_confirmation_modal() {
+fn pressing_d_types_into_search() {
     let mut state = sample_state();
+    assert!(!state.is_search_active());
 
     state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
 
-    assert!(matches!(
-        state.modal(),
-        Some(LibraryModal::ConfirmDelete(_))
-    ));
+    assert!(state.modal().is_none());
+    assert!(state.is_search_active());
+    assert_eq!(state.search_query(), "d");
 }
 
 #[test]
 fn pressing_escape_closes_open_modal() {
     let mut state = sample_state();
-    state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+    state.open_delete_modal_for_selected();
 
     state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
 
@@ -885,7 +904,7 @@ fn pressing_escape_closes_open_modal() {
 #[test]
 fn delete_confirmation_owns_input_and_keeps_search_inactive() {
     let mut state = sample_state();
-    state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+    state.open_delete_modal_for_selected();
 
     state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
 
@@ -899,7 +918,7 @@ fn delete_confirmation_owns_input_and_keeps_search_inactive() {
 #[test]
 fn delete_confirmation_cancel_closes_modal() {
     let mut state = sample_state();
-    state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+    state.open_delete_modal_for_selected();
 
     state.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
 
@@ -909,7 +928,7 @@ fn delete_confirmation_cancel_closes_modal() {
 #[test]
 fn delete_confirmation_enter_creates_pending_delete() {
     let mut state = sample_state();
-    state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+    state.open_delete_modal_for_selected();
 
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
@@ -921,8 +940,8 @@ fn delete_confirmation_enter_creates_pending_delete() {
 #[test]
 fn select_after_delete_chooses_nearest_remaining_item() {
     let mut state = sample_state();
-    state.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
-    state.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+    state.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    state.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     state.replace_items(vec![
         LibraryTrigger::single(list_item(
             "id-gm",
@@ -957,10 +976,10 @@ fn select_after_delete_chooses_nearest_remaining_item() {
 #[test]
 fn modal_keeps_library_selection_stable_after_close() {
     let mut state = sample_state();
-    state.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+    state.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     let selected_before = state.selected_index();
 
-    state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+    state.open_delete_modal_for_selected();
     state.clear_modal();
 
     assert_eq!(state.selected_index(), selected_before);
@@ -1177,12 +1196,23 @@ fn unbound_character_starts_search_immediately() {
 
 #[test]
 fn reserved_keys_never_start_library_search() {
-    for ch in ['1', '2', 'q'] {
+    for ch in ['1', '2'] {
         let mut state = sample_state();
         state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
         assert!(!state.is_search_active());
         assert_eq!(state.search_query(), "");
     }
+}
+
+#[test]
+fn q_types_into_search() {
+    let mut state = sample_state();
+    assert!(!state.is_search_active());
+
+    state.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
+
+    assert!(state.is_search_active());
+    assert_eq!(state.search_query(), "q");
 }
 
 #[test]
@@ -1355,7 +1385,7 @@ fn six_item_state() -> LibraryPageState {
 fn clicked_window_holds_while_default_policy_would_jump() {
     let mut state = six_item_state();
     for _ in 0..4 {
-        state.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        state.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     }
     assert_eq!(state.selected_index(), Some(4));
     assert_eq!(state.visible_window(2), (3, 5));

@@ -201,10 +201,14 @@ impl LibraryTrigger {
         }
     }
 
+    // honey: unreachable until the shortcut rework lands; kept with tests.
+    #[allow(dead_code)]
     pub(crate) fn name(&self) -> &str {
         &self.name
     }
 
+    // honey: unreachable until the shortcut rework lands; kept with tests.
+    #[allow(dead_code)]
     pub(crate) fn id(&self) -> &str {
         &self.id
     }

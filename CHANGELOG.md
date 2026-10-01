@@ -28,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Rounded Search Box**: The bottom search bar is now a compact bordered box instead of a filled gray block.
 - **TUI Cursor Style**: Pick the text caret shape (block, bar, or underscore) from TUI settings; bar stays the default.
 
+### Changed
+- **Arrow-Key Navigation**: The library list now moves with the Up/Down arrow keys; every letter and symbol types straight into search instead.
+
 ### Removed
 - **Trigger Editor Popup**: The overlay editor is gone pending a revamped editor; use the CLI to add or edit triggers for now.
 - **Home Page**: The TUI now opens directly on the library page with settings one key away; daemon start and stop remain available via the CLI and service.

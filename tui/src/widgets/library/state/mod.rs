@@ -32,11 +32,15 @@ pub(crate) enum LibraryImportModalField {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum LibraryModal {
+    // honey: unreachable until the shortcut rework lands; kept with tests.
+    #[allow(dead_code)]
     Export(LibraryExportModalState),
     ExportResult(LibraryExportResultModalState),
     Import(LibraryImportModalState),
     ImportResult(LibraryImportResultModalState),
     ConfirmImportRunVariables(LibraryImportRunVariablesModalState),
+    // honey: unreachable until the shortcut rework lands; kept with tests.
+    #[allow(dead_code)]
     ConfirmDelete(LibraryDeleteModalState),
 }
 
@@ -104,6 +108,8 @@ impl LibraryPageState {
         self.load_error = Some(error);
     }
 
+    // honey: unreachable until the shortcut rework lands; kept with tests.
+    #[allow(dead_code)]
     pub(crate) fn set_status_message(&mut self, message: String) {
         self.status_message = Some(message);
     }
@@ -176,6 +182,8 @@ impl LibraryPageState {
         self.modal.as_ref()
     }
 
+    // honey: unreachable until the shortcut rework lands; kept with tests.
+    #[allow(dead_code)]
     pub(crate) fn open_export_modal(&mut self) {
         match LibraryExportModalState::new() {
             Ok(state) => self.modal = Some(LibraryModal::Export(state)),
@@ -183,6 +191,8 @@ impl LibraryPageState {
         }
     }
 
+    // honey: unreachable until the shortcut rework lands; kept with tests.
+    #[allow(dead_code)]
     pub(crate) fn open_import_modal(&mut self) {
         self.modal = Some(LibraryModal::Import(LibraryImportModalState::new()));
     }
@@ -209,7 +219,9 @@ impl LibraryPageState {
         ));
     }
 
-    fn open_delete_modal_for_selected(&mut self) {
+    // honey: unreachable until the shortcut rework lands; kept with tests.
+    #[allow(dead_code)]
+    pub(crate) fn open_delete_modal_for_selected(&mut self) {
         let Some(selected_index) = self.selected_index() else {
             self.load_error = Some("No trigger selected.".to_string());
             return;
@@ -306,32 +318,19 @@ impl LibraryPageState {
                 self.search_mode = true;
                 LibraryInteraction::handled()
             }
-            (KeyCode::Char('j'), KeyModifiers::NONE) | (KeyCode::Down, KeyModifiers::NONE) => {
+            (KeyCode::Down, KeyModifiers::NONE) => {
                 self.move_selection(1);
                 LibraryInteraction::handled()
             }
-            (KeyCode::Char('k'), KeyModifiers::NONE) | (KeyCode::Up, KeyModifiers::NONE) => {
+            (KeyCode::Up, KeyModifiers::NONE) => {
                 self.move_selection(-1);
                 LibraryInteraction::handled()
             }
-            // honey: trigger editor removed pending revamp; n/Enter reserved.
-            (KeyCode::Char('n'), KeyModifiers::NONE) => LibraryInteraction::handled(),
-            (KeyCode::Char('i'), KeyModifiers::NONE) => {
-                self.open_import_modal();
-                LibraryInteraction::handled()
-            }
-            (KeyCode::Char('x'), KeyModifiers::NONE) => {
-                self.open_export_modal();
-                LibraryInteraction::handled()
-            }
-            (KeyCode::Char('d'), KeyModifiers::NONE) => {
-                self.open_delete_modal_for_selected();
-                LibraryInteraction::handled()
-            }
+            // honey: trigger editor removed pending revamp; Enter reserved.
             (KeyCode::Enter, KeyModifiers::NONE) => LibraryInteraction::handled(),
-            // honey: navigation and quit keys never start a search; any other
+            // honey: navigation keys never start a search; any other
             // bare character filters the list immediately (type-to-search).
-            (KeyCode::Char('1' | '2' | 'q'), KeyModifiers::NONE) => LibraryInteraction::handled(),
+            (KeyCode::Char('1' | '2'), KeyModifiers::NONE) => LibraryInteraction::handled(),
             (KeyCode::Char(ch), modifiers)
                 if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {

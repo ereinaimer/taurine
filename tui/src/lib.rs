@@ -758,7 +758,7 @@ mod tests {
         let mut app = App::default();
         app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
         seed_single_library_item(&mut app);
-        handle_tui_key_event(&mut app, plain_key('d'));
+        app.library_page_mut().open_delete_modal_for_selected();
 
         handle_tui_key_event(&mut app, plain_key('q'));
 
@@ -771,7 +771,7 @@ mod tests {
         let mut app = App::default();
         app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
         seed_single_library_item(&mut app);
-        handle_tui_key_event(&mut app, plain_key('d'));
+        app.library_page_mut().open_delete_modal_for_selected();
 
         handle_tui_key_event(&mut app, plain_key('/'));
 
@@ -806,7 +806,7 @@ mod tests {
             })]);
 
         handle_tui_key_event(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-        handle_tui_key_event(&mut app, plain_key('d'));
+        app.library_page_mut().open_delete_modal_for_selected();
         handle_tui_key_event(&mut app, plain_key('q'));
 
         assert!(!app.should_quit());
@@ -840,7 +840,7 @@ mod tests {
             })]);
 
         handle_tui_key_event(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-        handle_tui_key_event(&mut app, plain_key('d'));
+        app.library_page_mut().open_delete_modal_for_selected();
         handle_tui_key_event(&mut app, plain_key('/'));
 
         assert!(!app.library_page().is_search_active());
@@ -852,7 +852,7 @@ mod tests {
         let mut app = App::default();
         app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
         seed_single_library_item(&mut app);
-        handle_tui_key_event(&mut app, plain_key('d'));
+        app.library_page_mut().open_delete_modal_for_selected();
 
         handle_tui_key_event(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
 
@@ -1038,7 +1038,7 @@ mod tests {
         let mut app = App::default();
         app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
         seed_single_library_item(&mut app);
-        handle_tui_key_event(&mut app, plain_key('d'));
+        app.library_page_mut().open_delete_modal_for_selected();
         let selected_before = app.library_page().selected_index();
 
         handle_tui_mouse_event(&mut app, left_click(30, 10), TEST_AREA);
@@ -1080,7 +1080,7 @@ mod tests {
         let mut app = App::default();
         app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
         seed_single_library_item(&mut app);
-        handle_tui_key_event(&mut app, plain_key('d'));
+        app.library_page_mut().open_delete_modal_for_selected();
         assert!(app.library_page().is_modal_open());
 
         handle_tui_key_event(
@@ -1101,5 +1101,7 @@ mod tests {
 
         assert_eq!(app.active_page(), Page::Library);
         assert!(!app.library_page().is_modal_open());
+        assert!(app.library_page().is_search_active());
+        assert_eq!(app.library_page().search_query(), "n");
     }
 }
