@@ -832,3 +832,59 @@ fn test_status_command_executes_hermetically() {
     // SAFETY: access to TAURINE_DATA_DIR is serialized by TEST_LOCK
     unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
 }
+
+#[test]
+fn test_workspace_command_parsing() {
+    let cli = Cli::try_parse_from(["taurine", "workspace"]).expect("workspace default parses");
+    assert!(matches!(
+        cli.command,
+        Some(Commands::Workspace { action: None })
+    ));
+
+    let cli = Cli::try_parse_from(["taurine", "workspace", "list"]).expect("workspace list parses");
+    assert!(matches!(
+        cli.command,
+        Some(Commands::Workspace {
+            action: Some(crate::args::WorkspaceAction::List),
+        })
+    ));
+
+    let cli = Cli::try_parse_from(["taurine", "workspace", "add", "ClientA"])
+        .expect("workspace add parses");
+    match cli.command {
+        Some(Commands::Workspace {
+            action: Some(crate::args::WorkspaceAction::Add { name }),
+        }) => {
+            assert_eq!(name, "ClientA");
+        }
+        other => panic!("expected Workspace Add, got {other:?}"),
+    }
+
+    let cli = Cli::try_parse_from(["taurine", "workspace", "delete", "ClientA"])
+        .expect("workspace delete parses");
+    match cli.command {
+        Some(Commands::Workspace {
+            action: Some(crate::args::WorkspaceAction::Delete { name }),
+        }) => {
+            assert_eq!(name, "ClientA");
+        }
+        other => panic!("expected Workspace Delete, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_workspace_execution_hermetically() {
+    let _lock = crate::commands::TEST_LOCK.lock().unwrap();
+    let temp = tempfile::tempdir().expect("tempdir");
+    // SAFETY: access to TAURINE_DATA_DIR is serialized by TEST_LOCK
+    unsafe { std::env::set_var("TAURINE_DATA_DIR", temp.path()) };
+
+    let res_list = crate::commands::workspace::execute_list(false);
+    assert!(res_list.is_ok());
+
+    let res_list_json = crate::commands::workspace::execute_list(true);
+    assert!(res_list_json.is_ok());
+
+    // SAFETY: access to TAURINE_DATA_DIR is serialized by TEST_LOCK
+    unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
+}

@@ -126,3 +126,29 @@ fn test_get_workspace_by_id() {
     let not_found = get_workspace_by_id(&conn, "nonexistent").unwrap();
     assert!(not_found.is_none());
 }
+
+#[test]
+fn test_delete_workspace_marks_deleted() {
+    let conn = Connection::open_in_memory().unwrap();
+    run_migrations(&conn).unwrap();
+    crate::db::crud::tier::set_user_tier(&conn, crate::db::crud::tier::UserTier::Pro).unwrap();
+
+    let ws = create_workspace(&conn, "To Delete").unwrap();
+    assert_eq!(get_workspaces(&conn).unwrap().len(), 2);
+
+    super::delete_workspace(&conn, &ws.id).unwrap();
+    assert_eq!(get_workspaces(&conn).unwrap().len(), 1);
+    assert_eq!(get_workspace_by_id(&conn, &ws.id).unwrap(), None);
+}
+
+#[test]
+fn test_delete_default_workspace_rejected() {
+    let conn = Connection::open_in_memory().unwrap();
+    run_migrations(&conn).unwrap();
+
+    let err = super::delete_workspace(&conn, "default").unwrap_err();
+    match err {
+        crate::Error::Config(msg) => assert!(msg.contains("default")),
+        other => panic!("expected Config error, got {other:?}"),
+    }
+}

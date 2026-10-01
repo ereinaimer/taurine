@@ -13,6 +13,7 @@ pub mod service;
 pub mod status;
 pub mod update;
 pub mod validate;
+pub mod workspace;
 
 #[cfg(test)]
 mod script_tests;

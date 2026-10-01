@@ -189,6 +189,19 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
         Some(Commands::Completions { action }) => {
             commands::completions::handle_completion(action.as_ref())?;
         }
+        Some(Commands::Workspace { action }) => match action {
+            Some(crate::args::WorkspaceAction::Add { name }) => {
+                commands::auth::ensure_authenticated()?;
+                commands::workspace::execute_add(&name, json)?;
+            }
+            Some(crate::args::WorkspaceAction::Delete { name }) => {
+                commands::auth::ensure_authenticated()?;
+                commands::workspace::execute_delete(&name, json)?;
+            }
+            Some(crate::args::WorkspaceAction::List) | None => {
+                commands::workspace::execute_list(json)?;
+            }
+        },
         None => {
             use clap::CommandFactory;
             let mut cmd = Cli::command();

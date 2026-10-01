@@ -195,6 +195,12 @@ pub(crate) enum Commands {
         #[command(subcommand)]
         action: Option<ShellCompletionAction>,
     },
+    /// Manage snippet workspaces
+    #[command(alias = "ws")]
+    Workspace {
+        #[command(subcommand)]
+        action: Option<WorkspaceAction>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -214,6 +220,24 @@ pub(crate) enum ConfigAction {
         /// Reset all settings
         #[arg(long)]
         all: bool,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+pub(crate) enum WorkspaceAction {
+    /// List all workspaces
+    #[command(alias = "ls")]
+    List,
+    /// Create a new workspace
+    Add {
+        /// Name of the workspace
+        name: String,
+    },
+    /// Delete a workspace
+    #[command(aliases = ["rm", "remove"])]
+    Delete {
+        /// Name or ID of the workspace
+        name: String,
     },
 }
 

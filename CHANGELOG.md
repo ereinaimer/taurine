@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Cloud Authentication**: Sign in and out of Taurine Cloud with `taurine login` and `taurine logout`.
 - **Cloud Quota & Tier Status**: View subscription tier, weekly quota balance, and usage limits in `taurine status`.
+- **Workspace Management**: Create, list, and delete snippet workspaces with the new `taurine workspace` command.
 - **Workspace Filtering**: Assign and filter triggers by workspace with the `--workspace` flag.
 - **Unlimited Voice Dictation**: Talk as long as you want with no time cutoffs.
 - **Smarter Custom Words**: Your personal dictionary and voice shortcuts now take priority over everyday speech.

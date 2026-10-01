@@ -38,7 +38,8 @@ pub use triggers::{
     validate_trigger_target_os_conflict, validate_voice_phrase,
 };
 pub use workspaces::{
-    WorkspaceRow, create_workspace, get_default_workspace, get_workspace_by_id, get_workspaces,
+    WorkspaceRow, create_workspace, delete_workspace, get_default_workspace, get_workspace_by_id,
+    get_workspaces,
 };
 
 pub use crate::stats::TriggerStatKind;

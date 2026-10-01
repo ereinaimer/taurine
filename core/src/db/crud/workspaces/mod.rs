@@ -115,3 +115,28 @@ pub fn create_workspace(conn: &Connection, name: &str) -> crate::Result<Workspac
         is_synced: false,
     })
 }
+
+/// Soft-deletes a workspace by ID or name and soft-deletes its associated triggers.
+pub fn delete_workspace(conn: &Connection, id_or_name: &str) -> crate::Result<()> {
+    let ws = get_workspaces(conn)?
+        .into_iter()
+        .find(|w| w.id == id_or_name || w.name.eq_ignore_ascii_case(id_or_name))
+        .ok_or_else(|| crate::Error::NotFound(format!("Workspace '{id_or_name}' not found")))?;
+
+    if ws.is_default || ws.id == "default" {
+        return Err(crate::Error::Config(
+            "Cannot delete the default workspace".to_string(),
+        ));
+    }
+
+    let now = crate::db::now_unix_secs();
+    conn.execute(
+        "UPDATE workspaces SET is_deleted = 1, updated_at = ?1, version = version + 1, is_synced = 0 WHERE id = ?2",
+        rusqlite::params![now, ws.id],
+    )?;
+    conn.execute(
+        "UPDATE triggers SET is_deleted = 1, updated_at = ?1, version = version + 1, is_synced = 0 WHERE workspace_id = ?2",
+        rusqlite::params![now, ws.id],
+    )?;
+    Ok(())
+}
