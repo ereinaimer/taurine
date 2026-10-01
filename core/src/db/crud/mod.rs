@@ -1,9 +1,14 @@
+pub mod quota;
 pub mod settings;
 pub mod stats;
 pub mod target_os;
 pub mod triggers;
 pub mod workspaces;
 
+pub use quota::{
+    QuotaLedgerRow, calculate_week_start_epoch, compute_quota_hmac, get_or_init_quota_ledger,
+    record_quota_depletion, set_quota_balance_from_cloud, verify_quota_hmac,
+};
 pub use target_os::TargetOs;
 pub use triggers::{
     ActionType, AddOutcome, AppFilterPrefix, ExistingTriggerUpdate, InvocationType, NewEntry,
