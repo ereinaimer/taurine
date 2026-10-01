@@ -35,9 +35,10 @@ impl SyncWorker {
     }
 
     /// Spawns a background thread running periodic sync cycles.
-    pub fn spawn<F>(conn_provider: F, interval: Duration) -> std::thread::JoinHandle<()>
+    pub fn spawn<F, E>(conn_provider: F, interval: Duration) -> std::thread::JoinHandle<()>
     where
-        F: Fn() -> rusqlite::Result<rusqlite::Connection> + Send + 'static,
+        F: Fn() -> Result<rusqlite::Connection, E> + Send + 'static,
+        E: std::fmt::Display,
     {
         std::thread::Builder::new()
             .name("tau-sync".to_string())
@@ -76,6 +77,11 @@ impl SyncWorker {
         conn: &rusqlite::Connection,
         client: Option<&CloudClient>,
     ) -> SyncStatus {
+        // 0. Flush any pending in-memory quota deltas to SQLite (applies locally regardless of cloud auth)
+        if let Ok(key) = taurine_core::db::key::get_or_create_db_key() {
+            let _ = crate::engine::quota_guard::QuotaGuard::global().flush_to_db(conn, &key);
+        }
+
         let client = match client {
             Some(c) => c,
             None => return SyncStatus::NotAuthenticated,

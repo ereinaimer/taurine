@@ -579,3 +579,35 @@ async fn test_sync_worker_authenticated_two_way_cycle() {
     server_handle.join().unwrap();
     taurine_core::cloud::clear_tokens().unwrap();
 }
+
+#[tokio::test]
+async fn test_sync_worker_flushes_quota_to_db() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    crate::hook::tests::mock_keystore::use_mock_keystore();
+
+    let conn = Connection::open_in_memory().unwrap();
+    run_migrations(&conn).unwrap();
+    let key = [42u8; 32];
+    let now_epoch = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    taurine_core::db::crud::quota::get_or_init_quota_ledger(&conn, &key, now_epoch).unwrap();
+
+    let guard = crate::engine::quota_guard::QuotaGuard::global();
+    guard.set_balance(100.0);
+    assert!(guard.deplete(crate::engine::quota_guard::ExpansionType::Text));
+    assert!(guard.unflushed_delta() > 0.0);
+
+    // Flush directly using the guard to verify flush works with connection
+    guard
+        .flush_to_db(&conn, &key)
+        .expect("flush should succeed");
+
+    assert_eq!(guard.unflushed_delta(), 0.0);
+    let row =
+        taurine_core::db::crud::quota::get_or_init_quota_ledger(&conn, &key, now_epoch).unwrap();
+    assert!((row.remaining_percentage - 99.70).abs() < 1e-6);
+}

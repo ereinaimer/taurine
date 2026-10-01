@@ -121,6 +121,22 @@ pub fn start() -> taurine_core::error::Result<()> {
 
     let conn = init::setup()?;
 
+    // Hydrate QuotaGuard with stored weekly quota from SQLite
+    let now_epoch = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    if let Ok(key) = taurine_core::db::key::get_or_create_db_key()
+        && let Ok(row) =
+            taurine_core::db::crud::quota::get_or_init_quota_ledger(&conn, &key, now_epoch)
+    {
+        crate::engine::quota_guard::QuotaGuard::init_global(row.remaining_percentage);
+        debug!(
+            "Hydrated QuotaGuard with balance: {:.2}%",
+            row.remaining_percentage
+        );
+    }
+
     // Initialize injection thread pool (replaces per-expansion thread spawning)
     crate::injector::init_injection_pool();
 
@@ -537,6 +553,12 @@ pub fn start() -> taurine_core::error::Result<()> {
             });
         })?;
 
+    // 8. Background Cloud Two-Way Sync Worker (syncs every 60s)
+    let _sync_thread = SyncWorker::spawn(
+        taurine_core::db::init::setup,
+        std::time::Duration::from_secs(60),
+    );
+
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .max_blocking_threads(4)
@@ -548,6 +570,21 @@ pub fn start() -> taurine_core::error::Result<()> {
         let dict_handle = tokio::spawn(crate::dictionary_manager::check_and_update_dictionary());
 
         let shutdown_requested = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+        // Periodic QuotaGuard flush to SQLite (every 2 seconds if there are pending deltas)
+        let shutdown_for_quota = shutdown_requested.clone();
+        let quota_flush_handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(2));
+            while !shutdown_for_quota.load(Ordering::Relaxed) {
+                interval.tick().await;
+                if crate::engine::quota_guard::QuotaGuard::global().unflushed_delta() > 0.0
+                    && let Ok(conn) = taurine_core::db::init::setup()
+                    && let Ok(key) = taurine_core::db::key::get_or_create_db_key()
+                {
+                    let _ = crate::engine::quota_guard::QuotaGuard::global().flush_to_db(&conn, &key);
+                }
+            }
+        });
 
         // Periodic maintenance task for voice model hold-ladder expiry (swept every 5s)
         let shutdown_for_voice = shutdown_requested.clone();
@@ -874,6 +911,7 @@ pub fn start() -> taurine_core::error::Result<()> {
         dict_handle.abort();
         voice_sweep_handle.abort();
         pause_coordinator_handle.abort();
+        quota_flush_handle.abort();
         Ok(())
     });
 
@@ -962,6 +1000,13 @@ pub fn start() -> taurine_core::error::Result<()> {
     if let Some(session) = VOICE_SESSION.get() {
         session.capture().stop();
         session.unload_model();
+    }
+
+    // 6. Flush pending quota deltas to SQLite on shutdown
+    if let Ok(conn) = init::setup()
+        && let Ok(key) = taurine_core::db::key::get_or_create_db_key()
+    {
+        let _ = crate::engine::quota_guard::QuotaGuard::global().flush_to_db(&conn, &key);
     }
 
     info!("Service stopped cleanly. Exiting.");
