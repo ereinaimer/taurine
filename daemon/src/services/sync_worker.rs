@@ -54,11 +54,10 @@ impl SyncWorker {
                 };
                 rt.block_on(async move {
                     let mut ticker = tokio::time::interval(interval);
+                    let client = CloudClient::default_or_from_env();
                     loop {
                         ticker.tick().await;
-                        if let Ok(client) = CloudClient::from_env()
-                            && let Ok(conn) = conn_provider()
-                        {
+                        if let Ok(conn) = conn_provider() {
                             let _ = Self::run_sync_cycle(&conn, Some(&client)).await;
                         }
                     }

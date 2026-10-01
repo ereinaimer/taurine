@@ -131,6 +131,54 @@ fn test_cloud_config_from_env() {
 }
 
 #[test]
+fn test_cloud_config_default_or_from_env() {
+    let _guard = lock_test();
+
+    let orig_t_url = std::env::var("TAURINE_SUPABASE_URL").ok();
+    let orig_t_key = std::env::var("TAURINE_SUPABASE_ANON_KEY").ok();
+    let orig_s_url = std::env::var("SUPABASE_URL").ok();
+    let orig_s_key = std::env::var("SUPABASE_ANON_KEY").ok();
+
+    // SAFETY: Mutating process environment variables is serialized via TEST_LOCK; isolated to this test.
+    unsafe {
+        std::env::remove_var("TAURINE_SUPABASE_URL");
+        std::env::remove_var("TAURINE_SUPABASE_ANON_KEY");
+        std::env::remove_var("SUPABASE_URL");
+        std::env::remove_var("SUPABASE_ANON_KEY");
+    }
+
+    let default_cfg = CloudConfig::default_or_from_env();
+    assert_eq!(
+        default_cfg.supabase_url,
+        crate::cloud::types::DEFAULT_SUPABASE_URL
+    );
+    assert_eq!(
+        default_cfg.anon_key,
+        crate::cloud::types::DEFAULT_SUPABASE_ANON_KEY
+    );
+
+    let default_client = CloudClient::default_or_from_env();
+    assert_eq!(
+        default_client.config().supabase_url,
+        crate::cloud::types::DEFAULT_SUPABASE_URL
+    );
+
+    let restore = |key: &str, val: Option<String>| {
+        // SAFETY: Mutating process environment variables is serialized via TEST_LOCK; restoring original state.
+        unsafe {
+            match val {
+                Some(v) => std::env::set_var(key, v),
+                None => std::env::remove_var(key),
+            }
+        }
+    };
+    restore("TAURINE_SUPABASE_URL", orig_t_url);
+    restore("TAURINE_SUPABASE_ANON_KEY", orig_t_key);
+    restore("SUPABASE_URL", orig_s_url);
+    restore("SUPABASE_ANON_KEY", orig_s_key);
+}
+
+#[test]
 fn test_pkce_auth_url_generation() {
     let config = CloudConfig {
         supabase_url: "https://taurine.supabase.co".to_string(),

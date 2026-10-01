@@ -114,7 +114,13 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
         Some(Commands::Setup) => {
             taurine_core::service::linux_setup()?;
         }
-        Some(Commands::Login { no_browser }) => commands::auth::execute_login(no_browser, json)?,
+        Some(Commands::Login {
+            no_browser,
+            provider,
+            email,
+        }) => {
+            commands::auth::execute_login(no_browser, provider.as_deref(), email.as_deref(), json)?
+        }
         Some(Commands::Logout) => commands::auth::execute_logout(json)?,
         Some(Commands::Up) => {
             commands::auth::ensure_authenticated()?;

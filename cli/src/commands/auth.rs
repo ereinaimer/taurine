@@ -15,86 +15,108 @@ pub fn ensure_authenticated() -> Result<taurine_core::cloud::AuthTokens> {
     }
 }
 
-/// Executes the cloud login sequence via GoTrue OAuth PKCE.
-pub fn execute_login(no_browser: bool, json: bool) -> Result<()> {
+/// Executes the cloud login sequence via GoTrue OAuth PKCE or Email/Password.
+pub fn execute_login(
+    no_browser: bool,
+    provider: Option<&str>,
+    email: Option<&str>,
+    json: bool,
+) -> Result<()> {
     let (verifier, challenge) = taurine_core::cloud::generate_pkce_challenge();
-    let config = taurine_core::cloud::CloudConfig::from_env()?;
+    let config = taurine_core::cloud::CloudConfig::default_or_from_env();
     let client = taurine_core::cloud::CloudClient::new(config);
 
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
 
-    let (code, redirect_uri) = if no_browser {
-        let redirect_uri = "http://127.0.0.1/callback";
-        let auth_url = client.auth_url(redirect_uri, &challenge);
-        if json {
-            println!(
-                "{}",
-                serde_json::json!({
-                    "auth_url": auth_url,
-                    "prompt": "Enter authorization code"
-                })
-            );
-        } else {
-            println!("Please open the following URL in your browser to log in:\n\n{auth_url}\n");
-            print!("Enter authorization code: ");
+    let tokens = if let Some(user_email) = email {
+        if !json {
+            println!("Signing in with email: {user_email}");
+            print!("Enter password: ");
             let _ = std::io::stdout().flush();
         }
-
-        let mut code_input = String::new();
+        let mut pass_input = String::new();
         std::io::stdin()
-            .read_line(&mut code_input)
+            .read_line(&mut pass_input)
             .map_err(taurine_core::Error::Io)?;
-        let trimmed_code = code_input.trim().to_string();
-        if trimmed_code.is_empty() {
-            return Err(taurine_core::Error::Config(
-                "No authorization code provided.".into(),
-            ));
-        }
-        (trimmed_code, redirect_uri.to_string())
+        let password = pass_input.trim();
+        rt.block_on(async { client.sign_in_with_password(user_email, password).await })?
     } else {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
-        let port = listener.local_addr()?.port();
-        let redirect_uri = format!("http://127.0.0.1:{port}/callback");
-        let auth_url = client.auth_url(&redirect_uri, &challenge);
+        let provider_name = provider.unwrap_or("github");
+        let (code, redirect_uri) = if no_browser {
+            let redirect_uri = "http://127.0.0.1/callback";
+            let auth_url = client.auth_url_for_provider(provider_name, redirect_uri, &challenge);
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "auth_url": auth_url,
+                        "prompt": "Enter authorization code"
+                    })
+                );
+            } else {
+                println!(
+                    "Please open the following URL in your browser to log in:\n\n{auth_url}\n"
+                );
+                print!("Enter authorization code: ");
+                let _ = std::io::stdout().flush();
+            }
 
-        if !json {
-            println!("Opening browser for authentication...");
-            println!("If your browser does not open automatically, visit:\n{auth_url}\n");
-        }
+            let mut code_input = String::new();
+            std::io::stdin()
+                .read_line(&mut code_input)
+                .map_err(taurine_core::Error::Io)?;
+            let trimmed_code = code_input.trim().to_string();
+            if trimmed_code.is_empty() {
+                return Err(taurine_core::Error::Config(
+                    "No authorization code provided.".into(),
+                ));
+            }
+            (trimmed_code, redirect_uri.to_string())
+        } else {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+            let port = listener.local_addr()?.port();
+            let redirect_uri = format!("http://127.0.0.1:{port}/callback");
+            let auth_url = client.auth_url_for_provider(provider_name, &redirect_uri, &challenge);
 
-        open_browser(&auth_url);
+            if !json {
+                println!("Opening browser for authentication ({provider_name})...");
+                println!("If your browser does not open automatically, visit:\n{auth_url}\n");
+            }
 
-        let (mut stream, _) = listener.accept()?;
-        use std::io::{BufRead, BufReader};
-        let mut reader = BufReader::new(&stream);
-        let mut request_line = String::new();
-        reader.read_line(&mut request_line)?;
+            open_browser(&auth_url);
 
-        let code = extract_code_from_request_line(&request_line).ok_or_else(|| {
-            taurine_core::Error::Config(
-                "Failed to extract authorization code from OAuth callback.".into(),
-            )
-        })?;
+            let (mut stream, _) = listener.accept()?;
+            use std::io::{BufRead, BufReader};
+            let mut reader = BufReader::new(&stream);
+            let mut request_line = String::new();
+            reader.read_line(&mut request_line)?;
 
-        let response_body = "<!DOCTYPE html><html><head><title>Taurine Login</title></head><body><h1>Authentication Successful</h1><p>You can close this tab and return to your terminal.</p></body></html>";
-        let response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-            response_body.len(),
-            response_body
-        );
-        let _ = stream.write_all(response.as_bytes());
-        let _ = stream.flush();
+            let code = extract_code_from_request_line(&request_line).ok_or_else(|| {
+                taurine_core::Error::Config(
+                    "Failed to extract authorization code from OAuth callback.".into(),
+                )
+            })?;
 
-        (code, redirect_uri)
+            let response_body = "<!DOCTYPE html><html><head><title>Taurine Login</title></head><body><h1>Authentication Successful</h1><p>You can close this tab and return to your terminal.</p></body></html>";
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            );
+            let _ = stream.write_all(response.as_bytes());
+            let _ = stream.flush();
+
+            (code, redirect_uri)
+        };
+
+        rt.block_on(async {
+            client
+                .exchange_code_for_session(&code, &verifier, &redirect_uri)
+                .await
+        })?
     };
-
-    let tokens = rt.block_on(async {
-        client
-            .exchange_code_for_session(&code, &verifier, &redirect_uri)
-            .await
-    })?;
 
     taurine_core::cloud::store_tokens(&tokens)?;
 

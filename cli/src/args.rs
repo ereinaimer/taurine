@@ -83,6 +83,14 @@ pub(crate) enum Commands {
         /// Do not open the browser automatically; print URL and prompt for code
         #[arg(long)]
         no_browser: bool,
+
+        /// OAuth provider to authenticate with (e.g. github, google, gitlab)
+        #[arg(long)]
+        provider: Option<String>,
+
+        /// Email address for password-based login
+        #[arg(long)]
+        email: Option<String>,
     },
     /// Log out from Taurine Cloud
     #[command(alias = "signout")]

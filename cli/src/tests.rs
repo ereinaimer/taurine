@@ -627,19 +627,39 @@ fn add_script_without_args_parses_successfully() {
 fn test_login_args_parsing() {
     let cli = Cli::try_parse_from(["taurine", "login"]).expect("login parses");
     match cli.command {
-        Some(Commands::Login { no_browser }) => {
+        Some(Commands::Login {
+            no_browser,
+            provider,
+            email,
+        }) => {
             assert!(!no_browser);
+            assert_eq!(provider, None);
+            assert_eq!(email, None);
         }
         other => panic!("expected Login, got {other:?}"),
     }
 
-    let cli = Cli::try_parse_from(["taurine", "login", "--no-browser"])
-        .expect("login --no-browser parses");
+    let cli = Cli::try_parse_from([
+        "taurine",
+        "login",
+        "--no-browser",
+        "--provider",
+        "github",
+        "--email",
+        "user@example.com",
+    ])
+    .expect("login with options parses");
     match cli.command {
-        Some(Commands::Login { no_browser }) => {
+        Some(Commands::Login {
+            no_browser,
+            provider,
+            email,
+        }) => {
             assert!(no_browser);
+            assert_eq!(provider.as_deref(), Some("github"));
+            assert_eq!(email.as_deref(), Some("user@example.com"));
         }
-        other => panic!("expected Login with no_browser=true, got {other:?}"),
+        other => panic!("expected Login with options, got {other:?}"),
     }
 
     let cli = Cli::try_parse_from(["taurine", "logout"]).expect("logout parses");

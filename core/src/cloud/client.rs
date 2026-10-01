@@ -48,19 +48,30 @@ impl CloudClient {
         Ok(Self::new(config))
     }
 
+    /// Constructs a `CloudClient` using environment variables or built-in defaults.
+    pub fn default_or_from_env() -> Self {
+        Self::new(CloudConfig::default_or_from_env())
+    }
+
     /// Returns a reference to the active cloud configuration.
     pub fn config(&self) -> &CloudConfig {
         &self.config
     }
 
-    /// Generates the GoTrue OAuth authorize URL with PKCE challenge and redirect URI.
-    pub fn auth_url(&self, redirect_uri: &str, code_challenge: &str) -> String {
+    /// Generates the GoTrue OAuth authorize URL with PKCE challenge, redirect URI, and provider.
+    pub fn auth_url_for_provider(
+        &self,
+        provider: &str,
+        redirect_uri: &str,
+        code_challenge: &str,
+    ) -> String {
         let base = format!(
             "{}/auth/v1/authorize",
             self.config.supabase_url.trim_end_matches('/')
         );
         if let Ok(mut url) = reqwest::Url::parse(&base) {
             url.query_pairs_mut()
+                .append_pair("provider", provider)
                 .append_pair("code_challenge", code_challenge)
                 .append_pair("code_challenge_method", "s256")
                 .append_pair("redirect_to", redirect_uri)
@@ -68,9 +79,14 @@ impl CloudClient {
             url.to_string()
         } else {
             format!(
-                "{base}?code_challenge={code_challenge}&code_challenge_method=s256&redirect_to={redirect_uri}&response_type=code"
+                "{base}?provider={provider}&code_challenge={code_challenge}&code_challenge_method=s256&redirect_to={redirect_uri}&response_type=code"
             )
         }
+    }
+
+    /// Generates the GoTrue OAuth authorize URL with PKCE challenge and redirect URI.
+    pub fn auth_url(&self, redirect_uri: &str, code_challenge: &str) -> String {
+        self.auth_url_for_provider("github", redirect_uri, code_challenge)
     }
 
     /// Exchanges an OAuth authorization code and PKCE code verifier for an active session.
@@ -157,6 +173,63 @@ impl CloudClient {
             let body = response.text().await.unwrap_or_default();
             return Err(crate::Error::Service(format!(
                 "GoTrue session refresh error ({status}): {body}"
+            )));
+        }
+
+        let token_resp: GoTrueTokenResponse = response.json().await.map_err(|e| {
+            crate::Error::Service(format!("Failed to parse GoTrue token response: {e}"))
+        })?;
+
+        let user_id = token_resp
+            .user
+            .map(|u| u.id)
+            .or(token_resp.user_id)
+            .or_else(|| extract_jwt_user_id(&token_resp.access_token))
+            .unwrap_or_default();
+
+        let expires_at = token_resp.expires_at.or_else(|| {
+            token_resp
+                .expires_in
+                .map(|secs| chrono::Utc::now().timestamp() + secs)
+        });
+
+        Ok(AuthTokens {
+            access_token: token_resp.access_token,
+            refresh_token: token_resp.refresh_token,
+            user_id,
+            expires_at,
+        })
+    }
+
+    /// Signs in with email and password via GoTrue.
+    pub async fn sign_in_with_password(
+        &self,
+        email: &str,
+        password: &str,
+    ) -> crate::Result<AuthTokens> {
+        let url = format!(
+            "{}/auth/v1/token?grant_type=password",
+            self.config.supabase_url.trim_end_matches('/')
+        );
+        let payload = serde_json::json!({
+            "email": email,
+            "password": password,
+        });
+
+        let response = self
+            .client
+            .post(&url)
+            .header("apikey", &self.config.anon_key)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| crate::Error::Service(format!("Failed to sign in: {e}")))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(crate::Error::Service(format!(
+                "GoTrue authentication error ({status}): {body}"
             )));
         }
 

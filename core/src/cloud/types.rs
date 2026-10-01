@@ -21,7 +21,24 @@ pub struct CloudConfig {
     pub anon_key: String,
 }
 
+pub const DEFAULT_SUPABASE_URL: &str = "https://gqwefhugncszmhpgvjky.supabase.co";
+pub const DEFAULT_SUPABASE_ANON_KEY: &str = "sb_publishable_2iMn33fLtz8BtePGIGzGvQ_aqp2ur5I";
+
 impl CloudConfig {
+    /// Loads configuration from environment variables, falling back to built-in project defaults.
+    pub fn default_or_from_env() -> Self {
+        let supabase_url = std::env::var("TAURINE_SUPABASE_URL")
+            .or_else(|_| std::env::var("SUPABASE_URL"))
+            .unwrap_or_else(|_| DEFAULT_SUPABASE_URL.to_string());
+        let anon_key = std::env::var("TAURINE_SUPABASE_ANON_KEY")
+            .or_else(|_| std::env::var("SUPABASE_ANON_KEY"))
+            .unwrap_or_else(|_| DEFAULT_SUPABASE_ANON_KEY.to_string());
+        Self {
+            supabase_url: supabase_url.trim_end_matches('/').to_string(),
+            anon_key,
+        }
+    }
+
     pub fn from_env() -> crate::Result<Self> {
         let supabase_url = std::env::var("TAURINE_SUPABASE_URL")
             .or_else(|_| std::env::var("SUPABASE_URL"))
