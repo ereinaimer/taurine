@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Roomier Layout**: Removed the top header bar so the lists use the full terminal height.
 - **No More Footer**: Removed the bottom hints bar and its text machinery so content uses the full terminal height.
 - **Library Split View**: The library page now shows the trigger list beside a read-only detail preview with the trigger, type, OS icon, and content, divided by a full-height line with borderless panes.
+- **Draggable Divider**: Hover the center line to highlight it, then drag to resize the library list and detail panes.
 - **Bottom-Anchored Lists**: Library and settings rows now stack directly above the search bar with no dead gap, opening on the row that touches it.
 - **Rounded Search Box**: The bottom search bar is now a compact bordered box instead of a filled gray block.
 - **TUI Cursor Style**: Pick the text caret shape (block, bar, or underscore) from TUI settings; bar stays the default.

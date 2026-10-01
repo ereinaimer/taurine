@@ -16,8 +16,8 @@ use super::{content_halves, page_area};
 const PREVIEW_LINES: usize = 8;
 
 /// Right-pane area with page padding, mirroring the left pane.
-pub(crate) fn right_content(area: Rect) -> Rect {
-    let (_, right) = content_halves(area);
+pub(crate) fn right_content(area: Rect, ratio: f32) -> Rect {
+    let (_, right) = content_halves(area, ratio);
     page_area(right)
 }
 
@@ -27,7 +27,7 @@ pub(crate) fn render_detail(
     theme: &Theme,
     state: &LibraryPageState,
 ) {
-    let content = right_content(area);
+    let content = right_content(area, state.split_ratio());
     if content.width == 0 || content.height == 0 {
         return;
     }

@@ -16,23 +16,47 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 
 use crate::theme::Theme;
 
+pub(crate) const DEFAULT_SPLIT_RATIO: f32 = 0.5;
+pub(crate) const MIN_SPLIT_RATIO: f32 = 0.15;
+pub(crate) const MAX_SPLIT_RATIO: f32 = 0.85;
+/// Divider highlight on hover and while dragging: one small step above the
+/// `#222222` border so the affordance stays subtle.
+pub(crate) const DIVIDER_HOVER_COLOR: ratatui::style::Color =
+    ratatui::style::Color::Rgb(0x2E, 0x2E, 0x2E);
+
 /// Divider column between the two panes for a full-frame line. None when
 /// too narrow to split.
-pub(crate) fn divider_column(area: Rect) -> Option<u16> {
+pub(crate) fn divider_column(area: Rect, ratio: f32) -> Option<u16> {
     if area.width < 5 {
         return None;
     }
-    let (left, _) = content_halves(area);
+    let (left, _) = content_halves(area, ratio);
     Some(left.x.saturating_add(left.width))
+}
+
+/// Whether a click at `(column, row)` grabs the divider for resizing.
+pub(crate) fn divider_hit(area: Rect, ratio: f32, column: u16, row: u16) -> bool {
+    let Some(divider) = divider_column(area, ratio) else {
+        return false;
+    };
+    column == divider && row >= area.y && row < area.y.saturating_add(area.height)
+}
+
+/// Split ratio that puts the divider gutter at `column`.
+pub(crate) fn split_ratio_for_column(area: Rect, column: u16) -> f32 {
+    let gutter = area.width.saturating_sub(1).max(1) as f32;
+    (column.saturating_sub(area.x) as f32 / gutter).clamp(MIN_SPLIT_RATIO, MAX_SPLIT_RATIO)
 }
 
 /// Split the page into left (list) and right (detail) panes with a
 /// one-column gutter, shared by rendering and mouse hit-testing.
-pub(crate) fn content_halves(area: Rect) -> (Rect, Rect) {
+pub(crate) fn content_halves(area: Rect, ratio: f32) -> (Rect, Rect) {
     if area.width < 5 {
         return (area, Rect::default());
     }
-    let left_width = area.width.saturating_sub(1) / 2;
+    let ratio = ratio.clamp(MIN_SPLIT_RATIO, MAX_SPLIT_RATIO);
+    let span = area.width.saturating_sub(1);
+    let left_width = ((span as f32 * ratio) as u16).clamp(1, span.saturating_sub(1).max(1));
     (
         Rect {
             x: area.x,
@@ -51,8 +75,8 @@ pub(crate) fn content_halves(area: Rect) -> (Rect, Rect) {
 
 /// List content inside the left pane: flush left, two cells of padding on
 /// the right. Shared by rendering and mouse hit-testing.
-fn left_content(area: Rect) -> Rect {
-    let (left, _) = content_halves(area);
+fn left_content(area: Rect, ratio: f32) -> Rect {
+    let (left, _) = content_halves(area, ratio);
     Rect {
         x: left.x,
         y: left.y.saturating_add(1),
@@ -106,7 +130,7 @@ pub fn render_library_content(
     theme: &Theme,
     state: &LibraryPageState,
 ) {
-    let content = left_content(area);
+    let content = left_content(area, state.split_ratio());
 
     if let Some(message) = state.load_error() {
         frame.render_widget(

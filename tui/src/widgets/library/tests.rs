@@ -1139,6 +1139,55 @@ fn right_pane_clicks_hit_nothing() {
     assert_eq!(list::hit_test(area, &state, 60, 28), None);
 }
 
+#[test]
+fn default_split_matches_legacy_halves() {
+    let state = LibraryPageState::default();
+    assert_eq!(state.split_ratio(), 0.5);
+
+    let area = ratatui::layout::Rect::new(0, 0, 80, 30);
+    let (left, right) = content_halves(area, state.split_ratio());
+    assert_eq!(left.width, 39);
+    assert_eq!(divider_column(area, state.split_ratio()), Some(39));
+    assert_eq!(right.x, 40);
+}
+
+#[test]
+fn custom_split_moves_divider_and_clamps() {
+    let area = ratatui::layout::Rect::new(0, 0, 80, 30);
+    let (left, _) = content_halves(area, 0.25);
+    assert_eq!(left.width, 19);
+    assert_eq!(divider_column(area, 0.25), Some(19));
+
+    let mut state = LibraryPageState::default();
+    state.set_split_ratio(0.0);
+    assert_eq!(state.split_ratio(), MIN_SPLIT_RATIO);
+    state.set_split_ratio(2.0);
+    assert_eq!(state.split_ratio(), MAX_SPLIT_RATIO);
+}
+
+#[test]
+fn divider_hit_only_on_gutter_column() {
+    let area = ratatui::layout::Rect::new(0, 0, 80, 30);
+    let ratio = LibraryPageState::default().split_ratio();
+
+    assert!(divider_hit(area, ratio, 39, 5));
+    assert!(!divider_hit(area, ratio, 38, 5));
+    assert!(!divider_hit(area, ratio, 40, 5));
+    assert!(!divider_hit(area, ratio, 39, 30));
+
+    let narrow = ratatui::layout::Rect::new(0, 0, 4, 30);
+    assert!(!divider_hit(narrow, ratio, 2, 5));
+}
+
+#[test]
+fn split_ratio_for_column_round_trips_divider() {
+    let area = ratatui::layout::Rect::new(0, 0, 80, 30);
+    let ratio = split_ratio_for_column(area, 20);
+    let (left, _) = content_halves(area, ratio);
+    assert!((19..=21).contains(&left.width));
+    assert_eq!(divider_column(area, ratio), Some(left.width));
+}
+
 fn six_item_state() -> LibraryPageState {
     let mut state = LibraryPageState::default();
     state.replace_items(

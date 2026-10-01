@@ -53,7 +53,7 @@ impl LibraryModal {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct LibraryPageState {
     items: Vec<LibraryTrigger>,
     filtered_indices: Vec<usize>,
@@ -64,6 +64,28 @@ pub(crate) struct LibraryPageState {
     pub(crate) modal: Option<LibraryModal>,
     status_message: Option<String>,
     load_error: Option<String>,
+    split_ratio: f32,
+    divider_hover: bool,
+    divider_drag: bool,
+}
+
+impl Default for LibraryPageState {
+    fn default() -> Self {
+        Self {
+            items: Vec::new(),
+            filtered_indices: Vec::new(),
+            selected: 0,
+            search_query: String::new(),
+            search_mode: false,
+            window_anchor: None,
+            modal: None,
+            status_message: None,
+            load_error: None,
+            split_ratio: super::DEFAULT_SPLIT_RATIO,
+            divider_hover: false,
+            divider_drag: false,
+        }
+    }
 }
 
 impl LibraryPageState {
@@ -110,6 +132,34 @@ impl LibraryPageState {
 
     pub(crate) const fn is_modal_open(&self) -> bool {
         self.modal.is_some()
+    }
+
+    pub(crate) fn split_ratio(&self) -> f32 {
+        self.split_ratio
+            .clamp(super::MIN_SPLIT_RATIO, super::MAX_SPLIT_RATIO)
+    }
+
+    pub(crate) fn set_split_ratio(&mut self, ratio: f32) {
+        self.split_ratio = ratio.clamp(super::MIN_SPLIT_RATIO, super::MAX_SPLIT_RATIO);
+    }
+
+    pub(crate) const fn divider_hover(&self) -> bool {
+        self.divider_hover
+    }
+
+    pub(crate) fn set_divider_hover(&mut self, hover: bool) {
+        self.divider_hover = hover;
+    }
+
+    pub(crate) const fn divider_drag(&self) -> bool {
+        self.divider_drag
+    }
+
+    pub(crate) fn set_divider_drag(&mut self, drag: bool) {
+        self.divider_drag = drag;
+        if drag {
+            self.divider_hover = true;
+        }
     }
 
     pub(crate) const fn modal(&self) -> Option<&LibraryModal> {

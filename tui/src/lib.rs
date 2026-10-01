@@ -60,15 +60,23 @@ pub fn run() -> taurine_core::Result<()> {
             render_page_content(frame, layout.page, &app, theme);
 
             if app.active_page() == Page::Library
-                && let Some(column) = library::divider_column(layout.page)
+                && let Some(column) =
+                    library::divider_column(layout.page, app.library_page().split_ratio())
                 && area.height > 0
             {
                 use ratatui::text::Line;
 
+                // honey: divider lifts one subtle step on hover and while dragging.
+                let color =
+                    if app.library_page().divider_drag() || app.library_page().divider_hover() {
+                        library::DIVIDER_HOVER_COLOR
+                    } else {
+                        theme.border
+                    };
                 let glyphs = vec![Line::from("│"); area.height as usize];
                 frame.render_widget(
                     ratatui::widgets::Paragraph::new(glyphs)
-                        .style(ratatui::style::Style::default().fg(theme.border)),
+                        .style(ratatui::style::Style::default().fg(color)),
                     ratatui::layout::Rect {
                         x: column,
                         y: area.y,
@@ -194,6 +202,22 @@ fn handle_tui_mouse_event(
         Page::Settings => app.settings_page().is_modal_open(),
     };
 
+    // honey: grabbing the divider starts a drag; pointer motion after that
+    // moves the split freely without re-hitting the gutter column.
+    fn grab_divider(app: &mut App, page: ratatui::layout::Rect, column: u16, row: u16) -> bool {
+        let ratio = app.library_page().split_ratio();
+        if !library::divider_hit(page, ratio, column, row) {
+            return false;
+        }
+        app.library_page_mut().set_divider_drag(true);
+        true
+    }
+
+    fn drag_divider_to(app: &mut App, page: ratatui::layout::Rect, column: u16) {
+        let ratio = library::split_ratio_for_column(page, column);
+        app.library_page_mut().set_split_ratio(ratio);
+    }
+
     match mouse.kind {
         MouseEventKind::ScrollDown | MouseEventKind::ScrollUp => {
             if modal_open {
@@ -201,11 +225,44 @@ fn handle_tui_mouse_event(
             }
             handle_tui_key_event(app, scroll_key(mouse.kind == MouseEventKind::ScrollDown));
         }
+        MouseEventKind::Moved => {
+            if modal_open || app.active_page() != Page::Library {
+                return;
+            }
+            let layout = terminal::mouse::frame_layout(area);
+            let page = app.library_page();
+            let hover =
+                library::divider_hit(layout.page, page.split_ratio(), mouse.column, mouse.row);
+            if page.divider_drag() {
+                drag_divider_to(app, layout.page, mouse.column);
+            } else {
+                app.library_page_mut().set_divider_hover(hover);
+            }
+        }
+        MouseEventKind::Drag(MouseButton::Left) => {
+            if modal_open || app.active_page() != Page::Library {
+                return;
+            }
+            if app.library_page().divider_drag() {
+                let layout = terminal::mouse::frame_layout(area);
+                drag_divider_to(app, layout.page, mouse.column);
+            }
+        }
+        MouseEventKind::Up(_) => {
+            if app.active_page() == Page::Library {
+                app.library_page_mut().set_divider_drag(false);
+            }
+        }
         MouseEventKind::Down(MouseButton::Left) => {
             if modal_open {
                 return;
             }
             let layout = terminal::mouse::frame_layout(area);
+            if app.active_page() == Page::Library
+                && grab_divider(app, layout.page, mouse.column, mouse.row)
+            {
+                return;
+            }
             match app.active_page() {
                 Page::Library => {
                     match library::list::hit_test(
@@ -864,6 +921,56 @@ mod tests {
 
         assert_eq!(app.library_page().selected_index(), Some(1));
         assert!(!app.library_page().is_modal_open());
+    }
+
+    #[test]
+    fn pressing_divider_starts_drag_without_selecting() {
+        let mut app = App::default();
+        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
+
+        handle_tui_mouse_event(&mut app, left_click(49, 10), TEST_AREA);
+
+        assert!(app.library_page().divider_drag());
+        assert_eq!(app.library_page().split_ratio(), 0.5);
+        assert!(!app.library_page().is_modal_open());
+    }
+
+    #[test]
+    fn dragging_divider_moves_split_and_release_ends_it() {
+        let mut app = App::default();
+        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
+        handle_tui_mouse_event(&mut app, left_click(49, 10), TEST_AREA);
+
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(60, 10, MouseEventKind::Drag(MouseButton::Left)),
+            TEST_AREA,
+        );
+
+        let ratio = app.library_page().split_ratio();
+        assert!((ratio - 58.0 / 95.0).abs() < 0.01);
+        assert!(app.library_page().divider_drag());
+
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(60, 10, MouseEventKind::Up(MouseButton::Left)),
+            TEST_AREA,
+        );
+
+        assert!(!app.library_page().divider_drag());
+        assert!((app.library_page().split_ratio() - 58.0 / 95.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn hovering_divider_sets_hover_and_leaving_clears() {
+        let mut app = App::default();
+        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
+
+        handle_tui_mouse_event(&mut app, mouse_at(49, 10, MouseEventKind::Moved), TEST_AREA);
+        assert!(app.library_page().divider_hover());
+
+        handle_tui_mouse_event(&mut app, mouse_at(10, 10, MouseEventKind::Moved), TEST_AREA);
+        assert!(!app.library_page().divider_hover());
     }
 
     #[test]
