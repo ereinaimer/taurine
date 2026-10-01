@@ -13,7 +13,6 @@ use crossterm::event::{
     MouseButton, MouseEventKind,
 };
 use crossterm::{
-    cursor::SetCursorStyle,
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -45,7 +44,7 @@ impl OverlaySession {
         let mut stdout = io::stdout();
         execute!(stdout, EnterAlternateScreen)?;
         execute!(stdout, EnableMouseCapture)?;
-        execute!(stdout, SetCursorStyle::SteadyBar)?;
+        crate::apply_saved_cursor_style();
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
         terminal.hide_cursor()?;
@@ -58,6 +57,7 @@ impl Drop for OverlaySession {
     fn drop(&mut self) {
         let _ = self.terminal.show_cursor();
         let _ = disable_raw_mode();
+        crate::reset_cursor_style();
         let _ = execute!(self.terminal.backend_mut(), DisableMouseCapture);
         let _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen);
     }

@@ -73,10 +73,19 @@ fn render_input_modal(frame: &mut Frame, area: Rect, theme: &Theme, state: &Inpu
         sections[0],
     );
     frame.render_widget(
-        Paragraph::new(util::input_cursor_line(state.value(), state.cursor()))
+        Paragraph::new(state.value().to_string())
             .style(Style::default().fg(theme.text).bg(theme.surface)),
         sections[1],
     );
+    if sections[1].width > 0 && sections[1].height > 0 {
+        let (cx, cy) = util::caret_position(
+            sections[1].x,
+            sections[1].y,
+            state.cursor(),
+            sections[1].width,
+        );
+        frame.set_cursor_position((cx, cy));
+    }
 
     let feedback = state.error().unwrap_or("Enter Save   Esc Cancel");
     let feedback_style = if state.error().is_some() {

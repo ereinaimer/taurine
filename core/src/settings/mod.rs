@@ -396,6 +396,27 @@ pub enum SpinnerStyle {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
+pub enum TuiCursorStyle {
+    Block,
+    #[default]
+    Bar,
+    Underscore,
+}
+
+impl TuiCursorStyle {
+    pub const ALL: [Self; 3] = [Self::Block, Self::Bar, Self::Underscore];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Block => "block",
+            Self::Bar => "bar",
+            Self::Underscore => "underscore",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
 pub enum InlineDictionaryMode {
     #[default]
     Lite,
@@ -448,10 +469,11 @@ pub enum SettingKey {
     VoiceInputDevice,
     VoiceKeepLoaded,
     PauseMediaWhileDictating,
+    TuiCursorStyle,
 }
 
 impl SettingKey {
-    pub const ALL: [Self; 44] = [
+    pub const ALL: [Self; 45] = [
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
         Self::PauseAudioEnabled,
@@ -496,7 +518,14 @@ impl SettingKey {
         Self::VoiceInputDevice,
         Self::VoiceKeepLoaded,
         Self::PauseMediaWhileDictating,
+        Self::TuiCursorStyle,
     ];
+
+    /// Whether the key may be read or changed through the CLI. TUI-only
+    /// settings are configured exclusively in TUI settings.
+    pub const fn cli_visible(self) -> bool {
+        !matches!(self, Self::TuiCursorStyle)
+    }
 
     pub const fn storage_key(self) -> &'static str {
         match self {
@@ -544,6 +573,7 @@ impl SettingKey {
             Self::VoiceInputDevice => "voice_input_device",
             Self::VoiceKeepLoaded => "voice_keep_loaded",
             Self::PauseMediaWhileDictating => "pause_media_while_dictating",
+            Self::TuiCursorStyle => "tui_cursor_style",
         }
     }
 }
@@ -599,6 +629,7 @@ pub struct Settings {
     pub voice_input_device: Option<String>,
     pub voice_keep_loaded: bool,
     pub pause_media_while_dictating: bool,
+    pub tui_cursor_style: TuiCursorStyle,
 }
 
 impl std::fmt::Debug for Settings {
@@ -678,12 +709,13 @@ impl std::fmt::Debug for Settings {
                 "pause_media_while_dictating",
                 &self.pause_media_while_dictating,
             )
+            .field("tui_cursor_style", &self.tui_cursor_style)
             .finish()
     }
 }
 
 impl Settings {
-    pub const ALL_KEYS: [&'static str; 44] = [
+    pub const ALL_KEYS: [&'static str; 45] = [
         "pause_hotkey",
         "pause_notifications_enabled",
         "pause_audio_enabled",
@@ -728,6 +760,7 @@ impl Settings {
         "voice_input_device",
         "voice_keep_loaded",
         "pause_media_while_dictating",
+        "tui_cursor_style",
     ];
 
     pub fn resolve_key(key: &str) -> &str {
@@ -802,6 +835,7 @@ impl Settings {
             "keep_loaded" | "voice_keep" => "voice_keep_loaded",
             "pause_media_while_dictating" => "pause_media_while_dictating",
             "pause_media" => "pause_media_while_dictating",
+            "tui_cursor_style" | "cursor_style" | "cursor" => "tui_cursor_style",
             other => other,
         }
     }
@@ -920,6 +954,7 @@ impl Default for Settings {
             voice_input_device: None,
             voice_keep_loaded: false,
             pause_media_while_dictating: true,
+            tui_cursor_style: TuiCursorStyle::default(),
         }
     }
 }
@@ -1049,6 +1084,24 @@ mod tests {
             "pause_media_while_dictating"
         );
         assert!(get_cached_pause_media_while_dictating());
+    }
+
+    #[test]
+    fn tui_cursor_style_defaults_to_bar_and_key_registered() {
+        assert_eq!(Settings::default().tui_cursor_style, TuiCursorStyle::Bar);
+        assert_eq!(TuiCursorStyle::default(), TuiCursorStyle::Bar);
+        assert_eq!(TuiCursorStyle::Bar.as_str(), "bar");
+        assert!(Settings::ALL_KEYS.contains(&"tui_cursor_style"));
+        assert_eq!(Settings::resolve_key("cursor_style"), "tui_cursor_style");
+        assert_eq!(Settings::resolve_key("cursor"), "tui_cursor_style");
+        assert!(!SettingKey::TuiCursorStyle.cli_visible());
+        assert_eq!(
+            SettingKey::ALL
+                .iter()
+                .filter(|key| !key.cli_visible())
+                .count(),
+            1
+        );
     }
 
     #[test]

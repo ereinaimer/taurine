@@ -1,4 +1,4 @@
-use super::super::{InlineDictionaryMode, Settings, SpinnerStyle};
+use super::super::{InlineDictionaryMode, Settings, SpinnerStyle, TuiCursorStyle};
 use crate::error::{Error, Result};
 
 pub fn default_setting_input(key: &str) -> Result<Option<String>> {
@@ -68,6 +68,11 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
         "voice_input_device" => Ok(defaults.voice_input_device),
         "voice_keep_loaded" => Ok(Some(defaults.voice_keep_loaded.to_string())),
         "pause_media_while_dictating" => Ok(Some(defaults.pause_media_while_dictating.to_string())),
+        "tui_cursor_style" => Ok(Some(match defaults.tui_cursor_style {
+            TuiCursorStyle::Block => "block".to_string(),
+            TuiCursorStyle::Bar => "bar".to_string(),
+            TuiCursorStyle::Underscore => "underscore".to_string(),
+        })),
         _ => {
             let diag = crate::diagnostic::Diagnostic::problem(format!(
                 "{actual_key} is not a valid configuration setting"

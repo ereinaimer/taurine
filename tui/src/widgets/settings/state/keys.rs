@@ -1,4 +1,4 @@
-use taurine_core::settings::{Settings, SpinnerStyle};
+use taurine_core::settings::{Settings, SpinnerStyle, TuiCursorStyle};
 
 pub(crate) use taurine_core::settings::SettingKey;
 
@@ -57,6 +57,7 @@ impl SettingKeyMeta for SettingKey {
             Self::VoiceInputDevice => "Voice Input Device",
             Self::VoiceKeepLoaded => "Keep Voice Model Loaded",
             Self::PauseMediaWhileDictating => "Pause Media While Dictating",
+            Self::TuiCursorStyle => "Cursor Style",
         }
     }
 
@@ -154,6 +155,7 @@ impl SettingKeyMeta for SettingKey {
             Self::PauseMediaWhileDictating => {
                 "Pause music and video while dictating, then resume afterwards (on by default)"
             }
+            Self::TuiCursorStyle => "Caret shape used for text input in the TUI",
         }
     }
 
@@ -185,6 +187,7 @@ impl SettingKeyMeta for SettingKey {
             | Self::AiMaxTokens
             | Self::ClipboardHistoryRetentionSecs => EditorKind::NumberInput,
             Self::SpinnerStyle => EditorKind::SpinnerSelect,
+            Self::TuiCursorStyle => EditorKind::CursorStyleSelect,
             Self::AudioTheme => EditorKind::AudioThemeSelect,
             Self::AiProvider => EditorKind::AiProviderSelect,
             Self::AiCustomEndpoint
@@ -219,6 +222,7 @@ impl SettingKeyMeta for SettingKey {
             Self::InlineCaseTransformEnabled => settings.inline_case_transform_enabled.to_string(),
             Self::Wpm => settings.wpm.to_string(),
             Self::SpinnerStyle => spinner_style_label(settings.spinner_style).to_string(),
+            Self::TuiCursorStyle => cursor_style_label(settings.tui_cursor_style).to_string(),
             Self::AiProvider => optional_value_label(settings.ai_provider.as_deref()).to_string(),
             Self::AiModel => optional_value_label(settings.ai_model.as_deref()).to_string(),
             Self::AiCustomEndpoint => {
@@ -324,7 +328,8 @@ impl SettingKeyMeta for SettingKey {
             | Self::InlineDictionaryMode
             | Self::NotifyOnUpdate
             | Self::VoiceKeepLoaded
-            | Self::PauseMediaWhileDictating => self.display_value(settings),
+            | Self::PauseMediaWhileDictating
+            | Self::TuiCursorStyle => self.display_value(settings),
             Self::AiTemperature => {
                 optional_value_label(settings.ai_temperature.map(|v| v.to_string()).as_deref())
                     .to_string()
@@ -351,6 +356,7 @@ pub(crate) enum EditorKind {
     OptionalTextInput,
     NumberInput,
     SpinnerSelect,
+    CursorStyleSelect,
     AudioThemeSelect,
     AiProviderSelect,
     InlineDictionaryModeSelect,
@@ -361,6 +367,24 @@ pub(crate) const fn spinner_style_label(style: SpinnerStyle) -> &'static str {
         SpinnerStyle::Classic => "classic",
         SpinnerStyle::Braille => "braille",
         SpinnerStyle::Arc => "arc",
+    }
+}
+
+pub(crate) const fn cursor_style_label(style: TuiCursorStyle) -> &'static str {
+    match style {
+        TuiCursorStyle::Block => "block",
+        TuiCursorStyle::Bar => "bar",
+        TuiCursorStyle::Underscore => "underscore",
+    }
+}
+
+pub(crate) const fn cursor_set_cursor_style(
+    style: TuiCursorStyle,
+) -> crossterm::cursor::SetCursorStyle {
+    match style {
+        TuiCursorStyle::Block => crossterm::cursor::SetCursorStyle::SteadyBlock,
+        TuiCursorStyle::Bar => crossterm::cursor::SetCursorStyle::SteadyBar,
+        TuiCursorStyle::Underscore => crossterm::cursor::SetCursorStyle::SteadyUnderScore,
     }
 }
 

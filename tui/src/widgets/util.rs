@@ -23,28 +23,12 @@ pub(crate) fn truncate_to_width(value: &str, max_chars: u16) -> String {
     }
 }
 
-pub(crate) fn input_cursor_line(value: &str, cursor: usize) -> Line<'static> {
-    let before = value.chars().take(cursor).collect::<String>();
-    let at = value.chars().nth(cursor);
-    let after = value
-        .chars()
-        .skip(cursor.saturating_add(1))
-        .collect::<String>();
-
-    let mut spans = vec![Span::raw(before)];
-    if let Some(c) = at {
-        spans.push(Span::styled(
-            c.to_string(),
-            Style::default().add_modifier(Modifier::REVERSED),
-        ));
-    } else {
-        spans.push(Span::styled(
-            " ",
-            Style::default().add_modifier(Modifier::REVERSED),
-        ));
-    }
-    spans.push(Span::raw(after));
-    Line::from(spans)
+/// Caret column for a char-index cursor inside a one-line field starting
+/// at `x` with `width` cells. Stays inside the field so the terminal
+/// caret (which honors the configured cursor style) is what the user sees.
+pub(crate) fn caret_position(x: u16, y: u16, cursor: usize, width: u16) -> (u16, u16) {
+    let column = (cursor as u16).min(width.saturating_sub(1));
+    (x.saturating_add(column), y)
 }
 
 pub(crate) fn visible_range(total: usize, selected: usize, visible_count: usize) -> (usize, usize) {
@@ -206,12 +190,11 @@ pub(crate) fn render_modal_input_field(
 
     let block = Block::default().style(Style::default().bg(bg));
     frame.render_widget(block, area);
-    let text = if focused {
-        Paragraph::new(input_cursor_line(value, cursor))
-    } else {
-        Paragraph::new(value.to_string())
-    };
-    frame.render_widget(text.style(text_style), area);
+    frame.render_widget(Paragraph::new(value.to_string()).style(text_style), area);
+    if focused && area.width > 0 && area.height > 0 {
+        let (cx, cy) = caret_position(area.x, area.y, cursor, area.width);
+        frame.set_cursor_position((cx, cy));
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -260,8 +243,14 @@ pub(crate) fn render_modal_password_row(
     };
     frame.render_widget(Paragraph::new(label_line), sections[0]);
 
-    let text = Paragraph::new(input_cursor_line(value, cursor));
-    frame.render_widget(text.style(value_style), sections[1]);
+    frame.render_widget(
+        Paragraph::new(value.to_string()).style(value_style),
+        sections[1],
+    );
+    if focused && !disabled && sections[1].width > 0 && sections[1].height > 0 {
+        let (cx, cy) = caret_position(sections[1].x, sections[1].y, cursor, sections[1].width);
+        frame.set_cursor_position((cx, cy));
+    }
 }
 
 pub(crate) fn render_modal_key_value_row(
@@ -316,8 +305,9 @@ pub(crate) fn render_modal_key_value_row(
     );
 }
 
-/// Shared bottom search block: padded query line, surface highlight only
-/// while typing. `placeholder` shows when the query is empty and inactive.
+/// Shared bottom search box: rounded border, three lines total including
+/// the border. No background fill. `placeholder` shows when the query is
+/// empty and inactive.
 pub(crate) fn render_search_block(
     frame: &mut Frame,
     area: Rect,
@@ -327,46 +317,38 @@ pub(crate) fn render_search_block(
     cursor: usize,
     placeholder: &str,
 ) {
-    frame.render_widget(
-        Block::default().style(Style::default().bg(theme.surface)),
-        area,
-    );
-
-    let content = Rect {
-        x: area.x.saturating_add(1),
-        y: area.y.saturating_add(1),
-        width: area.width.saturating_sub(2),
-        height: area.height.saturating_sub(2),
-    };
-    if content.width == 0 || content.height == 0 {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let border_style = Style::default().fg(theme.border);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_set(ratatui::symbols::border::ROUNDED)
+        .border_style(border_style);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    if inner.width == 0 || inner.height == 0 {
         return;
     }
 
     let title_style = if is_active {
-        Style::default()
-            .fg(theme.text)
-            .bg(theme.surface)
-            .add_modifier(Modifier::BOLD)
+        Style::default().fg(theme.text).add_modifier(Modifier::BOLD)
     } else if query.is_empty() {
-        Style::default().fg(theme.description).bg(theme.surface)
+        Style::default().fg(theme.description)
     } else {
-        Style::default()
-            .fg(theme.text)
-            .bg(theme.surface)
-            .add_modifier(Modifier::BOLD)
+        Style::default().fg(theme.text).add_modifier(Modifier::BOLD)
     };
-    let title = if is_active {
-        input_cursor_line(query, cursor)
-    } else if query.is_empty() {
-        Line::from(placeholder.to_string())
-    } else {
+    // honey: the real terminal caret shows here so the configured cursor
+    // style applies; no painted fake block.
+    let title = if is_active || !query.is_empty() {
         Line::from(query.to_string())
+    } else {
+        Line::from(placeholder.to_string())
     };
-    frame.render_widget(
-        Paragraph::new(title).style(title_style),
-        Rect {
-            height: 1,
-            ..content
-        },
-    );
+    let line_area = Rect { height: 1, ..inner };
+    frame.render_widget(Paragraph::new(title).style(title_style), line_area);
+    if is_active && line_area.width > 0 {
+        let (cx, cy) = caret_position(line_area.x, line_area.y, cursor, line_area.width);
+        frame.set_cursor_position((cx, cy));
+    }
 }

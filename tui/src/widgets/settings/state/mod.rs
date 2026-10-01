@@ -3,7 +3,9 @@ mod keys;
 mod modals;
 
 pub(crate) use hotkey_capture::HotkeyCaptureModalState;
-pub(crate) use keys::{EditorKind, SettingKey, SettingKeyMeta};
+#[cfg(test)]
+pub(crate) use keys::cursor_style_label;
+pub(crate) use keys::{EditorKind, SettingKey, SettingKeyMeta, cursor_set_cursor_style};
 pub(crate) use modals::{ConfirmResetModalState, InputModalState, SelectModalState};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -13,6 +15,7 @@ use taurine_core::{
 };
 
 const SPINNER_STYLE_OPTIONS: [&str; 3] = ["classic", "braille", "arc"];
+const CURSOR_STYLE_OPTIONS: [&str; 3] = ["block", "bar", "underscore"];
 const AUDIO_THEME_OPTIONS: [&str; 7] = [
     "minimal",
     "arcade",
@@ -293,6 +296,14 @@ impl SettingsPageState {
                     .collect(),
                 key.display_value(&self.settings),
             ))),
+            EditorKind::CursorStyleSelect => Some(SettingsModal::Select(SelectModalState::new(
+                key,
+                CURSOR_STYLE_OPTIONS
+                    .iter()
+                    .map(|value| (*value).to_string())
+                    .collect(),
+                key.display_value(&self.settings),
+            ))),
             EditorKind::AudioThemeSelect => Some(SettingsModal::Select(SelectModalState::new(
                 key,
                 AUDIO_THEME_OPTIONS
@@ -530,6 +541,50 @@ mod tests {
     }
 
     #[test]
+    fn test_cursor_style_select_modal_opens_with_bar_default() {
+        let mut state = SettingsPageState::default();
+        let idx = state
+            .visible_keys()
+            .iter()
+            .position(|k| *k == SettingKey::TuiCursorStyle)
+            .expect("TuiCursorStyle should be visible");
+        state.selected = idx;
+
+        assert_eq!(
+            SettingKey::TuiCursorStyle.editor_kind(),
+            EditorKind::CursorStyleSelect
+        );
+        state.open_editor_for_selected();
+
+        assert!(matches!(state.modal, Some(SettingsModal::Select(_))));
+        if let Some(SettingsModal::Select(modal_state)) = state.modal {
+            assert_eq!(modal_state.options().len(), 3);
+            assert_eq!(modal_state.options()[modal_state.selected_index()], "bar");
+        }
+    }
+
+    #[test]
+    fn test_cursor_style_labels_and_terminal_mapping() {
+        use taurine_core::settings::TuiCursorStyle;
+
+        assert_eq!(cursor_style_label(TuiCursorStyle::Block), "block");
+        assert_eq!(cursor_style_label(TuiCursorStyle::Bar), "bar");
+        assert_eq!(cursor_style_label(TuiCursorStyle::Underscore), "underscore");
+        assert_eq!(
+            cursor_set_cursor_style(TuiCursorStyle::Block),
+            crossterm::cursor::SetCursorStyle::SteadyBlock
+        );
+        assert_eq!(
+            cursor_set_cursor_style(TuiCursorStyle::Bar),
+            crossterm::cursor::SetCursorStyle::SteadyBar
+        );
+        assert_eq!(
+            cursor_set_cursor_style(TuiCursorStyle::Underscore),
+            crossterm::cursor::SetCursorStyle::SteadyUnderScore
+        );
+    }
+
+    #[test]
     fn test_enter_toggles_boolean_setting() {
         let mut state = SettingsPageState::default();
         let idx = state
@@ -738,7 +793,7 @@ mod tests {
             state.selected_index(),
             state.visible_keys().len().saturating_sub(1)
         );
-        assert_eq!(state.selected_key(), SettingKey::PauseMediaWhileDictating);
+        assert_eq!(state.selected_key(), SettingKey::TuiCursorStyle);
     }
 
     #[test]

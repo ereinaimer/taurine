@@ -262,6 +262,11 @@ impl<'a> SettingsManager<'a> {
         {
             settings.pause_media_while_dictating = v;
         }
+        if let Some(val) = map.get("tui_cursor_style")
+            && let Ok(v) = serde_json::from_str::<super::TuiCursorStyle>(val)
+        {
+            settings.tui_cursor_style = v;
+        }
 
         settings
     }

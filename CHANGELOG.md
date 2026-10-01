@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **No More Footer**: Removed the bottom hints bar and its text machinery so content uses the full terminal height.
 - **Library Split View**: The library page now shows the trigger list beside a read-only detail preview with the trigger, type, OS icon, and content, divided by a full-height line with borderless panes.
 - **Bottom-Anchored Lists**: Library and settings rows now stack directly above the search bar with no dead gap, opening on the row that touches it.
+- **Rounded Search Box**: The bottom search bar is now a compact bordered box instead of a filled gray block.
+- **TUI Cursor Style**: Pick the text caret shape (block, bar, or underscore) from TUI settings; bar stays the default.
 
 ### Removed
 - **Trigger Editor Popup**: The overlay editor is gone pending a revamped editor; use the CLI to add or edit triggers for now.

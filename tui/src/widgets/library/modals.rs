@@ -237,22 +237,7 @@ fn render_library_export_modal(
         theme,
     );
 
-    match state.focus() {
-        LibraryExportModalField::Path => {
-            frame.set_cursor_position((
-                sections[1].x + 1 + state.path_cursor() as u16,
-                sections[1].y,
-            ));
-        }
-        LibraryExportModalField::Password => {
-            let label_width = sections[2].width.min(12);
-            frame.set_cursor_position((
-                sections[2].x + label_width + state.password_cursor() as u16,
-                sections[2].y,
-            ));
-        }
-        _ => {}
-    }
+    // honey: text fields position the real caret themselves via util.
 }
 
 fn render_library_import_modal(
@@ -366,22 +351,7 @@ fn render_library_import_modal(
         theme,
     );
 
-    match state.focus() {
-        LibraryImportModalField::Path => {
-            frame.set_cursor_position((
-                sections[1].x + 1 + state.path_cursor() as u16,
-                sections[1].y,
-            ));
-        }
-        LibraryImportModalField::Password if state.is_encrypted() != Some(false) => {
-            let label_width = sections[3].width.min(12);
-            frame.set_cursor_position((
-                sections[3].x + label_width + state.password_cursor() as u16,
-                sections[3].y,
-            ));
-        }
-        _ => {}
-    }
+    // honey: text fields position the real caret themselves via util.
 
     if let Some(selector) = state.selector() {
         render_library_select_modal(frame, area, theme, selector);

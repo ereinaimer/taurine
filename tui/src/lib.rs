@@ -266,9 +266,31 @@ fn apply_settings_interaction(app: &mut App, interaction: settings::SettingsInte
     };
 
     match pending_save.apply() {
-        Ok(()) => refresh_settings_page(app),
+        Ok(()) => {
+            refresh_settings_page(app);
+            apply_saved_cursor_style();
+        }
         Err(error) => app.settings_page_mut().set_save_error(error.to_string()),
     }
+}
+
+/// Best-effort caret styling from the TUI-only cursor style setting.
+pub(crate) fn apply_saved_cursor_style() {
+    let Ok(conn) = taurine_core::db::init::setup() else {
+        return;
+    };
+    let style = taurine_core::settings::SettingsManager::new(&conn)
+        .load_all()
+        .tui_cursor_style;
+    let _ = execute!(
+        io::stdout(),
+        crate::widgets::settings::cursor_set_cursor_style(style)
+    );
+}
+
+pub(crate) fn reset_cursor_style() {
+    use crossterm::cursor::SetCursorStyle;
+    let _ = execute!(io::stdout(), SetCursorStyle::DefaultUserShape);
 }
 
 fn apply_library_interaction(app: &mut App, interaction: library::LibraryInteraction) {
@@ -409,6 +431,8 @@ impl TerminalGuard {
             return Err(error);
         }
 
+        apply_saved_cursor_style();
+
         Ok(Self { terminal })
     }
 }
@@ -505,6 +529,7 @@ where
 
 fn restore_terminal() {
     let _ = disable_raw_mode();
+    reset_cursor_style();
     let _ = execute!(
         io::stdout(),
         LeaveAlternateScreen,

@@ -1,6 +1,7 @@
 use super::*;
 use crate::settings::{
     AudioTheme, InlineDictionaryMode, SettingKey, Settings, SettingsManager, SpinnerStyle,
+    TuiCursorStyle,
 };
 use crate::testing::open_test_db;
 use std::collections::HashSet;
@@ -21,6 +22,38 @@ fn valid_spinner_style_arc_is_accepted() {
     apply_setting_input_with_manager(&manager, "spinner_style", Some("arc")).unwrap();
 
     assert_eq!(manager.load_all().spinner_style, SpinnerStyle::Arc);
+}
+
+#[test]
+fn valid_tui_cursor_style_underscore_is_accepted() {
+    let (_dir, conn) = open_test_db();
+    let manager = SettingsManager::new(&conn);
+
+    apply_setting_input_with_manager(&manager, "tui_cursor_style", Some("underscore")).unwrap();
+
+    assert_eq!(
+        manager.load_all().tui_cursor_style,
+        TuiCursorStyle::Underscore
+    );
+}
+
+#[test]
+fn test_invalid_tui_cursor_style_diagnostic() {
+    let (_dir, conn) = open_test_db();
+    let manager = SettingsManager::new(&conn);
+
+    let err =
+        apply_setting_input_with_manager(&manager, "tui_cursor_style", Some("beam")).unwrap_err();
+    let msg = err.to_string();
+
+    assert!(
+        msg.contains("beam is not an available cursor style"),
+        "expected problem message, got: {msg}"
+    );
+    assert!(
+        msg.contains("block, bar, underscore"),
+        "expected options listing block, bar, underscore, got: {msg}"
+    );
 }
 
 #[test]
@@ -220,7 +253,7 @@ fn test_inline_dictionary_mode_settings() {
 
 #[test]
 fn setting_key_all_has_unique_storage_keys() {
-    assert_eq!(SettingKey::ALL.len(), 44);
+    assert_eq!(SettingKey::ALL.len(), 45);
 
     let mut seen = HashSet::new();
     for key in SettingKey::ALL {
@@ -293,6 +326,7 @@ fn sweep_covers_defaults_set_and_reset_for_all_keys() {
         ("voice_handsfree_hotkey", "ctrl+alt+space"),
         ("voice_dictionary", "Rust, Taurine"),
         ("voice_input_device", "External Mic"),
+        ("tui_cursor_style", "underscore"),
     ];
 
     for (key, value) in sweep {
@@ -346,6 +380,7 @@ fn sweep_covers_defaults_set_and_reset_for_all_keys() {
         voice_input_device: Some("External Mic".to_string()),
         voice_keep_loaded: false,
         pause_media_while_dictating: true,
+        tui_cursor_style: TuiCursorStyle::Underscore,
     };
     assert_eq!(manager.load_all(), expected);
 
