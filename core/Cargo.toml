@@ -54,6 +54,7 @@ argon2 = "0.6"
 rand = "0.10"
 zeroize = "1.8"
 subtle = "2.6"
+ed25519-dalek = { version = "2", default-features = false }
 
 keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 service-manager = "0.11.0"

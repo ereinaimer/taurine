@@ -32,6 +32,12 @@ pub enum Error {
 
     #[error("{0}")]
     QuotaExceeded(String),
+
+    #[error("{0}")]
+    Lease(String),
+
+    #[error("{0}")]
+    ClockDrift(String),
 }
 
 impl From<tonic::Status> for Error {
