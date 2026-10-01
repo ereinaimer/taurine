@@ -38,10 +38,8 @@ pub(crate) fn hit_test(
     if content.width == 0 || content.height == 0 {
         return None;
     }
-    let item = state
-        .selected_index()
-        .and_then(|index| state.item_at_filtered(index))?;
-    let toggle_y = toggle_row(content.height, item.preview())?;
+    state.selected_index()?;
+    let toggle_y = toggle_row(content.height)?;
     let toggle_y = content.y.saturating_add(toggle_y);
     if row == toggle_y && column >= content.x && column < content.x.saturating_add(content.width) {
         Some(DetailHit::Toggle)
@@ -49,6 +47,10 @@ pub(crate) fn hit_test(
         None
     }
 }
+
+/// Minimum content height for the pinned bottom block (Alias, toggle).
+/// Shorter panes show the header and preview only.
+const MIN_PINNED_HEIGHT: u16 = 12;
 
 /// Visible output line count for the pane height.
 fn output_count(height: u16, preview: &str) -> usize {
@@ -59,16 +61,16 @@ fn output_count(height: u16, preview: &str) -> usize {
         .min(height.saturating_sub(OUTPUT_OFFSET + 4) as usize)
 }
 
-/// Toggle row offset from the content top, or None when it does not fit.
-fn toggle_row(height: u16, preview: &str) -> Option<u16> {
-    let toggle = alias_offset(output_count(height, preview)) + 2;
-    (toggle < height).then_some(toggle)
+/// Alias row offset: pinned near the bottom with one blank row and the
+/// toggle beneath it. None when the pane is too short to pin.
+fn alias_offset(height: u16) -> Option<u16> {
+    (height >= MIN_PINNED_HEIGHT).then(|| height.saturating_sub(3))
 }
 
-/// Alias row offset for a pane showing `output_lines` preview lines:
-/// preview, one blank row, then the row itself.
-fn alias_offset(output_lines: usize) -> u16 {
-    OUTPUT_OFFSET + output_lines as u16 + 1
+/// Toggle row offset: pinned to the last content row. None when the pane
+/// is too short to pin.
+fn toggle_row(height: u16) -> Option<u16> {
+    (height >= MIN_PINNED_HEIGHT).then(|| height.saturating_sub(1))
 }
 
 /// Right-pane content: two cells of padding on the left, one on the
@@ -227,24 +229,31 @@ fn render_type_row(
     );
 }
 
+/// Sibling invocations, excluding the currently displayed trigger.
+/// Nothing renders when the trigger has no siblings.
+pub(crate) fn sibling_aliases<'a>(aliases: &'a [String], current: &str) -> Vec<&'a str> {
+    aliases
+        .iter()
+        .map(String::as_str)
+        .filter(|alias| alias.strip_suffix(" (confirm)").unwrap_or(alias) != current)
+        .collect()
+}
+
 fn render_alias_rows(
     frame: &mut Frame,
     area: Rect,
     theme: &Theme,
     item: &crate::widgets::library::state::LibraryTrigger,
 ) {
-    let count = output_count(area.height, item.preview());
-    let offset = alias_offset(count);
-    if offset >= area.height {
+    let Some(offset) = alias_offset(area.height) else {
+        return;
+    };
+    let siblings = sibling_aliases(item.aliases(), item.trigger());
+    if siblings.is_empty() {
         return;
     }
     let row = row_area(area, offset);
-    let aliases = item.aliases().join(", ");
-    let aliases = if aliases.is_empty() {
-        "—".to_string()
-    } else {
-        aliases
-    };
+    let aliases = siblings.join(", ");
     let value = util::truncate_to_width(&aliases, edge_value_width("Alias", row.width));
     let width = value.chars().count();
     frame.render_widget(
@@ -347,13 +356,10 @@ fn row_area(area: Rect, offset: u16) -> Rect {
 }
 
 fn render_toggle_row(frame: &mut Frame, area: Rect, theme: &Theme, state: &LibraryPageState) {
-    let Some(index) = state.selected_index() else {
+    if state.selected_index().is_none() {
         return;
-    };
-    let Some(item) = state.item_at_filtered(index) else {
-        return;
-    };
-    let Some(toggle) = toggle_row(area.height, item.preview()) else {
+    }
+    let Some(toggle) = toggle_row(area.height) else {
         return;
     };
     let label = if state.advanced_expanded() {
@@ -373,16 +379,18 @@ fn render_advanced_rows(
     theme: &Theme,
     item: &crate::widgets::library::state::LibraryTrigger,
 ) {
-    let Some(toggle) = toggle_row(area.height, item.preview()) else {
+    let Some(alias) = alias_offset(area.height) else {
         return;
     };
-    let bottom = area.y.saturating_add(area.height);
+    // honey: expanded rows fill the gap between the preview and the
+    // pinned Alias row, stopping one row short to keep the blank gap.
+    let count = output_count(area.height, item.preview());
     for (position, (label, value)) in advanced_rows(item).into_iter().enumerate() {
         let y = area
             .y
-            .saturating_add(toggle)
-            .saturating_add(2 + position as u16 * 2);
-        if y >= bottom {
+            .saturating_add(OUTPUT_OFFSET)
+            .saturating_add(count as u16 + 1 + position as u16 * 2);
+        if y.saturating_add(1) >= area.y.saturating_add(alias) {
             return;
         }
         let row = Rect {

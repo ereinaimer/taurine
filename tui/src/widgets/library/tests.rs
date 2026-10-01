@@ -1042,6 +1042,24 @@ fn expanded_rows_carry_auto_case_and_script_meta() {
 }
 
 #[test]
+fn alias_row_hides_selected_trigger_and_keeps_confirm_flags() {
+    let aliases = vec![
+        "gs".to_string(),
+        "gst (confirm)".to_string(),
+        "ctrl+g".to_string(),
+    ];
+    assert_eq!(
+        detail::sibling_aliases(&aliases, "gst"),
+        vec!["gs", "ctrl+g"]
+    );
+    assert_eq!(
+        detail::sibling_aliases(&aliases, "gs"),
+        vec!["gst (confirm)", "ctrl+g"]
+    );
+    assert!(detail::sibling_aliases(&["solo".to_string()], "solo").is_empty());
+}
+
+#[test]
 fn parse_tags_handles_stored_shapes() {
     assert!(parse_tags("[]").is_empty());
     assert_eq!(parse_tags(r#"["a", "b"]"#), vec!["a", "b"]);
@@ -1068,12 +1086,12 @@ fn advanced_toggle_hit_only_on_toggle_row() {
     let ratio = state.split_ratio();
 
     assert_eq!(
-        detail::hit_test(area, ratio, &state, 42, 11),
+        detail::hit_test(area, ratio, &state, 42, 29),
         Some(detail::DetailHit::Toggle)
     );
-    assert_eq!(detail::hit_test(area, ratio, &state, 42, 10), None);
+    assert_eq!(detail::hit_test(area, ratio, &state, 42, 28), None);
     assert_eq!(detail::hit_test(area, ratio, &state, 42, 5), None);
-    assert_eq!(detail::hit_test(area, ratio, &state, 10, 11), None);
+    assert_eq!(detail::hit_test(area, ratio, &state, 10, 29), None);
 }
 
 #[test]
