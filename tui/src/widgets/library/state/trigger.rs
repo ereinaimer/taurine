@@ -1,58 +1,59 @@
-use taurine_core::db::crud::{
-    ActionType, InvocationType, TriggerAliasRow, TriggerListItem, TriggerType,
-};
+use taurine_core::db::crud::{ActionType, InvocationType, TriggerAliasRow, TriggerListItem};
+use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 
 use crate::widgets::library::actions::{build_search_text, display_target_os, preview_from_item};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LibraryKind {
-    Snippet,
-    Script,
-    HotkeySnippet,
+    TextTrigger,
+    HotkeyTrigger,
+    RegexTrigger,
+    VoiceTrigger,
+    TextScript,
     HotkeyScript,
+    RegexScript,
+    VoiceScript,
 }
 
 impl LibraryKind {
-    /// Display-alias type mapped back onto [`TriggerType`] for the grouped
-    /// entry (Task 8 owns the full multi-alias redesign; voice displays as word).
+    /// Display-alias invocation mapped onto a kind. Entries without
+    /// invocations fall back to a plain word trigger.
     pub(crate) fn from_invocations(invocations: &[TriggerAliasRow], action_type: &str) -> Self {
-        let trigger_type = invocations
+        let invocation = invocations
             .iter()
             .find(|a| a.invocation_type == InvocationType::Word)
             .or_else(|| invocations.first())
-            .map(|a| trigger_type_of(a.invocation_type))
-            .unwrap_or(TriggerType::Word);
-        Self::from_parts(trigger_type, action_type)
+            .map(|a| a.invocation_type)
+            .unwrap_or(InvocationType::Word);
+        Self::from_invocation(invocation, action_type)
     }
 
-    pub(crate) fn from_parts(trigger_type: TriggerType, action_type: &str) -> Self {
+    pub(crate) fn from_invocation(invocation: InvocationType, action_type: &str) -> Self {
         let is_script = ActionType::parse_str(action_type) == Some(ActionType::Script);
 
-        match (trigger_type, is_script) {
-            (TriggerType::Hotkey, true) => Self::HotkeyScript,
-            (TriggerType::Hotkey, false) => Self::HotkeySnippet,
-            (TriggerType::Word, true) => Self::Script,
-            (TriggerType::Word, false) => Self::Snippet,
-            (TriggerType::Regex, true) => Self::Script,
-            (TriggerType::Regex, false) => Self::Snippet,
+        match (invocation, is_script) {
+            (InvocationType::Word, false) => Self::TextTrigger,
+            (InvocationType::Word, true) => Self::TextScript,
+            (InvocationType::Hotkey, false) => Self::HotkeyTrigger,
+            (InvocationType::Hotkey, true) => Self::HotkeyScript,
+            (InvocationType::Regex, false) => Self::RegexTrigger,
+            (InvocationType::Regex, true) => Self::RegexScript,
+            (InvocationType::Voice, false) => Self::VoiceTrigger,
+            (InvocationType::Voice, true) => Self::VoiceScript,
         }
     }
 
     pub(crate) const fn label(self) -> &'static str {
         match self {
-            Self::Snippet => "snippet",
-            Self::Script => "script",
-            Self::HotkeySnippet => "hotkey snippet",
+            Self::TextTrigger => "text trigger",
+            Self::HotkeyTrigger => "hotkey trigger",
+            Self::RegexTrigger => "regex trigger",
+            Self::VoiceTrigger => "voice trigger",
+            Self::TextScript => "text script",
             Self::HotkeyScript => "hotkey script",
+            Self::RegexScript => "regex script",
+            Self::VoiceScript => "voice script",
         }
-    }
-}
-
-const fn trigger_type_of(invocation_type: InvocationType) -> TriggerType {
-    match invocation_type {
-        InvocationType::Hotkey => TriggerType::Hotkey,
-        InvocationType::Regex => TriggerType::Regex,
-        InvocationType::Word | InvocationType::Voice => TriggerType::Word,
     }
 }
 
@@ -65,7 +66,61 @@ pub(crate) struct LibraryTrigger {
     kind: LibraryKind,
     pub(crate) target_os: String,
     invocation: InvocationType,
+    aliases: Vec<String>,
+    description: Option<String>,
+    tags: Vec<String>,
+    only_apps: Option<String>,
+    except_apps: Option<String>,
+    auto_case: bool,
+    usage_count: i64,
+    last_used_at: Option<i64>,
+    interpreter: Option<ScriptInterpreter>,
+    behavior: Option<ScriptBehavior>,
     search_text: String,
+}
+
+/// Minimal `["a", "b"]` list parser for stored tags. Falls back to empty
+/// on anything unexpected rather than failing the row.
+pub(crate) fn parse_tags(tags_json: &str) -> Vec<String> {
+    let inner = tags_json.trim();
+    let inner = inner.strip_prefix('[').and_then(|s| s.strip_suffix(']'));
+    let Some(inner) = inner else {
+        return Vec::new();
+    };
+    let mut tags = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    let mut chars = inner.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '"' if !in_quotes => in_quotes = true,
+            '"' => {
+                if chars.peek() == Some(&'"') {
+                    current.push(chars.next().expect("peeked quote"));
+                } else {
+                    in_quotes = false;
+                }
+            }
+            '\\' if in_quotes => {
+                if let Some(escaped) = chars.next() {
+                    current.push(escaped);
+                }
+            }
+            ',' if !in_quotes => {
+                let tag = current.trim().to_string();
+                if !tag.is_empty() {
+                    tags.push(tag);
+                }
+                current = String::new();
+            }
+            _ => current.push(ch),
+        }
+    }
+    let tag = current.trim().to_string();
+    if !tag.is_empty() {
+        tags.push(tag);
+    }
+    tags
 }
 
 impl LibraryTrigger {
@@ -86,10 +141,8 @@ impl LibraryTrigger {
         item.invocations
             .iter()
             .map(|alias| {
-                let kind = LibraryKind::from_parts(
-                    trigger_type_of(alias.invocation_type),
-                    item.action_type.as_str(),
-                );
+                let kind =
+                    LibraryKind::from_invocation(alias.invocation_type, item.action_type.as_str());
                 Self::row(
                     &item,
                     &target_os,
@@ -124,6 +177,26 @@ impl LibraryTrigger {
             kind,
             target_os: target_os.to_string(),
             invocation,
+            aliases: item
+                .invocations
+                .iter()
+                .map(|a| {
+                    if a.require_confirmation {
+                        format!("{} (confirm)", a.invocation)
+                    } else {
+                        a.invocation.clone()
+                    }
+                })
+                .collect(),
+            description: item.description.clone(),
+            tags: parse_tags(&item.tags),
+            only_apps: item.only_apps.clone(),
+            except_apps: item.except_apps.clone(),
+            auto_case: item.auto_case,
+            usage_count: item.usage_count,
+            last_used_at: item.last_used_at,
+            interpreter: item.interpreter,
+            behavior: item.behavior,
             search_text,
         }
     }
@@ -154,6 +227,46 @@ impl LibraryTrigger {
 
     pub(crate) const fn is_voice(&self) -> bool {
         matches!(self.invocation, InvocationType::Voice)
+    }
+
+    pub(crate) fn aliases(&self) -> &[String] {
+        &self.aliases
+    }
+
+    pub(crate) fn description(&self) -> Option<&str> {
+        self.description.as_deref()
+    }
+
+    pub(crate) fn tags(&self) -> &[String] {
+        &self.tags
+    }
+
+    pub(crate) fn only_apps(&self) -> Option<&str> {
+        self.only_apps.as_deref()
+    }
+
+    pub(crate) fn except_apps(&self) -> Option<&str> {
+        self.except_apps.as_deref()
+    }
+
+    pub(crate) const fn auto_case(&self) -> bool {
+        self.auto_case
+    }
+
+    pub(crate) const fn interpreter(&self) -> Option<ScriptInterpreter> {
+        self.interpreter
+    }
+
+    pub(crate) const fn behavior(&self) -> Option<ScriptBehavior> {
+        self.behavior
+    }
+
+    pub(crate) const fn usage_count(&self) -> i64 {
+        self.usage_count
+    }
+
+    pub(crate) const fn last_used_at(&self) -> Option<i64> {
+        self.last_used_at
     }
 
     pub(crate) fn matches_query(&self, query: &str) -> bool {

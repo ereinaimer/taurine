@@ -46,6 +46,7 @@ fn list_item(
         target_os: target_os.to_string(),
         only_apps: None,
         except_apps: None,
+        auto_case: false,
         usage_count,
         last_used_at: None,
         created_at: 0,
@@ -97,7 +98,7 @@ fn sample_state() -> LibraryPageState {
 }
 
 #[test]
-fn word_text_maps_to_snippet() {
+fn word_text_maps_to_text_trigger() {
     let item = LibraryTrigger::single(list_item(
         "id-gm",
         None,
@@ -109,11 +110,11 @@ fn word_text_maps_to_snippet() {
         9,
         None,
     ));
-    assert_eq!(item.kind_label(), "snippet");
+    assert_eq!(item.kind_label(), "text trigger");
 }
 
 #[test]
-fn word_script_maps_to_script() {
+fn word_script_maps_to_text_script() {
     let item = LibraryTrigger::single(list_item(
         "id-deploy",
         None,
@@ -125,11 +126,11 @@ fn word_script_maps_to_script() {
         4,
         Some("npm publish"),
     ));
-    assert_eq!(item.kind_label(), "script");
+    assert_eq!(item.kind_label(), "text script");
 }
 
 #[test]
-fn hotkey_text_maps_to_hotkey_snippet() {
+fn hotkey_text_maps_to_hotkey_trigger() {
     let item = LibraryTrigger::single(list_item(
         "id-thanks",
         None,
@@ -141,7 +142,29 @@ fn hotkey_text_maps_to_hotkey_snippet() {
         12,
         None,
     ));
-    assert_eq!(item.kind_label(), "hotkey snippet");
+    assert_eq!(item.kind_label(), "hotkey trigger");
+}
+
+#[test]
+fn all_invocation_action_combos_map_to_distinct_labels() {
+    use taurine_core::db::crud::InvocationType;
+
+    let cases = [
+        (InvocationType::Word, "text", "text trigger"),
+        (InvocationType::Hotkey, "text", "hotkey trigger"),
+        (InvocationType::Regex, "text", "regex trigger"),
+        (InvocationType::Voice, "text", "voice trigger"),
+        (InvocationType::Word, "script", "text script"),
+        (InvocationType::Hotkey, "script", "hotkey script"),
+        (InvocationType::Regex, "script", "regex script"),
+        (InvocationType::Voice, "script", "voice script"),
+    ];
+    for (invocation, action, label) in cases {
+        assert_eq!(
+            LibraryKind::from_invocation(invocation, action).label(),
+            label
+        );
+    }
 }
 
 #[test]
@@ -352,6 +375,7 @@ fn search_matches_name_when_it_differs_from_trigger() {
         target_os: "win".to_string(),
         only_apps: None,
         except_apps: None,
+        auto_case: false,
         usage_count: 6,
         last_used_at: None,
         created_at: 0,
@@ -976,6 +1000,7 @@ fn multi_alias_list_item() -> TriggerListItem {
         target_os: "all".to_string(),
         only_apps: None,
         except_apps: None,
+        auto_case: false,
         usage_count: 3,
         last_used_at: None,
         created_at: 0,
@@ -987,14 +1012,79 @@ fn multi_alias_list_item() -> TriggerListItem {
 }
 
 #[test]
+fn expanded_rows_carry_all_aliases_and_usage() {
+    let rows = LibraryTrigger::expand(multi_alias_list_item());
+
+    assert!(
+        rows.iter()
+            .all(|row| row.aliases().join(", ") == "gs, gst, ctrl+g")
+    );
+    assert_eq!(rows[0].usage_count(), 3);
+    assert_eq!(rows[0].last_used_at(), None);
+    assert!(rows[0].tags().is_empty());
+    assert!(!rows[0].auto_case());
+    assert_eq!(rows[0].interpreter(), None);
+}
+
+#[test]
+fn expanded_rows_carry_auto_case_and_script_meta() {
+    use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
+
+    let mut item = multi_alias_list_item();
+    item.auto_case = true;
+    item.interpreter = Some(ScriptInterpreter::Bash);
+    item.behavior = Some(ScriptBehavior::Silent);
+    let rows = LibraryTrigger::expand(item);
+
+    assert!(rows.iter().all(|row| row.auto_case()));
+    assert_eq!(rows[0].interpreter(), Some(ScriptInterpreter::Bash));
+    assert_eq!(rows[0].behavior(), Some(ScriptBehavior::Silent));
+}
+
+#[test]
+fn parse_tags_handles_stored_shapes() {
+    assert!(parse_tags("[]").is_empty());
+    assert_eq!(parse_tags(r#"["a", "b"]"#), vec!["a", "b"]);
+    assert_eq!(parse_tags("bogus"), Vec::<String>::new());
+    assert_eq!(parse_tags(""), Vec::<String>::new());
+}
+
+#[test]
+fn advanced_section_starts_collapsed_and_toggles() {
+    let mut state = sample_state();
+    assert!(!state.advanced_expanded());
+
+    state.toggle_advanced();
+    assert!(state.advanced_expanded());
+
+    state.toggle_advanced();
+    assert!(!state.advanced_expanded());
+}
+
+#[test]
+fn advanced_toggle_hit_only_on_toggle_row() {
+    let state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 80, 30);
+    let ratio = state.split_ratio();
+
+    assert_eq!(
+        detail::hit_test(area, ratio, &state, 42, 11),
+        Some(detail::DetailHit::Toggle)
+    );
+    assert_eq!(detail::hit_test(area, ratio, &state, 42, 10), None);
+    assert_eq!(detail::hit_test(area, ratio, &state, 42, 5), None);
+    assert_eq!(detail::hit_test(area, ratio, &state, 10, 11), None);
+}
+
+#[test]
 fn multi_alias_entry_expands_to_one_row_per_alias() {
     let rows = LibraryTrigger::expand(multi_alias_list_item());
 
     let triggers: Vec<&str> = rows.iter().map(|row| row.trigger()).collect();
     assert_eq!(triggers, vec!["gs", "gst", "ctrl+g"]);
     assert!(rows.iter().all(|row| row.id() == "id-multi"));
-    assert_eq!(rows[0].kind_label(), "snippet");
-    assert_eq!(rows[2].kind_label(), "hotkey snippet");
+    assert_eq!(rows[0].kind_label(), "text trigger");
+    assert_eq!(rows[2].kind_label(), "hotkey trigger");
 }
 
 #[test]

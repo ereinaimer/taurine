@@ -67,6 +67,7 @@ pub(crate) struct LibraryPageState {
     split_ratio: f32,
     divider_hover: bool,
     divider_drag: bool,
+    advanced_expanded: bool,
 }
 
 impl Default for LibraryPageState {
@@ -84,6 +85,7 @@ impl Default for LibraryPageState {
             split_ratio: super::DEFAULT_SPLIT_RATIO,
             divider_hover: false,
             divider_drag: false,
+            advanced_expanded: false,
         }
     }
 }
@@ -160,6 +162,14 @@ impl LibraryPageState {
         if drag {
             self.divider_hover = true;
         }
+    }
+
+    pub(crate) const fn advanced_expanded(&self) -> bool {
+        self.advanced_expanded
+    }
+
+    pub(crate) fn toggle_advanced(&mut self) {
+        self.advanced_expanded = !self.advanced_expanded;
     }
 
     pub(crate) const fn modal(&self) -> Option<&LibraryModal> {

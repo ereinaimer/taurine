@@ -382,8 +382,8 @@ pub fn get_triggers_list(conn: &Connection) -> Result<Vec<TriggerListItem>> {
     let os_str = get_current_os_db_string();
     let mut stmt = conn.prepare_cached(
         "SELECT a.id, a.name, a.description, a.output, a.action_type, a.target_os,
-                a.only_apps, a.except_apps, a.usage_count, a.last_used_at, a.created_at,
-                a.tags, s.interpreter, s.behavior, s.compressed_content
+                a.only_apps, a.except_apps, a.auto_case, a.usage_count, a.last_used_at,
+                a.created_at, a.tags, s.interpreter, s.behavior, s.compressed_content
          FROM   triggers a
          LEFT JOIN scripts s ON a.id = s.trigger_id
          WHERE  a.is_deleted = 0
@@ -392,13 +392,13 @@ pub fn get_triggers_list(conn: &Connection) -> Result<Vec<TriggerListItem>> {
     )?;
 
     let rows = stmt.query_map([os_str], |row| {
-        let interpreter = parse_json_variant(row.get(12)?);
-        let behavior = parse_json_variant(row.get(13)?);
+        let interpreter = parse_json_variant(row.get(13)?);
+        let behavior = parse_json_variant(row.get(14)?);
         let script_content = row
-            .get::<_, Option<Vec<u8>>>(14)?
+            .get::<_, Option<Vec<u8>>>(15)?
             .map(|compressed| {
                 decompress(&compressed).map_err(|err| {
-                    rusqlite::Error::FromSqlConversionFailure(14, Type::Blob, Box::new(err))
+                    rusqlite::Error::FromSqlConversionFailure(15, Type::Blob, Box::new(err))
                 })
             })
             .transpose()?;
@@ -414,10 +414,11 @@ pub fn get_triggers_list(conn: &Connection) -> Result<Vec<TriggerListItem>> {
             target_os: row.get(5)?,
             only_apps: row.get(6)?,
             except_apps: row.get(7)?,
-            usage_count: row.get(8)?,
-            last_used_at: row.get(9)?,
-            created_at: row.get(10)?,
-            tags: row.get(11)?,
+            auto_case: row.get(8)?,
+            usage_count: row.get(9)?,
+            last_used_at: row.get(10)?,
+            created_at: row.get(11)?,
+            tags: row.get(12)?,
             script_content,
             interpreter,
             behavior,

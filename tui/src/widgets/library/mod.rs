@@ -107,16 +107,6 @@ fn left_content(area: Rect, ratio: f32) -> Rect {
     }
 }
 
-/// Page inset shared by rendering and mouse hit-testing.
-pub(crate) fn page_area(area: Rect) -> Rect {
-    Rect {
-        x: area.x.saturating_add(1),
-        y: area.y.saturating_add(1),
-        width: area.width.saturating_sub(2),
-        height: area.height.saturating_sub(1),
-    }
-}
-
 /// Split the page into list and search areas, shared by rendering and
 /// mouse hit-testing so clicks land where rows are drawn.
 pub(crate) fn content_sections(area: Rect, has_status: bool) -> (Rect, Rect) {

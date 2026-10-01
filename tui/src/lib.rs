@@ -280,8 +280,21 @@ fn handle_tui_mouse_event(
                         Some(library::list::LibraryHit::Search) => {
                             app.library_page_mut().activate_search();
                         }
-                        // honey: right pane is read-only preview; clicks there do nothing.
-                        None => {}
+                        // honey: only the Advanced toggle is clickable; the
+                        // rest of the preview is read-only.
+                        None => {
+                            let page = app.library_page();
+                            let hit = library::detail::hit_test(
+                                layout.page,
+                                page.split_ratio(),
+                                page,
+                                mouse.column,
+                                mouse.row,
+                            );
+                            if hit == Some(library::detail::DetailHit::Toggle) {
+                                app.library_page_mut().toggle_advanced();
+                            }
+                        }
                     }
                 }
                 Page::Settings => {
@@ -674,6 +687,7 @@ mod tests {
                 target_os: "win".to_string(),
                 only_apps: None,
                 except_apps: None,
+                auto_case: false,
                 usage_count: 0,
                 last_used_at: None,
                 created_at: 0,
@@ -770,6 +784,7 @@ mod tests {
                 target_os: "win".to_string(),
                 only_apps: None,
                 except_apps: None,
+                auto_case: false,
                 usage_count: 0,
                 last_used_at: None,
                 created_at: 0,
@@ -803,6 +818,7 @@ mod tests {
                 target_os: "win".to_string(),
                 only_apps: None,
                 except_apps: None,
+                auto_case: false,
                 usage_count: 0,
                 last_used_at: None,
                 created_at: 0,
@@ -888,6 +904,7 @@ mod tests {
                 target_os: "all".to_string(),
                 only_apps: None,
                 except_apps: None,
+                auto_case: false,
                 usage_count: 0,
                 last_used_at: None,
                 created_at: 0,
@@ -907,6 +924,7 @@ mod tests {
                 target_os: "all".to_string(),
                 only_apps: None,
                 except_apps: None,
+                auto_case: false,
                 usage_count: 0,
                 last_used_at: None,
                 created_at: 0,
