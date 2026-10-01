@@ -114,24 +114,39 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
         Some(Commands::Setup) => {
             taurine_core::service::linux_setup()?;
         }
-        Some(Commands::Up) => commands::service::execute_up(json)?,
-        Some(Commands::Restart) => commands::service::execute_restart(json)?,
+        Some(Commands::Login { no_browser }) => commands::auth::execute_login(no_browser, json)?,
+        Some(Commands::Logout) => commands::auth::execute_logout(json)?,
+        Some(Commands::Up) => {
+            commands::auth::ensure_authenticated()?;
+            commands::service::execute_up(json)?;
+        }
+        Some(Commands::Restart) => {
+            commands::auth::ensure_authenticated()?;
+            commands::service::execute_restart(json)?;
+        }
         Some(Commands::Down) => commands::service::execute_down(json)?,
-        Some(Commands::Status) => commands::service::execute_status(json)?,
+        Some(Commands::Status) => commands::status::execute_status(json)?,
         Some(Commands::Update) => commands::update::execute(json)?,
-        Some(Commands::Add(args)) => commands::add::execute_args(*args, json)?,
+        Some(Commands::Add(args)) => {
+            commands::auth::ensure_authenticated()?;
+            commands::add::execute_args(*args, json)?;
+        }
         Some(Commands::Delete { triggers, tag, yes }) => {
+            commands::auth::ensure_authenticated()?;
             commands::delete::execute(triggers, tag, yes, json)?;
         }
+
         Some(Commands::List {
             sort,
             asc,
             desc,
             tags,
             voice,
+            workspace,
         }) => {
-            commands::list::execute(sort, asc, desc, json, tags, voice)?;
+            commands::list::execute(sort, asc, desc, json, tags, voice, workspace)?;
         }
+
         Some(Commands::Export { path, yes }) => {
             commands::export::execute(path, yes)?;
         }

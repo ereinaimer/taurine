@@ -1,5 +1,6 @@
 pub mod add;
 pub mod ai;
+pub mod auth;
 pub mod completions;
 pub mod config;
 pub mod delete;
@@ -9,6 +10,7 @@ pub mod list;
 pub mod progress;
 pub mod script;
 pub mod service;
+pub mod status;
 pub mod update;
 pub mod validate;
 

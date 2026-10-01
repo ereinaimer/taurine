@@ -77,6 +77,16 @@ pub(crate) enum Commands {
     Update,
     /// Check Taurine status
     Status,
+    /// Log in to Taurine Cloud
+    #[command(alias = "signin")]
+    Login {
+        /// Do not open the browser automatically; print URL and prompt for code
+        #[arg(long)]
+        no_browser: bool,
+    },
+    /// Log out from Taurine Cloud
+    #[command(alias = "signout")]
+    Logout,
     #[cfg(target_os = "linux")]
     /// Configure system permissions for hardware access
     #[command(hide = true)]
@@ -120,7 +130,12 @@ pub(crate) enum Commands {
         /// Show voice triggers only
         #[arg(long)]
         voice: bool,
+
+        /// Filter by workspace name or ID
+        #[arg(long)]
+        workspace: Option<String>,
     },
+
     /// Export triggers to a file
     Export {
         /// Destination file path
@@ -323,6 +338,10 @@ pub struct AddArgs {
     /// Auto-case
     #[arg(long)]
     pub auto_case: bool,
+
+    /// Workspace name or ID to associate trigger with
+    #[arg(long)]
+    pub workspace: Option<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -379,6 +398,10 @@ pub enum AddSubcommand {
         /// Auto-case
         #[arg(long)]
         auto_case: bool,
+
+        /// Workspace name or ID to associate trigger with
+        #[arg(long)]
+        workspace: Option<String>,
     },
 }
 

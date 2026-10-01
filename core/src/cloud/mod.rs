@@ -4,7 +4,7 @@ pub mod keyring;
 pub mod lease;
 pub mod types;
 
-pub use client::CloudClient;
+pub use client::{CloudClient, generate_pkce_challenge};
 pub use device::{get_device_hardware_id, get_device_name, get_device_platform};
 pub use keyring::{
     clear_cloud_tokens, clear_tokens, get_cloud_tokens, get_tokens, store_cloud_tokens,

@@ -263,3 +263,14 @@ fn extract_jwt_user_id(access_token: &str) -> Option<String> {
         None
     }
 }
+
+/// Generates a cryptographically secure PKCE code verifier and challenge pair (S256).
+pub fn generate_pkce_challenge() -> (String, String) {
+    use sha2::{Digest, Sha256};
+    let random_bytes: [u8; 32] = rand::random();
+    let verifier = URL_SAFE_NO_PAD.encode(random_bytes);
+    let mut hasher = Sha256::new();
+    hasher.update(verifier.as_bytes());
+    let challenge = URL_SAFE_NO_PAD.encode(hasher.finalize());
+    (verifier, challenge)
+}

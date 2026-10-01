@@ -396,3 +396,29 @@ async fn test_exchange_code_error_handling_mock_http() {
 
     server_handle.join().unwrap();
 }
+
+#[test]
+fn test_generate_pkce_challenge() {
+    use base64::Engine;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use sha2::{Digest, Sha256};
+
+    let (verifier, challenge) = super::generate_pkce_challenge();
+
+    // Verifier should decode to 32 bytes from URL-safe unpadded base64
+    let verifier_bytes = URL_SAFE_NO_PAD
+        .decode(&verifier)
+        .expect("verifier must be valid URL-safe unpadded base64");
+    assert_eq!(verifier_bytes.len(), 32);
+
+    // Challenge should be SHA-256 of verifier ASCII bytes, URL-safe unpadded base64
+    let mut hasher = Sha256::new();
+    hasher.update(verifier.as_bytes());
+    let expected_challenge = URL_SAFE_NO_PAD.encode(hasher.finalize());
+    assert_eq!(challenge, expected_challenge);
+
+    // Consecutive calls should generate distinct random verifiers
+    let (v2, c2) = super::generate_pkce_challenge();
+    assert_ne!(verifier, v2);
+    assert_ne!(challenge, c2);
+}

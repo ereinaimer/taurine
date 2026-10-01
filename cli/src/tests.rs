@@ -622,3 +622,213 @@ fn add_script_without_args_parses_successfully() {
         other => panic!("unexpected command parse: {other:?}"),
     }
 }
+
+#[test]
+fn test_login_args_parsing() {
+    let cli = Cli::try_parse_from(["taurine", "login"]).expect("login parses");
+    match cli.command {
+        Some(Commands::Login { no_browser }) => {
+            assert!(!no_browser);
+        }
+        other => panic!("expected Login, got {other:?}"),
+    }
+
+    let cli = Cli::try_parse_from(["taurine", "login", "--no-browser"])
+        .expect("login --no-browser parses");
+    match cli.command {
+        Some(Commands::Login { no_browser }) => {
+            assert!(no_browser);
+        }
+        other => panic!("expected Login with no_browser=true, got {other:?}"),
+    }
+
+    let cli = Cli::try_parse_from(["taurine", "logout"]).expect("logout parses");
+    assert!(matches!(cli.command, Some(Commands::Logout)));
+}
+
+#[test]
+fn test_status_args_parsing() {
+    let cli = Cli::try_parse_from(["taurine", "status"]).expect("status parses");
+    assert!(!cli.json);
+    assert!(matches!(cli.command, Some(Commands::Status)));
+
+    let cli = Cli::try_parse_from(["taurine", "status", "--json"]).expect("status --json parses");
+    assert!(cli.json);
+    assert!(matches!(cli.command, Some(Commands::Status)));
+}
+
+#[test]
+fn test_workspace_flag_parsing() {
+    let cli = Cli::try_parse_from([
+        "taurine",
+        "add",
+        ":sig",
+        "Best regards",
+        "--workspace",
+        "work",
+    ])
+    .expect("add --workspace parses");
+    match cli.command {
+        Some(Commands::Add(args)) => {
+            assert_eq!(args.workspace.as_deref(), Some("work"));
+        }
+        other => panic!("expected Add with workspace, got {other:?}"),
+    }
+
+    let cli = Cli::try_parse_from(["taurine", "list", "--workspace", "personal"])
+        .expect("list --workspace parses");
+    match cli.command {
+        Some(Commands::List { workspace, .. }) => {
+            assert_eq!(workspace.as_deref(), Some("personal"));
+        }
+        other => panic!("expected List with workspace, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_unauthenticated_add_rejected_with_login_message() {
+    let _lock = crate::commands::TEST_LOCK.lock().unwrap();
+    crate::commands::test_keyring::use_shared_test_keyring();
+    let _ = taurine_core::cloud::clear_tokens();
+
+    let cli =
+        Cli::try_parse_from(["taurine", "add", ":test_unauth", "hello world"]).expect("add parses");
+    let result = run(cli, LaunchTarget::Command);
+    match result {
+        Err(taurine_core::error::Error::Config(msg)) => {
+            assert!(
+                msg.contains("Authentication required. Please run 'taurine login' to continue."),
+                "Expected login prompt, got: {msg}"
+            );
+        }
+        other => panic!("expected Config error with login prompt, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_unauthenticated_delete_rejected_with_login_message() {
+    let _lock = crate::commands::TEST_LOCK.lock().unwrap();
+    crate::commands::test_keyring::use_shared_test_keyring();
+    let _ = taurine_core::cloud::clear_tokens();
+
+    let cli =
+        Cli::try_parse_from(["taurine", "delete", ":test_unauth", "-y"]).expect("delete parses");
+    let result = run(cli, LaunchTarget::Command);
+    match result {
+        Err(taurine_core::error::Error::Config(msg)) => {
+            assert!(
+                msg.contains("Authentication required. Please run 'taurine login' to continue."),
+                "Expected login prompt, got: {msg}"
+            );
+        }
+        other => panic!("expected Config error with login prompt, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_unauthenticated_up_and_restart_rejected_with_login_message() {
+    let _lock = crate::commands::TEST_LOCK.lock().unwrap();
+    crate::commands::test_keyring::use_shared_test_keyring();
+    let _ = taurine_core::cloud::clear_tokens();
+
+    let cli_up = Cli::try_parse_from(["taurine", "up"]).expect("up parses");
+    let res_up = run(cli_up, LaunchTarget::Command);
+    match res_up {
+        Err(taurine_core::error::Error::Config(msg)) => {
+            assert!(
+                msg.contains("Authentication required. Please run 'taurine login' to continue.")
+            );
+        }
+        other => panic!("expected Config error for up, got {other:?}"),
+    }
+
+    let cli_restart = Cli::try_parse_from(["taurine", "restart"]).expect("restart parses");
+    let res_restart = run(cli_restart, LaunchTarget::Command);
+    match res_restart {
+        Err(taurine_core::error::Error::Config(msg)) => {
+            assert!(
+                msg.contains("Authentication required. Please run 'taurine login' to continue.")
+            );
+        }
+        other => panic!("expected Config error for restart, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_authenticated_ensure_authenticated_succeeds() {
+    let _lock = crate::commands::TEST_LOCK.lock().unwrap();
+    crate::commands::test_keyring::use_shared_test_keyring();
+
+    let mock_tokens = taurine_core::cloud::AuthTokens {
+        access_token: "mock-access-token".to_string(),
+        refresh_token: "mock-refresh-token".to_string(),
+        user_id: "user-uuid-12345".to_string(),
+        expires_at: Some(2000000000),
+    };
+    taurine_core::cloud::store_tokens(&mock_tokens).expect("store_tokens must succeed");
+
+    let auth = crate::commands::auth::ensure_authenticated();
+    assert!(
+        auth.is_ok(),
+        "ensure_authenticated must succeed when logged in"
+    );
+    assert_eq!(auth.unwrap().user_id, "user-uuid-12345");
+
+    let _ = taurine_core::cloud::clear_tokens();
+}
+
+#[test]
+fn test_logout_clears_tokens_and_resets_tier() {
+    let _lock = crate::commands::TEST_LOCK.lock().unwrap();
+    crate::commands::test_keyring::use_shared_test_keyring();
+    let temp = tempfile::tempdir().expect("tempdir");
+    // SAFETY: access to TAURINE_DATA_DIR is serialized by TEST_LOCK
+    unsafe { std::env::set_var("TAURINE_DATA_DIR", temp.path()) };
+
+    let mock_tokens = taurine_core::cloud::AuthTokens {
+        access_token: "tok-abc".to_string(),
+        refresh_token: "tok-ref".to_string(),
+        user_id: "user-to-logout".to_string(),
+        expires_at: None,
+    };
+    taurine_core::cloud::store_tokens(&mock_tokens).expect("store_tokens");
+
+    let conn = taurine_core::db::init::setup().expect("db setup");
+    taurine_core::db::crud::set_user_tier(&conn, taurine_core::db::crud::UserTier::Pro)
+        .expect("set tier Pro");
+
+    let cli = Cli::try_parse_from(["taurine", "logout"]).expect("logout parses");
+    let res = run(cli, LaunchTarget::Command);
+    assert!(res.is_ok(), "logout must succeed");
+
+    let stored = taurine_core::cloud::get_tokens().expect("get_tokens");
+    assert!(stored.is_none(), "tokens must be cleared on logout");
+
+    let tier = taurine_core::db::crud::get_user_tier(&conn);
+    assert_eq!(
+        tier,
+        taurine_core::db::crud::UserTier::Free,
+        "tier must reset to Free"
+    );
+
+    // SAFETY: access to TAURINE_DATA_DIR is serialized by TEST_LOCK
+    unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
+}
+
+#[test]
+fn test_status_command_executes_hermetically() {
+    let _lock = crate::commands::TEST_LOCK.lock().unwrap();
+    crate::commands::test_keyring::use_shared_test_keyring();
+    let temp = tempfile::tempdir().expect("tempdir");
+    // SAFETY: access to TAURINE_DATA_DIR is serialized by TEST_LOCK
+    unsafe { std::env::set_var("TAURINE_DATA_DIR", temp.path()) };
+
+    let res_plain = crate::commands::status::execute_status(false);
+    assert!(res_plain.is_ok());
+
+    let res_json = crate::commands::status::execute_status(true);
+    assert!(res_json.is_ok());
+
+    // SAFETY: access to TAURINE_DATA_DIR is serialized by TEST_LOCK
+    unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
+}

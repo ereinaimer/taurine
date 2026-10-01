@@ -9,9 +9,26 @@ pub fn execute(
     json: bool,
     tags: Option<Vec<String>>,
     voice: bool,
+    workspace: Option<String>,
 ) -> taurine_core::error::Result<()> {
     let conn = init::setup()?;
     let mut triggers = get_triggers_list(&conn)?;
+
+    if let Some(ref ws_name) = workspace {
+        let workspaces = taurine_core::db::crud::get_workspaces(&conn)?;
+        let target_ws = workspaces
+            .iter()
+            .find(|w| w.id == *ws_name || w.name.eq_ignore_ascii_case(ws_name))
+            .ok_or_else(|| {
+                taurine_core::Error::NotFound(format!("Workspace '{ws_name}' not found"))
+            })?;
+        let mut stmt =
+            conn.prepare("SELECT id FROM triggers WHERE workspace_id = ?1 AND is_deleted = 0")?;
+        let matching_ids: std::collections::HashSet<String> = stmt
+            .query_map([&target_ws.id], |row| row.get(0))?
+            .collect::<std::result::Result<_, _>>()?;
+        triggers.retain(|item| matching_ids.contains(&item.id));
+    }
 
     if let Some(ref wanted) = tags {
         triggers.retain(|item| matches_tags(&item.tags, wanted));

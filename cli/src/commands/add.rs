@@ -120,6 +120,19 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
         );
     }
 
+    let target_ws = if let Some(ref ws_name) = args.workspace {
+        let workspaces = taurine_core::db::crud::get_workspaces(&conn)?;
+        let found = workspaces
+            .iter()
+            .find(|w| w.id == *ws_name || w.name.eq_ignore_ascii_case(ws_name))
+            .ok_or_else(|| {
+                taurine_core::Error::NotFound(format!("Workspace '{ws_name}' not found"))
+            })?;
+        Some(found.id.clone())
+    } else {
+        None
+    };
+
     let outcome = upsert_entry_full(
         &conn,
         NewEntry {
@@ -137,6 +150,18 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
             invocations: invocations.clone(),
         },
     )?;
+
+    if let Some(ref ws_id) = target_ws {
+        for (invocation_type, invocation, _) in &invocations {
+            if let Ok(Some(pid)) = find_parent_by_invocation(&conn, *invocation_type, invocation) {
+                let _ = conn.execute(
+                    "UPDATE triggers SET workspace_id = ?1 WHERE id = ?2",
+                    rusqlite::params![ws_id, pid],
+                );
+                break;
+            }
+        }
+    }
 
     let (display, aliases) = resolve_display(&conn, &name, &invocations);
     report_outcome(
@@ -399,6 +424,7 @@ mod tests {
             name: None,
             description: None,
             auto_case: false,
+            workspace: None,
         }
     }
 

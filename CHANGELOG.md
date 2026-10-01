@@ -8,12 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Cloud Authentication**: Sign in and out of Taurine Cloud with `taurine login` and `taurine logout`.
+- **Cloud Quota & Tier Status**: View subscription tier, weekly quota balance, and usage limits in `taurine status`.
+- **Workspace Filtering**: Assign and filter triggers by workspace with the `--workspace` flag.
 - **Unlimited Voice Dictation**: Talk as long as you want with no time cutoffs.
 - **Smarter Custom Words**: Your personal dictionary and voice shortcuts now take priority over everyday speech.
 - **Keep Voice Model Loaded**: Optional setting to keep the dictation model in memory for instant start after long idle periods at the cost of extra RAM.
 - **Voice Error Sound**: Play a distinct error tone when dictation fails because the microphone or voice engine is unavailable.
 - **Pause Media While Dictating**: Pause music and video while recording and resume afterwards, on by default via a new setting.
 - **Cleaner Trigger List**: Listing shows one line per trigger with just the trigger and result, plus multi-tag filtering.
+
 
 ## [1.0.0-alpha.19] - 2026-09-27
 
