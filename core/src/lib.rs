@@ -12,6 +12,7 @@
 //! - **Error**: Centralized error handling.
 
 pub mod ai;
+pub mod cloud;
 pub mod db;
 pub mod diagnostic;
 pub mod engine;
