@@ -102,7 +102,8 @@ pub fn get_trigger(conn: &Connection, id: &str) -> Result<Option<TriggerRow>> {
             a.auto_case,
             s.interpreter,
             s.behavior,
-            s.compressed_content
+            s.compressed_content,
+            a.workspace_id
          FROM triggers a
          LEFT JOIN scripts s ON a.id = s.trigger_id
          WHERE a.id = ?1",
@@ -133,6 +134,7 @@ pub fn get_trigger(conn: &Connection, id: &str) -> Result<Option<TriggerRow>> {
             is_synced: row.get(15)?,
             is_enabled: row.get(16)?,
             auto_case: row.get(17)?,
+            workspace_id: row.get(21)?,
             interpreter,
             behavior,
             script_binary: row.get(20)?,

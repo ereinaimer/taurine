@@ -80,11 +80,43 @@ pub struct TriggerRow {
     pub is_synced: bool,
     pub is_enabled: bool,
     pub auto_case: bool,
+    pub workspace_id: String,
 
     // Script Metadata from joined scripts table
     pub interpreter: Option<ScriptInterpreter>,
     pub behavior: Option<ScriptBehavior>,
     pub script_binary: Option<Vec<u8>>,
+}
+
+impl Default for TriggerRow {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            description: None,
+            invocations: Vec::new(),
+            display: String::new(),
+            output: String::new(),
+            action_type: ActionType::Text.as_str().to_string(),
+            target_os: "all".to_string(),
+            only_apps: None,
+            except_apps: None,
+            tags: "[]".to_string(),
+            usage_count: 0,
+            last_used_at: None,
+            created_at: 0,
+            updated_at: 0,
+            version: 1,
+            is_deleted: false,
+            is_synced: false,
+            is_enabled: true,
+            auto_case: false,
+            workspace_id: "default".to_string(),
+            interpreter: None,
+            behavior: None,
+            script_binary: None,
+        }
+    }
 }
 
 /// Minimal data needed by the keystroke listener.

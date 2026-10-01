@@ -70,3 +70,6 @@ graphify-out/
 GEMINI.md
 .superpowers
 .worktrees/
+.env
+.env.*
+target_tests/

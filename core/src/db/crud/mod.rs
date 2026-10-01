@@ -2,6 +2,7 @@ pub mod settings;
 pub mod stats;
 pub mod target_os;
 pub mod triggers;
+pub mod workspaces;
 
 pub use target_os::TargetOs;
 pub use triggers::{
@@ -23,6 +24,9 @@ pub use triggers::{
     update_trigger_app_filters, upsert_entry_full, upsert_script, upsert_trigger,
     upsert_trigger_with_type, upsert_trigger_with_type_and_case,
     validate_trigger_target_os_conflict, validate_voice_phrase,
+};
+pub use workspaces::{
+    WorkspaceRow, create_workspace, get_default_workspace, get_workspace_by_id, get_workspaces,
 };
 
 pub use crate::stats::TriggerStatKind;

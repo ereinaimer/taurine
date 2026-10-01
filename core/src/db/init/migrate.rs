@@ -67,6 +67,29 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                     updated_at INTEGER NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS workspaces (
+                    id           TEXT    PRIMARY KEY,
+                    name         TEXT    NOT NULL,
+                    is_default   BOOLEAN NOT NULL DEFAULT 0,
+                    created_at   INTEGER NOT NULL,
+                    updated_at   INTEGER NOT NULL,
+                    version      INTEGER NOT NULL DEFAULT 1,
+                    is_deleted   BOOLEAN NOT NULL DEFAULT 0,
+                    is_synced    BOOLEAN NOT NULL DEFAULT 1
+                );
+
+                INSERT OR IGNORE INTO workspaces (id, name, is_default, created_at, updated_at, version, is_deleted, is_synced)
+                VALUES ('default', 'Personal', 1, unixepoch(), unixepoch(), 1, 0, 1);
+
+                CREATE TABLE IF NOT EXISTS quota_ledger (
+                    week_start_epoch     INTEGER PRIMARY KEY,
+                    remaining_percentage REAL    NOT NULL DEFAULT 100.0,
+                    last_expansion_at    INTEGER,
+                    hmac_signature       TEXT    NOT NULL DEFAULT '',
+                    is_synced            BOOLEAN NOT NULL DEFAULT 0,
+                    updated_at           INTEGER NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS triggers (
                     id           TEXT    PRIMARY KEY,
                     name         TEXT    NOT NULL,
@@ -85,7 +108,8 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                     updated_at   INTEGER NOT NULL,
                     version      INTEGER DEFAULT 1,
                     is_deleted   BOOLEAN DEFAULT 0,
-                    is_synced    BOOLEAN DEFAULT 1
+                    is_synced    BOOLEAN DEFAULT 1,
+                    workspace_id TEXT    NOT NULL DEFAULT 'default' REFERENCES workspaces(id)
                 );
 
                 CREATE TABLE IF NOT EXISTS stats (
@@ -144,6 +168,10 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                 -- UI index: fuzzy-finder sorts by most-used first.
                 CREATE INDEX IF NOT EXISTS idx_triggers_usage_count
                     ON triggers(usage_count DESC);
+
+                -- Workspace index: filtering active triggers by workspace.
+                CREATE INDEX IF NOT EXISTS idx_triggers_workspace
+                    ON triggers(workspace_id) WHERE is_deleted = 0 AND is_enabled = 1;
 
                 -- Stats sync: same LWW ordering as triggers.
                 CREATE INDEX IF NOT EXISTS idx_stats_sync
