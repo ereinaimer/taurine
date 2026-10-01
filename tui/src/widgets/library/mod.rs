@@ -24,13 +24,19 @@ pub(crate) const MAX_SPLIT_RATIO: f32 = 0.85;
 pub(crate) const DIVIDER_HOVER_COLOR: ratatui::style::Color =
     ratatui::style::Color::Rgb(0x2E, 0x2E, 0x2E);
 
+/// Minimum right-pane width for the detail preview to stay readable.
+/// Narrower than this collapses to the list alone.
+pub(crate) const MIN_RIGHT_WIDTH: u16 = 22;
+/// Minimum left-pane width honored while dragging the divider.
+pub(crate) const MIN_LEFT_WIDTH: u16 = 20;
+
 /// Divider column between the two panes for a full-frame line. None when
-/// too narrow to split.
+/// collapsed to a single pane.
 pub(crate) fn divider_column(area: Rect, ratio: f32) -> Option<u16> {
-    if area.width < 5 {
+    let (left, right) = content_halves(area, ratio);
+    if right.width == 0 {
         return None;
     }
-    let (left, _) = content_halves(area, ratio);
     Some(left.x.saturating_add(left.width))
 }
 
@@ -42,14 +48,27 @@ pub(crate) fn divider_hit(area: Rect, ratio: f32, column: u16, row: u16) -> bool
     column == divider && row >= area.y && row < area.y.saturating_add(area.height)
 }
 
-/// Split ratio that puts the divider gutter at `column`.
+/// Split ratio that puts the divider gutter at `column`, keeping both
+/// panes above their minimum widths while the terminal allows it.
 pub(crate) fn split_ratio_for_column(area: Rect, column: u16) -> f32 {
     let gutter = area.width.saturating_sub(1).max(1) as f32;
-    (column.saturating_sub(area.x) as f32 / gutter).clamp(MIN_SPLIT_RATIO, MAX_SPLIT_RATIO)
+    let ratio = column.saturating_sub(area.x) as f32 / gutter;
+    let span = area.width.saturating_sub(1) as f32;
+    if span <= 0.0 {
+        return DEFAULT_SPLIT_RATIO;
+    }
+    let low = (MIN_LEFT_WIDTH as f32 / span).max(MIN_SPLIT_RATIO);
+    let high = ((span - MIN_RIGHT_WIDTH as f32) / span).min(MAX_SPLIT_RATIO);
+    if low > high {
+        return DEFAULT_SPLIT_RATIO;
+    }
+    ratio.clamp(low, high)
 }
 
 /// Split the page into left (list) and right (detail) panes with a
 /// one-column gutter, shared by rendering and mouse hit-testing.
+/// Collapses to the list alone when the detail pane would fall below
+/// its readable minimum.
 pub(crate) fn content_halves(area: Rect, ratio: f32) -> (Rect, Rect) {
     if area.width < 5 {
         return (area, Rect::default());
@@ -57,6 +76,9 @@ pub(crate) fn content_halves(area: Rect, ratio: f32) -> (Rect, Rect) {
     let ratio = ratio.clamp(MIN_SPLIT_RATIO, MAX_SPLIT_RATIO);
     let span = area.width.saturating_sub(1);
     let left_width = ((span as f32 * ratio) as u16).clamp(1, span.saturating_sub(1).max(1));
+    if span.saturating_sub(left_width) < MIN_RIGHT_WIDTH {
+        return (area, Rect::default());
+    }
     (
         Rect {
             x: area.x,

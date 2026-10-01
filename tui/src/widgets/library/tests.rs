@@ -1166,6 +1166,37 @@ fn custom_split_moves_divider_and_clamps() {
 }
 
 #[test]
+fn narrow_page_collapses_to_list_only() {
+    let state = LibraryPageState::default();
+    let ratio = state.split_ratio();
+
+    // Right half would be 21 wide: collapse.
+    let area = ratatui::layout::Rect::new(0, 0, 42, 30);
+    let (left, right) = content_halves(area, ratio);
+    assert_eq!(left.width, 42);
+    assert_eq!(right.width, 0);
+    assert_eq!(divider_column(area, ratio), None);
+    assert!(!divider_hit(area, ratio, 21, 5));
+
+    // Right half is exactly the minimum: split kept.
+    let area = ratatui::layout::Rect::new(0, 0, 44, 30);
+    let (left, right) = content_halves(area, ratio);
+    assert_eq!(left.width, 21);
+    assert_eq!(right.width, 22);
+    assert_eq!(divider_column(area, ratio), Some(21));
+}
+
+#[test]
+fn drag_range_keeps_both_pane_minimums() {
+    let area = ratatui::layout::Rect::new(0, 0, 80, 30);
+    // honey: float truncation keeps this within one cell of the minimum.
+    let (left, _) = content_halves(area, split_ratio_for_column(area, 0));
+    assert!((MIN_LEFT_WIDTH - 1..=MIN_LEFT_WIDTH + 1).contains(&left.width));
+    let (_, right) = content_halves(area, split_ratio_for_column(area, 79));
+    assert!(right.width >= MIN_RIGHT_WIDTH);
+}
+
+#[test]
 fn divider_hit_only_on_gutter_column() {
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
     let ratio = LibraryPageState::default().split_ratio();
