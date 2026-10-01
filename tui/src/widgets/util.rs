@@ -345,9 +345,18 @@ pub(crate) fn render_search_block(
     } else {
         Line::from(placeholder.to_string())
     };
-    let line_area = Rect { height: 1, ..inner };
+    // honey: one cell of horizontal padding inside the border.
+    let line_area = Rect {
+        x: inner.x.saturating_add(1),
+        y: inner.y,
+        width: inner.width.saturating_sub(2),
+        height: 1,
+    };
+    if line_area.width == 0 {
+        return;
+    }
     frame.render_widget(Paragraph::new(title).style(title_style), line_area);
-    if is_active && line_area.width > 0 {
+    if is_active {
         let (cx, cy) = caret_position(line_area.x, line_area.y, cursor, line_area.width);
         frame.set_cursor_position((cx, cy));
     }

@@ -49,10 +49,16 @@ pub(crate) fn content_halves(area: Rect) -> (Rect, Rect) {
     )
 }
 
-/// List content inside the left pane with the page padding.
+/// List content inside the left pane: flush left, two cells of padding on
+/// the right. Shared by rendering and mouse hit-testing.
 fn left_content(area: Rect) -> Rect {
     let (left, _) = content_halves(area);
-    page_area(left)
+    Rect {
+        x: left.x,
+        y: left.y.saturating_add(1),
+        width: left.width.saturating_sub(2),
+        height: left.height.saturating_sub(1),
+    }
 }
 
 /// Page inset shared by rendering and mouse hit-testing.

@@ -14,6 +14,7 @@ use super::{content_sections, left_content};
 
 const LIBRARY_ITEM_HEIGHT: u16 = 2;
 const LIBRARY_ITEM_PADDING: u16 = 1;
+const LIBRARY_ITEM_PAD_X: u16 = 2;
 const LIBRARY_ROW_HEIGHT: u16 = LIBRARY_ITEM_HEIGHT + 2 * LIBRARY_ITEM_PADDING;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -154,9 +155,9 @@ fn render_library_item(
     frame.render_widget(Block::default().style(row_style), area);
 
     let content = Rect {
-        x: area.x.saturating_add(LIBRARY_ITEM_PADDING),
+        x: area.x.saturating_add(LIBRARY_ITEM_PAD_X),
         y: area.y.saturating_add(LIBRARY_ITEM_PADDING),
-        width: area.width.saturating_sub(2 * LIBRARY_ITEM_PADDING),
+        width: area.width.saturating_sub(2 * LIBRARY_ITEM_PAD_X),
         height: area.height.saturating_sub(2 * LIBRARY_ITEM_PADDING),
     };
     if content.width == 0 || content.height == 0 {
