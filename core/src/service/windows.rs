@@ -283,6 +283,10 @@ fn register_task_scheduler() -> windows::core::Result<()> {
 }
 
 fn is_daemon_running(sys: &mut System) -> bool {
+    if super::is_service_running() {
+        return true;
+    }
+
     sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
     let current_pid = sysinfo::Pid::from_u32(std::process::id());
 
@@ -291,7 +295,12 @@ fn is_daemon_running(sys: &mut System) -> bool {
             continue;
         }
         let name = process.name().to_string_lossy().to_lowercase();
-        if name == "taurine.exe" || name == "taurine" {
+        if (name == "taurine.exe" || name == "taurine")
+            && process
+                .cmd()
+                .iter()
+                .any(|arg| arg.to_string_lossy() == "--daemon")
+        {
             return true;
         }
     }
@@ -308,7 +317,13 @@ fn kill_daemon(sys: &mut System) -> usize {
             continue;
         }
         let name = process.name().to_string_lossy().to_lowercase();
-        if (name == "taurine.exe" || name == "taurine") && process.kill() {
+        if (name == "taurine.exe" || name == "taurine")
+            && process
+                .cmd()
+                .iter()
+                .any(|arg| arg.to_string_lossy() == "--daemon")
+            && process.kill()
+        {
             killed += 1;
         }
     }
@@ -693,5 +708,22 @@ mod tests {
                 .is_err(),
             "test key must be gone after cleanup"
         );
+    }
+
+    #[test]
+    fn test_is_daemon_running_respects_liveness_mutex() {
+        let _guard = crate::testing::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let mut sys = System::new();
+
+        // When liveness mutex is held, is_daemon_running must be true.
+        let liveness_guard = crate::service::acquire_service_liveness();
+        if let Some(_held) = liveness_guard {
+            assert!(
+                is_daemon_running(&mut sys),
+                "is_daemon_running must return true when liveness mutex is held"
+            );
+        }
     }
 }
