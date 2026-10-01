@@ -1,7 +1,7 @@
 #[cfg(not(target_os = "linux"))]
 mod case_cycle;
 mod completion;
-mod dispatch;
+pub(crate) mod dispatch;
 mod listener;
 
 #[cfg(windows)]

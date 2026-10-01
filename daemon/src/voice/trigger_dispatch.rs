@@ -16,6 +16,13 @@ pub fn fire_voice_trigger_with_args(
     active_app: Option<String>,
     spinner_style: taurine_core::settings::SpinnerStyle,
 ) -> Option<String> {
+    if !crate::engine::quota_guard::QuotaGuard::global()
+        .deplete(crate::engine::quota_guard::ExpansionType::VoiceTrigger)
+    {
+        tracing::warn!("Voice trigger dropped: Weekly quota exhausted");
+        return None;
+    }
+
     let action = inv.action.clone();
     let Some(expansion) = taurine_core::engine::catalog::expand_trigger_action_with_args(
         action,

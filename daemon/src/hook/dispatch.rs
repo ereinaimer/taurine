@@ -100,7 +100,7 @@ pub(super) fn dispatch_completion_rewrite_with<I>(
     );
 }
 
-pub(super) fn dispatch_expansion_with<I, L>(
+pub(crate) fn dispatch_expansion_with<I, L>(
     expansion: taurine_core::engine::ExpansionResult,
     spinner_style: taurine_core::settings::SpinnerStyle,
     state: Arc<taurine_core::engine::EngineState>,
@@ -129,6 +129,25 @@ pub(super) fn dispatch_expansion_with<I, L>(
     } = expansion;
     let step_count = steps.len();
     let has_follow_up = follow_up.is_some();
+
+    let is_dynamic = is_calculation
+        || steps.iter().any(|s| {
+            matches!(
+                s,
+                taurine_core::engine::variables::ExpansionStep::Script(..)
+                    | taurine_core::engine::variables::ExpansionStep::InlineRun(..)
+            )
+        });
+    let expansion_type = if is_dynamic {
+        crate::engine::quota_guard::ExpansionType::Dynamic
+    } else {
+        crate::engine::quota_guard::ExpansionType::Text
+    };
+
+    if !crate::engine::quota_guard::QuotaGuard::global().deplete(expansion_type) {
+        tracing::warn!("Expansion dropped: Weekly quota exhausted");
+        return;
+    }
 
     state.clear_undo_state();
 
