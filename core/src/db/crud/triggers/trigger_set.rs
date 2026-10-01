@@ -631,6 +631,7 @@ fn create_entry_inner(
     conn: &Connection,
     entry: &NewEntry,
 ) -> Result<(String, Vec<TriggerAliasRow>)> {
+    crate::db::crud::tier::check_snippet_creation_allowed(conn)?;
     if entry.invocations.is_empty() {
         return Err(crate::Error::Config(
             "Entry requires at least one invocation.".to_string(),

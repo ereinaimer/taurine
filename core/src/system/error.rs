@@ -29,6 +29,9 @@ pub enum Error {
 
     #[error("{0}")]
     Service(String),
+
+    #[error("{0}")]
+    QuotaExceeded(String),
 }
 
 impl From<tonic::Status> for Error {

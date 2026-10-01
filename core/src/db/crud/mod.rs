@@ -2,8 +2,14 @@ pub mod quota;
 pub mod settings;
 pub mod stats;
 pub mod target_os;
+pub mod tier;
 pub mod triggers;
 pub mod workspaces;
+
+pub use tier::{
+    FREE_TIER_MAX_SNIPPETS, FREE_TIER_MAX_WORKSPACES, UserTier, check_snippet_creation_allowed,
+    check_workspace_creation_allowed, get_user_tier, set_user_tier,
+};
 
 pub use quota::{
     QuotaLedgerRow, calculate_week_start_epoch, compute_quota_hmac, get_or_init_quota_ledger,

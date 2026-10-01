@@ -96,6 +96,7 @@ pub fn create_workspace(conn: &Connection, name: &str) -> crate::Result<Workspac
             "Workspace name cannot be empty".to_string(),
         ));
     }
+    crate::db::crud::tier::check_workspace_creation_allowed(conn)?;
     let id = uuid::Uuid::new_v4().to_string();
     let now = crate::db::now_unix_secs();
     conn.execute(

@@ -23,6 +23,7 @@ fn test_workspaces_schema_and_default_seed() {
 fn test_create_and_get_workspaces() {
     let conn = Connection::open_in_memory().unwrap();
     run_migrations(&conn).unwrap();
+    crate::db::crud::tier::set_user_tier(&conn, crate::db::crud::tier::UserTier::Pro).unwrap();
 
     let created = create_workspace(&conn, "Work").unwrap();
     assert_eq!(created.name, "Work");
