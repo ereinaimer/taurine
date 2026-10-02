@@ -9,7 +9,7 @@ use ratatui::{
 };
 
 use crate::theme::Theme;
-use crate::widgets::library::icons::{CHEVRON_DOWN, CHEVRON_UP, os_icon};
+use crate::widgets::library::icons::{ADD_ICON, CHEVRON_DOWN, CHEVRON_UP, os_icon};
 use crate::widgets::library::state::{LibraryPageState, LibraryTrigger};
 use crate::widgets::util;
 
@@ -535,7 +535,7 @@ fn render_tags_row(
     let row = row_area(area, offset);
     let plus = || {
         Span::styled(
-            " + ".to_string(),
+            format!(" {ADD_ICON} "),
             Style::default()
                 .fg(theme.button.text)
                 .bg(theme.button.inactive_bg),
