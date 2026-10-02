@@ -174,3 +174,187 @@ fn test_pro_tier_allows_second_workspace() {
         "Pro tier should allow creating a second workspace"
     );
 }
+
+#[test]
+fn test_auto_pause_excess_snippets_keeps_top_30_most_used() {
+    let conn = Connection::open_in_memory().unwrap();
+    run_migrations(&conn).unwrap();
+
+    set_user_tier(&conn, UserTier::Pro).unwrap();
+
+    let mut ids = Vec::new();
+    for i in 1..=35 {
+        let entry = make_entry(&format!(":autopause{i}"));
+        let (id, _) = create_entry(&conn, entry).unwrap();
+        // Give snippet i a usage_count of i * 10
+        conn.execute(
+            "UPDATE triggers SET usage_count = ?1 WHERE id = ?2",
+            rusqlite::params![i * 10, id],
+        )
+        .unwrap();
+        ids.push((id, i * 10));
+    }
+
+    // Now switch tier to Free, which triggers enforce_free_tier_snippet_cap
+    set_user_tier(&conn, UserTier::Free).unwrap();
+
+    // Verify 30 are enabled and 5 are disabled
+    let enabled_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM triggers WHERE is_deleted = 0 AND is_enabled = 1",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(enabled_count, 30);
+
+    let disabled_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM triggers WHERE is_deleted = 0 AND is_enabled = 0",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(disabled_count, 5);
+
+    // The 5 disabled should be snippets 1 to 5 (the lowest usage counts)
+    for (id, usage) in &ids[0..5] {
+        let is_enabled: bool = conn
+            .query_row(
+                "SELECT is_enabled FROM triggers WHERE id = ?1",
+                [id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            !is_enabled,
+            "Snippet with usage {usage} should have been paused"
+        );
+    }
+
+    // The top 30 (snippets 6 to 35) should remain enabled
+    for (id, usage) in &ids[5..35] {
+        let is_enabled: bool = conn
+            .query_row(
+                "SELECT is_enabled FROM triggers WHERE id = ?1",
+                [id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            is_enabled,
+            "Snippet with usage {usage} should remain enabled"
+        );
+    }
+}
+
+#[test]
+fn test_auto_pause_one_way_valve_preserves_custom_disabled_snippets() {
+    let conn = Connection::open_in_memory().unwrap();
+    run_migrations(&conn).unwrap();
+
+    let mut custom_disabled_id = String::new();
+    for i in 1..=25 {
+        let entry = make_entry(&format!(":valve{i}"));
+        let (id, _) = create_entry(&conn, entry).unwrap();
+        if i == 5 {
+            // Manually disable snippet 5
+            conn.execute(
+                "UPDATE triggers SET is_enabled = 0 WHERE id = ?1",
+                [&id],
+            )
+            .unwrap();
+            custom_disabled_id = id;
+        }
+    }
+
+    // 24 enabled, 1 disabled. Total <= 30.
+    let paused = enforce_free_tier_snippet_cap(&conn).unwrap();
+    assert_eq!(paused, 0);
+
+    // Verify snippet 5 is still disabled (it was NOT auto-enabled!)
+    let is_enabled: bool = conn
+        .query_row(
+            "SELECT is_enabled FROM triggers WHERE id = ?1",
+            [&custom_disabled_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(!is_enabled, "Auto-cap must never re-enable disabled snippets");
+}
+
+#[test]
+fn test_enable_guard_blocks_when_30_snippets_active() {
+    let conn = Connection::open_in_memory().unwrap();
+    run_migrations(&conn).unwrap();
+
+    for i in 1..=30 {
+        let entry = make_entry(&format!(":guard{i}"));
+        create_entry(&conn, entry).unwrap();
+    }
+
+    // Temporarily switch to Pro to insert a 31st snippet as disabled
+    set_user_tier(&conn, UserTier::Pro).unwrap();
+    let entry_31 = make_entry(":guard31");
+    let (id_31, _) = create_entry(&conn, entry_31).unwrap();
+    conn.execute(
+        "UPDATE triggers SET is_enabled = 0 WHERE id = ?1",
+        [&id_31],
+    )
+    .unwrap();
+    let disabled_id = id_31;
+    set_user_tier(&conn, UserTier::Free).unwrap();
+
+    // Attempting to enable the 31st snippet should fail because 30 are already enabled
+    let result = set_trigger_enabled(&conn, &disabled_id, true);
+    match result {
+        Err(crate::Error::QuotaExceeded(msg)) => {
+            assert!(
+                msg.contains("30 active snippets"),
+                "Expected 30 active snippets message, got: {msg}"
+            );
+        }
+        other => panic!("Expected QuotaExceeded error, got: {other:?}"),
+    }
+}
+
+#[test]
+fn test_disable_allows_enabling_another_snippet() {
+    let conn = Connection::open_in_memory().unwrap();
+    run_migrations(&conn).unwrap();
+
+    let mut first_active_id = String::new();
+    for i in 1..=30 {
+        let entry = make_entry(&format!(":swap{i}"));
+        let (id, _) = create_entry(&conn, entry).unwrap();
+        if i == 1 {
+            first_active_id = id;
+        }
+    }
+
+    // Add a disabled 31st snippet under Pro then revert to Free
+    set_user_tier(&conn, UserTier::Pro).unwrap();
+    let entry_31 = make_entry(":swap31");
+    let (id_31, _) = create_entry(&conn, entry_31).unwrap();
+    conn.execute(
+        "UPDATE triggers SET is_enabled = 0 WHERE id = ?1",
+        [&id_31],
+    )
+    .unwrap();
+    set_user_tier(&conn, UserTier::Free).unwrap();
+
+    // Disable snippet 1
+    set_trigger_enabled(&conn, &first_active_id, false).unwrap();
+
+    // Now enabling snippet 31 must succeed because only 29 are active
+    set_trigger_enabled(&conn, &id_31, true).unwrap();
+
+    let is_31_enabled: bool = conn
+        .query_row(
+            "SELECT is_enabled FROM triggers WHERE id = ?1",
+            [&id_31],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(is_31_enabled);
+}

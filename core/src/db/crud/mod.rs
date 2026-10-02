@@ -8,7 +8,8 @@ pub mod workspaces;
 
 pub use tier::{
     FREE_TIER_MAX_SNIPPETS, FREE_TIER_MAX_WORKSPACES, UserTier, check_snippet_creation_allowed,
-    check_workspace_creation_allowed, get_user_tier, set_user_tier,
+    check_snippet_enable_allowed, check_workspace_creation_allowed, enforce_free_tier_snippet_cap,
+    get_user_tier, set_trigger_enabled, set_user_tier,
 };
 
 pub use quota::{
