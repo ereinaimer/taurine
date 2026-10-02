@@ -154,7 +154,8 @@ fn detail_layout(
     if expanded && let Some(toggle) = props_toggle {
         let count = property_rows(item).len();
         for position in 0..count {
-            let offset = toggle.saturating_add(1).saturating_add(position as u16);
+            // Blank row between the toggle and the first item.
+            let offset = toggle.saturating_add(2).saturating_add(position as u16);
             if offset >= height {
                 break;
             }
