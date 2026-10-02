@@ -1,7 +1,9 @@
 use taurine_core::db::crud::{ActionType, InvocationType, TriggerAliasRow, TriggerListItem};
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 
-use crate::widgets::library::actions::{build_search_text, display_target_os, preview_from_item};
+use crate::widgets::library::actions::{
+    build_search_text, content_from_item, display_target_os, preview_from_item,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LibraryKind {
@@ -63,6 +65,7 @@ pub(crate) struct LibraryTrigger {
     name: String,
     trigger: String,
     preview: String,
+    content: String,
     kind: LibraryKind,
     pub(crate) target_os: String,
     invocation: InvocationType,
@@ -72,6 +75,8 @@ pub(crate) struct LibraryTrigger {
     only_apps: Option<String>,
     except_apps: Option<String>,
     auto_case: bool,
+    is_enabled: bool,
+    require_confirmation: bool,
     usage_count: i64,
     last_used_at: Option<i64>,
     interpreter: Option<ScriptInterpreter>,
@@ -174,6 +179,7 @@ impl LibraryTrigger {
             name: item.name.clone(),
             trigger,
             preview: preview_from_item(item),
+            content: content_from_item(item),
             kind,
             target_os: target_os.to_string(),
             invocation,
@@ -193,6 +199,10 @@ impl LibraryTrigger {
             only_apps: item.only_apps.clone(),
             except_apps: item.except_apps.clone(),
             auto_case: item.auto_case,
+            // honey: list query only returns enabled rows; loader change
+            // to include disabled ones will populate this for real.
+            is_enabled: true,
+            require_confirmation: item.invocations.iter().any(|a| a.require_confirmation),
             usage_count: item.usage_count,
             last_used_at: item.last_used_at,
             interpreter: item.interpreter,
@@ -221,12 +231,30 @@ impl LibraryTrigger {
         &self.preview
     }
 
+    pub(crate) fn content(&self) -> &str {
+        &self.content
+    }
+
+    /// Header display: named label, else the invocation itself.
+    pub(crate) fn display_name(&self) -> &str {
+        if self.name.trim().is_empty() {
+            &self.trigger
+        } else {
+            &self.name
+        }
+    }
+
     pub(crate) const fn kind_label(&self) -> &'static str {
         self.kind.label()
     }
 
-    pub(crate) const fn is_hotkey(&self) -> bool {
-        matches!(self.invocation, InvocationType::Hotkey)
+    pub(crate) const fn invocation_type_label(&self) -> &'static str {
+        match self.invocation {
+            InvocationType::Word => "word",
+            InvocationType::Hotkey => "hotkey",
+            InvocationType::Regex => "regex",
+            InvocationType::Voice => "voice",
+        }
     }
 
     pub(crate) const fn is_voice(&self) -> bool {
@@ -255,6 +283,24 @@ impl LibraryTrigger {
 
     pub(crate) const fn auto_case(&self) -> bool {
         self.auto_case
+    }
+
+    pub(crate) const fn is_enabled(&self) -> bool {
+        self.is_enabled
+    }
+
+    pub(crate) const fn require_confirmation(&self) -> bool {
+        self.require_confirmation
+    }
+
+    pub(crate) const fn is_script(&self) -> bool {
+        matches!(
+            self.kind,
+            LibraryKind::TextScript
+                | LibraryKind::HotkeyScript
+                | LibraryKind::RegexScript
+                | LibraryKind::VoiceScript
+        )
     }
 
     pub(crate) const fn interpreter(&self) -> Option<ScriptInterpreter> {

@@ -72,6 +72,7 @@ pub(crate) struct LibraryPageState {
     divider_hover: bool,
     divider_drag: bool,
     advanced_expanded: bool,
+    detail_scroll: usize,
 }
 
 impl Default for LibraryPageState {
@@ -90,6 +91,7 @@ impl Default for LibraryPageState {
             divider_hover: false,
             divider_drag: false,
             advanced_expanded: false,
+            detail_scroll: 0,
         }
     }
 }
@@ -101,6 +103,7 @@ impl LibraryPageState {
         self.load_error = None;
         self.status_message = None;
         self.window_anchor = None;
+        self.reset_detail_scroll();
         self.rebuild_filter();
     }
 
@@ -176,6 +179,35 @@ impl LibraryPageState {
 
     pub(crate) fn toggle_advanced(&mut self) {
         self.advanced_expanded = !self.advanced_expanded;
+    }
+
+    pub(crate) const fn detail_scroll(&self) -> usize {
+        self.detail_scroll
+    }
+
+    pub(crate) fn scroll_detail(&mut self, delta: isize, max_scroll: usize) {
+        let next = self.detail_scroll as isize + delta;
+        self.detail_scroll = next.clamp(0, max_scroll as isize).max(0) as usize;
+    }
+
+    fn reset_detail_scroll(&mut self) {
+        self.detail_scroll = 0;
+    }
+
+    /// Enable/disable toggle for the selected trigger. Returns a persist
+    /// interaction; the caller refreshes the list on success.
+    pub(crate) fn toggle_selected_enabled(&self) -> LibraryInteraction {
+        let Some(selected) = self.selected_index() else {
+            return LibraryInteraction::handled();
+        };
+        let Some(item) = self.item_at_filtered(selected) else {
+            return LibraryInteraction::handled();
+        };
+        LibraryInteraction::toggle(crate::widgets::library::actions::PendingLibraryToggle {
+            trigger_id: item.id().to_string(),
+            enabled: !item.is_enabled(),
+            restore_index: selected,
+        })
     }
 
     pub(crate) const fn modal(&self) -> Option<&LibraryModal> {
@@ -471,6 +503,7 @@ impl LibraryPageState {
 
     fn move_selection(&mut self, delta: isize) {
         self.window_anchor = None;
+        self.reset_detail_scroll();
         let Some(current) = self.selected_index() else {
             self.selected = 0;
             return;
@@ -483,6 +516,7 @@ impl LibraryPageState {
 
     fn rebuild_filter(&mut self) {
         self.window_anchor = None;
+        self.reset_detail_scroll();
         let previously_selected = self.selected_item().cloned();
         self.filtered_indices = self
             .items
@@ -528,6 +562,7 @@ impl LibraryPageState {
     ) -> LibraryInteraction {
         self.selected = filtered_position;
         self.window_anchor = Some(anchor);
+        self.reset_detail_scroll();
         LibraryInteraction::handled()
     }
 }

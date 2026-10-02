@@ -234,6 +234,30 @@ fn handle_tui_mouse_event(
             if modal_open {
                 return;
             }
+            if app.active_page() == Page::Library {
+                let layout = terminal::mouse::frame_layout(area);
+                let page = app.library_page();
+                if library::detail::detail_contains(
+                    layout.page,
+                    page.split_ratio(),
+                    mouse.column,
+                    mouse.row,
+                ) {
+                    let down = mouse.kind == MouseEventKind::ScrollDown;
+                    let content = library::detail::right_content(layout.page, page.split_ratio());
+                    let (item, expanded) = match page
+                        .selected_index()
+                        .and_then(|index| page.item_at_filtered(index))
+                    {
+                        Some(item) => (item.clone(), page.advanced_expanded()),
+                        None => return,
+                    };
+                    let max = library::detail::content_scroll_max(content.height, &item, expanded);
+                    app.library_page_mut()
+                        .scroll_detail(if down { 1 } else { -1 }, max);
+                    return;
+                }
+            }
             handle_tui_key_event(app, scroll_key(mouse.kind == MouseEventKind::ScrollDown));
         }
         MouseEventKind::Moved => {
@@ -291,8 +315,8 @@ fn handle_tui_mouse_event(
                         Some(library::list::LibraryHit::Search) => {
                             app.library_page_mut().activate_search();
                         }
-                        // honey: only the Advanced toggle is clickable; the
-                        // rest of the preview is read-only.
+                        // honey: header enable toggle and properties toggle
+                        // are clickable; the rest of the preview is read-only.
                         None => {
                             let page = app.library_page();
                             let hit = library::detail::hit_test(
@@ -302,8 +326,16 @@ fn handle_tui_mouse_event(
                                 mouse.column,
                                 mouse.row,
                             );
-                            if hit == Some(library::detail::DetailHit::Toggle) {
-                                app.library_page_mut().toggle_advanced();
+                            match hit {
+                                Some(library::detail::DetailHit::PropertiesToggle) => {
+                                    app.library_page_mut().toggle_advanced();
+                                }
+                                Some(library::detail::DetailHit::EnableToggle) => {
+                                    let interaction =
+                                        app.library_page_mut().toggle_selected_enabled();
+                                    apply_library_interaction(app, interaction);
+                                }
+                                None => {}
                             }
                         }
                     }
@@ -438,6 +470,17 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
                 refresh_library_page(app);
                 app.library_page_mut().select_after_delete(restore_index);
                 app.library_page_mut().clear_modal();
+            }
+            Err(error) => app.library_page_mut().set_save_error(error.to_string()),
+        }
+    }
+
+    if let Some(pending_toggle) = interaction.pending_toggle() {
+        let restore_index = pending_toggle.restore_index;
+        match pending_toggle.apply() {
+            Ok(()) => {
+                refresh_library_page(app);
+                app.library_page_mut().select_after_delete(restore_index);
             }
             Err(error) => app.library_page_mut().set_save_error(error.to_string()),
         }

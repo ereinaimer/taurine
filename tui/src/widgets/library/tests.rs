@@ -1103,14 +1103,195 @@ fn advanced_toggle_hit_only_on_toggle_row() {
     let state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
     let ratio = state.split_ratio();
-
+    // Selected row is the hotkey script; all three buttons share one row,
+    // so the properties toggle sits at content_y(1) + 5 like text triggers.
     assert_eq!(
-        detail::hit_test(area, ratio, &state, 42, 29),
-        Some(detail::DetailHit::Toggle)
+        detail::hit_test(area, ratio, &state, 42, 6),
+        Some(detail::DetailHit::PropertiesToggle)
     );
-    assert_eq!(detail::hit_test(area, ratio, &state, 42, 28), None);
+    assert_eq!(
+        detail::hit_test(area, ratio, &state, 76, 1),
+        Some(detail::DetailHit::EnableToggle)
+    );
+    assert_eq!(detail::hit_test(area, ratio, &state, 74, 1), None);
     assert_eq!(detail::hit_test(area, ratio, &state, 42, 5), None);
-    assert_eq!(detail::hit_test(area, ratio, &state, 10, 29), None);
+    assert_eq!(detail::hit_test(area, ratio, &state, 42, 7), None);
+    assert_eq!(detail::hit_test(area, ratio, &state, 10, 6), None);
+}
+
+#[test]
+fn header_toggle_hit_for_text_trigger_row() {
+    let mut state = LibraryPageState::default();
+    state.replace_items(vec![LibraryTrigger::single(list_item(
+        "id-gm",
+        None,
+        TriggerType::Word,
+        "gm",
+        "Good Morning",
+        "text",
+        "all",
+        9,
+        None,
+    ))]);
+    let area = ratatui::layout::Rect::new(0, 0, 80, 30);
+    let ratio = state.split_ratio();
+    assert_eq!(
+        detail::hit_test(area, ratio, &state, 42, 6),
+        Some(detail::DetailHit::PropertiesToggle)
+    );
+    assert_eq!(
+        detail::hit_test(area, ratio, &state, 76, 1),
+        Some(detail::DetailHit::EnableToggle)
+    );
+}
+
+#[test]
+fn display_name_falls_back_to_trigger_when_unnamed() {
+    let item = LibraryTrigger::single(list_item(
+        "id-gm",
+        None,
+        TriggerType::Word,
+        "gm",
+        "Good Morning",
+        "text",
+        "all",
+        9,
+        None,
+    ));
+    assert_eq!(item.display_name(), "gm");
+
+    let mut named = multi_alias_list_item();
+    named.name = "Git status".to_string();
+    let row = LibraryTrigger::single(named);
+    assert_eq!(row.display_name(), "Git status");
+}
+
+#[test]
+fn content_section_uses_output_not_description() {
+    let item = LibraryTrigger::single(list_item(
+        "id-gm",
+        Some("A greeting"),
+        TriggerType::Word,
+        "gm",
+        "Good Morning\nSecond line",
+        "text",
+        "all",
+        9,
+        None,
+    ));
+    assert!(item.content().contains("Good Morning"));
+    assert!(!item.content().contains("A greeting"));
+}
+
+#[test]
+fn content_section_uses_script_source_for_scripts() {
+    let item = LibraryTrigger::single(list_item(
+        "id-deploy",
+        None,
+        TriggerType::Word,
+        "deploy",
+        "[Script: bash]",
+        "script",
+        "linux",
+        4,
+        Some("npm run build\nnpm publish"),
+    ));
+    assert!(item.content().contains("npm run build"));
+}
+
+#[test]
+fn property_rows_use_border_token_for_empty_values() {
+    let item = LibraryTrigger::single(list_item(
+        "id-gm",
+        None,
+        TriggerType::Word,
+        "gm",
+        "Good Morning",
+        "text",
+        "all",
+        9,
+        None,
+    ));
+    let rows = detail::property_rows(&item);
+    let get = |label: &str| {
+        rows.iter()
+            .find(|(key, _)| *key == label)
+            .map(|(_, value)| value.clone())
+            .expect("row present")
+    };
+    assert_eq!(get("Auto case"), "off");
+    assert_eq!(get("Allow on"), detail::EMPTY_TOKEN);
+    assert_eq!(get("Block on"), detail::EMPTY_TOKEN);
+    assert_eq!(get("Alias"), detail::EMPTY_TOKEN);
+    assert_eq!(get("Usage"), "9 times");
+    assert_eq!(get("Last used"), detail::EMPTY_TOKEN);
+    // Text triggers carry no Confirm row.
+    assert!(rows.iter().all(|(key, _)| *key != "Confirm"));
+}
+
+#[test]
+fn property_rows_show_confirm_for_voice_only() {
+    let mut item = multi_alias_list_item();
+    item.invocations = vec![alias_fixture(
+        "id-v",
+        "email me",
+        InvocationType::Voice,
+        true,
+    )];
+    item.action_type = "text".to_string();
+    let row = LibraryTrigger::single(item);
+    let rows = detail::property_rows(&row);
+    assert_eq!(
+        rows.iter()
+            .find(|(key, _)| *key == "Confirm")
+            .map(|(_, value)| value.as_str()),
+        Some("on")
+    );
+}
+
+#[test]
+fn toggle_selected_enabled_disables_by_default() {
+    let state = sample_state();
+    let interaction = state.toggle_selected_enabled();
+    let pending = interaction.pending_toggle().expect("toggle pending");
+    assert!(!pending.enabled);
+    assert_eq!(pending.restore_index, 0);
+}
+
+#[test]
+fn content_scroll_max_counts_overflow_lines() {
+    let item = LibraryTrigger::single(list_item(
+        "id-big",
+        None,
+        TriggerType::Word,
+        "big",
+        "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nl10",
+        "text",
+        "all",
+        0,
+        None,
+    ));
+    // Collapsed text trigger in a 30-row pane shows 8 of 10 lines.
+    assert_eq!(detail::content_scroll_max(30, &item, false), 2);
+    assert_eq!(detail::content_scroll_max(30, &item, true), 2);
+}
+
+#[test]
+fn long_content_line_stays_on_a_single_row() {
+    let long = "x".repeat(200);
+    let item = LibraryTrigger::single(list_item(
+        "id-long",
+        None,
+        TriggerType::Word,
+        "long",
+        &long,
+        "text",
+        "all",
+        0,
+        None,
+    ));
+    // One source line never wraps into extra rows, so nothing scrolls.
+    assert_eq!(detail::content_scroll_max(30, &item, false), 0);
 }
 
 #[test]

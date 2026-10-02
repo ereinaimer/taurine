@@ -9,24 +9,39 @@ use ratatui::{
 };
 
 use crate::theme::Theme;
-use crate::widgets::library::icons::{MIC_ICON, os_icon};
-use crate::widgets::library::state::LibraryPageState;
+use crate::widgets::library::icons::{CHEVRON_DOWN, CHEVRON_UP, os_icon};
+use crate::widgets::library::state::{LibraryPageState, LibraryTrigger};
 use crate::widgets::util;
 
 use super::content_halves;
 
 const PREVIEW_LINES: usize = 8;
-/// Trigger and Type occupy offsets 0..4, Output label sits at 4 with the
-/// preview below, then Alias and the toggle.
-const OUTPUT_OFFSET: u16 = 6;
+/// Empty-state token: three ROUNDED-border horizontals, matching the pane
+/// border glyph set.
+pub(crate) const EMPTY_TOKEN: &str = "───";
+const TOGGLE_ON: &str = "[ON]";
+const TOGGLE_OFF: &str = "[OFF]";
+
+/// Flow offsets for the right pane. Header 0, description 1, blank 2,
+/// buttons 3 (type, plus interpreter + behavior for scripts), blank 4,
+/// properties toggle 5, then expanded rows, blank gap, content label +
+/// lines, tags row.
+fn props_toggle_offset(_item: &LibraryTrigger) -> u16 {
+    5
+}
+
+/// Fixed single-row offsets above the properties toggle.
+const DESCRIPTION_OFFSET: u16 = 1;
+const BUTTONS_OFFSET: u16 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DetailHit {
-    Toggle,
+    PropertiesToggle,
+    EnableToggle,
 }
 
-/// Which detail row a click landed on. Only the Advanced toggle is
-/// interactive; everything else is read-only preview.
+/// Which detail row a click landed on. Header toggle and the properties
+/// toggle are interactive; everything else is read-only preview.
 pub(crate) fn hit_test(
     area: Rect,
     ratio: f32,
@@ -38,39 +53,91 @@ pub(crate) fn hit_test(
     if content.width == 0 || content.height == 0 {
         return None;
     }
-    state.selected_index()?;
-    let toggle_y = toggle_row(content.height)?;
-    let toggle_y = content.y.saturating_add(toggle_y);
-    if row == toggle_y && column >= content.x && column < content.x.saturating_add(content.width) {
-        Some(DetailHit::Toggle)
-    } else {
-        None
+    let selected = state.selected_index()?;
+    let item = state.item_at_filtered(selected)?;
+    if row == content.y {
+        let width = toggle_width(item);
+        let start = content
+            .x
+            .saturating_add(content.width.saturating_sub(width));
+        if column >= start && column < start.saturating_add(width) {
+            return Some(DetailHit::EnableToggle);
+        }
+        return None;
     }
+    if row == content.y.saturating_add(props_toggle_offset(item))
+        && row < content.y.saturating_add(content.height)
+        && column >= content.x
+        && column < content.x.saturating_add(content.width)
+    {
+        return Some(DetailHit::PropertiesToggle);
+    }
+    None
 }
 
-/// Minimum content height for the pinned bottom block (Alias, toggle).
-/// Shorter panes show the header and preview only.
-const MIN_PINNED_HEIGHT: u16 = 12;
-
-/// Visible output line count for the pane height.
-fn output_count(height: u16, preview: &str) -> usize {
-    preview
-        .lines()
-        .count()
-        .min(PREVIEW_LINES)
-        .min(height.saturating_sub(OUTPUT_OFFSET + 4) as usize)
+/// True when the cell sits inside the right-pane content area.
+pub(crate) fn detail_contains(area: Rect, ratio: f32, column: u16, row: u16) -> bool {
+    let content = right_content(area, ratio);
+    column >= content.x
+        && column < content.x.saturating_add(content.width)
+        && row >= content.y
+        && row < content.y.saturating_add(content.height)
 }
 
-/// Alias row offset: pinned near the bottom with one blank row and the
-/// toggle beneath it. None when the pane is too short to pin.
-fn alias_offset(height: u16) -> Option<u16> {
-    (height >= MIN_PINNED_HEIGHT).then(|| height.saturating_sub(3))
+/// Max scroll offset for the content section at this pane height.
+pub(crate) fn content_scroll_max(height: u16, item: &LibraryTrigger, expanded: bool) -> usize {
+    let Some((_, _, total)) = content_window(height, item, expanded, 0) else {
+        return 0;
+    };
+    total
 }
 
-/// Toggle row offset: pinned to the last content row. None when the pane
-/// is too short to pin.
-fn toggle_row(height: u16) -> Option<u16> {
-    (height >= MIN_PINNED_HEIGHT).then(|| height.saturating_sub(1))
+/// Visible content window: (label offset, lines to draw, scrollable total
+/// beyond the visible window). None when the label row does not fit.
+type ContentWindow = (u16, Vec<(u16, String)>, usize);
+
+fn content_window(
+    height: u16,
+    item: &LibraryTrigger,
+    expanded: bool,
+    scroll: usize,
+) -> Option<ContentWindow> {
+    let lines: Vec<&str> = item.content().lines().collect();
+    let total = lines.len();
+    let mut label = props_toggle_offset(item).saturating_add(1);
+    if expanded {
+        label = label.saturating_add(property_rows(item).len() as u16);
+    }
+    // One blank gap row between properties and content.
+    label = label.saturating_add(1);
+    if label >= height {
+        return None;
+    }
+    let start = label.saturating_add(1);
+    // Reserve a gap row plus the tags row below the content.
+    let visible = PREVIEW_LINES
+        .min(total.saturating_sub(scroll.min(total)))
+        .min(height.saturating_sub(start).saturating_sub(2) as usize);
+    let rows = lines
+        .into_iter()
+        .skip(scroll)
+        .take(visible)
+        .enumerate()
+        .map(|(index, line)| (start.saturating_add(index as u16), line.to_string()))
+        .collect();
+    let rest = total.saturating_sub(scroll.saturating_add(visible));
+    Some((label, rows, rest))
+}
+
+/// Tags row offset: gap row + tags row below the visible content.
+/// None when it does not fit.
+fn tags_offset(height: u16, item: &LibraryTrigger, expanded: bool, scroll: usize) -> Option<u16> {
+    let (label, rows, _) = content_window(height, item, expanded, scroll)?;
+    let offset = label
+        .saturating_add(1)
+        .saturating_add(rows.len() as u16)
+        .saturating_add(1);
+    (offset < height).then_some(offset)
 }
 
 /// Right-pane content: two cells of padding on the left, one on the
@@ -115,14 +182,16 @@ pub(crate) fn render_detail(
         return;
     };
 
-    render_trigger_row(frame, content, theme, item);
-    render_type_row(frame, content, theme, item);
-    render_content_rows(frame, content, theme, item);
-    render_alias_rows(frame, content, theme, item);
-    render_toggle_row(frame, content, theme, state);
-    if state.advanced_expanded() {
-        render_advanced_rows(frame, content, theme, item);
+    let expanded = state.advanced_expanded();
+    render_header_row(frame, content, theme, item);
+    render_description_row(frame, content, theme, item);
+    render_buttons_row(frame, content, theme, item);
+    render_properties_toggle(frame, content, theme, item, expanded);
+    if expanded {
+        render_property_rows(frame, content, theme, item);
     }
+    render_content_section(frame, content, theme, item, expanded, state.detail_scroll());
+    render_tags_row(frame, content, theme, item, expanded, state.detail_scroll());
 }
 
 fn render_empty(frame: &mut Frame, area: Rect, theme: &Theme, message: &str) {
@@ -137,8 +206,7 @@ fn render_empty(frame: &mut Frame, area: Rect, theme: &Theme, message: &str) {
     );
 }
 
-/// Edge-aligned row: label flush left, value flush right, everything in
-/// plain text color. No dimming, no columns.
+/// Edge-aligned row: dimmed label flush left, value flush right.
 fn edge_line(
     label: &str,
     value: Vec<Span<'static>>,
@@ -151,7 +219,7 @@ fn edge_line(
         .saturating_sub(value_width as u16);
     let mut spans = vec![Span::styled(
         label.to_string(),
-        Style::default().fg(theme.text),
+        Style::default().fg(theme.text).add_modifier(Modifier::DIM),
     )];
     spans.push(Span::raw(" ".repeat(gap as usize)));
     spans.extend(value);
@@ -163,242 +231,203 @@ fn edge_value_width(label: &str, row_width: u16) -> u16 {
     row_width.saturating_sub(label.chars().count() as u16 + 1)
 }
 
-fn render_trigger_row(
-    frame: &mut Frame,
-    area: Rect,
-    theme: &Theme,
-    item: &crate::widgets::library::state::LibraryTrigger,
-) {
+fn toggle_width(item: &LibraryTrigger) -> u16 {
+    if item.is_enabled() {
+        TOGGLE_ON.chars().count() as u16
+    } else {
+        TOGGLE_OFF.chars().count() as u16
+    }
+}
+
+fn render_header_row(frame: &mut Frame, area: Rect, theme: &Theme, item: &LibraryTrigger) {
     let row = row_area(area, 0);
     if row.width == 0 {
         return;
     }
-    let style = Style::default().fg(theme.text).add_modifier(Modifier::BOLD);
-    let available = edge_value_width("Trigger", row.width);
-    let line = if item.is_hotkey() && hotkey_width(item.trigger()) <= available as usize {
-        let spans = hotkey_spans(item.trigger(), theme);
-        edge_line(
-            "Trigger",
-            spans,
-            hotkey_width(item.trigger()),
-            row.width,
-            theme,
+    let toggle = if item.is_enabled() {
+        Span::styled(
+            TOGGLE_ON.to_string(),
+            Style::default()
+                .fg(theme.success)
+                .add_modifier(Modifier::BOLD),
         )
     } else {
-        let value = util::truncate_to_width(item.trigger(), available);
-        let width = value.chars().count();
-        edge_line(
-            "Trigger",
-            vec![Span::styled(value, style)],
-            width,
-            row.width,
-            theme,
+        Span::styled(
+            TOGGLE_OFF.to_string(),
+            Style::default().fg(theme.text_muted),
         )
     };
+    let width = toggle_width(item);
+    let available = row.width.saturating_sub(width).saturating_sub(1);
+    let name = util::truncate_to_width(item.display_name(), available);
+    let name_width = name.chars().count();
+    let gap = available.saturating_sub(name_width as u16);
+    let line = Line::from(vec![
+        Span::styled(
+            name,
+            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" ".repeat(gap as usize + 1)),
+        toggle,
+    ]);
     frame.render_widget(Paragraph::new(line), row);
 }
 
-fn render_type_row(
-    frame: &mut Frame,
-    area: Rect,
-    theme: &Theme,
-    item: &crate::widgets::library::state::LibraryTrigger,
-) {
-    if area.height < 3 {
+fn render_description_row(frame: &mut Frame, area: Rect, theme: &Theme, item: &LibraryTrigger) {
+    if DESCRIPTION_OFFSET >= area.height {
         return;
     }
-    let row = row_area(area, 2);
-    let style = Style::default().fg(theme.text);
-    let kind = util::truncate_to_width(item.kind_label(), edge_value_width("Type", row.width));
-    let mut text = String::new();
-    if item.is_voice() {
-        text.push_str(&format!("{MIC_ICON} "));
-    }
-    text.push_str(&kind);
-    let text = util::truncate_to_width(&text, edge_value_width("Type", row.width));
-    let width = text.chars().count();
-    frame.render_widget(
-        Paragraph::new(edge_line(
-            "Type",
-            vec![Span::styled(text, style)],
-            width,
-            row.width,
-            theme,
-        )),
-        row,
-    );
-}
-
-/// Sibling invocations, excluding the currently displayed trigger.
-/// Nothing renders when the trigger has no siblings.
-pub(crate) fn sibling_aliases<'a>(aliases: &'a [String], current: &str) -> Vec<&'a str> {
-    aliases
-        .iter()
-        .map(String::as_str)
-        .filter(|alias| alias.strip_suffix(" (confirm)").unwrap_or(alias) != current)
-        .collect()
-}
-
-fn render_alias_rows(
-    frame: &mut Frame,
-    area: Rect,
-    theme: &Theme,
-    item: &crate::widgets::library::state::LibraryTrigger,
-) {
-    let Some(offset) = alias_offset(area.height) else {
-        return;
+    let (text, dimmed) = match item.description() {
+        Some(description) if !description.trim().is_empty() => (description.to_string(), false),
+        _ => ("No description.".to_string(), true),
     };
-    let siblings = sibling_aliases(item.aliases(), item.trigger());
-    if siblings.is_empty() {
-        return;
+    let mut style = Style::default().fg(theme.description);
+    if dimmed {
+        style = style.add_modifier(Modifier::DIM);
     }
-    let row = row_area(area, offset);
-    let aliases = siblings.join(", ");
-    let value = util::truncate_to_width(&aliases, edge_value_width("Alias", row.width));
-    let width = value.chars().count();
+    // Single row only: first line, cut to width, never wrapped.
+    let first = text.lines().next().unwrap_or("").trim();
+    let value = util::truncate_to_width(first, area.width);
     frame.render_widget(
-        Paragraph::new(edge_line(
-            "Alias",
-            vec![Span::styled(value, Style::default().fg(theme.text))],
-            width,
-            row.width,
-            theme,
-        )),
-        row,
+        Paragraph::new(Line::from(value)).style(style),
+        row_area(area, DESCRIPTION_OFFSET),
     );
 }
 
-fn render_content_rows(
-    frame: &mut Frame,
-    area: Rect,
-    theme: &Theme,
-    item: &crate::widgets::library::state::LibraryTrigger,
-) {
-    if area.height < 5 {
+/// Dropdown-style button (visual only until the dropdown component lands):
+/// 1-cell horizontal padding inside a background fill.
+fn button_spans(label: &str, theme: &Theme) -> (Vec<Span<'static>>, usize) {
+    let text = format!(" {label} {CHEVRON_DOWN} ");
+    let width = text.chars().count();
+    (
+        vec![Span::styled(
+            text,
+            Style::default()
+                .fg(theme.button.text)
+                .bg(theme.button.inactive_bg),
+        )],
+        width,
+    )
+}
+
+fn render_buttons_row(frame: &mut Frame, area: Rect, theme: &Theme, item: &LibraryTrigger) {
+    if BUTTONS_OFFSET >= area.height {
         return;
     }
-    frame.render_widget(
-        Paragraph::new(Span::styled(
-            "Output".to_string(),
-            Style::default().fg(theme.text),
-        )),
-        row_area(area, 4),
-    );
-
-    let start_y = area.y.saturating_add(OUTPUT_OFFSET);
-    for (index, line) in item
-        .preview()
-        .lines()
-        .take(output_count(area.height, item.preview()))
-        .enumerate()
-    {
-        let row = Rect {
-            x: area.x,
-            y: start_y.saturating_add(index as u16),
-            width: area.width,
-            height: 1,
-        };
-        frame.render_widget(
-            Paragraph::new(util::truncate_to_width(line.trim(), area.width))
-                .style(Style::default().fg(theme.text)),
-            row,
+    let row = row_area(area, BUTTONS_OFFSET);
+    let mut labels = vec![item.invocation_type_label().to_string()];
+    if item.is_script() {
+        labels.push(
+            item.interpreter()
+                .map(|interpreter| interpreter.as_str())
+                .unwrap_or(EMPTY_TOKEN)
+                .to_string(),
+        );
+        labels.push(
+            item.behavior()
+                .map(|behavior| behavior.as_str())
+                .unwrap_or(EMPTY_TOKEN)
+                .to_string(),
         );
     }
-}
-
-fn hotkey_width(trigger: &str) -> usize {
-    let parts: Vec<&str> = trigger
-        .split('+')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .collect();
-    if parts.is_empty() {
-        return trigger.chars().count();
-    }
-    parts
-        .iter()
-        .map(|part| part.chars().count() + 2)
-        .sum::<usize>()
-        + 3 * parts.len().saturating_sub(1)
-}
-
-fn hotkey_spans(trigger: &str, theme: &Theme) -> Vec<Span<'static>> {
-    let chip = Style::default()
-        .fg(theme.text)
-        .bg(theme.surface)
-        .add_modifier(Modifier::BOLD);
-    let plus = Style::default().fg(theme.text);
-    let mut spans = Vec::new();
-    let parts: Vec<&str> = trigger
-        .split('+')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .collect();
-    if parts.is_empty() {
-        return vec![Span::raw(trigger.to_string())];
-    }
-    for (index, part) in parts.iter().enumerate() {
-        if index > 0 {
-            spans.push(Span::styled(" + ", plus));
+    // Two-space gaps; buttons that no longer fit are dropped, type first.
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut used = 0usize;
+    for (index, label) in labels.iter().enumerate() {
+        let (button, width) = button_spans(label, theme);
+        let gap = if index > 0 { 2 } else { 0 };
+        if used.saturating_add(gap).saturating_add(width) > row.width as usize {
+            break;
         }
-        spans.push(Span::styled(format!("[{part}]"), chip));
+        if gap > 0 {
+            spans.push(Span::raw("  ".to_string()));
+            used = used.saturating_add(gap);
+        }
+        spans.extend(button);
+        used = used.saturating_add(width);
     }
-    spans
+    frame.render_widget(Paragraph::new(Line::from(spans)), row);
 }
 
-fn row_area(area: Rect, offset: u16) -> Rect {
-    Rect {
-        x: area.x,
-        y: area.y.saturating_add(offset),
-        width: area.width,
-        height: 1,
-    }
-}
-
-fn render_toggle_row(frame: &mut Frame, area: Rect, theme: &Theme, state: &LibraryPageState) {
-    if state.selected_index().is_none() {
-        return;
-    }
-    let Some(toggle) = toggle_row(area.height) else {
-        return;
-    };
-    let label = if state.advanced_expanded() {
-        "- Advanced Options"
-    } else {
-        "+ Advanced Options"
-    };
-    frame.render_widget(
-        Paragraph::new(label).style(Style::default().fg(theme.text)),
-        row_area(area, toggle),
-    );
-}
-
-fn render_advanced_rows(
+fn render_properties_toggle(
     frame: &mut Frame,
     area: Rect,
     theme: &Theme,
-    item: &crate::widgets::library::state::LibraryTrigger,
+    item: &LibraryTrigger,
+    expanded: bool,
 ) {
-    let Some(alias) = alias_offset(area.height) else {
+    let offset = props_toggle_offset(item);
+    if offset >= area.height {
         return;
-    };
-    // honey: expanded rows fill the gap between the preview and the
-    // pinned Alias row, stopping one row short to keep the blank gap.
-    let count = output_count(area.height, item.preview());
-    for (position, (label, value)) in advanced_rows(item).into_iter().enumerate() {
-        let y = area
-            .y
-            .saturating_add(OUTPUT_OFFSET)
-            .saturating_add(count as u16 + 1 + position as u16 * 2);
-        if y.saturating_add(1) >= area.y.saturating_add(alias) {
+    }
+    let chevron = if expanded { CHEVRON_UP } else { CHEVRON_DOWN };
+    let label = format!("Properties {chevron}");
+    frame.render_widget(
+        Paragraph::new(label).style(Style::default().fg(theme.text)),
+        row_area(area, offset),
+    );
+}
+
+pub(crate) fn property_rows(item: &LibraryTrigger) -> Vec<(&'static str, String)> {
+    let siblings = sibling_aliases(item.aliases(), item.trigger());
+    let mut rows = vec![
+        (
+            "Auto case",
+            if item.auto_case() {
+                "on".to_string()
+            } else {
+                "off".to_string()
+            },
+        ),
+        (
+            "Allow on",
+            item.only_apps().unwrap_or(EMPTY_TOKEN).to_string(),
+        ),
+        (
+            "Block on",
+            item.except_apps().unwrap_or(EMPTY_TOKEN).to_string(),
+        ),
+        (
+            "Alias",
+            if siblings.is_empty() {
+                EMPTY_TOKEN.to_string()
+            } else {
+                siblings.join(", ")
+            },
+        ),
+        (
+            "Platform",
+            format!("{} {}", os_icon(&item.target_os), item.target_os),
+        ),
+        ("Usage", usage_count_line(item.usage_count())),
+        (
+            "Last used",
+            item.last_used_at()
+                .and_then(relative_time)
+                .unwrap_or_else(|| EMPTY_TOKEN.to_string()),
+        ),
+    ];
+    if item.is_voice() {
+        rows.push((
+            "Confirm",
+            if item.require_confirmation() {
+                "on".to_string()
+            } else {
+                "off".to_string()
+            },
+        ));
+    }
+    rows
+}
+
+fn render_property_rows(frame: &mut Frame, area: Rect, theme: &Theme, item: &LibraryTrigger) {
+    let base = props_toggle_offset(item).saturating_add(1);
+    for (position, (label, value)) in property_rows(item).into_iter().enumerate() {
+        let offset = base.saturating_add(position as u16);
+        if offset >= area.height {
             return;
         }
-        let row = Rect {
-            x: area.x,
-            y,
-            width: area.width,
-            height: 1,
-        };
+        let row = row_area(area, offset);
         let value = util::truncate_to_width(&value, edge_value_width(label, row.width));
         let width = value.chars().count();
         frame.render_widget(
@@ -414,60 +443,132 @@ fn render_advanced_rows(
     }
 }
 
-fn advanced_rows(
-    item: &crate::widgets::library::state::LibraryTrigger,
-) -> Vec<(&'static str, String)> {
-    let mut rows = vec![
-        (
-            "Platform",
-            format!("{} {}", os_icon(&item.target_os), item.target_os),
-        ),
-        (
-            "Tags",
-            if item.tags().is_empty() {
-                "—".to_string()
-            } else {
-                item.tags().join(", ")
-            },
-        ),
-        ("Description", item.description().unwrap_or("—").to_string()),
-        ("Usage", usage_line(item.usage_count(), item.last_used_at())),
-        (
-            "Auto-case",
-            if item.auto_case() {
-                "on".to_string()
-            } else {
-                "off".to_string()
-            },
-        ),
-    ];
-    if let Some(interpreter) = item.interpreter() {
-        rows.push(("Language", interpreter.as_str().to_string()));
+fn render_content_section(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    item: &LibraryTrigger,
+    expanded: bool,
+    scroll: usize,
+) {
+    let Some((label, rows, _)) = content_window(area.height, item, expanded, scroll) else {
+        return;
+    };
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            "Content".to_string(),
+            Style::default().fg(theme.text).add_modifier(Modifier::DIM),
+        )),
+        row_area(area, label),
+    );
+    for (offset, line) in rows {
+        let row = Rect {
+            x: area.x,
+            y: area.y.saturating_add(offset),
+            width: area.width,
+            height: 1,
+        };
+        // One source line per row: tabs flattened, cut to width, no wrap.
+        let flat = line.replace('\t', "  ");
+        let text = util::truncate_to_width(flat.trim_end(), area.width);
+        frame.render_widget(
+            Paragraph::new(Line::from(text)).style(Style::default().fg(theme.text)),
+            row,
+        );
     }
-    if let Some(behavior) = item.behavior() {
-        rows.push(("Mode", behavior.as_str().to_string()));
-    }
-    if let Some(only) = item.only_apps() {
-        rows.push(("Only in", only.to_string()));
-    }
-    if let Some(except) = item.except_apps() {
-        rows.push(("Except", except.to_string()));
-    }
-    rows
 }
 
-fn usage_line(usage_count: i64, last_used_at: Option<i64>) -> String {
+fn tag_color(theme: &Theme, index: usize) -> ratatui::style::Color {
+    match index % 5 {
+        0 => theme.accent,
+        1 => theme.success,
+        2 => theme.warning,
+        3 => theme.error,
+        _ => theme.primary,
+    }
+}
+
+fn render_tags_row(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    item: &LibraryTrigger,
+    expanded: bool,
+    scroll: usize,
+) {
+    let Some(offset) = tags_offset(area.height, item, expanded, scroll) else {
+        return;
+    };
+    let row = row_area(area, offset);
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut used = 0usize;
+    let plus = " + ";
+    let plus_width = plus.chars().count();
+    for (index, tag) in item.tags().iter().enumerate() {
+        let chip = format!("#{tag}");
+        let width = chip.chars().count().saturating_add(1);
+        if used.saturating_add(width).saturating_add(plus_width) > row.width as usize {
+            break;
+        }
+        if index > 0 {
+            spans.push(Span::raw(" ".to_string()));
+            used = used.saturating_add(1);
+        }
+        spans.push(Span::styled(
+            chip,
+            Style::default().fg(tag_color(theme, index)),
+        ));
+        used = used.saturating_add(width.saturating_sub(1));
+    }
+    if used + plus_width <= row.width as usize {
+        if !spans.is_empty() {
+            spans.push(Span::raw(" ".to_string()));
+        }
+        spans.push(Span::styled(
+            plus.to_string(),
+            Style::default()
+                .fg(theme.button.text)
+                .bg(theme.button.inactive_bg),
+        ));
+    }
+    if spans.is_empty() {
+        spans.push(Span::styled(
+            plus.to_string(),
+            Style::default()
+                .fg(theme.button.text)
+                .bg(theme.button.inactive_bg),
+        ));
+    }
+    frame.render_widget(Paragraph::new(Line::from(spans)), row);
+}
+
+/// Sibling invocations, excluding the currently displayed trigger.
+/// Nothing renders when the trigger has no siblings.
+pub(crate) fn sibling_aliases<'a>(aliases: &'a [String], current: &str) -> Vec<&'a str> {
+    aliases
+        .iter()
+        .map(String::as_str)
+        .filter(|alias| alias.strip_suffix(" (confirm)").unwrap_or(alias) != current)
+        .collect()
+}
+
+fn row_area(area: Rect, offset: u16) -> Rect {
+    Rect {
+        x: area.x,
+        y: area.y.saturating_add(offset),
+        width: area.width,
+        height: 1,
+    }
+}
+
+fn usage_count_line(usage_count: i64) -> String {
     if usage_count <= 0 {
         return "never used".to_string();
     }
-    let times = if usage_count == 1 {
+    if usage_count == 1 {
         "1 time".to_string()
     } else {
         format!("{usage_count} times")
-    };
-    match last_used_at.and_then(relative_time) {
-        Some(ago) => format!("{times} · {ago}"),
-        None => times,
     }
 }
 

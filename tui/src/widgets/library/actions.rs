@@ -64,6 +64,22 @@ impl PendingLibraryDelete {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PendingLibraryToggle {
+    pub(crate) trigger_id: String,
+    pub(crate) enabled: bool,
+    pub(crate) restore_index: usize,
+}
+
+impl PendingLibraryToggle {
+    pub(crate) fn apply(&self) -> taurine_core::Result<()> {
+        let conn = taurine_core::db::init::setup()?;
+        taurine_core::db::crud::set_trigger_enabled(&conn, &self.trigger_id, self.enabled)?;
+        taurine_core::rpc::notify_daemon_reload();
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PendingLibraryExport {
     pub(crate) path: String,
     pub(crate) password: Option<String>,
@@ -185,6 +201,7 @@ impl PreparedLibraryImport {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct LibraryInteraction {
     pending_delete: Option<PendingLibraryDelete>,
+    pending_toggle: Option<PendingLibraryToggle>,
     pending_export: Option<PendingLibraryExport>,
     pending_import_prepare: Option<PendingLibraryImportPrepare>,
     pending_import_commit: Option<PreparedLibraryImport>,
@@ -194,6 +211,10 @@ pub(crate) struct LibraryInteraction {
 impl LibraryInteraction {
     pub(crate) const fn pending_delete(&self) -> Option<&PendingLibraryDelete> {
         self.pending_delete.as_ref()
+    }
+
+    pub(crate) const fn pending_toggle(&self) -> Option<&PendingLibraryToggle> {
+        self.pending_toggle.as_ref()
     }
 
     pub(crate) const fn pending_export(&self) -> Option<&PendingLibraryExport> {
@@ -219,6 +240,18 @@ impl LibraryInteraction {
     pub(crate) fn delete(pending_delete: PendingLibraryDelete) -> Self {
         Self {
             pending_delete: Some(pending_delete),
+            pending_toggle: None,
+            pending_export: None,
+            pending_import_prepare: None,
+            pending_import_commit: None,
+            close_modal: false,
+        }
+    }
+
+    pub(crate) fn toggle(pending_toggle: PendingLibraryToggle) -> Self {
+        Self {
+            pending_delete: None,
+            pending_toggle: Some(pending_toggle),
             pending_export: None,
             pending_import_prepare: None,
             pending_import_commit: None,
@@ -229,6 +262,7 @@ impl LibraryInteraction {
     pub(crate) fn export(pending_export: PendingLibraryExport) -> Self {
         Self {
             pending_delete: None,
+            pending_toggle: None,
             pending_export: Some(pending_export),
             pending_import_prepare: None,
             pending_import_commit: None,
@@ -239,6 +273,7 @@ impl LibraryInteraction {
     pub(crate) fn prepare_import(pending_import_prepare: PendingLibraryImportPrepare) -> Self {
         Self {
             pending_delete: None,
+            pending_toggle: None,
             pending_export: None,
             pending_import_prepare: Some(pending_import_prepare),
             pending_import_commit: None,
@@ -249,6 +284,7 @@ impl LibraryInteraction {
     pub(crate) fn import(prepared: PreparedLibraryImport) -> Self {
         Self {
             pending_delete: None,
+            pending_toggle: None,
             pending_export: None,
             pending_import_prepare: None,
             pending_import_commit: Some(prepared),
@@ -259,6 +295,7 @@ impl LibraryInteraction {
     pub(crate) fn close() -> Self {
         Self {
             pending_delete: None,
+            pending_toggle: None,
             pending_export: None,
             pending_import_prepare: None,
             pending_import_commit: None,
@@ -289,6 +326,34 @@ pub(crate) fn char_index_to_byte_index(value: &str, char_index: usize) -> usize 
 }
 
 const SCRIPT_PREVIEW_FALLBACK: &str = "Script content unavailable.";
+
+/// Full multi-line body for the detail content section: script source for
+/// scripts, raw output for text. Unlike `preview_from_item` (single-line,
+/// description-first for the list subtitle) this never returns the
+/// description.
+pub(crate) fn content_from_item(item: &TriggerListItem) -> String {
+    if ActionType::parse_str(&item.action_type) == Some(ActionType::Script) {
+        if let Some(script) = item.script_content.as_deref() {
+            let trimmed = script.trim();
+            if !trimmed.is_empty() {
+                return script.to_string();
+            }
+        }
+        if !item.output.trim().is_empty() {
+            return item.output.clone();
+        }
+        return SCRIPT_PREVIEW_FALLBACK.to_string();
+    }
+    if !item.output.trim().is_empty() {
+        return item.output.clone();
+    }
+    if let Some(script) = item.script_content.as_deref()
+        && !script.trim().is_empty()
+    {
+        return script.to_string();
+    }
+    "No preview available.".to_string()
+}
 
 pub(crate) fn preview_from_item(item: &TriggerListItem) -> String {
     if let Some(description) = normalized_preview_text(item.description.as_deref())

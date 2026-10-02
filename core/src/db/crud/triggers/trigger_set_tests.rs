@@ -444,6 +444,46 @@ fn test_validate_no_references_passes() {
 }
 
 #[test]
+fn test_set_trigger_enabled_flips_flag_without_version_churn_on_missing() {
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let (_dir, conn) = crate::testing::open_test_db();
+
+    let now = crate::db::now_unix_secs();
+    let id = uuid::Uuid::new_v4().to_string();
+    conn.execute(
+            "INSERT INTO triggers (id, name, output, action_type, target_os, is_deleted, created_at, updated_at)
+              VALUES (?1, 'test', 'out', 'text', 'all', 0, ?2, ?2)",
+            rusqlite::params![id, now],
+        ).unwrap();
+
+    assert!(set_trigger_enabled(&conn, &id, false).unwrap());
+    let (enabled, synced, version): (bool, bool, i64) = conn
+        .query_row(
+            "SELECT is_enabled, is_synced, version FROM triggers WHERE id = ?1",
+            [&id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    assert!(!enabled);
+    assert!(!synced);
+    assert_eq!(version, 2);
+
+    assert!(set_trigger_enabled(&conn, &id, true).unwrap());
+    let enabled: bool = conn
+        .query_row(
+            "SELECT is_enabled FROM triggers WHERE id = ?1",
+            [&id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(enabled);
+
+    assert!(!set_trigger_enabled(&conn, "ghost", false).unwrap());
+}
+
+#[test]
 fn test_update_app_filters_trims_whitespace() {
     let _guard = crate::testing::TEST_LOCK
         .lock()

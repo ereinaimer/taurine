@@ -1346,6 +1346,20 @@ pub fn update_trigger_app_filters(
     Ok(())
 }
 
+/// Flips the per-trigger enable flag. Disabled triggers stay in the DB but
+/// are excluded from expansion and listing queries. Bumps version and marks
+/// the row unsynced like other mutations. Returns false when the id is
+/// unknown or already deleted (no version churn on repeat calls).
+pub fn set_trigger_enabled(conn: &Connection, id: &str, enabled: bool) -> Result<bool> {
+    let changed = conn.execute(
+        "UPDATE triggers
+         SET is_enabled = ?1, version = version + 1, updated_at = ?2, is_synced = 0
+         WHERE id = ?3 AND is_deleted = 0",
+        rusqlite::params![if enabled { 1 } else { 0 }, crate::db::now_unix_secs(), id],
+    )?;
+    Ok(changed > 0)
+}
+
 /// Lenient tag normalization for the `add_trigger` path (drops over-long
 /// tags, truncates to the cap — the user isn't directly managing tags).
 fn normalize_add_tags(tags: Option<Vec<String>>) -> Result<String> {

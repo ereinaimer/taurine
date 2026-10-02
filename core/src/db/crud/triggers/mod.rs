@@ -42,9 +42,9 @@ pub use usage::{increment_usage_count_by_trigger, record_expansion_usage};
 pub use trigger_set::{
     AddOutcome, ExistingTriggerUpdate, NewEntry, NewTrigger, PreparedTrigger, add_trigger,
     add_trigger_by_type, add_trigger_by_type_with_case, add_trigger_with_case, create_entry,
-    create_trigger, prepare_trigger, prepare_trigger_with_type, update_existing_trigger,
-    update_trigger_app_filters, upsert_entry_full, upsert_script, upsert_trigger,
-    upsert_trigger_with_type, upsert_trigger_with_type_and_case,
+    create_trigger, prepare_trigger, prepare_trigger_with_type, set_trigger_enabled,
+    update_existing_trigger, update_trigger_app_filters, upsert_entry_full, upsert_script,
+    upsert_trigger, upsert_trigger_with_type, upsert_trigger_with_type_and_case,
 };
 pub use trigger_sync::get_syncable_triggers;
 pub use trigger_types::{

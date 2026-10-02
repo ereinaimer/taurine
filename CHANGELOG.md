@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **TUI Cursor Style**: Pick the text caret shape (block, bar, or underscore) from TUI settings; bar stays the default.
 
 ### Changed
+- **Richer Trigger Details**: Library detail pane now shows the description, an enable toggle, type and script option buttons, collapsible properties with app filters and usage, scrollable content, and tag chips.
 - **Arrow-Key Navigation**: The library list now moves with the Up/Down arrow keys; every letter and symbol types straight into search instead.
 
 ### Removed
