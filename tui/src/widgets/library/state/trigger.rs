@@ -79,6 +79,7 @@ pub(crate) struct LibraryTrigger {
     require_confirmation: bool,
     usage_count: i64,
     last_used_at: Option<i64>,
+    created_at: i64,
     interpreter: Option<ScriptInterpreter>,
     behavior: Option<ScriptBehavior>,
     search_text: String,
@@ -203,6 +204,7 @@ impl LibraryTrigger {
             require_confirmation: item.invocations.iter().any(|a| a.require_confirmation),
             usage_count: item.usage_count,
             last_used_at: item.last_used_at,
+            created_at: item.created_at,
             interpreter: item.interpreter,
             behavior: item.behavior,
             search_text,
@@ -315,6 +317,10 @@ impl LibraryTrigger {
 
     pub(crate) const fn last_used_at(&self) -> Option<i64> {
         self.last_used_at
+    }
+
+    pub(crate) const fn created_at(&self) -> i64 {
+        self.created_at
     }
 
     pub(crate) fn matches_query(&self, query: &str) -> bool {

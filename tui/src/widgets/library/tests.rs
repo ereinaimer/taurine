@@ -1090,36 +1090,35 @@ fn parse_tags_handles_stored_shapes() {
 }
 
 #[test]
-fn advanced_section_starts_collapsed_and_toggles() {
+fn info_modal_open_and_esc_close() {
     let mut state = sample_state();
-    assert!(!state.advanced_expanded());
+    assert!(state.modal.is_none());
 
-    state.toggle_advanced();
-    assert!(state.advanced_expanded());
+    state.open_info_modal_for_selected();
+    assert!(matches!(state.modal, Some(LibraryModal::Info(_))));
 
-    state.toggle_advanced();
-    assert!(!state.advanced_expanded());
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(interaction.should_close_modal());
 }
 
 #[test]
-fn advanced_toggle_hit_only_on_toggle_row() {
+fn header_hit_regions_for_toggle_and_info() {
     let state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
     let ratio = state.split_ratio();
-    // Selected row is the hotkey script; static 14-row content box puts
-    // the bottom-most toggle at content_y(1) + 23.
+    // Header content at x=42 width=37: info button owns the last 3 cells,
+    // [ON] toggle the 4 before a 2-cell gap.
     assert_eq!(
-        detail::hit_test(area, ratio, &state, 42, 24),
-        Some(detail::DetailHit::PropertiesToggle)
+        detail::hit_test(area, ratio, &state, 77, 1),
+        Some(detail::DetailHit::InfoOpen)
     );
     assert_eq!(
-        detail::hit_test(area, ratio, &state, 76, 1),
+        detail::hit_test(area, ratio, &state, 71, 1),
         Some(detail::DetailHit::EnableToggle)
     );
     assert_eq!(detail::hit_test(area, ratio, &state, 74, 1), None);
-    assert_eq!(detail::hit_test(area, ratio, &state, 42, 23), None);
-    assert_eq!(detail::hit_test(area, ratio, &state, 42, 22), None);
-    assert_eq!(detail::hit_test(area, ratio, &state, 10, 24), None);
+    assert_eq!(detail::hit_test(area, ratio, &state, 69, 1), None);
+    assert_eq!(detail::hit_test(area, ratio, &state, 42, 1), None);
 }
 
 #[test]
@@ -1139,13 +1138,87 @@ fn header_toggle_hit_for_text_trigger_row() {
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
     let ratio = state.split_ratio();
     assert_eq!(
-        detail::hit_test(area, ratio, &state, 42, 24),
-        Some(detail::DetailHit::PropertiesToggle)
+        detail::hit_test(area, ratio, &state, 77, 1),
+        Some(detail::DetailHit::InfoOpen)
     );
     assert_eq!(
-        detail::hit_test(area, ratio, &state, 76, 1),
+        detail::hit_test(area, ratio, &state, 71, 1),
         Some(detail::DetailHit::EnableToggle)
     );
+}
+
+#[test]
+fn info_rows_carry_properties_and_usage_extras() {
+    let item = LibraryTrigger::single(list_item(
+        "id-gm",
+        None,
+        TriggerType::Word,
+        "gm",
+        "Good Morning",
+        "text",
+        "all",
+        9,
+        None,
+    ));
+    let rows = info_rows(&item);
+    let get = |label: &str| {
+        rows.iter()
+            .find(|(key, _)| *key == label)
+            .map(|(_, value)| value.clone())
+            .expect("row present")
+    };
+    // Base properties first, extras appended.
+    assert_eq!(rows[0].0, "Auto case");
+    assert!(rows.iter().any(|(key, _)| *key == "Created"));
+    assert!(rows.iter().any(|(key, _)| *key == "Frequency"));
+    assert!(rows.iter().any(|(key, _)| *key == "Keystrokes saved"));
+    assert!(rows.iter().any(|(key, _)| *key == "Time saved"));
+    // 12 output chars minus 2 trigger chars, times 9 uses.
+    assert_eq!(get("Keystrokes saved"), "90");
+}
+
+#[test]
+fn info_rows_skip_savings_for_scripts() {
+    let item = LibraryTrigger::single(list_item(
+        "id-deploy",
+        None,
+        TriggerType::Word,
+        "deploy",
+        "[Script: bash]",
+        "script",
+        "linux",
+        4,
+        Some("npm run build && npm publish"),
+    ));
+    let rows = info_rows(&item);
+    assert!(rows.iter().all(|(key, _)| *key != "Keystrokes saved"));
+    assert!(rows.iter().all(|(key, _)| *key != "Time saved"));
+    assert!(rows.iter().any(|(key, _)| *key == "Frequency"));
+}
+
+#[test]
+fn info_rows_show_empty_token_without_usage() {
+    let item = LibraryTrigger::single(list_item(
+        "id-fresh",
+        None,
+        TriggerType::Word,
+        "fresh",
+        "Fresh output",
+        "text",
+        "all",
+        0,
+        None,
+    ));
+    let rows = info_rows(&item);
+    let get = |label: &str| {
+        rows.iter()
+            .find(|(key, _)| *key == label)
+            .map(|(_, value)| value.clone())
+            .expect("row present")
+    };
+    assert_eq!(get("Keystrokes saved"), detail::EMPTY_TOKEN);
+    assert_eq!(get("Time saved"), detail::EMPTY_TOKEN);
+    assert_eq!(get("Frequency"), detail::EMPTY_TOKEN);
 }
 
 #[test]
@@ -1283,29 +1356,6 @@ fn disabled_rows_carry_flag_and_toggle_back_on() {
     let pending = interaction.pending_toggle().expect("toggle pending");
     assert!(pending.enabled);
     assert_eq!(pending.restore_index, 0);
-}
-
-#[test]
-fn content_box_keeps_static_geometry_regardless_of_length() {
-    let mut state = LibraryPageState::default();
-    state.replace_items(vec![LibraryTrigger::single(list_item(
-        "id-big",
-        None,
-        TriggerType::Word,
-        "big",
-        "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nl10",
-        "text",
-        "all",
-        0,
-        None,
-    ))]);
-    let area = ratatui::layout::Rect::new(0, 0, 80, 30);
-    // Ten content lines, yet the toggle sits exactly where it does for
-    // one-liners: the box does not grow with content.
-    assert_eq!(
-        detail::hit_test(area, state.split_ratio(), &state, 42, 24),
-        Some(detail::DetailHit::PropertiesToggle)
-    );
 }
 
 #[test]

@@ -7,8 +7,8 @@ pub(crate) const ANDROID_ICON: &str = "\u{f17b}";
 pub(crate) const IOS_ICON: &str = "\u{f179}";
 pub(crate) const ALL_ICON: &str = "\u{f0ac}";
 pub(crate) const CHEVRON_DOWN: &str = "\u{f0d7}";
-pub(crate) const CHEVRON_UP: &str = "\u{f0d8}";
 pub(crate) const ADD_ICON: &str = "\u{ea60}";
+pub(crate) const INFO_ICON: &str = "\u{f129}";
 
 pub(crate) fn os_icon(target_os_display: &str) -> &'static str {
     match taurine_core::db::TargetOs::parse_str(target_os_display) {

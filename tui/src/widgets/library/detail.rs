@@ -9,7 +9,7 @@ use ratatui::{
 };
 
 use crate::theme::Theme;
-use crate::widgets::library::icons::{ADD_ICON, CHEVRON_DOWN, CHEVRON_UP, os_icon};
+use crate::widgets::library::icons::{ADD_ICON, CHEVRON_DOWN, INFO_ICON, os_icon};
 use crate::widgets::library::state::{LibraryPageState, LibraryTrigger};
 use crate::widgets::util;
 
@@ -21,6 +21,8 @@ const CONTENT_INNER_HEIGHT: usize = 12;
 pub(crate) const EMPTY_TOKEN: &str = "───";
 const TOGGLE_ON: &str = "[ON]";
 const TOGGLE_OFF: &str = "[OFF]";
+const INFO_BUTTON_WIDTH: u16 = 3;
+const INFO_GAP: u16 = 2;
 
 /// Fixed single-row offsets above the content section.
 const DESCRIPTION_OFFSET: u16 = 2;
@@ -28,12 +30,12 @@ const BUTTONS_OFFSET: u16 = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DetailHit {
-    PropertiesToggle,
     EnableToggle,
+    InfoOpen,
 }
 
-/// Which detail row a click landed on. Header toggle and the properties
-/// toggle are interactive; everything else is read-only preview.
+/// Which detail row a click landed on. The header toggle and info button
+/// are interactive; everything else is read-only preview.
 pub(crate) fn hit_test(
     area: Rect,
     ratio: f32,
@@ -48,27 +50,18 @@ pub(crate) fn hit_test(
     let selected = state.selected_index()?;
     let item = state.item_at_filtered(selected)?;
     if row == content.y {
-        let width = toggle_width(item);
-        let start = content
+        let info_start = content
             .x
-            .saturating_add(content.width.saturating_sub(width));
-        if column >= start && column < start.saturating_add(width) {
+            .saturating_add(content.width.saturating_sub(INFO_BUTTON_WIDTH));
+        if column >= info_start && column < info_start.saturating_add(INFO_BUTTON_WIDTH) {
+            return Some(DetailHit::InfoOpen);
+        }
+        let toggle_width = toggle_width(item);
+        let toggle_start = info_start.saturating_sub(INFO_GAP + toggle_width);
+        if column >= toggle_start && column < toggle_start.saturating_add(toggle_width) {
             return Some(DetailHit::EnableToggle);
         }
         return None;
-    }
-    let layout = detail_layout(
-        content.height,
-        content.width,
-        item,
-        state.advanced_expanded(),
-        state.detail_scroll(),
-    )?;
-    if Some(row.saturating_sub(content.y)) == layout.props_toggle
-        && column >= content.x
-        && column < content.x.saturating_add(content.width)
-    {
-        return Some(DetailHit::PropertiesToggle);
     }
     None
 }
@@ -105,14 +98,12 @@ pub(crate) fn wrap_content_lines(content: &str, width: u16) -> Vec<String> {
 
 /// Full flow layout, top to bottom: header 0, blank 1, description 2,
 /// blank 3, buttons 4, blank 5, static content box (14 rows: border +
-/// 12 text + border), gap, tags, gap, properties toggle, expanded property
-/// rows (bottom-most). Sections that do not fit are None and skipped.
+/// 12 text + border), gap, tags. Sections that do not fit are None
+/// and skipped.
 struct DetailLayout {
     content_rows: Vec<(u16, String)>,
     rest: usize,
     tags: Option<u16>,
-    props_toggle: Option<u16>,
-    prop_rows: Vec<(u16, usize)>,
 }
 
 const CONTENT_BOX_TOP: u16 = 6;
@@ -128,7 +119,6 @@ fn detail_layout(
     height: u16,
     width: u16,
     item: &LibraryTrigger,
-    expanded: bool,
     scroll: usize,
 ) -> Option<DetailLayout> {
     let box_bottom = CONTENT_BOX_TOP.saturating_add(CONTENT_BOX_HEIGHT);
@@ -150,33 +140,16 @@ fn detail_layout(
     let rest = total.saturating_sub(scroll.saturating_add(visible));
     let tags = box_bottom.saturating_add(1);
     let tags = (tags < height).then_some(tags);
-    let props_toggle = tags
-        .map(|offset| offset.saturating_add(2))
-        .filter(|offset| *offset < height);
-    let mut prop_rows = Vec::new();
-    if expanded && let Some(toggle) = props_toggle {
-        let count = property_rows(item).len();
-        for position in 0..count {
-            // Blank row between the toggle and the first item.
-            let offset = toggle.saturating_add(2).saturating_add(position as u16);
-            if offset >= height {
-                break;
-            }
-            prop_rows.push((offset, position));
-        }
-    }
     Some(DetailLayout {
         content_rows,
         rest,
         tags,
-        props_toggle,
-        prop_rows,
     })
 }
 
 /// Max scroll offset for the content section at this pane size.
 pub(crate) fn content_scroll_max(height: u16, width: u16, item: &LibraryTrigger) -> usize {
-    let Some(layout) = detail_layout(height, width, item, false, 0) else {
+    let Some(layout) = detail_layout(height, width, item, 0) else {
         return 0;
     };
     layout.rest
@@ -224,20 +197,15 @@ pub(crate) fn render_detail(
         return;
     };
 
-    let expanded = state.advanced_expanded();
     let scroll = state.detail_scroll();
     render_header_row(frame, content, theme, item);
     render_description_row(frame, content, theme, item);
     render_buttons_row(frame, content, theme, item);
-    let Some(layout) = detail_layout(content.height, content.width, item, expanded, scroll) else {
+    let Some(layout) = detail_layout(content.height, content.width, item, scroll) else {
         return;
     };
     render_content_rows(frame, content, theme, &layout);
     render_tags_row(frame, content, theme, item, &layout);
-    render_properties_toggle(frame, content, theme, expanded, &layout);
-    if expanded {
-        render_property_rows(frame, content, theme, item, &layout);
-    }
 }
 
 fn render_empty(frame: &mut Frame, area: Rect, theme: &Theme, message: &str) {
@@ -253,7 +221,7 @@ fn render_empty(frame: &mut Frame, area: Rect, theme: &Theme, message: &str) {
 }
 
 /// Edge-aligned row: dimmed label flush left, value flush right.
-fn edge_line(
+pub(crate) fn edge_line(
     label: &str,
     value: Vec<Span<'static>>,
     value_width: usize,
@@ -273,7 +241,7 @@ fn edge_line(
 }
 
 /// Value text truncated to share its row with `label`, leaving one cell gap.
-fn edge_value_width(label: &str, row_width: u16) -> u16 {
+pub(crate) fn edge_value_width(label: &str, row_width: u16) -> u16 {
     row_width.saturating_sub(label.chars().count() as u16 + 1)
 }
 
@@ -301,8 +269,15 @@ fn render_header_row(frame: &mut Frame, area: Rect, theme: &Theme, item: &Librar
             Style::default().fg(theme.text).add_modifier(Modifier::DIM),
         )
     };
+    let info = Span::styled(
+        format!(" {INFO_ICON} "),
+        Style::default()
+            .fg(theme.button.text)
+            .bg(theme.button.inactive_bg),
+    );
     let width = toggle_width(item);
-    let available = row.width.saturating_sub(width).saturating_sub(1);
+    let reserved = width + INFO_GAP + INFO_BUTTON_WIDTH;
+    let available = row.width.saturating_sub(reserved).saturating_sub(1);
     let name = util::truncate_to_width(item.display_name(), available);
     let name_width = name.chars().count();
     let gap = available.saturating_sub(name_width as u16);
@@ -313,6 +288,8 @@ fn render_header_row(frame: &mut Frame, area: Rect, theme: &Theme, item: &Librar
         ),
         Span::raw(" ".repeat(gap as usize + 1)),
         toggle,
+        Span::raw(" ".repeat(INFO_GAP as usize)),
+        info,
     ]);
     frame.render_widget(Paragraph::new(line), row);
 }
@@ -391,24 +368,6 @@ fn render_buttons_row(frame: &mut Frame, area: Rect, theme: &Theme, item: &Libra
     frame.render_widget(Paragraph::new(Line::from(spans)), row);
 }
 
-fn render_properties_toggle(
-    frame: &mut Frame,
-    area: Rect,
-    theme: &Theme,
-    expanded: bool,
-    layout: &DetailLayout,
-) {
-    let Some(offset) = layout.props_toggle else {
-        return;
-    };
-    let chevron = if expanded { CHEVRON_UP } else { CHEVRON_DOWN };
-    let label = format!("Properties {chevron}");
-    frame.render_widget(
-        Paragraph::new(label).style(Style::default().fg(theme.text)),
-        row_area(area, offset),
-    );
-}
-
 pub(crate) fn property_rows(item: &LibraryTrigger) -> Vec<(&'static str, String)> {
     let siblings = sibling_aliases(item.aliases(), item.trigger());
     let mut rows = vec![
@@ -459,34 +418,6 @@ pub(crate) fn property_rows(item: &LibraryTrigger) -> Vec<(&'static str, String)
         ));
     }
     rows
-}
-
-fn render_property_rows(
-    frame: &mut Frame,
-    area: Rect,
-    theme: &Theme,
-    item: &LibraryTrigger,
-    layout: &DetailLayout,
-) {
-    let rows = property_rows(item);
-    for (offset, position) in &layout.prop_rows {
-        let Some((label, value)) = rows.get(*position) else {
-            continue;
-        };
-        let row = row_area(area, *offset);
-        let value = util::truncate_to_width(value, edge_value_width(label, row.width));
-        let width = value.chars().count();
-        frame.render_widget(
-            Paragraph::new(edge_line(
-                label,
-                vec![Span::styled(value, Style::default().fg(theme.text))],
-                width,
-                row.width,
-                theme,
-            )),
-            row,
-        );
-    }
 }
 
 /// Static content box: fixed 14 rows with the rounded search-box border
@@ -644,7 +575,7 @@ fn usage_count_line(usage_count: i64) -> String {
     }
 }
 
-fn relative_time(timestamp: i64) -> Option<String> {
+pub(crate) fn relative_time(timestamp: i64) -> Option<String> {
     if timestamp <= 0 {
         return None;
     }

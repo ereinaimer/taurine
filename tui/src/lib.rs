@@ -291,6 +291,17 @@ fn handle_tui_mouse_event(
         }
         MouseEventKind::Down(MouseButton::Left) => {
             if modal_open {
+                // honey: info popup dismisses on outside click; other
+                // modals keep ignoring background clicks.
+                if app.active_page() == Page::Library
+                    && let Some(library::LibraryModal::Info(_)) = app.library_page().modal()
+                {
+                    let layout = terminal::mouse::frame_layout(area);
+                    let popup = library::modals::info_popup_rect(layout.page);
+                    if !terminal::mouse::contains(popup, mouse.column, mouse.row) {
+                        app.library_page_mut().clear_modal();
+                    }
+                }
                 return;
             }
             let layout = terminal::mouse::frame_layout(area);
@@ -316,8 +327,8 @@ fn handle_tui_mouse_event(
                         Some(library::list::LibraryHit::Search) => {
                             app.library_page_mut().activate_search();
                         }
-                        // honey: header enable toggle and properties toggle
-                        // are clickable; the rest of the preview is read-only.
+                        // honey: header enable toggle and info button are
+                        // clickable; the rest of the preview is read-only.
                         None => {
                             let page = app.library_page();
                             let hit = library::detail::hit_test(
@@ -328,8 +339,8 @@ fn handle_tui_mouse_event(
                                 mouse.row,
                             );
                             match hit {
-                                Some(library::detail::DetailHit::PropertiesToggle) => {
-                                    app.library_page_mut().toggle_advanced();
+                                Some(library::detail::DetailHit::InfoOpen) => {
+                                    app.library_page_mut().open_info_modal_for_selected();
                                 }
                                 Some(library::detail::DetailHit::EnableToggle) => {
                                     let interaction =

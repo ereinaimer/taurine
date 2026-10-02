@@ -1,11 +1,13 @@
 mod delete;
 mod export;
 mod import;
+mod info;
 mod trigger;
 
 pub(crate) use delete::*;
 pub(crate) use export::*;
 pub(crate) use import::*;
+pub(crate) use info::*;
 pub(crate) use trigger::*;
 
 use std::path::Path;
@@ -42,6 +44,7 @@ pub(crate) enum LibraryModal {
     // honey: unreachable until the shortcut rework lands; kept with tests.
     #[allow(dead_code)]
     ConfirmDelete(LibraryDeleteModalState),
+    Info(LibraryInfoModalState),
 }
 
 impl LibraryModal {
@@ -53,6 +56,8 @@ impl LibraryModal {
             Self::ImportResult(state) => state.set_error(error),
             Self::ConfirmImportRunVariables(state) => state.set_error(error),
             Self::ConfirmDelete(state) => state.set_error(error),
+            // honey: info is read-only, errors have nowhere to display.
+            Self::Info(_) => {}
         }
     }
 }
@@ -71,7 +76,6 @@ pub(crate) struct LibraryPageState {
     split_ratio: f32,
     divider_hover: bool,
     divider_drag: bool,
-    advanced_expanded: bool,
     detail_scroll: usize,
 }
 
@@ -90,7 +94,6 @@ impl Default for LibraryPageState {
             split_ratio: super::DEFAULT_SPLIT_RATIO,
             divider_hover: false,
             divider_drag: false,
-            advanced_expanded: false,
             detail_scroll: 0,
         }
     }
@@ -171,14 +174,6 @@ impl LibraryPageState {
         if drag {
             self.divider_hover = true;
         }
-    }
-
-    pub(crate) const fn advanced_expanded(&self) -> bool {
-        self.advanced_expanded
-    }
-
-    pub(crate) fn toggle_advanced(&mut self) {
-        self.advanced_expanded = !self.advanced_expanded;
     }
 
     pub(crate) const fn detail_scroll(&self) -> usize {
@@ -269,6 +264,16 @@ impl LibraryPageState {
 
     pub(crate) fn clear_modal(&mut self) {
         self.modal = None;
+    }
+
+    pub(crate) fn open_info_modal_for_selected(&mut self) {
+        let Some(selected_index) = self.selected_index() else {
+            return;
+        };
+        let Some(item) = self.item_at_filtered(selected_index).cloned() else {
+            return;
+        };
+        self.modal = Some(LibraryModal::Info(LibraryInfoModalState::from_item(&item)));
     }
 
     pub(crate) fn selected_index(&self) -> Option<usize> {
@@ -475,6 +480,13 @@ impl LibraryPageState {
                 }
                 _ => {
                     self.modal = Some(LibraryModal::ConfirmDelete(state));
+                    LibraryInteraction::handled()
+                }
+            },
+            LibraryModal::Info(state) => match (key.code, key.modifiers) {
+                (KeyCode::Esc, KeyModifiers::NONE) => LibraryInteraction::close(),
+                _ => {
+                    self.modal = Some(LibraryModal::Info(state));
                     LibraryInteraction::handled()
                 }
             },
