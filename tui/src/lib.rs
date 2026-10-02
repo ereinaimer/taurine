@@ -490,7 +490,7 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
 
 fn refresh_library_page(app: &mut App) {
     match taurine_core::db::init::setup()
-        .and_then(|conn| taurine_core::db::crud::get_triggers_list(&conn).map_err(Into::into))
+        .and_then(|conn| taurine_core::db::crud::get_library_triggers(&conn).map_err(Into::into))
     {
         Ok(items) => {
             let items = items
@@ -743,6 +743,7 @@ mod tests {
                 only_apps: None,
                 except_apps: None,
                 auto_case: false,
+                is_enabled: true,
                 usage_count: 0,
                 last_used_at: None,
                 created_at: 0,
@@ -840,6 +841,7 @@ mod tests {
                 only_apps: None,
                 except_apps: None,
                 auto_case: false,
+                is_enabled: true,
                 usage_count: 0,
                 last_used_at: None,
                 created_at: 0,
@@ -874,6 +876,7 @@ mod tests {
                 only_apps: None,
                 except_apps: None,
                 auto_case: false,
+                is_enabled: true,
                 usage_count: 0,
                 last_used_at: None,
                 created_at: 0,
@@ -960,6 +963,7 @@ mod tests {
                 only_apps: None,
                 except_apps: None,
                 auto_case: false,
+                is_enabled: true,
                 usage_count: 0,
                 last_used_at: None,
                 created_at: 0,
@@ -980,6 +984,7 @@ mod tests {
                 only_apps: None,
                 except_apps: None,
                 auto_case: false,
+                is_enabled: true,
                 usage_count: 0,
                 last_used_at: None,
                 created_at: 0,

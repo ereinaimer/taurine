@@ -1009,6 +1009,33 @@ fn search_triggers_matches_name_and_trigger_and_sorts_by_usage() {
 }
 
 #[test]
+fn get_library_triggers_includes_disabled_with_flag() {
+    init_tracing_for_tests();
+    let (_dir, conn) = open_test_db();
+    conn.execute("DELETE FROM triggers", []).unwrap();
+
+    for (id, trigger) in [("uuid-lib-1", "alpha"), ("uuid-lib-2", "beta")] {
+        upsert_trigger(
+            &conn, id, trigger, None, trigger, "out", "text", "all", r#"[]"#, 0, None,
+        )
+        .unwrap();
+    }
+    set_trigger_enabled(&conn, "uuid-lib-2", false).unwrap();
+
+    // Management query sees both, flag carried through.
+    let items = get_library_triggers(&conn).unwrap();
+    assert_eq!(items.len(), 2);
+    let disabled = items.iter().find(|item| item.id == "uuid-lib-2").unwrap();
+    assert!(!disabled.is_enabled);
+    let enabled = items.iter().find(|item| item.id == "uuid-lib-1").unwrap();
+    assert!(enabled.is_enabled);
+
+    // Expansion/listing query still hides the disabled one.
+    let active = get_triggers_list(&conn).unwrap();
+    assert!(active.iter().all(|item| item.id != "uuid-lib-2"));
+}
+
+#[test]
 fn get_triggers_list_includes_target_os() {
     init_tracing_for_tests();
     let (_dir, conn) = open_test_db();

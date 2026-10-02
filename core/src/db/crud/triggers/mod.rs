@@ -24,8 +24,8 @@ pub use trigger_delete::{
 
 pub use trigger_get::{
     get_action_by_trigger, get_all_active_hotkey_triggers, get_all_active_regex_triggers,
-    get_all_active_triggers, get_trigger, get_triggers_list, list_active_voice_invocations,
-    search_triggers,
+    get_all_active_triggers, get_library_triggers, get_trigger, get_triggers_list,
+    list_active_voice_invocations, search_triggers,
 };
 pub use validate::{
     audit_payload_tags, audit_payload_tags_with_trigger_type, audit_script_payload_tags,

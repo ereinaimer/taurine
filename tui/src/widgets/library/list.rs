@@ -190,6 +190,14 @@ fn render_library_item(
     } else {
         Style::default().fg(theme.description)
     };
+    let (trigger_style, preview_style) = if item.is_enabled() {
+        (trigger_style, preview_style)
+    } else {
+        (
+            trigger_style.add_modifier(Modifier::DIM),
+            preview_style.add_modifier(Modifier::DIM),
+        )
+    };
 
     frame.render_widget(
         Paragraph::new(util::truncate_to_width(item.trigger(), top_area.width))

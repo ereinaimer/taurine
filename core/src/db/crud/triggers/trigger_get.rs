@@ -380,25 +380,46 @@ pub fn list_active_voice_invocations(conn: &Connection) -> Result<Vec<ResolvedIn
 /// Fetches all active triggers with enough metadata for sorting/listing in CLI.
 pub fn get_triggers_list(conn: &Connection) -> Result<Vec<TriggerListItem>> {
     let os_str = get_current_os_db_string();
-    let mut stmt = conn.prepare_cached(
-        "SELECT a.id, a.name, a.description, a.output, a.action_type, a.target_os,
-                a.only_apps, a.except_apps, a.auto_case, a.usage_count, a.last_used_at,
-                a.created_at, a.tags, s.interpreter, s.behavior, s.compressed_content
-         FROM   triggers a
-         LEFT JOIN scripts s ON a.id = s.trigger_id
-         WHERE  a.is_deleted = 0
+    get_triggers_list_filtered(
+        conn,
+        "a.is_deleted = 0
            AND  a.is_enabled = 1
            AND  (a.target_os = 'all' OR a.target_os = ?1)",
-    )?;
+        Some(os_str),
+    )
+}
 
-    let rows = stmt.query_map([os_str], |row| {
-        let interpreter = parse_json_variant(row.get(13)?);
-        let behavior = parse_json_variant(row.get(14)?);
+/// Fetches every non-deleted trigger for library management: disabled
+/// entries included so they can be inspected and re-enabled, all
+/// platforms so cross-OS triggers stay manageable.
+pub fn get_library_triggers(conn: &Connection) -> Result<Vec<TriggerListItem>> {
+    get_triggers_list_filtered(conn, "a.is_deleted = 0", None)
+}
+
+fn get_triggers_list_filtered(
+    conn: &Connection,
+    where_clause: &str,
+    os_str: Option<&str>,
+) -> Result<Vec<TriggerListItem>> {
+    let query = format!(
+        "SELECT a.id, a.name, a.description, a.output, a.action_type, a.target_os,
+                a.only_apps, a.except_apps, a.auto_case, a.is_enabled, a.usage_count,
+                a.last_used_at, a.created_at, a.tags, s.interpreter, s.behavior,
+                s.compressed_content
+          FROM   triggers a
+          LEFT JOIN scripts s ON a.id = s.trigger_id
+          WHERE  {where_clause}"
+    );
+    let mut stmt = conn.prepare_cached(&query)?;
+
+    let map_row = |row: &rusqlite::Row<'_>| {
+        let interpreter = parse_json_variant(row.get(14)?);
+        let behavior = parse_json_variant(row.get(15)?);
         let script_content = row
-            .get::<_, Option<Vec<u8>>>(15)?
+            .get::<_, Option<Vec<u8>>>(16)?
             .map(|compressed| {
                 decompress(&compressed).map_err(|err| {
-                    rusqlite::Error::FromSqlConversionFailure(15, Type::Blob, Box::new(err))
+                    rusqlite::Error::FromSqlConversionFailure(16, Type::Blob, Box::new(err))
                 })
             })
             .transpose()?;
@@ -415,20 +436,25 @@ pub fn get_triggers_list(conn: &Connection) -> Result<Vec<TriggerListItem>> {
             only_apps: row.get(6)?,
             except_apps: row.get(7)?,
             auto_case: row.get(8)?,
-            usage_count: row.get(9)?,
-            last_used_at: row.get(10)?,
-            created_at: row.get(11)?,
-            tags: row.get(12)?,
+            is_enabled: row.get(9)?,
+            usage_count: row.get(10)?,
+            last_used_at: row.get(11)?,
+            created_at: row.get(12)?,
+            tags: row.get(13)?,
             script_content,
             interpreter,
             behavior,
         })
-    })?;
+    };
 
-    let mut list = Vec::new();
-    for row in rows {
-        list.push(row?);
-    }
+    let mut list = match os_str {
+        Some(os) => stmt
+            .query_map([os], map_row)?
+            .collect::<rusqlite::Result<Vec<_>>>(),
+        None => stmt
+            .query_map([], map_row)?
+            .collect::<rusqlite::Result<Vec<_>>>(),
+    }?;
     drop(stmt);
 
     // N+1, fine under ~1k rows; batch with a single IN query if it grows

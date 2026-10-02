@@ -199,9 +199,7 @@ impl LibraryTrigger {
             only_apps: item.only_apps.clone(),
             except_apps: item.except_apps.clone(),
             auto_case: item.auto_case,
-            // honey: list query only returns enabled rows; loader change
-            // to include disabled ones will populate this for real.
-            is_enabled: true,
+            is_enabled: item.is_enabled,
             require_confirmation: item.invocations.iter().any(|a| a.require_confirmation),
             usage_count: item.usage_count,
             last_used_at: item.last_used_at,

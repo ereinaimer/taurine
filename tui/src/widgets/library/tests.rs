@@ -47,6 +47,7 @@ fn list_item(
         only_apps: None,
         except_apps: None,
         auto_case: false,
+        is_enabled: true,
         usage_count,
         last_used_at: None,
         created_at: 0,
@@ -376,6 +377,7 @@ fn search_matches_name_when_it_differs_from_trigger() {
         only_apps: None,
         except_apps: None,
         auto_case: false,
+        is_enabled: true,
         usage_count: 6,
         last_used_at: None,
         created_at: 0,
@@ -1020,6 +1022,7 @@ fn multi_alias_list_item() -> TriggerListItem {
         only_apps: None,
         except_apps: None,
         auto_case: false,
+        is_enabled: true,
         usage_count: 3,
         last_used_at: None,
         created_at: 0,
@@ -1255,6 +1258,30 @@ fn toggle_selected_enabled_disables_by_default() {
     let interaction = state.toggle_selected_enabled();
     let pending = interaction.pending_toggle().expect("toggle pending");
     assert!(!pending.enabled);
+    assert_eq!(pending.restore_index, 0);
+}
+
+#[test]
+fn disabled_rows_carry_flag_and_toggle_back_on() {
+    let mut item = list_item(
+        "id-old",
+        None,
+        TriggerType::Word,
+        "old",
+        "Old output",
+        "text",
+        "all",
+        0,
+        None,
+    );
+    item.is_enabled = false;
+    let mut state = LibraryPageState::default();
+    state.replace_items(LibraryTrigger::expand(item));
+    assert!(!state.item_at_filtered(0).unwrap().is_enabled());
+
+    let interaction = state.toggle_selected_enabled();
+    let pending = interaction.pending_toggle().expect("toggle pending");
+    assert!(pending.enabled);
     assert_eq!(pending.restore_index, 0);
 }
 
