@@ -23,8 +23,8 @@ const TOGGLE_ON: &str = "[ON]";
 const TOGGLE_OFF: &str = "[OFF]";
 
 /// Fixed single-row offsets above the content section.
-const DESCRIPTION_OFFSET: u16 = 1;
-const BUTTONS_OFFSET: u16 = 3;
+const DESCRIPTION_OFFSET: u16 = 2;
+const BUTTONS_OFFSET: u16 = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DetailHit {
@@ -103,10 +103,10 @@ pub(crate) fn wrap_content_lines(content: &str, width: u16) -> Vec<String> {
     rows
 }
 
-/// Full flow layout, top to bottom: header 0, description 1, blank 2,
-/// buttons 3, blank 4, content label 5, blank 6, wrapped content rows,
-/// gap, tags, gap, properties toggle, expanded property rows (bottom-most).
-/// Sections that do not fit are None and skipped.
+/// Full flow layout, top to bottom: header 0, blank 1, description 2,
+/// blank 3, buttons 4, blank 5, content label 6, blank 7, wrapped content
+/// rows, gap, tags, gap, properties toggle, expanded property rows
+/// (bottom-most). Sections that do not fit are None and skipped.
 struct DetailLayout {
     content_label: u16,
     content_rows: Vec<(u16, String)>,
@@ -116,7 +116,7 @@ struct DetailLayout {
     prop_rows: Vec<(u16, usize)>,
 }
 
-const CONTENT_LABEL_OFFSET: u16 = 5;
+const CONTENT_LABEL_OFFSET: u16 = 6;
 
 fn detail_layout(
     height: u16,

@@ -1104,9 +1104,9 @@ fn advanced_toggle_hit_only_on_toggle_row() {
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
     let ratio = state.split_ratio();
     // Selected row is the hotkey script; properties sit bottom-most after
-    // label, blank, content (1 row) and tags: content_y(1) + 11.
+    // label, blank, content (1 row) and tags: content_y(1) + 12.
     assert_eq!(
-        detail::hit_test(area, ratio, &state, 42, 12),
+        detail::hit_test(area, ratio, &state, 42, 13),
         Some(detail::DetailHit::PropertiesToggle)
     );
     assert_eq!(
@@ -1114,9 +1114,9 @@ fn advanced_toggle_hit_only_on_toggle_row() {
         Some(detail::DetailHit::EnableToggle)
     );
     assert_eq!(detail::hit_test(area, ratio, &state, 74, 1), None);
+    assert_eq!(detail::hit_test(area, ratio, &state, 42, 12), None);
     assert_eq!(detail::hit_test(area, ratio, &state, 42, 11), None);
-    assert_eq!(detail::hit_test(area, ratio, &state, 42, 10), None);
-    assert_eq!(detail::hit_test(area, ratio, &state, 10, 12), None);
+    assert_eq!(detail::hit_test(area, ratio, &state, 10, 13), None);
 }
 
 #[test]
@@ -1136,7 +1136,7 @@ fn header_toggle_hit_for_text_trigger_row() {
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
     let ratio = state.split_ratio();
     assert_eq!(
-        detail::hit_test(area, ratio, &state, 42, 12),
+        detail::hit_test(area, ratio, &state, 42, 13),
         Some(detail::DetailHit::PropertiesToggle)
     );
     assert_eq!(
