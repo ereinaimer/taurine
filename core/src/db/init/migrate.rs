@@ -27,7 +27,7 @@ use tracing::{debug, error};
 /// 4. Bump `CURRENT_SCHEMA_VERSION` by one.
 pub fn run_migrations(conn: &Connection) -> Result<()> {
     // Bump this whenever you add a new match arm below.
-    const CURRENT_SCHEMA_VERSION: u32 = 2;
+    const CURRENT_SCHEMA_VERSION: u32 = 1;
 
     // Read the stamp baked into the file header (0 for a fresh database).
     let version: u32 = conn
@@ -206,59 +206,6 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                         }
                         e
                     })?,
-
-                1 => {
-                    conn.execute_batch(
-                        "CREATE TABLE IF NOT EXISTS workspaces (
-                            id           TEXT    PRIMARY KEY,
-                            name         TEXT    NOT NULL,
-                            is_default   BOOLEAN NOT NULL DEFAULT 0,
-                            created_at   INTEGER NOT NULL,
-                            updated_at   INTEGER NOT NULL,
-                            version      INTEGER NOT NULL DEFAULT 1,
-                            is_deleted   BOOLEAN NOT NULL DEFAULT 0,
-                            is_synced    BOOLEAN NOT NULL DEFAULT 1
-                        );
-
-                        INSERT OR IGNORE INTO workspaces (id, name, is_default, created_at, updated_at, version, is_deleted, is_synced)
-                        VALUES ('default', 'Personal', 1, unixepoch(), unixepoch(), 1, 0, 1);
-
-                        CREATE TABLE IF NOT EXISTS quota_ledger (
-                            week_start_epoch     INTEGER PRIMARY KEY,
-                            remaining_percentage REAL    NOT NULL DEFAULT 100.0,
-                            last_expansion_at    INTEGER,
-                            hmac_signature       TEXT    NOT NULL DEFAULT '',
-                            is_synced            BOOLEAN NOT NULL DEFAULT 0,
-                            updated_at           INTEGER NOT NULL
-                        );",
-                    )
-                    .map_err(|e| {
-                        error!(error = %e, "Schema migration v1 -> v2 tables failed");
-                        e
-                    })?;
-
-                    let has_col: bool = conn
-                        .prepare("PRAGMA table_info(triggers)")?
-                        .query_map([], |row| row.get::<_, String>(1))?
-                        .any(|c| c.map(|name| name == "workspace_id").unwrap_or(false));
-
-                    if !has_col {
-                        conn.execute_batch(
-                            "ALTER TABLE triggers ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'default';
-                             CREATE INDEX IF NOT EXISTS idx_triggers_workspace ON triggers(workspace_id);",
-                        )
-                        .map_err(|e| {
-                            error!(error = %e, "Schema migration v1 -> v2 add column failed");
-                            e
-                        })?;
-                    }
-
-                    conn.execute_batch("PRAGMA user_version = 2;")
-                        .map_err(|e| {
-                            error!(error = %e, "Schema migration v1 -> v2 PRAGMA update failed");
-                            e
-                        })?;
-                }
 
                 _ => {
                     error!(version = v, "Unhandled schema migration version");
