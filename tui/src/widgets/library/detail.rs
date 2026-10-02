@@ -15,7 +15,7 @@ use crate::widgets::util;
 
 use super::content_halves;
 
-const PREVIEW_LINES: usize = 8;
+const CONTENT_INNER_HEIGHT: usize = 12;
 /// Empty-state token: three ROUNDED-border horizontals, matching the pane
 /// border glyph set.
 pub(crate) const EMPTY_TOKEN: &str = "───";
@@ -104,11 +104,10 @@ pub(crate) fn wrap_content_lines(content: &str, width: u16) -> Vec<String> {
 }
 
 /// Full flow layout, top to bottom: header 0, blank 1, description 2,
-/// blank 3, buttons 4, blank 5, content label 6, blank 7, wrapped content
-/// rows, gap, tags, gap, properties toggle, expanded property rows
-/// (bottom-most). Sections that do not fit are None and skipped.
+/// blank 3, buttons 4, blank 5, static content box (14 rows: border +
+/// 12 text + border), gap, tags, gap, properties toggle, expanded property
+/// rows (bottom-most). Sections that do not fit are None and skipped.
 struct DetailLayout {
-    content_label: u16,
     content_rows: Vec<(u16, String)>,
     rest: usize,
     tags: Option<u16>,
@@ -116,7 +115,14 @@ struct DetailLayout {
     prop_rows: Vec<(u16, usize)>,
 }
 
-const CONTENT_LABEL_OFFSET: u16 = 6;
+const CONTENT_BOX_TOP: u16 = 6;
+const CONTENT_BOX_HEIGHT: u16 = CONTENT_INNER_HEIGHT as u16 + 2;
+
+/// Text width inside the content box: border plus one cell of padding
+/// each side, mirroring the search box.
+fn content_text_width(box_width: u16) -> u16 {
+    box_width.saturating_sub(4)
+}
 
 fn detail_layout(
     height: u16,
@@ -125,16 +131,15 @@ fn detail_layout(
     expanded: bool,
     scroll: usize,
 ) -> Option<DetailLayout> {
-    if CONTENT_LABEL_OFFSET >= height {
+    let box_bottom = CONTENT_BOX_TOP.saturating_add(CONTENT_BOX_HEIGHT);
+    if box_bottom > height || width < 5 {
         return None;
     }
-    let wrapped = wrap_content_lines(item.content(), width);
+    let text_width = content_text_width(width);
+    let wrapped = wrap_content_lines(item.content(), text_width);
     let total = wrapped.len();
-    let start = CONTENT_LABEL_OFFSET.saturating_add(2);
-    // Reserve gap + tags + gap + properties toggle below the content.
-    let visible = PREVIEW_LINES
-        .min(total.saturating_sub(scroll.min(total)))
-        .min(height.saturating_sub(start).saturating_sub(4) as usize);
+    let visible = CONTENT_INNER_HEIGHT.min(total.saturating_sub(scroll.min(total)));
+    let start = CONTENT_BOX_TOP.saturating_add(1);
     let content_rows = wrapped
         .into_iter()
         .skip(scroll)
@@ -143,9 +148,7 @@ fn detail_layout(
         .map(|(index, line)| (start.saturating_add(index as u16), line))
         .collect::<Vec<_>>();
     let rest = total.saturating_sub(scroll.saturating_add(visible));
-    let tags = start
-        .saturating_add(content_rows.len() as u16)
-        .saturating_add(1);
+    let tags = box_bottom.saturating_add(1);
     let tags = (tags < height).then_some(tags);
     let props_toggle = tags
         .map(|offset| offset.saturating_add(2))
@@ -163,7 +166,6 @@ fn detail_layout(
         }
     }
     Some(DetailLayout {
-        content_label: CONTENT_LABEL_OFFSET,
         content_rows,
         rest,
         tags,
@@ -487,22 +489,45 @@ fn render_property_rows(
     }
 }
 
+/// Static content box: fixed 14 rows with the rounded search-box border
+/// and 12 scrollable text rows inside, no scrollbar.
+/// The box never grows or shrinks with the content length.
 fn render_content_rows(frame: &mut Frame, area: Rect, theme: &Theme, layout: &DetailLayout) {
-    frame.render_widget(
-        Paragraph::new(Span::styled(
-            "Content".to_string(),
-            Style::default().fg(theme.text).add_modifier(Modifier::DIM),
-        )),
-        row_area(area, layout.content_label),
-    );
-    for (offset, line) in &layout.content_rows {
+    use ratatui::widgets::{Block, Borders};
+
+    let popup = Rect {
+        x: area.x,
+        y: area.y.saturating_add(CONTENT_BOX_TOP),
+        width: area.width,
+        height: CONTENT_BOX_HEIGHT,
+    };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_set(ratatui::symbols::border::ROUNDED)
+        .border_style(Style::default().fg(theme.border));
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+    // honey: one cell of horizontal padding inside the border, like search.
+    let text = Rect {
+        x: inner.x.saturating_add(1),
+        y: inner.y,
+        width: inner.width.saturating_sub(2),
+        height: CONTENT_INNER_HEIGHT as u16,
+    };
+    for (index, (_, line)) in layout.content_rows.iter().enumerate() {
+        if index >= text.height as usize {
+            break;
+        }
         let row = Rect {
-            x: area.x,
-            y: area.y.saturating_add(*offset),
-            width: area.width,
+            x: text.x,
+            y: text.y.saturating_add(index as u16),
+            width: text.width,
             height: 1,
         };
-        // Pre-wrapped to the pane width: one visual row, nothing clipped.
+        // Pre-wrapped to the text width: one visual row, nothing clipped.
         frame.render_widget(
             Paragraph::new(Line::from(line.clone())).style(Style::default().fg(theme.text)),
             row,

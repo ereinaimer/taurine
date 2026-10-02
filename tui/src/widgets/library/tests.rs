@@ -1106,10 +1106,10 @@ fn advanced_toggle_hit_only_on_toggle_row() {
     let state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
     let ratio = state.split_ratio();
-    // Selected row is the hotkey script; properties sit bottom-most after
-    // label, blank, content (1 row) and tags: content_y(1) + 12.
+    // Selected row is the hotkey script; static 14-row content box puts
+    // the bottom-most toggle at content_y(1) + 23.
     assert_eq!(
-        detail::hit_test(area, ratio, &state, 42, 13),
+        detail::hit_test(area, ratio, &state, 42, 24),
         Some(detail::DetailHit::PropertiesToggle)
     );
     assert_eq!(
@@ -1117,9 +1117,9 @@ fn advanced_toggle_hit_only_on_toggle_row() {
         Some(detail::DetailHit::EnableToggle)
     );
     assert_eq!(detail::hit_test(area, ratio, &state, 74, 1), None);
-    assert_eq!(detail::hit_test(area, ratio, &state, 42, 12), None);
-    assert_eq!(detail::hit_test(area, ratio, &state, 42, 11), None);
-    assert_eq!(detail::hit_test(area, ratio, &state, 10, 13), None);
+    assert_eq!(detail::hit_test(area, ratio, &state, 42, 23), None);
+    assert_eq!(detail::hit_test(area, ratio, &state, 42, 22), None);
+    assert_eq!(detail::hit_test(area, ratio, &state, 10, 24), None);
 }
 
 #[test]
@@ -1139,7 +1139,7 @@ fn header_toggle_hit_for_text_trigger_row() {
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
     let ratio = state.split_ratio();
     assert_eq!(
-        detail::hit_test(area, ratio, &state, 42, 13),
+        detail::hit_test(area, ratio, &state, 42, 24),
         Some(detail::DetailHit::PropertiesToggle)
     );
     assert_eq!(
@@ -1286,8 +1286,9 @@ fn disabled_rows_carry_flag_and_toggle_back_on() {
 }
 
 #[test]
-fn content_scroll_max_counts_overflow_lines() {
-    let item = LibraryTrigger::single(list_item(
+fn content_box_keeps_static_geometry_regardless_of_length() {
+    let mut state = LibraryPageState::default();
+    state.replace_items(vec![LibraryTrigger::single(list_item(
         "id-big",
         None,
         TriggerType::Word,
@@ -1297,9 +1298,31 @@ fn content_scroll_max_counts_overflow_lines() {
         "all",
         0,
         None,
+    ))]);
+    let area = ratatui::layout::Rect::new(0, 0, 80, 30);
+    // Ten content lines, yet the toggle sits exactly where it does for
+    // one-liners: the box does not grow with content.
+    assert_eq!(
+        detail::hit_test(area, state.split_ratio(), &state, 42, 24),
+        Some(detail::DetailHit::PropertiesToggle)
+    );
+}
+
+#[test]
+fn content_scroll_max_counts_overflow_lines() {
+    let item = LibraryTrigger::single(list_item(
+        "id-big",
+        None,
+        TriggerType::Word,
+        "big",
+        "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nl10\nl11\nl12\nl13\nl14\nl15\nl16",
+        "text",
+        "all",
+        0,
+        None,
     ));
-    // Collapsed text trigger in a 30-row pane shows 8 of 10 lines.
-    assert_eq!(detail::content_scroll_max(30, 37, &item), 2);
+    // Collapsed text trigger in a 30-row pane shows 12 of 16 lines.
+    assert_eq!(detail::content_scroll_max(30, 37, &item), 4);
 }
 
 #[test]
@@ -1321,11 +1344,11 @@ fn long_content_line_wraps_instead_of_clipping() {
         0,
         None,
     ));
-    // Six wrapped rows fit the 8-row window, so nothing scrolls.
+    // Six wrapped rows fit the 12-row window, so nothing scrolls.
     assert_eq!(detail::content_scroll_max(30, 37, &item), 0);
-    // Narrow pane wraps harder: 200 chars at width 10 need 20 rows,
-    // 8 visible leaves 12 scrollable.
-    assert_eq!(detail::content_scroll_max(30, 10, &item), 12);
+    // Narrow box wraps harder: 200 chars at text width 6 need 34 rows,
+    // 12 visible leaves 22 scrollable.
+    assert_eq!(detail::content_scroll_max(30, 10, &item), 22);
 }
 
 #[test]
