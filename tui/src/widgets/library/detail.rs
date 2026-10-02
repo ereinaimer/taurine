@@ -319,14 +319,12 @@ fn render_description_row(frame: &mut Frame, area: Rect, theme: &Theme, item: &L
     if DESCRIPTION_OFFSET >= area.height {
         return;
     }
-    let (text, dimmed) = match item.description() {
-        Some(description) if !description.trim().is_empty() => (description.to_string(), false),
-        _ => ("No description.".to_string(), true),
+    let text = match item.description() {
+        Some(description) if !description.trim().is_empty() => description.to_string(),
+        _ => "No description.".to_string(),
     };
-    let mut style = Style::default().fg(theme.description);
-    if dimmed {
-        style = style.add_modifier(Modifier::DIM);
-    }
+    // Same dimmed treatment as the other labels (Content, properties).
+    let style = Style::default().fg(theme.text).add_modifier(Modifier::DIM);
     // Single row only: first line, cut to width, never wrapped.
     let first = text.lines().next().unwrap_or("").trim();
     let value = util::truncate_to_width(first, area.width);
