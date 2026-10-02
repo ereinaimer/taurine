@@ -121,6 +121,11 @@ pub fn start() -> taurine_core::error::Result<()> {
 
     let conn = init::setup()?;
 
+    // Enforce Free tier 30-snippet ceiling by auto-pausing excess snippets before hydrating engine
+    if let Err(e) = taurine_core::db::crud::tier::enforce_free_tier_snippet_cap(&conn) {
+        error!(error = %e, "Failed to enforce free tier snippet cap on startup");
+    }
+
     // Hydrate QuotaGuard with stored weekly quota from SQLite
     let now_epoch = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
