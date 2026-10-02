@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Free Tier Snippet Capping**: Automatically keep the top 30 most-used snippets active on Free tier while safely pausing excess snippets on startup or downgrade.
+- **Snippet Enable and Disable**: Toggle individual snippets directly with `taurine enable` and `taurine disable`.
 - **Cloud Authentication**: Sign in and out of Taurine Cloud with `taurine login` and `taurine logout`.
 - **Cloud Quota & Tier Status**: View subscription tier, weekly quota balance, and usage limits in `taurine status`.
 - **Workspace Management**: Create, list, and delete snippet workspaces with the new `taurine workspace` command.

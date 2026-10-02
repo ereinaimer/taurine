@@ -11,6 +11,7 @@ pub mod progress;
 pub mod script;
 pub mod service;
 pub mod status;
+pub mod toggle;
 pub mod update;
 pub mod validate;
 pub mod workspace;

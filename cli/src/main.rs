@@ -137,6 +137,14 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
             commands::auth::ensure_authenticated()?;
             commands::add::execute_args(*args, json)?;
         }
+        Some(Commands::Enable { trigger }) => {
+            commands::auth::ensure_authenticated()?;
+            commands::toggle::execute_enable(&trigger, json)?;
+        }
+        Some(Commands::Disable { trigger }) => {
+            commands::auth::ensure_authenticated()?;
+            commands::toggle::execute_disable(&trigger, json)?;
+        }
         Some(Commands::Delete { triggers, tag, yes }) => {
             commands::auth::ensure_authenticated()?;
             commands::delete::execute(triggers, tag, yes, json)?;

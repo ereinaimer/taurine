@@ -102,6 +102,16 @@ pub(crate) enum Commands {
     /// Add a new trigger
     #[command(alias = "set")]
     Add(Box<AddArgs>),
+    /// Enable a disabled trigger
+    Enable {
+        /// Trigger name, alias, or ID to enable
+        trigger: String,
+    },
+    /// Disable an active trigger
+    Disable {
+        /// Trigger name, alias, or ID to disable
+        trigger: String,
+    },
     /// Remove a trigger
     #[command(aliases = ["rm", "remove"])]
     Delete {

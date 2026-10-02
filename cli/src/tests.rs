@@ -908,3 +908,64 @@ fn test_workspace_execution_hermetically() {
     // SAFETY: access to TAURINE_DATA_DIR is serialized by TEST_LOCK
     unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
 }
+
+#[test]
+fn test_enable_disable_command_parsing() {
+    let cli = Cli::try_parse_from(["taurine", "enable", ":mytrigger"]).expect("enable parses");
+    assert!(matches!(
+        cli.command,
+        Some(Commands::Enable { trigger }) if trigger == ":mytrigger"
+    ));
+
+    let cli = Cli::try_parse_from(["taurine", "disable", ":mytrigger"]).expect("disable parses");
+    assert!(matches!(
+        cli.command,
+        Some(Commands::Disable { trigger }) if trigger == ":mytrigger"
+    ));
+}
+
+#[test]
+fn test_enable_disable_execution_hermetically() {
+    let _lock = crate::commands::TEST_LOCK.lock().unwrap();
+    let temp = tempfile::tempdir().expect("tempdir");
+    // SAFETY: access to TAURINE_DATA_DIR is serialized by TEST_LOCK
+    unsafe { std::env::set_var("TAURINE_DATA_DIR", temp.path()) };
+
+    let conn = taurine_core::db::init::setup().expect("setup");
+    let entry = taurine_core::db::crud::NewEntry {
+        name: "Toggle Test Snippet".to_string(),
+        description: None,
+        content: "Hello from toggle test".to_string(),
+        action_type: "text".to_string(),
+        target_os: "all".to_string(),
+        only_apps: None,
+        except_apps: None,
+        tags_json: "[]".to_string(),
+        auto_case: false,
+        interpreter: None,
+        behavior: None,
+        invocations: vec![(
+            taurine_core::db::crud::InvocationType::Word,
+            ":toggle_test".to_string(),
+            false,
+        )],
+    };
+    let (id, _) = taurine_core::db::crud::create_entry(&conn, entry).expect("create_entry");
+
+    // Disable the trigger
+    crate::commands::toggle::execute_disable(":toggle_test", false).expect("disable succeeds");
+    let row = taurine_core::db::crud::get_trigger(&conn, &id)
+        .expect("get_trigger")
+        .expect("found");
+    assert!(!row.is_enabled);
+
+    // Re-enable the trigger
+    crate::commands::toggle::execute_enable(":toggle_test", false).expect("enable succeeds");
+    let row = taurine_core::db::crud::get_trigger(&conn, &id)
+        .expect("get_trigger")
+        .expect("found");
+    assert!(row.is_enabled);
+
+    // SAFETY: access to TAURINE_DATA_DIR is serialized by TEST_LOCK
+    unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
+}

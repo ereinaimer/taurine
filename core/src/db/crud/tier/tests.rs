@@ -220,11 +220,9 @@ fn test_auto_pause_excess_snippets_keeps_top_30_most_used() {
     // The 5 disabled should be snippets 1 to 5 (the lowest usage counts)
     for (id, usage) in &ids[0..5] {
         let is_enabled: bool = conn
-            .query_row(
-                "SELECT is_enabled FROM triggers WHERE id = ?1",
-                [id],
-                |r| r.get(0),
-            )
+            .query_row("SELECT is_enabled FROM triggers WHERE id = ?1", [id], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert!(
             !is_enabled,
@@ -235,11 +233,9 @@ fn test_auto_pause_excess_snippets_keeps_top_30_most_used() {
     // The top 30 (snippets 6 to 35) should remain enabled
     for (id, usage) in &ids[5..35] {
         let is_enabled: bool = conn
-            .query_row(
-                "SELECT is_enabled FROM triggers WHERE id = ?1",
-                [id],
-                |r| r.get(0),
-            )
+            .query_row("SELECT is_enabled FROM triggers WHERE id = ?1", [id], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert!(
             is_enabled,
@@ -259,11 +255,8 @@ fn test_auto_pause_one_way_valve_preserves_custom_disabled_snippets() {
         let (id, _) = create_entry(&conn, entry).unwrap();
         if i == 5 {
             // Manually disable snippet 5
-            conn.execute(
-                "UPDATE triggers SET is_enabled = 0 WHERE id = ?1",
-                [&id],
-            )
-            .unwrap();
+            conn.execute("UPDATE triggers SET is_enabled = 0 WHERE id = ?1", [&id])
+                .unwrap();
             custom_disabled_id = id;
         }
     }
@@ -280,7 +273,10 @@ fn test_auto_pause_one_way_valve_preserves_custom_disabled_snippets() {
             |r| r.get(0),
         )
         .unwrap();
-    assert!(!is_enabled, "Auto-cap must never re-enable disabled snippets");
+    assert!(
+        !is_enabled,
+        "Auto-cap must never re-enable disabled snippets"
+    );
 }
 
 #[test]
@@ -297,11 +293,8 @@ fn test_enable_guard_blocks_when_30_snippets_active() {
     set_user_tier(&conn, UserTier::Pro).unwrap();
     let entry_31 = make_entry(":guard31");
     let (id_31, _) = create_entry(&conn, entry_31).unwrap();
-    conn.execute(
-        "UPDATE triggers SET is_enabled = 0 WHERE id = ?1",
-        [&id_31],
-    )
-    .unwrap();
+    conn.execute("UPDATE triggers SET is_enabled = 0 WHERE id = ?1", [&id_31])
+        .unwrap();
     let disabled_id = id_31;
     set_user_tier(&conn, UserTier::Free).unwrap();
 
@@ -336,11 +329,8 @@ fn test_disable_allows_enabling_another_snippet() {
     set_user_tier(&conn, UserTier::Pro).unwrap();
     let entry_31 = make_entry(":swap31");
     let (id_31, _) = create_entry(&conn, entry_31).unwrap();
-    conn.execute(
-        "UPDATE triggers SET is_enabled = 0 WHERE id = ?1",
-        [&id_31],
-    )
-    .unwrap();
+    conn.execute("UPDATE triggers SET is_enabled = 0 WHERE id = ?1", [&id_31])
+        .unwrap();
     set_user_tier(&conn, UserTier::Free).unwrap();
 
     // Disable snippet 1
