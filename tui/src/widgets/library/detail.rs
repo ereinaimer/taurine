@@ -22,15 +22,7 @@ pub(crate) const EMPTY_TOKEN: &str = "───";
 const TOGGLE_ON: &str = "[ON]";
 const TOGGLE_OFF: &str = "[OFF]";
 
-/// Flow offsets for the right pane. Header 0, description 1, blank 2,
-/// buttons 3 (type, plus interpreter + behavior for scripts), blank 4,
-/// properties toggle 5, then expanded rows, blank gap, content label +
-/// lines, tags row.
-fn props_toggle_offset(_item: &LibraryTrigger) -> u16 {
-    5
-}
-
-/// Fixed single-row offsets above the properties toggle.
+/// Fixed single-row offsets above the content section.
 const DESCRIPTION_OFFSET: u16 = 1;
 const BUTTONS_OFFSET: u16 = 3;
 
@@ -65,8 +57,14 @@ pub(crate) fn hit_test(
         }
         return None;
     }
-    if row == content.y.saturating_add(props_toggle_offset(item))
-        && row < content.y.saturating_add(content.height)
+    let layout = detail_layout(
+        content.height,
+        content.width,
+        item,
+        state.advanced_expanded(),
+        state.detail_scroll(),
+    )?;
+    if Some(row.saturating_sub(content.y)) == layout.props_toggle
         && column >= content.x
         && column < content.x.saturating_add(content.width)
     {
@@ -82,19 +80,6 @@ pub(crate) fn detail_contains(area: Rect, ratio: f32, column: u16, row: u16) -> 
         && column < content.x.saturating_add(content.width)
         && row >= content.y
         && row < content.y.saturating_add(content.height)
-}
-
-/// Max scroll offset for the content section at this pane size.
-pub(crate) fn content_scroll_max(
-    height: u16,
-    width: u16,
-    item: &LibraryTrigger,
-    expanded: bool,
-) -> usize {
-    let Some((_, _, total)) = content_window(height, width, item, expanded, 0) else {
-        return 0;
-    };
-    total
 }
 
 /// Wrap source lines to the pane width, one visual row per chunk.
@@ -118,59 +103,80 @@ pub(crate) fn wrap_content_lines(content: &str, width: u16) -> Vec<String> {
     rows
 }
 
-/// Visible content window: (label offset, rows to draw, scrollable total
-/// beyond the visible window). None when the label row does not fit.
-type ContentWindow = (u16, Vec<(u16, String)>, usize);
+/// Full flow layout, top to bottom: header 0, description 1, blank 2,
+/// buttons 3, blank 4, content label 5, blank 6, wrapped content rows,
+/// gap, tags, gap, properties toggle, expanded property rows (bottom-most).
+/// Sections that do not fit are None and skipped.
+struct DetailLayout {
+    content_label: u16,
+    content_rows: Vec<(u16, String)>,
+    rest: usize,
+    tags: Option<u16>,
+    props_toggle: Option<u16>,
+    prop_rows: Vec<(u16, usize)>,
+}
 
-fn content_window(
+const CONTENT_LABEL_OFFSET: u16 = 5;
+
+fn detail_layout(
     height: u16,
     width: u16,
     item: &LibraryTrigger,
     expanded: bool,
     scroll: usize,
-) -> Option<ContentWindow> {
-    let wrapped = wrap_content_lines(item.content(), width);
-    let total = wrapped.len();
-    let mut label = props_toggle_offset(item).saturating_add(1);
-    if expanded {
-        label = label.saturating_add(property_rows(item).len() as u16);
-    }
-    // One blank gap row between properties and content.
-    label = label.saturating_add(1);
-    if label >= height {
+) -> Option<DetailLayout> {
+    if CONTENT_LABEL_OFFSET >= height {
         return None;
     }
-    let start = label.saturating_add(1);
-    // Reserve a gap row plus the tags row below the content.
+    let wrapped = wrap_content_lines(item.content(), width);
+    let total = wrapped.len();
+    let start = CONTENT_LABEL_OFFSET.saturating_add(2);
+    // Reserve gap + tags + gap + properties toggle below the content.
     let visible = PREVIEW_LINES
         .min(total.saturating_sub(scroll.min(total)))
-        .min(height.saturating_sub(start).saturating_sub(2) as usize);
-    let rows = wrapped
+        .min(height.saturating_sub(start).saturating_sub(4) as usize);
+    let content_rows = wrapped
         .into_iter()
         .skip(scroll)
         .take(visible)
         .enumerate()
         .map(|(index, line)| (start.saturating_add(index as u16), line))
-        .collect();
+        .collect::<Vec<_>>();
     let rest = total.saturating_sub(scroll.saturating_add(visible));
-    Some((label, rows, rest))
+    let tags = start
+        .saturating_add(content_rows.len() as u16)
+        .saturating_add(1);
+    let tags = (tags < height).then_some(tags);
+    let props_toggle = tags
+        .map(|offset| offset.saturating_add(2))
+        .filter(|offset| *offset < height);
+    let mut prop_rows = Vec::new();
+    if expanded && let Some(toggle) = props_toggle {
+        let count = property_rows(item).len();
+        for position in 0..count {
+            let offset = toggle.saturating_add(1).saturating_add(position as u16);
+            if offset >= height {
+                break;
+            }
+            prop_rows.push((offset, position));
+        }
+    }
+    Some(DetailLayout {
+        content_label: CONTENT_LABEL_OFFSET,
+        content_rows,
+        rest,
+        tags,
+        props_toggle,
+        prop_rows,
+    })
 }
 
-/// Tags row offset: gap row + tags row below the visible content.
-/// None when it does not fit.
-fn tags_offset(
-    height: u16,
-    width: u16,
-    item: &LibraryTrigger,
-    expanded: bool,
-    scroll: usize,
-) -> Option<u16> {
-    let (label, rows, _) = content_window(height, width, item, expanded, scroll)?;
-    let offset = label
-        .saturating_add(1)
-        .saturating_add(rows.len() as u16)
-        .saturating_add(1);
-    (offset < height).then_some(offset)
+/// Max scroll offset for the content section at this pane size.
+pub(crate) fn content_scroll_max(height: u16, width: u16, item: &LibraryTrigger) -> usize {
+    let Some(layout) = detail_layout(height, width, item, false, 0) else {
+        return 0;
+    };
+    layout.rest
 }
 
 /// Right-pane content: two cells of padding on the left, one on the
@@ -216,15 +222,19 @@ pub(crate) fn render_detail(
     };
 
     let expanded = state.advanced_expanded();
+    let scroll = state.detail_scroll();
     render_header_row(frame, content, theme, item);
     render_description_row(frame, content, theme, item);
     render_buttons_row(frame, content, theme, item);
-    render_properties_toggle(frame, content, theme, item, expanded);
+    let Some(layout) = detail_layout(content.height, content.width, item, expanded, scroll) else {
+        return;
+    };
+    render_content_rows(frame, content, theme, &layout);
+    render_tags_row(frame, content, theme, item, &layout);
+    render_properties_toggle(frame, content, theme, expanded, &layout);
     if expanded {
-        render_property_rows(frame, content, theme, item);
+        render_property_rows(frame, content, theme, item, &layout);
     }
-    render_content_section(frame, content, theme, item, expanded, state.detail_scroll());
-    render_tags_row(frame, content, theme, item, expanded, state.detail_scroll());
 }
 
 fn render_empty(frame: &mut Frame, area: Rect, theme: &Theme, message: &str) {
@@ -386,13 +396,12 @@ fn render_properties_toggle(
     frame: &mut Frame,
     area: Rect,
     theme: &Theme,
-    item: &LibraryTrigger,
     expanded: bool,
+    layout: &DetailLayout,
 ) {
-    let offset = props_toggle_offset(item);
-    if offset >= area.height {
+    let Some(offset) = layout.props_toggle else {
         return;
-    }
+    };
     let chevron = if expanded { CHEVRON_UP } else { CHEVRON_DOWN };
     let label = format!("Properties {chevron}");
     frame.render_widget(
@@ -453,15 +462,20 @@ pub(crate) fn property_rows(item: &LibraryTrigger) -> Vec<(&'static str, String)
     rows
 }
 
-fn render_property_rows(frame: &mut Frame, area: Rect, theme: &Theme, item: &LibraryTrigger) {
-    let base = props_toggle_offset(item).saturating_add(1);
-    for (position, (label, value)) in property_rows(item).into_iter().enumerate() {
-        let offset = base.saturating_add(position as u16);
-        if offset >= area.height {
-            return;
-        }
-        let row = row_area(area, offset);
-        let value = util::truncate_to_width(&value, edge_value_width(label, row.width));
+fn render_property_rows(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    item: &LibraryTrigger,
+    layout: &DetailLayout,
+) {
+    let rows = property_rows(item);
+    for (offset, position) in &layout.prop_rows {
+        let Some((label, value)) = rows.get(*position) else {
+            continue;
+        };
+        let row = row_area(area, *offset);
+        let value = util::truncate_to_width(value, edge_value_width(label, row.width));
         let width = value.chars().count();
         frame.render_widget(
             Paragraph::new(edge_line(
@@ -476,35 +490,24 @@ fn render_property_rows(frame: &mut Frame, area: Rect, theme: &Theme, item: &Lib
     }
 }
 
-fn render_content_section(
-    frame: &mut Frame,
-    area: Rect,
-    theme: &Theme,
-    item: &LibraryTrigger,
-    expanded: bool,
-    scroll: usize,
-) {
-    let Some((label, rows, _)) = content_window(area.height, area.width, item, expanded, scroll)
-    else {
-        return;
-    };
+fn render_content_rows(frame: &mut Frame, area: Rect, theme: &Theme, layout: &DetailLayout) {
     frame.render_widget(
         Paragraph::new(Span::styled(
             "Content".to_string(),
             Style::default().fg(theme.text).add_modifier(Modifier::DIM),
         )),
-        row_area(area, label),
+        row_area(area, layout.content_label),
     );
-    for (offset, line) in rows {
+    for (offset, line) in &layout.content_rows {
         let row = Rect {
             x: area.x,
-            y: area.y.saturating_add(offset),
+            y: area.y.saturating_add(*offset),
             width: area.width,
             height: 1,
         };
         // Pre-wrapped to the pane width: one visual row, nothing clipped.
         frame.render_widget(
-            Paragraph::new(Line::from(line)).style(Style::default().fg(theme.text)),
+            Paragraph::new(Line::from(line.clone())).style(Style::default().fg(theme.text)),
             row,
         );
     }
@@ -525,17 +528,42 @@ fn render_tags_row(
     area: Rect,
     theme: &Theme,
     item: &LibraryTrigger,
-    expanded: bool,
-    scroll: usize,
+    layout: &DetailLayout,
 ) {
-    let Some(offset) = tags_offset(area.height, area.width, item, expanded, scroll) else {
+    let Some(offset) = layout.tags else {
         return;
     };
     let row = row_area(area, offset);
+    let plus = || {
+        Span::styled(
+            " + ".to_string(),
+            Style::default()
+                .fg(theme.button.text)
+                .bg(theme.button.inactive_bg),
+        )
+    };
+    if item.tags().is_empty() {
+        let label = "No tags available. ";
+        let width = label.chars().count().saturating_add(3);
+        if width > row.width as usize {
+            frame.render_widget(Paragraph::new(Line::from(vec![plus()])), row);
+            return;
+        }
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled(
+                    label.to_string(),
+                    Style::default().fg(theme.text).add_modifier(Modifier::DIM),
+                ),
+                plus(),
+            ])),
+            row,
+        );
+        return;
+    }
     let mut spans: Vec<Span<'static>> = Vec::new();
     let mut used = 0usize;
-    let plus = " + ";
-    let plus_width = plus.chars().count();
+    let plus_width = 3usize;
     for (index, tag) in item.tags().iter().enumerate() {
         let chip = format!("#{tag}");
         let width = chip.chars().count().saturating_add(1);
@@ -556,20 +584,10 @@ fn render_tags_row(
         if !spans.is_empty() {
             spans.push(Span::raw(" ".to_string()));
         }
-        spans.push(Span::styled(
-            plus.to_string(),
-            Style::default()
-                .fg(theme.button.text)
-                .bg(theme.button.inactive_bg),
-        ));
+        spans.push(plus());
     }
     if spans.is_empty() {
-        spans.push(Span::styled(
-            plus.to_string(),
-            Style::default()
-                .fg(theme.button.text)
-                .bg(theme.button.inactive_bg),
-        ));
+        spans.push(plus());
     }
     frame.render_widget(Paragraph::new(Line::from(spans)), row);
 }

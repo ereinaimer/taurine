@@ -245,19 +245,15 @@ fn handle_tui_mouse_event(
                 ) {
                     let down = mouse.kind == MouseEventKind::ScrollDown;
                     let content = library::detail::right_content(layout.page, page.split_ratio());
-                    let (item, expanded) = match page
+                    let item = match page
                         .selected_index()
                         .and_then(|index| page.item_at_filtered(index))
                     {
-                        Some(item) => (item.clone(), page.advanced_expanded()),
+                        Some(item) => item.clone(),
                         None => return,
                     };
-                    let max = library::detail::content_scroll_max(
-                        content.height,
-                        content.width,
-                        &item,
-                        expanded,
-                    );
+                    let max =
+                        library::detail::content_scroll_max(content.height, content.width, &item);
                     app.library_page_mut()
                         .scroll_detail(if down { 1 } else { -1 }, max);
                     return;

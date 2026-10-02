@@ -1103,10 +1103,10 @@ fn advanced_toggle_hit_only_on_toggle_row() {
     let state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
     let ratio = state.split_ratio();
-    // Selected row is the hotkey script; all three buttons share one row,
-    // so the properties toggle sits at content_y(1) + 5 like text triggers.
+    // Selected row is the hotkey script; properties sit bottom-most after
+    // label, blank, content (1 row) and tags: content_y(1) + 11.
     assert_eq!(
-        detail::hit_test(area, ratio, &state, 42, 6),
+        detail::hit_test(area, ratio, &state, 42, 12),
         Some(detail::DetailHit::PropertiesToggle)
     );
     assert_eq!(
@@ -1114,9 +1114,9 @@ fn advanced_toggle_hit_only_on_toggle_row() {
         Some(detail::DetailHit::EnableToggle)
     );
     assert_eq!(detail::hit_test(area, ratio, &state, 74, 1), None);
-    assert_eq!(detail::hit_test(area, ratio, &state, 42, 5), None);
-    assert_eq!(detail::hit_test(area, ratio, &state, 42, 7), None);
-    assert_eq!(detail::hit_test(area, ratio, &state, 10, 6), None);
+    assert_eq!(detail::hit_test(area, ratio, &state, 42, 11), None);
+    assert_eq!(detail::hit_test(area, ratio, &state, 42, 10), None);
+    assert_eq!(detail::hit_test(area, ratio, &state, 10, 12), None);
 }
 
 #[test]
@@ -1136,7 +1136,7 @@ fn header_toggle_hit_for_text_trigger_row() {
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
     let ratio = state.split_ratio();
     assert_eq!(
-        detail::hit_test(area, ratio, &state, 42, 6),
+        detail::hit_test(area, ratio, &state, 42, 12),
         Some(detail::DetailHit::PropertiesToggle)
     );
     assert_eq!(
@@ -1272,8 +1272,7 @@ fn content_scroll_max_counts_overflow_lines() {
         None,
     ));
     // Collapsed text trigger in a 30-row pane shows 8 of 10 lines.
-    assert_eq!(detail::content_scroll_max(30, 37, &item, false), 2);
-    assert_eq!(detail::content_scroll_max(30, 37, &item, true), 2);
+    assert_eq!(detail::content_scroll_max(30, 37, &item), 2);
 }
 
 #[test]
@@ -1296,10 +1295,10 @@ fn long_content_line_wraps_instead_of_clipping() {
         None,
     ));
     // Six wrapped rows fit the 8-row window, so nothing scrolls.
-    assert_eq!(detail::content_scroll_max(30, 37, &item, false), 0);
+    assert_eq!(detail::content_scroll_max(30, 37, &item), 0);
     // Narrow pane wraps harder: 200 chars at width 10 need 20 rows,
     // 8 visible leaves 12 scrollable.
-    assert_eq!(detail::content_scroll_max(30, 10, &item, false), 12);
+    assert_eq!(detail::content_scroll_max(30, 10, &item), 12);
 }
 
 #[test]
