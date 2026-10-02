@@ -1272,13 +1272,18 @@ fn content_scroll_max_counts_overflow_lines() {
         None,
     ));
     // Collapsed text trigger in a 30-row pane shows 8 of 10 lines.
-    assert_eq!(detail::content_scroll_max(30, &item, false), 2);
-    assert_eq!(detail::content_scroll_max(30, &item, true), 2);
+    assert_eq!(detail::content_scroll_max(30, 37, &item, false), 2);
+    assert_eq!(detail::content_scroll_max(30, 37, &item, true), 2);
 }
 
 #[test]
-fn long_content_line_stays_on_a_single_row() {
+fn long_content_line_wraps_instead_of_clipping() {
     let long = "x".repeat(200);
+    let rows = detail::wrap_content_lines(&long, 37);
+    assert_eq!(rows.len(), 6);
+    assert!(rows.iter().all(|row| row.chars().count() <= 37));
+    assert_eq!(rows.concat(), long);
+
     let item = LibraryTrigger::single(list_item(
         "id-long",
         None,
@@ -1290,8 +1295,20 @@ fn long_content_line_stays_on_a_single_row() {
         0,
         None,
     ));
-    // One source line never wraps into extra rows, so nothing scrolls.
-    assert_eq!(detail::content_scroll_max(30, &item, false), 0);
+    // Six wrapped rows fit the 8-row window, so nothing scrolls.
+    assert_eq!(detail::content_scroll_max(30, 37, &item, false), 0);
+    // Narrow pane wraps harder: 200 chars at width 10 need 20 rows,
+    // 8 visible leaves 12 scrollable.
+    assert_eq!(detail::content_scroll_max(30, 10, &item, false), 12);
+}
+
+#[test]
+fn wrap_keeps_blank_lines_and_tabs() {
+    let rows = detail::wrap_content_lines("a\n\n\tb", 37);
+    assert_eq!(
+        rows,
+        vec!["a".to_string(), String::new(), "  b".to_string()]
+    );
 }
 
 #[test]

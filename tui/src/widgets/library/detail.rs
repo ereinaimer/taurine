@@ -84,26 +84,53 @@ pub(crate) fn detail_contains(area: Rect, ratio: f32, column: u16, row: u16) -> 
         && row < content.y.saturating_add(content.height)
 }
 
-/// Max scroll offset for the content section at this pane height.
-pub(crate) fn content_scroll_max(height: u16, item: &LibraryTrigger, expanded: bool) -> usize {
-    let Some((_, _, total)) = content_window(height, item, expanded, 0) else {
+/// Max scroll offset for the content section at this pane size.
+pub(crate) fn content_scroll_max(
+    height: u16,
+    width: u16,
+    item: &LibraryTrigger,
+    expanded: bool,
+) -> usize {
+    let Some((_, _, total)) = content_window(height, width, item, expanded, 0) else {
         return 0;
     };
     total
 }
 
-/// Visible content window: (label offset, lines to draw, scrollable total
+/// Wrap source lines to the pane width, one visual row per chunk.
+/// Blank lines stay blank; tabs flatten; trailing space trimmed so it
+/// never forces an extra row. No ellipsis, nothing clipped.
+pub(crate) fn wrap_content_lines(content: &str, width: u16) -> Vec<String> {
+    let width = (width.max(1)) as usize;
+    let mut rows = Vec::new();
+    for line in content.lines() {
+        let flat = line.replace('\t', "  ");
+        let trimmed = flat.trim_end();
+        if trimmed.is_empty() {
+            rows.push(String::new());
+            continue;
+        }
+        let chars: Vec<char> = trimmed.chars().collect();
+        for chunk in chars.chunks(width) {
+            rows.push(chunk.iter().collect());
+        }
+    }
+    rows
+}
+
+/// Visible content window: (label offset, rows to draw, scrollable total
 /// beyond the visible window). None when the label row does not fit.
 type ContentWindow = (u16, Vec<(u16, String)>, usize);
 
 fn content_window(
     height: u16,
+    width: u16,
     item: &LibraryTrigger,
     expanded: bool,
     scroll: usize,
 ) -> Option<ContentWindow> {
-    let lines: Vec<&str> = item.content().lines().collect();
-    let total = lines.len();
+    let wrapped = wrap_content_lines(item.content(), width);
+    let total = wrapped.len();
     let mut label = props_toggle_offset(item).saturating_add(1);
     if expanded {
         label = label.saturating_add(property_rows(item).len() as u16);
@@ -118,12 +145,12 @@ fn content_window(
     let visible = PREVIEW_LINES
         .min(total.saturating_sub(scroll.min(total)))
         .min(height.saturating_sub(start).saturating_sub(2) as usize);
-    let rows = lines
+    let rows = wrapped
         .into_iter()
         .skip(scroll)
         .take(visible)
         .enumerate()
-        .map(|(index, line)| (start.saturating_add(index as u16), line.to_string()))
+        .map(|(index, line)| (start.saturating_add(index as u16), line))
         .collect();
     let rest = total.saturating_sub(scroll.saturating_add(visible));
     Some((label, rows, rest))
@@ -131,8 +158,14 @@ fn content_window(
 
 /// Tags row offset: gap row + tags row below the visible content.
 /// None when it does not fit.
-fn tags_offset(height: u16, item: &LibraryTrigger, expanded: bool, scroll: usize) -> Option<u16> {
-    let (label, rows, _) = content_window(height, item, expanded, scroll)?;
+fn tags_offset(
+    height: u16,
+    width: u16,
+    item: &LibraryTrigger,
+    expanded: bool,
+    scroll: usize,
+) -> Option<u16> {
+    let (label, rows, _) = content_window(height, width, item, expanded, scroll)?;
     let offset = label
         .saturating_add(1)
         .saturating_add(rows.len() as u16)
@@ -451,7 +484,8 @@ fn render_content_section(
     expanded: bool,
     scroll: usize,
 ) {
-    let Some((label, rows, _)) = content_window(area.height, item, expanded, scroll) else {
+    let Some((label, rows, _)) = content_window(area.height, area.width, item, expanded, scroll)
+    else {
         return;
     };
     frame.render_widget(
@@ -468,11 +502,9 @@ fn render_content_section(
             width: area.width,
             height: 1,
         };
-        // One source line per row: tabs flattened, cut to width, no wrap.
-        let flat = line.replace('\t', "  ");
-        let text = util::truncate_to_width(flat.trim_end(), area.width);
+        // Pre-wrapped to the pane width: one visual row, nothing clipped.
         frame.render_widget(
-            Paragraph::new(Line::from(text)).style(Style::default().fg(theme.text)),
+            Paragraph::new(Line::from(line)).style(Style::default().fg(theme.text)),
             row,
         );
     }
@@ -496,7 +528,7 @@ fn render_tags_row(
     expanded: bool,
     scroll: usize,
 ) {
-    let Some(offset) = tags_offset(area.height, item, expanded, scroll) else {
+    let Some(offset) = tags_offset(area.height, area.width, item, expanded, scroll) else {
         return;
     };
     let row = row_area(area, offset);

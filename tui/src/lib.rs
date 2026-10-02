@@ -252,7 +252,12 @@ fn handle_tui_mouse_event(
                         Some(item) => (item.clone(), page.advanced_expanded()),
                         None => return,
                     };
-                    let max = library::detail::content_scroll_max(content.height, &item, expanded);
+                    let max = library::detail::content_scroll_max(
+                        content.height,
+                        content.width,
+                        &item,
+                        expanded,
+                    );
                     app.library_page_mut()
                         .scroll_detail(if down { 1 } else { -1 }, max);
                     return;
