@@ -290,14 +290,12 @@ fn render_header_row(frame: &mut Frame, area: Rect, theme: &Theme, item: &Librar
     let toggle = if item.is_enabled() {
         Span::styled(
             TOGGLE_ON.to_string(),
-            Style::default()
-                .fg(theme.success)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
         )
     } else {
         Span::styled(
             TOGGLE_OFF.to_string(),
-            Style::default().fg(theme.text_muted),
+            Style::default().fg(theme.text).add_modifier(Modifier::DIM),
         )
     };
     let width = toggle_width(item);
