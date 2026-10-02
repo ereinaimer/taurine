@@ -9,15 +9,6 @@ pub fn render_library_search_bar(
     theme: &Theme,
     query: &str,
     is_active: bool,
-    cursor: usize,
 ) {
-    util::render_search_block(
-        frame,
-        area,
-        theme,
-        query,
-        is_active,
-        cursor,
-        "Search triggers…",
-    );
+    util::render_search_block(frame, area, theme, query, is_active, "Search triggers…");
 }

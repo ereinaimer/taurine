@@ -23,6 +23,20 @@ pub(crate) fn truncate_to_width(value: &str, max_chars: u16) -> String {
     }
 }
 
+/// Visible tail of a search query for a `width`-wide field. The caret
+/// always sits at the end of the query (no mid-text movement), so the
+/// viewport is the last `width` characters and overlong input slides
+/// left instead of clipping invisibly.
+pub(crate) fn search_viewport(query: &str, width: u16) -> &str {
+    let count = query.chars().count();
+    let keep = (width as usize).min(count);
+    let skip = count.saturating_sub(keep);
+    match query.char_indices().nth(skip) {
+        Some((byte, _)) => &query[byte..],
+        None => query,
+    }
+}
+
 /// Caret column for a char-index cursor inside a one-line field starting
 /// at `x` with `width` cells. Stays inside the field so the terminal
 /// caret (which honors the configured cursor style) is what the user sees.
@@ -314,7 +328,6 @@ pub(crate) fn render_search_block(
     theme: &Theme,
     query: &str,
     is_active: bool,
-    cursor: usize,
     placeholder: &str,
 ) {
     if area.width == 0 || area.height == 0 {
@@ -340,11 +353,6 @@ pub(crate) fn render_search_block(
     };
     // honey: the real terminal caret shows here so the configured cursor
     // style applies; no painted fake block.
-    let title = if is_active || !query.is_empty() {
-        Line::from(query.to_string())
-    } else {
-        Line::from(placeholder.to_string())
-    };
     // honey: one cell of horizontal padding inside the border.
     let line_area = Rect {
         x: inner.x.saturating_add(1),
@@ -355,9 +363,43 @@ pub(crate) fn render_search_block(
     if line_area.width == 0 {
         return;
     }
+    // honey: overlong queries slide left (tail viewport) so the caret
+    // stays visible; filtering still runs on the full string.
+    let visible = search_viewport(query, line_area.width);
+    let title = if is_active || !query.is_empty() {
+        Line::from(visible.to_string())
+    } else {
+        Line::from(placeholder.to_string())
+    };
     frame.render_widget(Paragraph::new(title).style(title_style), line_area);
     if is_active {
-        let (cx, cy) = caret_position(line_area.x, line_area.y, cursor, line_area.width);
+        let caret = visible.chars().count();
+        let (cx, cy) = caret_position(line_area.x, line_area.y, caret, line_area.width);
         frame.set_cursor_position((cx, cy));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::search_viewport;
+
+    #[test]
+    fn viewport_shows_full_query_when_it_fits() {
+        assert_eq!(search_viewport("gm", 37), "gm");
+        assert_eq!(search_viewport("", 37), "");
+    }
+
+    #[test]
+    fn viewport_slides_to_tail_when_overlong() {
+        let query = "a".repeat(50);
+        assert_eq!(search_viewport(&query, 37), "a".repeat(37));
+    }
+
+    #[test]
+    fn viewport_never_splits_a_char() {
+        let query = "héllo wörld";
+        let visible = search_viewport(query, 5);
+        assert_eq!(visible, "wörld");
+        assert!(visible.is_char_boundary(0));
     }
 }

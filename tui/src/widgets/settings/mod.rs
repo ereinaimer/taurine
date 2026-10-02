@@ -217,7 +217,6 @@ pub fn render_settings_content(
         theme,
         state.search_query(),
         state.is_search_active(),
-        state.search_query().chars().count(),
         "Search settings…",
     );
     if list_area.height == 0 {

@@ -182,7 +182,6 @@ pub fn render_library_content(
         theme,
         state.search_query(),
         state.is_search_active(),
-        state.search_query().chars().count(),
     );
     detail::render_detail(frame, area, theme, state);
 }
