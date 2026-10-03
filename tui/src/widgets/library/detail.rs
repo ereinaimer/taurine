@@ -595,7 +595,7 @@ pub(crate) fn dropdown_option_hit(
 
 fn render_dropdown(frame: &mut Frame, area: Rect, theme: &Theme, state: &LibraryPageState) {
     use ratatui::symbols::border;
-    use ratatui::widgets::{Block, Borders};
+    use ratatui::widgets::{Block, Borders, Clear};
 
     let Some(menu) = state.dropdown() else {
         return;
@@ -606,10 +606,14 @@ fn render_dropdown(frame: &mut Frame, area: Rect, theme: &Theme, state: &Library
     if popup.width == 0 || popup.height == 0 {
         return;
     }
+    // honey: Clear wipes underlying glyphs (Block alone only repaints
+    // styles, leaving text visible through the background color).
+    frame.render_widget(Clear, popup);
     let block = Block::default()
         .borders(Borders::ALL)
         .border_set(border::ROUNDED)
-        .border_style(Style::default().fg(theme.border));
+        .border_style(Style::default().fg(theme.border))
+        .style(Style::default().bg(ratatui::style::Color::Rgb(0x1E, 0x1E, 0x1E)));
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
     if inner.width == 0 || inner.height == 0 {
