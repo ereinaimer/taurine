@@ -1309,10 +1309,22 @@ fn property_rows_use_border_token_for_empty_values() {
     assert_eq!(get("Allow on"), detail::EMPTY_TOKEN);
     assert_eq!(get("Block on"), detail::EMPTY_TOKEN);
     assert_eq!(get("Alias"), detail::EMPTY_TOKEN);
-    assert_eq!(get("Usage"), "9 times");
-    assert_eq!(get("Last used"), detail::EMPTY_TOKEN);
+    // Usage rows live in the usage section now, not base properties.
+    assert!(rows.iter().all(|(key, _)| *key != "Usage"));
+    assert!(rows.iter().all(|(key, _)| *key != "Last used"));
     // Text triggers carry no Confirm row.
     assert!(rows.iter().all(|(key, _)| *key != "Confirm"));
+
+    let usage = props::usage_rows(&item);
+    let get_usage = |label: &str| {
+        usage
+            .iter()
+            .find(|(key, _)| *key == label)
+            .map(|(_, value)| value.clone())
+            .expect("row present")
+    };
+    assert_eq!(get_usage("Usage"), "9 times");
+    assert_eq!(get_usage("Last used"), detail::EMPTY_TOKEN);
 }
 
 #[test]
@@ -1381,8 +1393,8 @@ fn content_scroll_max_counts_overflow_lines() {
         0,
         None,
     ));
-    // Collapsed text trigger in a 30-row pane shows 12 of 16 lines.
-    assert_eq!(detail::content_scroll_max(30, 37, &item), 4);
+    // Text trigger in a 30-row pane fits all 16 lines, nothing scrolls.
+    assert_eq!(detail::content_scroll_max(30, 37, &item), 0);
 }
 
 #[test]
@@ -1404,11 +1416,11 @@ fn long_content_line_wraps_instead_of_clipping() {
         0,
         None,
     ));
-    // Six wrapped rows fit the 12-row window, so nothing scrolls.
+    // Six wrapped rows fit the 16-row window, so nothing scrolls.
     assert_eq!(detail::content_scroll_max(30, 37, &item), 0);
     // Narrow box wraps harder: 200 chars at text width 6 need 34 rows,
-    // 12 visible leaves 22 scrollable.
-    assert_eq!(detail::content_scroll_max(30, 10, &item), 22);
+    // 16 visible leaves 18 scrollable.
+    assert_eq!(detail::content_scroll_max(30, 10, &item), 18);
 }
 
 #[test]

@@ -45,7 +45,7 @@ pub(crate) fn hit_test(
     column: u16,
     row: u16,
 ) -> Option<LibraryHit> {
-    let content = left_content(area, state.split_ratio());
+    let content = left_content(area, state.split_ratio(), state.detail_ratio());
     if content.width == 0 || content.height == 0 {
         return None;
     }
@@ -71,7 +71,7 @@ pub(crate) fn hit_test(
 /// Window start for the current state, used to anchor the view when a
 /// visible row is clicked so the list does not jump.
 pub(crate) fn window_start(area: Rect, state: &LibraryPageState) -> usize {
-    let content = left_content(area, state.split_ratio());
+    let content = left_content(area, state.split_ratio(), state.detail_ratio());
     if content.width == 0 || content.height == 0 {
         return 0;
     }

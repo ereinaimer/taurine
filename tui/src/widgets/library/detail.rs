@@ -9,20 +9,18 @@ use ratatui::{
 };
 
 use crate::theme::Theme;
-use crate::widgets::library::icons::{ADD_ICON, CHEVRON_DOWN, INFO_ICON, os_icon};
+use crate::widgets::library::icons::{ADD_ICON, CHEVRON_DOWN, os_icon};
 use crate::widgets::library::state::{LibraryPageState, LibraryTrigger};
 use crate::widgets::util;
 
-use super::content_halves;
+use super::split_panes;
 
-const CONTENT_INNER_HEIGHT: usize = 12;
+const CONTENT_INNER_HEIGHT: usize = 16;
 /// Empty-state token: three ROUNDED-border horizontals, matching the pane
 /// border glyph set.
 pub(crate) const EMPTY_TOKEN: &str = "───";
 const TOGGLE_ON: &str = "[ON]";
 const TOGGLE_OFF: &str = "[OFF]";
-const INFO_BUTTON_WIDTH: u16 = 3;
-const INFO_GAP: u16 = 2;
 
 /// Fixed single-row offsets above the content section.
 const DESCRIPTION_OFFSET: u16 = 2;
@@ -31,34 +29,30 @@ const BUTTONS_OFFSET: u16 = 4;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DetailHit {
     EnableToggle,
-    InfoOpen,
 }
 
-/// Which detail row a click landed on. The header toggle and info button
-/// are interactive; everything else is read-only preview.
+/// Which detail row a click landed on. The header toggle is interactive;
+/// everything else is read-only preview.
 pub(crate) fn hit_test(
     area: Rect,
-    ratio: f32,
+    list_ratio: f32,
+    props_ratio: f32,
     state: &LibraryPageState,
     column: u16,
     row: u16,
 ) -> Option<DetailHit> {
-    let content = right_content(area, ratio);
+    let content = center_content(area, list_ratio, props_ratio);
     if content.width == 0 || content.height == 0 {
         return None;
     }
     let selected = state.selected_index()?;
     let item = state.item_at_filtered(selected)?;
     if row == content.y {
-        let info_start = content
+        let width = toggle_width(item);
+        let start = content
             .x
-            .saturating_add(content.width.saturating_sub(INFO_BUTTON_WIDTH));
-        if column >= info_start && column < info_start.saturating_add(INFO_BUTTON_WIDTH) {
-            return Some(DetailHit::InfoOpen);
-        }
-        let toggle_width = toggle_width(item);
-        let toggle_start = info_start.saturating_sub(INFO_GAP + toggle_width);
-        if column >= toggle_start && column < toggle_start.saturating_add(toggle_width) {
+            .saturating_add(content.width.saturating_sub(width));
+        if column >= start && column < start.saturating_add(width) {
             return Some(DetailHit::EnableToggle);
         }
         return None;
@@ -66,9 +60,15 @@ pub(crate) fn hit_test(
     None
 }
 
-/// True when the cell sits inside the right-pane content area.
-pub(crate) fn detail_contains(area: Rect, ratio: f32, column: u16, row: u16) -> bool {
-    let content = right_content(area, ratio);
+/// True when the cell sits inside the center-pane content area.
+pub(crate) fn detail_contains(
+    area: Rect,
+    list_ratio: f32,
+    props_ratio: f32,
+    column: u16,
+    row: u16,
+) -> bool {
+    let content = center_content(area, list_ratio, props_ratio);
     column >= content.x
         && column < content.x.saturating_add(content.width)
         && row >= content.y
@@ -97,8 +97,8 @@ pub(crate) fn wrap_content_lines(content: &str, width: u16) -> Vec<String> {
 }
 
 /// Full flow layout, top to bottom: header 0, blank 1, description 2,
-/// blank 3, buttons 4, blank 5, static content box (14 rows: border +
-/// 12 text + border), gap, tags. Sections that do not fit are None
+/// blank 3, buttons 4, blank 5, static content box (18 rows: border +
+/// 16 text + border), gap, tags. Sections that do not fit are None
 /// and skipped.
 struct DetailLayout {
     content_rows: Vec<(u16, String)>,
@@ -155,15 +155,15 @@ pub(crate) fn content_scroll_max(height: u16, width: u16, item: &LibraryTrigger)
     layout.rest
 }
 
-/// Right-pane content: two cells of padding on the left, one on the
+/// Center-pane content: two cells of padding on the left, one on the
 /// right. Shared by rendering and mouse hit-testing.
-pub(crate) fn right_content(area: Rect, ratio: f32) -> Rect {
-    let (_, right) = content_halves(area, ratio);
+pub(crate) fn center_content(area: Rect, list_ratio: f32, props_ratio: f32) -> Rect {
+    let split = split_panes(area, list_ratio, props_ratio);
     Rect {
-        x: right.x.saturating_add(2),
-        y: right.y.saturating_add(1),
-        width: right.width.saturating_sub(3),
-        height: right.height.saturating_sub(1),
+        x: split.center.x.saturating_add(2),
+        y: split.center.y.saturating_add(1),
+        width: split.center.width.saturating_sub(3),
+        height: split.center.height.saturating_sub(1),
     }
 }
 
@@ -173,7 +173,7 @@ pub(crate) fn render_detail(
     theme: &Theme,
     state: &LibraryPageState,
 ) {
-    let content = right_content(area, state.split_ratio());
+    let content = center_content(area, state.split_ratio(), state.detail_ratio());
     if content.width == 0 || content.height == 0 {
         return;
     }
@@ -269,15 +269,8 @@ fn render_header_row(frame: &mut Frame, area: Rect, theme: &Theme, item: &Librar
             Style::default().fg(theme.text).add_modifier(Modifier::DIM),
         )
     };
-    let info = Span::styled(
-        format!(" {INFO_ICON} "),
-        Style::default()
-            .fg(theme.button.text)
-            .bg(theme.button.inactive_bg),
-    );
     let width = toggle_width(item);
-    let reserved = width + INFO_GAP + INFO_BUTTON_WIDTH;
-    let available = row.width.saturating_sub(reserved).saturating_sub(1);
+    let available = row.width.saturating_sub(width).saturating_sub(1);
     let name = util::truncate_to_width(item.display_name(), available);
     let name_width = name.chars().count();
     let gap = available.saturating_sub(name_width as u16);
@@ -288,8 +281,6 @@ fn render_header_row(frame: &mut Frame, area: Rect, theme: &Theme, item: &Librar
         ),
         Span::raw(" ".repeat(gap as usize + 1)),
         toggle,
-        Span::raw(" ".repeat(INFO_GAP as usize)),
-        info,
     ]);
     frame.render_widget(Paragraph::new(line), row);
 }
@@ -399,13 +390,6 @@ pub(crate) fn property_rows(item: &LibraryTrigger) -> Vec<(&'static str, String)
             "Platform",
             format!("{} {}", os_icon(&item.target_os), item.target_os),
         ),
-        ("Usage", usage_count_line(item.usage_count())),
-        (
-            "Last used",
-            item.last_used_at()
-                .and_then(relative_time)
-                .unwrap_or_else(|| EMPTY_TOKEN.to_string()),
-        ),
     ];
     if item.is_voice() {
         rows.push((
@@ -420,8 +404,8 @@ pub(crate) fn property_rows(item: &LibraryTrigger) -> Vec<(&'static str, String)
     rows
 }
 
-/// Static content box: fixed 14 rows with the rounded search-box border
-/// and 12 scrollable text rows inside, no scrollbar.
+/// Static content box: fixed 18 rows with the rounded search-box border
+/// and 16 scrollable text rows inside, no scrollbar.
 /// The box never grows or shrinks with the content length.
 fn render_content_rows(frame: &mut Frame, area: Rect, theme: &Theme, layout: &DetailLayout) {
     use ratatui::widgets::{Block, Borders};
@@ -561,17 +545,6 @@ fn row_area(area: Rect, offset: u16) -> Rect {
         y: area.y.saturating_add(offset),
         width: area.width,
         height: 1,
-    }
-}
-
-fn usage_count_line(usage_count: i64) -> String {
-    if usage_count <= 0 {
-        return "never used".to_string();
-    }
-    if usage_count == 1 {
-        "1 time".to_string()
-    } else {
-        format!("{usage_count} times")
     }
 }
 

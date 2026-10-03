@@ -1,13 +1,11 @@
 mod delete;
 mod export;
 mod import;
-mod info;
 mod trigger;
 
 pub(crate) use delete::*;
 pub(crate) use export::*;
 pub(crate) use import::*;
-pub(crate) use info::*;
 pub(crate) use trigger::*;
 
 use std::path::Path;
@@ -44,7 +42,6 @@ pub(crate) enum LibraryModal {
     // honey: unreachable until the shortcut rework lands; kept with tests.
     #[allow(dead_code)]
     ConfirmDelete(LibraryDeleteModalState),
-    Info(LibraryInfoModalState),
 }
 
 impl LibraryModal {
@@ -56,8 +53,6 @@ impl LibraryModal {
             Self::ImportResult(state) => state.set_error(error),
             Self::ConfirmImportRunVariables(state) => state.set_error(error),
             Self::ConfirmDelete(state) => state.set_error(error),
-            // honey: info is read-only, errors have nowhere to display.
-            Self::Info(_) => {}
         }
     }
 }
@@ -74,8 +69,9 @@ pub(crate) struct LibraryPageState {
     status_message: Option<String>,
     load_error: Option<String>,
     split_ratio: f32,
-    divider_hover: bool,
-    divider_drag: bool,
+    detail_ratio: f32,
+    divider_hover: Option<super::DividerSide>,
+    divider_drag: Option<super::DividerSide>,
     detail_scroll: usize,
 }
 
@@ -92,8 +88,9 @@ impl Default for LibraryPageState {
             status_message: None,
             load_error: None,
             split_ratio: super::DEFAULT_SPLIT_RATIO,
-            divider_hover: false,
-            divider_drag: false,
+            detail_ratio: super::DEFAULT_DETAIL_RATIO,
+            divider_hover: None,
+            divider_drag: None,
             detail_scroll: 0,
         }
     }
@@ -157,22 +154,31 @@ impl LibraryPageState {
         self.split_ratio = ratio.clamp(super::MIN_SPLIT_RATIO, super::MAX_SPLIT_RATIO);
     }
 
-    pub(crate) const fn divider_hover(&self) -> bool {
+    pub(crate) fn detail_ratio(&self) -> f32 {
+        self.detail_ratio
+            .clamp(super::MIN_DETAIL_RATIO, super::MAX_DETAIL_RATIO)
+    }
+
+    pub(crate) fn set_detail_ratio(&mut self, ratio: f32) {
+        self.detail_ratio = ratio.clamp(super::MIN_DETAIL_RATIO, super::MAX_DETAIL_RATIO);
+    }
+
+    pub(crate) const fn divider_hover(&self) -> Option<super::DividerSide> {
         self.divider_hover
     }
 
-    pub(crate) fn set_divider_hover(&mut self, hover: bool) {
+    pub(crate) fn set_divider_hover(&mut self, hover: Option<super::DividerSide>) {
         self.divider_hover = hover;
     }
 
-    pub(crate) const fn divider_drag(&self) -> bool {
+    pub(crate) const fn divider_drag(&self) -> Option<super::DividerSide> {
         self.divider_drag
     }
 
-    pub(crate) fn set_divider_drag(&mut self, drag: bool) {
+    pub(crate) fn set_divider_drag(&mut self, drag: Option<super::DividerSide>) {
         self.divider_drag = drag;
-        if drag {
-            self.divider_hover = true;
+        if drag.is_some() {
+            self.divider_hover = drag;
         }
     }
 
@@ -264,16 +270,6 @@ impl LibraryPageState {
 
     pub(crate) fn clear_modal(&mut self) {
         self.modal = None;
-    }
-
-    pub(crate) fn open_info_modal_for_selected(&mut self) {
-        let Some(selected_index) = self.selected_index() else {
-            return;
-        };
-        let Some(item) = self.item_at_filtered(selected_index).cloned() else {
-            return;
-        };
-        self.modal = Some(LibraryModal::Info(LibraryInfoModalState::from_item(&item)));
     }
 
     pub(crate) fn selected_index(&self) -> Option<usize> {
@@ -480,13 +476,6 @@ impl LibraryPageState {
                 }
                 _ => {
                     self.modal = Some(LibraryModal::ConfirmDelete(state));
-                    LibraryInteraction::handled()
-                }
-            },
-            LibraryModal::Info(state) => match (key.code, key.modifiers) {
-                (KeyCode::Esc, KeyModifiers::NONE) => LibraryInteraction::close(),
-                _ => {
-                    self.modal = Some(LibraryModal::Info(state));
                     LibraryInteraction::handled()
                 }
             },

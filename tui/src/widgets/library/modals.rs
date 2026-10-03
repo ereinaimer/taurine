@@ -10,8 +10,8 @@ use crate::theme::Theme;
 use crate::widgets::library::state::{
     LibraryDeleteModalState, LibraryExportModalField, LibraryExportModalState,
     LibraryExportResultModalState, LibraryImportModalField, LibraryImportModalState,
-    LibraryImportResultModalState, LibraryImportRunVariablesModalState, LibraryInfoModalState,
-    LibraryModal, LibrarySelectState,
+    LibraryImportResultModalState, LibraryImportRunVariablesModalState, LibraryModal,
+    LibrarySelectState,
 };
 use crate::widgets::util::{self};
 
@@ -38,62 +38,6 @@ pub fn render_library_modal(frame: &mut Frame, area: Rect, theme: &Theme, modal:
         LibraryModal::ConfirmDelete(state) => {
             render_library_delete_modal(frame, area, theme, state)
         }
-        LibraryModal::Info(state) => render_library_info_modal(frame, area, theme, state),
-    }
-}
-
-/// Fixed popup geometry for the info modal, shared by rendering and
-/// outside-click hit-testing.
-pub(crate) fn info_popup_rect(area: Rect) -> Rect {
-    let width = if area.width > 44 {
-        area.width.saturating_sub(4).min(64)
-    } else {
-        area.width.max(1)
-    };
-    centered_rect(width, INFO_MODAL_HEIGHT, area)
-}
-
-const INFO_MODAL_HEIGHT: u16 = 14;
-
-fn render_library_info_modal(
-    frame: &mut Frame,
-    area: Rect,
-    theme: &Theme,
-    state: &LibraryInfoModalState,
-) {
-    use crate::widgets::library::detail::{edge_line, edge_value_width};
-    use crate::widgets::library::state::info_rows;
-
-    let popup = info_popup_rect(area);
-    frame.render_widget(Clear, popup);
-    let title = util::truncate_to_width(state.item().display_name(), popup.width.saturating_sub(4));
-    let inner = util::render_modal_block(frame, popup, &title, theme);
-    if inner.width == 0 || inner.height == 0 {
-        return;
-    }
-    for (index, (label, value)) in info_rows(state.item()).into_iter().enumerate() {
-        let y = inner.y.saturating_add(index as u16);
-        if y >= inner.y.saturating_add(inner.height) {
-            break;
-        }
-        let row = Rect {
-            x: inner.x,
-            y,
-            width: inner.width,
-            height: 1,
-        };
-        let value = util::truncate_to_width(&value, edge_value_width(label, row.width));
-        let width = value.chars().count();
-        frame.render_widget(
-            Paragraph::new(edge_line(
-                label,
-                vec![Span::styled(value, Style::default().fg(theme.text))],
-                width,
-                row.width,
-                theme,
-            )),
-            row,
-        );
     }
 }
 

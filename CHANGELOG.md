@@ -29,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **TUI Cursor Style**: Pick the text caret shape (block, bar, or underscore) from TUI settings; bar stays the default.
 
 ### Changed
-- **Trigger Info Popup**: Click the info icon beside the enable toggle for properties and usage stats (created date, frequency, keystrokes and time saved); the detail pane stays compact.
+- **Three-Pane Library**: Trigger list, content, and properties now sit side by side with two draggable dividers, collapsing gracefully on narrow terminals.
 - **Richer Trigger Details**: Library detail pane now shows the description, an enable toggle, type and script option buttons, scrollable content, and tag chips. Disabled triggers stay listed (dimmed) so they can be turned back on.
 - **Arrow-Key Navigation**: The library list now moves with the Up/Down arrow keys; every letter and symbol types straight into search instead.
 
