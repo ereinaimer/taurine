@@ -29,7 +29,7 @@ const BUTTONS_OFFSET: u16 = 4;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DetailHit {
     EnableToggle,
-    NameEdit,
+    NameEditAt(usize),
 }
 
 /// Which detail row a click landed on. The header toggle flips enable,
@@ -57,7 +57,9 @@ pub(crate) fn hit_test(
             return Some(DetailHit::EnableToggle);
         }
         if column >= content.x && column < start.saturating_sub(1) {
-            return Some(DetailHit::NameEdit);
+            return Some(DetailHit::NameEditAt(
+                column.saturating_sub(content.x) as usize
+            ));
         }
         return None;
     }
@@ -272,12 +274,12 @@ fn render_header_row(
     };
     let width = toggle_width(item);
     let available = row.width.saturating_sub(width).saturating_sub(1);
-    // honey: editing shows the draft tail with a real caret, mirroring
-    // the search box; read mode shows the truncated display name.
+    // honey: editing shows the caret-anchored viewport with a real
+    // caret, mirroring the search box; read mode shows the truncated
+    // display name.
     if let Some(edit) = state.name_edit() {
-        let visible = util::search_viewport(edit.draft(), available);
-        let caret = visible.chars().count() as u16;
-        let gap = available.saturating_sub(caret);
+        let (visible, caret) = edit.field().window(available);
+        let gap = available.saturating_sub(visible.chars().count() as u16);
         let line = Line::from(vec![
             Span::styled(
                 visible.to_string(),
@@ -290,7 +292,7 @@ fn render_header_row(
             toggle,
         ]);
         frame.render_widget(Paragraph::new(line), row);
-        let (cx, cy) = util::caret_position(row.x, row.y, caret as usize, available);
+        let (cx, cy) = util::caret_position(row.x, row.y, caret, available);
         frame.set_cursor_position((cx, cy));
         return;
     }

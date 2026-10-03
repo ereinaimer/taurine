@@ -1,35 +1,59 @@
 use taurine_core::db::crud::TriggerLimits;
 
+use crate::widgets::field::TextField;
 use crate::widgets::library::actions::{LibraryInteraction, PendingLibraryRename};
 
-/// In-progress trigger-name edit. Caret always sits at the end of the
-/// draft, like the search box; selection changes commit automatically.
+/// In-progress trigger-name edit. Clicking the name parks the caret at
+/// the click; selection changes commit automatically.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TriggerNameEdit {
     trigger_id: String,
-    draft: String,
+    draft: TextField,
 }
 
 impl TriggerNameEdit {
     pub(crate) fn begin(trigger_id: &str, name: &str) -> Self {
         Self {
             trigger_id: trigger_id.to_string(),
-            draft: name.to_string(),
+            draft: TextField::new(name),
         }
     }
 
-    pub(crate) fn draft(&self) -> &str {
+    pub(crate) fn field(&self) -> &TextField {
         &self.draft
     }
-
     pub(crate) fn push(&mut self, ch: char) {
-        if self.draft.chars().count() < TriggerLimits::MAX_NAME_LENGTH {
-            self.draft.push(ch);
+        if self.draft.len_chars() < TriggerLimits::MAX_NAME_LENGTH {
+            self.draft.insert(ch);
         }
     }
 
     pub(crate) fn pop(&mut self) {
-        self.draft.pop();
+        self.draft.backspace();
+    }
+
+    pub(crate) fn delete_at(&mut self) {
+        self.draft.delete_at();
+    }
+
+    pub(crate) fn move_left(&mut self) {
+        self.draft.move_left();
+    }
+
+    pub(crate) fn move_right(&mut self) {
+        self.draft.move_right();
+    }
+
+    pub(crate) fn move_home(&mut self) {
+        self.draft.move_home();
+    }
+
+    pub(crate) fn move_end(&mut self) {
+        self.draft.move_end();
+    }
+
+    pub(crate) fn place(&mut self, index: usize) {
+        self.draft.place(index);
     }
 }
 
@@ -41,8 +65,17 @@ impl super::LibraryPageState {
     /// Click on the trigger name starts an edit session; typing captures
     /// all keys until Enter commits or Esc cancels. The draft starts
     /// with the displayed text so nothing is ever erased on click.
+    // honey: exercised by tests; production opens via start_name_edit_at.
+    #[allow(dead_code)]
     pub(crate) fn start_name_edit(&mut self) {
-        if self.edit.is_some() {
+        self.start_name_edit_at(usize::MAX);
+    }
+
+    /// Click-to-place: caret lands on the clicked character. Clicking
+    /// while already editing just moves the caret.
+    pub(crate) fn start_name_edit_at(&mut self, cursor: usize) {
+        if let Some(edit) = self.edit.as_mut() {
+            edit.place(cursor);
             return;
         }
         let Some(selected) = self.selected_index() else {
@@ -55,7 +88,9 @@ impl super::LibraryPageState {
             return;
         };
         self.search_mode = false;
-        self.edit = Some(TriggerNameEdit::begin(&id, &name));
+        let mut edit = TriggerNameEdit::begin(&id, &name);
+        edit.place(cursor);
+        self.edit = Some(edit);
     }
 
     pub(crate) fn cancel_name_edit(&mut self) {
@@ -69,7 +104,7 @@ impl super::LibraryPageState {
         let Some(edit) = self.edit.take() else {
             return LibraryInteraction::handled();
         };
-        let name = edit.draft.trim().to_string();
+        let name = edit.draft.text().trim().to_string();
         let Some(selected) = self.selected_index() else {
             return LibraryInteraction::handled();
         };
@@ -94,7 +129,7 @@ impl super::LibraryPageState {
         }
         self.edit = Some(TriggerNameEdit {
             trigger_id: trigger_id.to_string(),
-            draft,
+            draft: TextField::new(draft),
         });
         true
     }

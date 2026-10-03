@@ -1122,11 +1122,30 @@ fn header_hit_region_for_toggle() {
             state.split_ratio(),
             state.detail_ratio(),
             &state,
-            23,
+            52,
             1
         ),
-        None
+        Some(detail::DetailHit::EnableToggle)
     );
+}
+
+#[test]
+fn name_edit_click_places_caret_and_arrows_move_it() {
+    let mut state = sample_state();
+    state.start_name_edit_at(2);
+    assert_eq!(state.name_edit().expect("editing").field().cursor(), 2);
+
+    state.handle_key(KeyEvent::new(KeyCode::Char('X'), KeyModifiers::NONE));
+    assert_eq!(state.name_edit().expect("editing").field().text(), "alXt+r");
+
+    state.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
+    state.handle_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE));
+    assert_eq!(state.name_edit().expect("editing").field().text(), "lXt+r");
+
+    state.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+    state.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+    state.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+    assert_eq!(state.name_edit().expect("editing").field().text(), "lXtr");
 }
 
 #[test]
@@ -1866,13 +1885,20 @@ fn name_edit_typing_enter_esc_flow() {
 
     state.start_name_edit();
     // Draft starts with the displayed text; clicking never erases.
-    assert_eq!(state.name_edit().expect("editing").draft(), "alt+r");
+    assert_eq!(state.name_edit().expect("editing").field().text(), "alt+r");
 
     state.handle_key(KeyEvent::new(KeyCode::Char('!'), KeyModifiers::NONE));
-    assert!(state.name_edit().expect("editing").draft().ends_with('!'));
+    assert!(
+        state
+            .name_edit()
+            .expect("editing")
+            .field()
+            .text()
+            .ends_with('!')
+    );
 
     state.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
-    assert_eq!(state.name_edit().expect("editing").draft(), "alt+r");
+    assert_eq!(state.name_edit().expect("editing").field().text(), "alt+r");
 
     // Esc cancels without persisting.
     state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
@@ -1922,7 +1948,7 @@ fn name_edit_blank_is_silent_noop() {
     for _ in 0..64 {
         state.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
     }
-    assert_eq!(state.name_edit().expect("editing").draft(), "");
+    assert_eq!(state.name_edit().expect("editing").field().text(), "");
     // No warning, no error, no persist: existing value untouched.
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert!(interaction.pending_rename().is_none());
@@ -1991,7 +2017,10 @@ fn restore_name_edit_reselects_and_keeps_draft() {
         .to_string();
     assert!(state.restore_name_edit(&id, "half typed".to_string()));
     assert_eq!(state.selected_index(), Some(1));
-    assert_eq!(state.name_edit().expect("editing").draft(), "half typed");
+    assert_eq!(
+        state.name_edit().expect("editing").field().text(),
+        "half typed"
+    );
     assert!(!state.restore_name_edit("ghost", "x".to_string()));
 }
 
@@ -2038,7 +2067,8 @@ fn name_edit_hit_only_on_name_cells() {
     let state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
     // Center content at x=25 width=31: toggle owns the last 4 cells,
-    // the cell before it is a gap, everything left of it edits.
+    // the cell before it is a gap, everything left of it edits with
+    // the click column carried through.
     assert_eq!(
         detail::hit_test(
             area,
@@ -2048,7 +2078,7 @@ fn name_edit_hit_only_on_name_cells() {
             30,
             1
         ),
-        Some(detail::DetailHit::NameEdit)
+        Some(detail::DetailHit::NameEditAt(5))
     );
     assert_eq!(
         detail::hit_test(

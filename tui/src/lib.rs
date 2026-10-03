@@ -367,8 +367,8 @@ fn handle_tui_mouse_event(
                                 )
                             };
                             match hit {
-                                Some(library::detail::DetailHit::NameEdit) => {
-                                    app.library_page_mut().start_name_edit();
+                                Some(library::detail::DetailHit::NameEditAt(cursor)) => {
+                                    app.library_page_mut().start_name_edit_at(cursor);
                                 }
                                 Some(library::detail::DetailHit::EnableToggle) => {
                                     let flush = app.library_page_mut().commit_name_edit();
