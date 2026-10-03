@@ -30,9 +30,10 @@ pub(crate) const DIVIDER_HOVER_COLOR: ratatui::style::Color =
 
 /// Panes have no minimum widths: dragging a divider to an edge parks
 /// the pane at zero, and the divider line stays rendered on that edge
-/// so it can be dragged back. Both side panes share one maximum width;
+/// so it can be dragged back. Each side pane has its own maximum width;
 /// tiny terminals fall back to the list.
-pub(crate) const MAX_SIDE_WIDTH: u16 = 40;
+pub(crate) const MAX_LIST_WIDTH: u16 = 52;
+pub(crate) const MAX_PROPS_WIDTH: u16 = 40;
 
 /// Which gutter divider a pointer action targets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,13 +69,13 @@ pub(crate) fn split_panes(area: Rect, list_ratio: f32, props_ratio: f32) -> Pane
     let mut left_width =
         ((span as f32 * list_ratio.clamp(MIN_SPLIT_RATIO, MAX_SPLIT_RATIO)) as u16).min(span);
     if list_ratio < 1.0 {
-        left_width = left_width.min(MAX_SIDE_WIDTH);
+        left_width = left_width.min(MAX_LIST_WIDTH);
     }
     let rest = span.saturating_sub(left_width);
     let mut right_width =
         ((rest as f32 * props_ratio.clamp(MIN_DETAIL_RATIO, MAX_DETAIL_RATIO)) as u16).min(rest);
     if props_ratio < 1.0 {
-        right_width = right_width.min(MAX_SIDE_WIDTH);
+        right_width = right_width.min(MAX_PROPS_WIDTH);
     }
     let center_width = rest.saturating_sub(right_width);
     let list = Rect {
