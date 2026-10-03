@@ -402,6 +402,7 @@ pub(crate) fn property_rows(item: &LibraryTrigger) -> Vec<(&'static str, String)
 /// and 16 scrollable text rows inside, no scrollbar.
 /// The box never grows or shrinks with the content length.
 fn render_content_rows(frame: &mut Frame, area: Rect, theme: &Theme, layout: &DetailLayout) {
+    use ratatui::symbols::border;
     use ratatui::widgets::{Block, Borders};
 
     let popup = Rect {
@@ -410,12 +411,40 @@ fn render_content_rows(frame: &mut Frame, area: Rect, theme: &Theme, layout: &De
         width: area.width,
         height: CONTENT_BOX_HEIGHT,
     };
+    // honey: open bottom — corners continue as walls, bottom edge is
+    // blank, so the sides read as running off the pane.
+    let open_set = border::Set {
+        bottom_left: border::ROUNDED.vertical_left,
+        bottom_right: border::ROUNDED.vertical_right,
+        horizontal_bottom: " ",
+        ..border::ROUNDED
+    };
+    let wall = Style::default().fg(theme.border);
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_set(ratatui::symbols::border::ROUNDED)
-        .border_style(Style::default().fg(theme.border));
+        .border_set(open_set)
+        .border_style(wall);
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
+    // honey: decorative walls from the box bottom to the terminal bottom
+    // edge, straight through the pane padding; clicks fall through
+    // exactly as on empty space.
+    let walls_end = frame.area().y.saturating_add(frame.area().height);
+    let mut y = popup.y.saturating_add(popup.height);
+    while y < walls_end {
+        for x in [popup.x, popup.x.saturating_add(popup.width.saturating_sub(1))] {
+            frame.render_widget(
+                Paragraph::new(Line::from("│")).style(wall),
+                Rect {
+                    x,
+                    y,
+                    width: 1,
+                    height: 1,
+                },
+            );
+        }
+        y = y.saturating_add(1);
+    }
     if inner.width == 0 || inner.height == 0 {
         return;
     }

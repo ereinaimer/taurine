@@ -1195,6 +1195,9 @@ fn pack_tag_chips_fits_and_breaks() {
     assert!(props::pack_tag_chips(&tags, 2).is_empty());
     assert!(props::pack_tag_chips(&[], 30).is_empty());
 }
+
+#[test]
+fn usage_toggle_starts_collapsed_and_flips() {
     let mut state = sample_state();
     assert!(!state.usage_expanded());
     state.toggle_usage();
