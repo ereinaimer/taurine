@@ -11,14 +11,14 @@ use crate::widgets::library::detail::{EMPTY_TOKEN, edge_line, edge_value_width, 
 use crate::widgets::library::state::LibraryTrigger;
 use crate::widgets::util;
 
-/// Right-pane content with standard padding. Shared by rendering and
-/// mouse hit-testing (read-only for now; editing lands here later).
+/// Right-pane content: two cells of padding on each side, mirroring
+/// the list pane. Shared by rendering and mouse hit-testing.
 pub(crate) fn props_content(area: Rect, list_ratio: f32, props_ratio: f32) -> Rect {
     let split = super::split_panes(area, list_ratio, props_ratio);
     Rect {
         x: split.props.x.saturating_add(2),
         y: split.props.y.saturating_add(1),
-        width: split.props.width.saturating_sub(3),
+        width: split.props.width.saturating_sub(5),
         height: split.props.height.saturating_sub(1),
     }
 }

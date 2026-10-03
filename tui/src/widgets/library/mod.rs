@@ -62,15 +62,20 @@ pub(crate) fn split_panes(area: Rect, list_ratio: f32, props_ratio: f32) -> Pane
     }
     // Three panes: list + gutter + center + gutter + props. Panes may
     // shrink to zero, and neither side pane grows past the shared
-    // maximum; both dividers always stay grabbable.
+    // maximum; both dividers always stay grabbable. Exact edge ratios
+    // bypass the maximum so a deliberate drag parks fully open.
     let span = area.width.saturating_sub(2);
     let mut left_width =
         ((span as f32 * list_ratio.clamp(MIN_SPLIT_RATIO, MAX_SPLIT_RATIO)) as u16).min(span);
-    left_width = left_width.min(MAX_SIDE_WIDTH);
+    if list_ratio < 1.0 {
+        left_width = left_width.min(MAX_SIDE_WIDTH);
+    }
     let rest = span.saturating_sub(left_width);
     let mut right_width =
         ((rest as f32 * props_ratio.clamp(MIN_DETAIL_RATIO, MAX_DETAIL_RATIO)) as u16).min(rest);
-    right_width = right_width.min(MAX_SIDE_WIDTH);
+    if props_ratio < 1.0 {
+        right_width = right_width.min(MAX_SIDE_WIDTH);
+    }
     let center_width = rest.saturating_sub(right_width);
     let list = Rect {
         x: area.x,
@@ -149,14 +154,15 @@ pub(crate) fn detail_ratio_for_column(area: Rect, list_ratio: f32, column: u16) 
     (right_width as f32 / rest as f32).clamp(MIN_DETAIL_RATIO, MAX_DETAIL_RATIO)
 }
 
-/// List content inside the left pane: flush left, two cells of padding on
-/// the right. Shared by rendering and mouse hit-testing.
+/// List content inside the left pane: two cells of padding on the left
+/// (the page margin lives outside the split now), two on the right.
+/// Shared by rendering and mouse hit-testing.
 pub(crate) fn left_content(area: Rect, list_ratio: f32, props_ratio: f32) -> Rect {
     let split = split_panes(area, list_ratio, props_ratio);
     Rect {
-        x: split.list.x,
+        x: split.list.x.saturating_add(2),
         y: split.list.y.saturating_add(1),
-        width: split.list.width.saturating_sub(2),
+        width: split.list.width.saturating_sub(4),
         height: split.list.height.saturating_sub(1),
     }
 }

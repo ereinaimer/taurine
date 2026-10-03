@@ -34,6 +34,19 @@ pub(crate) const fn contains(area: Rect, column: u16, row: u16) -> bool {
         && row < area.y.saturating_add(area.height)
 }
 
+/// Library page stretched back to the full terminal width: the page
+/// margins are vertical breathing room, but dividers must travel edge
+/// to edge. Panes keep their own inner padding so text never touches
+/// the terminal border.
+pub(crate) fn library_full_area(page: Rect) -> Rect {
+    Rect {
+        x: page.x.saturating_sub(2),
+        y: page.y,
+        width: page.width.saturating_add(4),
+        height: page.height,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

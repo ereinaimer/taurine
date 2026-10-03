@@ -64,10 +64,11 @@ pub fn run() -> taurine_core::Result<()> {
 
                 // honey: only the hovered or dragged divider lifts; the
                 // other stays on the base border color.
+                let full = terminal::mouse::library_full_area(layout.page);
                 let page = app.library_page();
                 let sides = [library::DividerSide::List, library::DividerSide::Props];
                 for (index, column) in
-                    library::divider_columns(layout.page, page.split_ratio(), page.detail_ratio())
+                    library::divider_columns(full, page.split_ratio(), page.detail_ratio())
                         .into_iter()
                         .enumerate()
                 {
@@ -101,7 +102,7 @@ pub fn run() -> taurine_core::Result<()> {
         match events.next()? {
             Event::Key(key) => {
                 let layout = terminal::mouse::frame_layout(last_area);
-                track_content_width(&mut app, layout.page);
+                track_content_width(&mut app, terminal::mouse::library_full_area(layout.page));
                 handle_tui_key_event(&mut app, key);
             }
             Event::Mouse(mouse) => handle_tui_mouse_event(&mut app, mouse, last_area),
@@ -133,9 +134,11 @@ fn render_page_content(
     };
     match app.active_page() {
         Page::Library => {
-            library::render_library_content(frame, area, theme, app.library_page());
+            // honey: library splits edge to edge; settings keeps the page.
+            let full = terminal::mouse::library_full_area(area);
+            library::render_library_content(frame, full, theme, app.library_page());
             if let Some(modal) = app.library_page().modal() {
-                library::modals::render_library_modal(frame, area, theme, modal);
+                library::modals::render_library_modal(frame, full, theme, modal);
             }
         }
         Page::Settings => {
@@ -290,10 +293,11 @@ fn handle_tui_mouse_event(
             }
             if app.active_page() == Page::Library {
                 let layout = terminal::mouse::frame_layout(area);
-                track_content_width(app, layout.page);
+                let full = terminal::mouse::library_full_area(layout.page);
+                track_content_width(app, full);
                 let page = app.library_page();
                 if library::detail::detail_contains(
-                    layout.page,
+                    full,
                     page.split_ratio(),
                     page.detail_ratio(),
                     mouse.column,
@@ -301,7 +305,7 @@ fn handle_tui_mouse_event(
                 ) {
                     let down = mouse.kind == MouseEventKind::ScrollDown;
                     let content = library::detail::center_content(
-                        layout.page,
+                        full,
                         page.split_ratio(),
                         page.detail_ratio(),
                     );
@@ -326,16 +330,17 @@ fn handle_tui_mouse_event(
                 return;
             }
             let layout = terminal::mouse::frame_layout(area);
+            let full = terminal::mouse::library_full_area(layout.page);
             let page = app.library_page();
             let hover = library::divider_hit(
-                layout.page,
+                full,
                 page.split_ratio(),
                 page.detail_ratio(),
                 mouse.column,
                 mouse.row,
             );
             if page.divider_drag().is_some() {
-                drag_divider_to(app, layout.page, mouse.column);
+                drag_divider_to(app, full, mouse.column);
             } else {
                 app.library_page_mut().set_divider_hover(hover);
             }
@@ -346,7 +351,8 @@ fn handle_tui_mouse_event(
             }
             if app.library_page().divider_drag().is_some() {
                 let layout = terminal::mouse::frame_layout(area);
-                drag_divider_to(app, layout.page, mouse.column);
+                let full = terminal::mouse::library_full_area(layout.page);
+                drag_divider_to(app, full, mouse.column);
             }
         }
         MouseEventKind::Up(_) => {
@@ -359,23 +365,19 @@ fn handle_tui_mouse_event(
                 return;
             }
             let layout = terminal::mouse::frame_layout(area);
-            track_content_width(app, layout.page);
+            let full = terminal::mouse::library_full_area(layout.page);
+            track_content_width(app, full);
             if app.active_page() == Page::Library
-                && grab_divider(app, layout.page, mouse.column, mouse.row)
+                && grab_divider(app, full, mouse.column, mouse.row)
             {
                 return;
             }
             match app.active_page() {
                 Page::Library => {
-                    match library::list::hit_test(
-                        layout.page,
-                        app.library_page(),
-                        mouse.column,
-                        mouse.row,
-                    ) {
+                    match library::list::hit_test(full, app.library_page(), mouse.column, mouse.row)
+                    {
                         Some(library::list::LibraryHit::Item(position)) => {
-                            let anchor =
-                                library::list::window_start(layout.page, app.library_page());
+                            let anchor = library::list::window_start(full, app.library_page());
                             let interaction = app.library_page_mut().click_item(position, anchor);
                             apply_library_interaction(app, interaction);
                         }
@@ -391,7 +393,7 @@ fn handle_tui_mouse_event(
                             let hit = {
                                 let page = app.library_page();
                                 library::detail::hit_test(
-                                    layout.page,
+                                    full,
                                     page.split_ratio(),
                                     page.detail_ratio(),
                                     page,
@@ -426,7 +428,7 @@ fn handle_tui_mouse_event(
                                             Some((item, scroll, list_ratio, props_ratio)) => {
                                                 let width = library::detail::content_text_width(
                                                     library::detail::center_content(
-                                                        layout.page,
+                                                        full,
                                                         list_ratio,
                                                         props_ratio,
                                                     )
@@ -459,7 +461,7 @@ fn handle_tui_mouse_event(
                             let usage_hit = {
                                 let page = app.library_page();
                                 library::props::hit_test(
-                                    layout.page,
+                                    full,
                                     page.split_ratio(),
                                     page.detail_ratio(),
                                     page,

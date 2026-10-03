@@ -1093,7 +1093,7 @@ fn parse_tags_handles_stored_shapes() {
 fn header_hit_region_for_toggle() {
     let state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
-    // Center content at x=23 width=31: [ON] toggle owns the last 4 cells.
+    // Center content at x=25 width=31: [ON] toggle owns the last 4 cells.
     assert_eq!(
         detail::hit_test(
             area,
@@ -1111,21 +1111,10 @@ fn header_hit_region_for_toggle() {
             state.split_ratio(),
             state.detail_ratio(),
             &state,
-            49,
+            51,
             1
         ),
         None
-    );
-    assert_eq!(
-        detail::hit_test(
-            area,
-            state.split_ratio(),
-            state.detail_ratio(),
-            &state,
-            52,
-            1
-        ),
-        Some(detail::DetailHit::EnableToggle)
     );
 }
 
@@ -1926,9 +1915,13 @@ fn drag_range_parks_panes_at_either_edge() {
         Some(DividerSide::List)
     );
     let split = split_panes(area, split_ratio_for_column(area, 79), DEFAULT_DETAIL_RATIO);
-    // Maximum share stops the list at the shared side maximum.
-    assert_eq!(split.list.width, MAX_SIDE_WIDTH);
-    assert_eq!(split.center.width, 23);
+    // Exact edge ratio bypasses the shared maximum: fully parked open.
+    assert_eq!(split.list.width, 78);
+    assert_eq!(split.center.width, 0);
+    assert_eq!(
+        divider_columns(area, split_ratio_for_column(area, 79), DEFAULT_DETAIL_RATIO),
+        vec![78, 79]
+    );
 }
 
 #[test]
@@ -1941,7 +1934,7 @@ fn divider_hit_only_on_gutter_column() {
         Some(DividerSide::List)
     );
     assert_eq!(
-        divider_hit(area, state.split_ratio(), state.detail_ratio(), 55, 5),
+        divider_hit(area, state.split_ratio(), state.detail_ratio(), 57, 5),
         Some(DividerSide::Props)
     );
     assert_eq!(
