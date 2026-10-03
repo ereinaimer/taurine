@@ -405,62 +405,110 @@ fn handle_tui_mouse_event(
                                     mouse.row,
                                 )
                             };
-                            match hit {
-                                Some(library::detail::DetailHit::NameEditAt(cursor)) => {
-                                    let interaction =
-                                        app.library_page_mut().start_name_edit_at(cursor);
-                                    apply_library_interaction(app, interaction);
-                                }
-                                Some(library::detail::DetailHit::DescriptionEdit) => {
-                                    let interaction =
-                                        app.library_page_mut().start_description_edit();
-                                    apply_library_interaction(app, interaction);
-                                }
-                                Some(library::detail::DetailHit::ContentEditAt { row, col }) => {
-                                    let interaction = {
-                                        let page = app.library_page();
-                                        match page.selected_index().and_then(|index| {
-                                            page.item_at_filtered(index).cloned().map(|item| {
-                                                (
-                                                    item,
-                                                    page.detail_scroll(),
-                                                    page.split_ratio(),
-                                                    page.detail_ratio(),
-                                                )
-                                            })
-                                        }) {
-                                            Some((item, scroll, list_ratio, props_ratio)) => {
-                                                let width = library::detail::content_text_width(
-                                                    library::detail::center_content(
-                                                        full,
-                                                        list_ratio,
-                                                        props_ratio,
-                                                    )
-                                                    .width,
-                                                );
-                                                let (srow, scol) =
-                                                    library::detail::content_source_cell(
-                                                        &item,
-                                                        width,
-                                                        scroll + row,
-                                                        col,
-                                                    );
-                                                app.library_page_mut()
-                                                    .start_content_edit_at(srow, scol)
-                                            }
-                                            None => library::LibraryInteraction::handled(),
-                                        }
-                                    };
-                                    apply_library_interaction(app, interaction);
-                                }
-                                Some(library::detail::DetailHit::EnableToggle) => {
+                            // honey: an open header menu eats option
+                            // clicks, retargets on button clicks, and
+                            // closes on anything else (the click then
+                            // falls through to its normal target).
+                            let mut skip_detail = false;
+                            if app.library_page().dropdown().is_some() {
+                                let option = {
+                                    let page = app.library_page();
+                                    library::detail::dropdown_option_hit(
+                                        full,
+                                        page.split_ratio(),
+                                        page.detail_ratio(),
+                                        page,
+                                        mouse.column,
+                                        mouse.row,
+                                    )
+                                };
+                                if let Some(index) = option {
                                     let flush = app.library_page_mut().commit_edit();
                                     apply_library_interaction(app, flush);
                                     let interaction =
-                                        app.library_page_mut().toggle_selected_enabled();
+                                        app.library_page_mut().confirm_dropdown_at(index);
                                     apply_library_interaction(app, interaction);
+                                    skip_detail = true;
+                                } else if let Some(library::detail::DetailHit::Button(index)) = hit
+                                {
+                                    let flush = app.library_page_mut().commit_edit();
+                                    apply_library_interaction(app, flush);
+                                    app.library_page_mut().open_dropdown(
+                                        library::detail::dropdown_kind_for_button(index),
+                                    );
+                                    skip_detail = true;
+                                } else {
+                                    app.library_page_mut().close_dropdown();
                                 }
-                                None => {}
+                            }
+                            if !skip_detail {
+                                match hit {
+                                    Some(library::detail::DetailHit::Button(index)) => {
+                                        let flush = app.library_page_mut().commit_edit();
+                                        apply_library_interaction(app, flush);
+                                        app.library_page_mut().open_dropdown(
+                                            library::detail::dropdown_kind_for_button(index),
+                                        );
+                                    }
+                                    Some(library::detail::DetailHit::NameEditAt(cursor)) => {
+                                        let interaction =
+                                            app.library_page_mut().start_name_edit_at(cursor);
+                                        apply_library_interaction(app, interaction);
+                                    }
+                                    Some(library::detail::DetailHit::DescriptionEdit) => {
+                                        let interaction =
+                                            app.library_page_mut().start_description_edit();
+                                        apply_library_interaction(app, interaction);
+                                    }
+                                    Some(library::detail::DetailHit::ContentEditAt {
+                                        row,
+                                        col,
+                                    }) => {
+                                        let interaction = {
+                                            let page = app.library_page();
+                                            match page.selected_index().and_then(|index| {
+                                                page.item_at_filtered(index).cloned().map(|item| {
+                                                    (
+                                                        item,
+                                                        page.detail_scroll(),
+                                                        page.split_ratio(),
+                                                        page.detail_ratio(),
+                                                    )
+                                                })
+                                            }) {
+                                                Some((item, scroll, list_ratio, props_ratio)) => {
+                                                    let width = library::detail::content_text_width(
+                                                        library::detail::center_content(
+                                                            full,
+                                                            list_ratio,
+                                                            props_ratio,
+                                                        )
+                                                        .width,
+                                                    );
+                                                    let (srow, scol) =
+                                                        library::detail::content_source_cell(
+                                                            &item,
+                                                            width,
+                                                            scroll + row,
+                                                            col,
+                                                        );
+                                                    app.library_page_mut()
+                                                        .start_content_edit_at(srow, scol)
+                                                }
+                                                None => library::LibraryInteraction::handled(),
+                                            }
+                                        };
+                                        apply_library_interaction(app, interaction);
+                                    }
+                                    Some(library::detail::DetailHit::EnableToggle) => {
+                                        let flush = app.library_page_mut().commit_edit();
+                                        apply_library_interaction(app, flush);
+                                        let interaction =
+                                            app.library_page_mut().toggle_selected_enabled();
+                                        apply_library_interaction(app, interaction);
+                                    }
+                                    None => {}
+                                }
                             }
                             let usage_hit = {
                                 let page = app.library_page();
@@ -642,6 +690,11 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
                 crate::widgets::library::state::EditTarget::Content,
                 body.clone(),
             )),
+            // honey: menu picks carry no typed text, so a failed
+            // confirm has nothing to restore.
+            library::EditedField::InvocationType(_)
+            | library::EditedField::Interpreter(_)
+            | library::EditedField::Behavior(_) => None,
         };
         match pending_edit.apply() {
             Ok(()) => {

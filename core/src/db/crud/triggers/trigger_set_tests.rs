@@ -1671,3 +1671,238 @@ fn create_entry_accepts_matching_voice_slots() {
     );
     assert!(create_entry(&conn, entry).is_ok());
 }
+
+fn script_entry_fixture(invocation: &str) -> NewEntry {
+    NewEntry {
+        name: String::new(),
+        description: None,
+        content: "echo hi".to_string(),
+        action_type: "script".to_string(),
+        target_os: "all".to_string(),
+        only_apps: None,
+        except_apps: None,
+        tags_json: "[]".to_string(),
+        auto_case: false,
+        interpreter: Some(crate::engine::shell::ScriptInterpreter::Bash),
+        behavior: Some(crate::engine::shell::ScriptBehavior::Inline),
+        invocations: vec![(
+            crate::db::crud::InvocationType::Word,
+            invocation.to_string(),
+            false,
+        )],
+    }
+}
+
+#[test]
+fn test_set_script_interpreter_rewrites_language_and_bumps() {
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let (_dir, conn) = crate::testing::open_test_db();
+
+    let id = create_entry(&conn, script_entry_fixture("interp_case"))
+        .expect("create script entry")
+        .0;
+    assert!(
+        set_script_interpreter(&conn, &id, crate::engine::shell::ScriptInterpreter::Python)
+            .unwrap()
+    );
+    let stored: String = conn
+        .query_row(
+            "SELECT interpreter FROM scripts WHERE trigger_id = ?1",
+            [&id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(stored, "\"python\"");
+    let (version, synced): (i64, bool) = conn
+        .query_row(
+            "SELECT version, is_synced FROM triggers WHERE id = ?1",
+            [&id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(version, 2);
+    assert!(!synced);
+    assert!(
+        !set_script_interpreter(
+            &conn,
+            "ghost",
+            crate::engine::shell::ScriptInterpreter::Bash
+        )
+        .unwrap()
+    );
+}
+
+#[test]
+fn test_set_script_behavior_rewrites_mode() {
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let (_dir, conn) = crate::testing::open_test_db();
+
+    let id = create_entry(&conn, script_entry_fixture("behavior_case"))
+        .expect("create script entry")
+        .0;
+    assert!(set_script_behavior(&conn, &id, crate::engine::shell::ScriptBehavior::Silent).unwrap());
+    let stored: String = conn
+        .query_row(
+            "SELECT behavior FROM scripts WHERE trigger_id = ?1",
+            [&id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(stored, "\"silent\"");
+    assert!(
+        !set_script_behavior(&conn, "ghost", crate::engine::shell::ScriptBehavior::Inline).unwrap()
+    );
+}
+
+#[test]
+fn test_set_script_setters_reject_text_triggers() {
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let (_dir, conn) = crate::testing::open_test_db();
+
+    let id = create_entry(
+        &conn,
+        NewEntry {
+            content: "old output".to_string(),
+            action_type: "text".to_string(),
+            invocations: vec![(
+                crate::db::crud::InvocationType::Word,
+                "plain_text".to_string(),
+                false,
+            )],
+            ..script_entry_fixture("unused")
+        },
+    )
+    .expect("create text entry")
+    .0;
+    assert!(
+        set_script_interpreter(&conn, &id, crate::engine::shell::ScriptInterpreter::Bash).is_err()
+    );
+    assert!(set_script_behavior(&conn, &id, crate::engine::shell::ScriptBehavior::Silent).is_err());
+}
+
+fn word_entry_fixture(invocation: &str, action_type: &str) -> NewEntry {
+    NewEntry {
+        name: String::new(),
+        description: None,
+        content: "output".to_string(),
+        action_type: action_type.to_string(),
+        target_os: "all".to_string(),
+        only_apps: None,
+        except_apps: None,
+        tags_json: "[]".to_string(),
+        auto_case: false,
+        interpreter: None,
+        behavior: None,
+        invocations: vec![(
+            crate::db::crud::InvocationType::Word,
+            invocation.to_string(),
+            false,
+        )],
+    }
+}
+
+#[test]
+fn test_set_alias_invocation_type_retypes_row_and_bumps() {
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let (_dir, conn) = crate::testing::open_test_db();
+
+    let id = create_entry(&conn, word_entry_fixture("retype_me", "text"))
+        .expect("create entry")
+        .0;
+    assert!(
+        set_alias_invocation_type(
+            &conn,
+            &id,
+            "retype_me",
+            crate::db::crud::InvocationType::Regex
+        )
+        .unwrap()
+    );
+    let stored: String = conn
+        .query_row(
+            "SELECT invocation_type FROM trigger_aliases WHERE trigger_id = ?1",
+            [&id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(stored, "regex");
+    let (version, synced): (i64, bool) = conn
+        .query_row(
+            "SELECT version, is_synced FROM triggers WHERE id = ?1",
+            [&id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(version, 2);
+    assert!(!synced);
+
+    // Same-type call is a silent no-op success.
+    assert!(
+        set_alias_invocation_type(
+            &conn,
+            &id,
+            "retype_me",
+            crate::db::crud::InvocationType::Regex
+        )
+        .unwrap()
+    );
+    assert!(
+        !set_alias_invocation_type(
+            &conn,
+            &id,
+            "missing_row",
+            crate::db::crud::InvocationType::Word
+        )
+        .unwrap()
+    );
+    assert!(
+        !set_alias_invocation_type(
+            &conn,
+            "ghost",
+            "retype_me",
+            crate::db::crud::InvocationType::Word
+        )
+        .unwrap()
+    );
+}
+
+#[test]
+fn test_set_alias_invocation_type_rejects_scope_conflict() {
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let (_dir, conn) = crate::testing::open_test_db();
+
+    let first = create_entry(&conn, word_entry_fixture("clash_target", "text"))
+        .expect("create first entry")
+        .0;
+    assert!(
+        set_alias_invocation_type(
+            &conn,
+            &first,
+            "clash_target",
+            crate::db::crud::InvocationType::Regex
+        )
+        .unwrap()
+    );
+    let second = create_entry(&conn, word_entry_fixture("clash_target", "text"))
+        .expect("create second entry")
+        .0;
+    assert!(
+        set_alias_invocation_type(
+            &conn,
+            &second,
+            "clash_target",
+            crate::db::crud::InvocationType::Regex
+        )
+        .is_err()
+    );
+}

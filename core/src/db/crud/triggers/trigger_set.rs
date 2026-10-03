@@ -1440,6 +1440,90 @@ pub fn set_trigger_enabled(conn: &Connection, id: &str, enabled: bool) -> Result
     Ok(changed > 0)
 }
 
+/// Rewrites the script language of one trigger without touching its
+/// content. Errors when the trigger has no script attachment, mirroring
+/// the content path. Bumps version and marks the row unsynced.
+pub fn set_script_interpreter(
+    conn: &Connection,
+    id: &str,
+    interpreter: ScriptInterpreter,
+) -> Result<bool> {
+    let live: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM triggers WHERE id = ?1 AND is_deleted = 0)",
+        [id],
+        |row| row.get(0),
+    )?;
+    if !live {
+        return Ok(false);
+    }
+    let attached: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM scripts WHERE trigger_id = ?1)",
+        [id],
+        |row| row.get(0),
+    )?;
+    if !attached {
+        return Err(crate::Error::Config(
+            "Script is missing its language metadata.".to_string(),
+        ));
+    }
+    conn.execute(
+        "UPDATE scripts SET interpreter = ?1, version = version + 1, updated_at = ?2
+         WHERE trigger_id = ?3",
+        rusqlite::params![
+            serde_json::to_string(&interpreter)?,
+            crate::db::now_unix_secs(),
+            id
+        ],
+    )?;
+    let changed = conn.execute(
+        "UPDATE triggers
+         SET version = version + 1, updated_at = ?1, is_synced = 0
+         WHERE id = ?2 AND is_deleted = 0",
+        rusqlite::params![crate::db::now_unix_secs(), id],
+    )?;
+    Ok(changed > 0)
+}
+
+/// Rewrites the run behavior (inline/silent) of one script trigger
+/// without touching its content. Same attachment contract as the
+/// interpreter path.
+pub fn set_script_behavior(conn: &Connection, id: &str, behavior: ScriptBehavior) -> Result<bool> {
+    let live: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM triggers WHERE id = ?1 AND is_deleted = 0)",
+        [id],
+        |row| row.get(0),
+    )?;
+    if !live {
+        return Ok(false);
+    }
+    let attached: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM scripts WHERE trigger_id = ?1)",
+        [id],
+        |row| row.get(0),
+    )?;
+    if !attached {
+        return Err(crate::Error::Config(
+            "Script is missing its language metadata.".to_string(),
+        ));
+    }
+    conn.execute(
+        "UPDATE scripts SET behavior = ?1, version = version + 1, updated_at = ?2
+         WHERE trigger_id = ?3",
+        rusqlite::params![
+            serde_json::to_string(&behavior)?,
+            crate::db::now_unix_secs(),
+            id
+        ],
+    )?;
+    let changed = conn.execute(
+        "UPDATE triggers
+         SET version = version + 1, updated_at = ?1, is_synced = 0
+         WHERE id = ?2 AND is_deleted = 0",
+        rusqlite::params![crate::db::now_unix_secs(), id],
+    )?;
+    Ok(changed > 0)
+}
+
 /// Lenient tag normalization for the `add_trigger` path (drops over-long
 /// tags, truncates to the cap — the user isn't directly managing tags).
 fn normalize_add_tags(tags: Option<Vec<String>>) -> Result<String> {

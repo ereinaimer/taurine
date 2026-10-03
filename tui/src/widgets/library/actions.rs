@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 use zeroize::Zeroize;
 
-use taurine_core::db::crud::{ActionType, TriggerListItem, delete_trigger};
+use taurine_core::db::crud::{ActionType, InvocationType, TriggerListItem, delete_trigger};
+use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 use taurine_core::exchange::{
     ExchangePayload, ImportConflictAction, decode_exchange_blob, encode_exchange_blob,
     export_triggers, import_payload_transactionally, payload_contains_run_variables,
@@ -84,6 +85,9 @@ pub(crate) enum EditedField {
     Name(String),
     Description(Option<String>),
     Content(String),
+    InvocationType(InvocationType),
+    Interpreter(ScriptInterpreter),
+    Behavior(ScriptBehavior),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -112,6 +116,29 @@ impl PendingLibraryEdit {
             }
             EditedField::Content(body) => {
                 taurine_core::db::crud::set_trigger_content(&conn, &self.trigger_id, body)?;
+                taurine_core::rpc::notify_daemon_reload();
+            }
+            // honey: invocation, language, and behavior all change what
+            // the expander matches or runs, so the daemon reloads.
+            EditedField::InvocationType(invocation_type) => {
+                taurine_core::db::crud::set_alias_invocation_type(
+                    &conn,
+                    &self.trigger_id,
+                    &self.trigger,
+                    *invocation_type,
+                )?;
+                taurine_core::rpc::notify_daemon_reload();
+            }
+            EditedField::Interpreter(interpreter) => {
+                taurine_core::db::crud::set_script_interpreter(
+                    &conn,
+                    &self.trigger_id,
+                    *interpreter,
+                )?;
+                taurine_core::rpc::notify_daemon_reload();
+            }
+            EditedField::Behavior(behavior) => {
+                taurine_core::db::crud::set_script_behavior(&conn, &self.trigger_id, *behavior)?;
                 taurine_core::rpc::notify_daemon_reload();
             }
         }

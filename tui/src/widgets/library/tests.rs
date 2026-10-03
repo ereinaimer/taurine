@@ -1822,6 +1822,223 @@ fn select_first_window_bottom_on_empty_state_stays_zero() {
     assert_eq!(state.selected_index(), None);
 }
 
+fn script_state() -> LibraryPageState {
+    use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
+
+    let mut item = list_item(
+        "id-sh",
+        None,
+        TriggerType::Word,
+        "sh",
+        "[Script: bash]",
+        "script",
+        "all",
+        1,
+        Some("echo hi"),
+    );
+    item.interpreter = Some(ScriptInterpreter::Bash);
+    item.behavior = Some(ScriptBehavior::Inline);
+    let mut state = LibraryPageState::default();
+    state.replace_items(vec![LibraryTrigger::single(item)]);
+    state
+}
+
+#[test]
+fn dropdown_type_menu_parks_on_current_value() {
+    let mut state = sample_state();
+    state.open_dropdown(DropdownKind::InvocationType);
+    let menu = state.dropdown().expect("menu open");
+    assert_eq!(menu.kind(), DropdownKind::InvocationType);
+    assert_eq!(menu.options(), &["word", "hotkey", "regex", "voice"]);
+    // First sorted row is the hotkey script.
+    assert_eq!(menu.selected(), 1);
+}
+
+#[test]
+fn dropdown_confirm_unchanged_is_silent() {
+    let mut state = sample_state();
+    state.open_dropdown(DropdownKind::InvocationType);
+    let interaction = state.confirm_dropdown();
+    assert!(interaction.pending_edit().is_none());
+    assert!(state.dropdown().is_none());
+}
+
+#[test]
+fn dropdown_arrows_wrap_and_enter_retypes() {
+    let mut state = sample_state();
+    state.open_dropdown(DropdownKind::InvocationType);
+    state.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+    let menu = state.dropdown().expect("menu open");
+    assert_eq!(menu.selected_option(), Some("word"));
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let pending = interaction.pending_edit().expect("pending retype");
+    assert_eq!(pending.trigger_id, "id-alt+r");
+    assert_eq!(pending.trigger, "alt+r");
+    assert_eq!(
+        pending.field,
+        EditedField::InvocationType(taurine_core::db::crud::InvocationType::Word)
+    );
+    assert!(state.dropdown().is_none());
+}
+
+#[test]
+fn dropdown_cursor_wraps_around_both_ends() {
+    let mut menu = LibraryDropdown::new(DropdownKind::Behavior, "inline");
+    menu.move_cursor(-1);
+    assert_eq!(menu.selected_option(), Some("silent"));
+    menu.move_cursor(1);
+    assert_eq!(menu.selected_option(), Some("inline"));
+}
+
+#[test]
+fn dropdown_esc_cancels_without_pending() {
+    let mut state = sample_state();
+    state.open_dropdown(DropdownKind::InvocationType);
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(interaction.pending_edit().is_none());
+    assert!(state.dropdown().is_none());
+}
+
+#[test]
+fn dropdown_typing_never_leaks_into_search() {
+    let mut state = sample_state();
+    state.open_dropdown(DropdownKind::InvocationType);
+    state.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+    assert!(state.dropdown().is_some());
+    assert!(!state.is_search_active());
+}
+
+#[test]
+fn dropdown_reopen_toggles_shut() {
+    let mut state = sample_state();
+    state.open_dropdown(DropdownKind::InvocationType);
+    assert!(state.dropdown().is_some());
+    state.open_dropdown(DropdownKind::InvocationType);
+    assert!(state.dropdown().is_none());
+}
+
+#[test]
+fn dropdown_interpreter_menu_lists_languages() {
+    let mut state = script_state();
+    state.open_dropdown(DropdownKind::Interpreter);
+    let menu = state.dropdown().expect("menu open");
+    assert_eq!(menu.options().len(), 5);
+    assert_eq!(menu.selected_option(), Some("bash"));
+    state.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    state.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let pending = interaction.pending_edit().expect("pending language");
+    assert_eq!(
+        pending.field,
+        EditedField::Interpreter(taurine_core::engine::shell::ScriptInterpreter::Python)
+    );
+}
+
+#[test]
+fn dropdown_behavior_menu_parks_on_inline() {
+    let mut state = script_state();
+    state.open_dropdown(DropdownKind::Behavior);
+    let menu = state.dropdown().expect("menu open");
+    assert_eq!(menu.options(), &["inline", "silent"]);
+    assert_eq!(menu.selected(), 0);
+}
+
+#[test]
+fn dropdown_missing_metadata_parks_on_first_option() {
+    // Sample hotkey script has no interpreter metadata: ─── never
+    // matches, so the cursor parks at the head of the list.
+    let mut state = sample_state();
+    state.open_dropdown(DropdownKind::Interpreter);
+    let menu = state.dropdown().expect("menu open");
+    assert_eq!(menu.selected(), 0);
+}
+
+#[test]
+fn dropdown_button_hit_targets_rendered_buttons() {
+    let state = script_state();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let content = detail::center_content(area, state.split_ratio(), state.detail_ratio());
+    let buttons_y = content.y.saturating_add(4);
+    assert_eq!(
+        detail::hit_test(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            content.x,
+            buttons_y
+        ),
+        Some(detail::DetailHit::Button(0))
+    );
+    let labels = ["word", "bash", "inline"];
+    let cells = detail::button_layout(
+        content.width,
+        &labels
+            .iter()
+            .map(|label| label.to_string())
+            .collect::<Vec<_>>(),
+    );
+    assert_eq!(cells.len(), 3);
+    let second = content.x.saturating_add(cells[1].x);
+    assert_eq!(
+        detail::hit_test(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            second,
+            buttons_y
+        ),
+        Some(detail::DetailHit::Button(1))
+    );
+}
+
+#[test]
+fn dropdown_option_hit_maps_popup_rows() {
+    let mut state = script_state();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    state.open_dropdown(DropdownKind::Interpreter);
+    let popup = detail::dropdown_area(area, state.split_ratio(), state.detail_ratio(), &state)
+        .expect("popup rect");
+    assert_eq!(popup.height, 7);
+    // Border cells never select.
+    assert_eq!(
+        detail::dropdown_option_hit(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            popup.x,
+            popup.y.saturating_add(1)
+        ),
+        None
+    );
+    assert_eq!(
+        detail::dropdown_option_hit(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            popup.x.saturating_add(1),
+            popup.y.saturating_add(2)
+        ),
+        Some(1)
+    );
+}
+
+#[test]
+fn dropdown_click_confirms_clicked_option() {
+    let mut state = script_state();
+    state.open_dropdown(DropdownKind::Interpreter);
+    let interaction = state.confirm_dropdown_at(2);
+    let pending = interaction.pending_edit().expect("pending language");
+    assert_eq!(
+        pending.field,
+        EditedField::Interpreter(taurine_core::engine::shell::ScriptInterpreter::Python)
+    );
+    assert_eq!(pending.restore_index, 0);
+}
+
 #[test]
 fn right_pane_clicks_hit_nothing() {
     let state = sample_state();
