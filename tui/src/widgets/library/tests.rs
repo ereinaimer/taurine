@@ -1880,38 +1880,55 @@ fn custom_split_moves_divider_and_clamps() {
 fn narrow_page_collapses_to_list_only() {
     let state = LibraryPageState::default();
 
-    // Center would fall below its compact minimum: list only.
-    let area = ratatui::layout::Rect::new(0, 0, 42, 30);
+    // Degenerate width: list only, no dividers.
+    let area = ratatui::layout::Rect::new(0, 0, 4, 30);
     let split = split_panes(area, state.split_ratio(), state.detail_ratio());
-    assert_eq!(split.list.width, 42);
+    assert_eq!(split.list.width, 4);
     assert_eq!(split.center.width, 0);
     assert_eq!(split.props.width, 0);
     assert!(divider_columns(area, state.split_ratio(), state.detail_ratio()).is_empty());
     assert_eq!(
-        divider_hit(area, state.split_ratio(), state.detail_ratio(), 21, 5),
+        divider_hit(area, state.split_ratio(), state.detail_ratio(), 2, 5),
         None
     );
 
-    // Wide enough for list + center, not props.
-    let area = ratatui::layout::Rect::new(0, 0, 60, 30);
+    // No minimums: narrow pages keep all three panes, squeezed.
+    let area = ratatui::layout::Rect::new(0, 0, 42, 30);
     let split = split_panes(area, state.split_ratio(), state.detail_ratio());
-    assert_eq!(split.list.width, 20);
-    assert_eq!(split.center.width, 39);
-    assert_eq!(split.props.width, 0);
+    assert_eq!(split.list.width, 11);
+    assert_eq!(split.center.width, 18);
+    assert_eq!(split.props.width, 11);
     assert_eq!(
         divider_columns(area, state.split_ratio(), state.detail_ratio()),
-        vec![20]
+        vec![11, 30]
     );
 }
 
 #[test]
-fn drag_range_keeps_both_pane_minimums() {
+fn drag_range_parks_panes_at_either_edge() {
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
-    // honey: float truncation keeps this within one cell of the minimum.
+    // honey: float truncation keeps this within one cell of the edge.
     let split = split_panes(area, split_ratio_for_column(area, 0), DEFAULT_DETAIL_RATIO);
-    assert!((MIN_LEFT_WIDTH - 1..=MIN_LEFT_WIDTH + 1).contains(&split.list.width));
+    assert!(split.list.width <= 1);
+    // Divider stays on the edge, still grabbable to drag back.
+    assert_eq!(
+        divider_columns(area, split_ratio_for_column(area, 0), DEFAULT_DETAIL_RATIO),
+        vec![0, 48]
+    );
+    assert_eq!(
+        divider_hit(
+            area,
+            split_ratio_for_column(area, 0),
+            DEFAULT_DETAIL_RATIO,
+            0,
+            5
+        ),
+        Some(DividerSide::List)
+    );
     let split = split_panes(area, split_ratio_for_column(area, 79), DEFAULT_DETAIL_RATIO);
-    assert!(split.center.width >= MIN_COMPACT_CENTER_WIDTH);
+    // Maximum share stops the list at the shared side maximum.
+    assert_eq!(split.list.width, MAX_SIDE_WIDTH);
+    assert_eq!(split.center.width, 23);
 }
 
 #[test]

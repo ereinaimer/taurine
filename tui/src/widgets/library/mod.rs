@@ -19,21 +19,20 @@ use crate::theme::Theme;
 
 pub(crate) const DEFAULT_SPLIT_RATIO: f32 = 2.0 / 7.0;
 pub(crate) const DEFAULT_DETAIL_RATIO: f32 = 0.4;
-pub(crate) const MIN_SPLIT_RATIO: f32 = 0.15;
-pub(crate) const MAX_SPLIT_RATIO: f32 = 0.85;
-pub(crate) const MIN_DETAIL_RATIO: f32 = 0.15;
-pub(crate) const MAX_DETAIL_RATIO: f32 = 0.60;
+pub(crate) const MIN_SPLIT_RATIO: f32 = 0.0;
+pub(crate) const MAX_SPLIT_RATIO: f32 = 1.0;
+pub(crate) const MIN_DETAIL_RATIO: f32 = 0.0;
+pub(crate) const MAX_DETAIL_RATIO: f32 = 1.0;
 /// Divider highlight on hover and while dragging: one small step above the
 /// `#222222` border so the affordance stays subtle.
 pub(crate) const DIVIDER_HOVER_COLOR: ratatui::style::Color =
     ratatui::style::Color::Rgb(0x2E, 0x2E, 0x2E);
 
-/// Minimum pane widths. Below 76 columns the props pane drops; below
-/// 43 the center drops too, leaving the list alone.
-pub(crate) const MIN_LEFT_WIDTH: u16 = 20;
-pub(crate) const MIN_CENTER_WIDTH: u16 = 30;
-pub(crate) const MIN_COMPACT_CENTER_WIDTH: u16 = 22;
-pub(crate) const MIN_PROPS_WIDTH: u16 = 24;
+/// Panes have no minimum widths: dragging a divider to an edge parks
+/// the pane at zero, and the divider line stays rendered on that edge
+/// so it can be dragged back. Both side panes share one maximum width;
+/// tiny terminals fall back to the list.
+pub(crate) const MAX_SIDE_WIDTH: u16 = 40;
 
 /// Which gutter divider a pointer action targets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,76 +60,46 @@ pub(crate) fn split_panes(area: Rect, list_ratio: f32, props_ratio: f32) -> Pane
     if area.width < 5 {
         return empty();
     }
-    // Three panes: list + gutter + center + gutter + props.
-    if area.width >= MIN_LEFT_WIDTH + MIN_CENTER_WIDTH + MIN_PROPS_WIDTH + 2 {
-        let span = area.width.saturating_sub(2);
-        let max_left = span.saturating_sub(MIN_CENTER_WIDTH + MIN_PROPS_WIDTH);
-        let left_width = ((span as f32 * list_ratio.clamp(MIN_SPLIT_RATIO, MAX_SPLIT_RATIO))
-            as u16)
-            .clamp(MIN_LEFT_WIDTH, max_left.max(MIN_LEFT_WIDTH));
-        let rest = span.saturating_sub(left_width);
-        let max_right = rest.saturating_sub(MIN_CENTER_WIDTH);
-        let right_width = ((rest as f32 * props_ratio.clamp(MIN_DETAIL_RATIO, MAX_DETAIL_RATIO))
-            as u16)
-            .clamp(MIN_PROPS_WIDTH, max_right.max(MIN_PROPS_WIDTH));
-        let center_width = rest.saturating_sub(right_width);
-        let list = Rect {
-            x: area.x,
-            y: area.y,
-            width: left_width,
-            height: area.height,
-        };
-        let center = Rect {
-            x: area.x.saturating_add(left_width).saturating_add(1),
-            y: area.y,
-            width: center_width,
-            height: area.height,
-        };
-        let props = Rect {
-            x: center.x.saturating_add(center_width).saturating_add(1),
-            y: area.y,
-            width: right_width,
-            height: area.height,
-        };
-        let dividers = vec![
-            list.x.saturating_add(list.width),
-            center.x.saturating_add(center.width),
-        ];
-        return PaneSplit {
-            list,
-            center,
-            props,
-            dividers,
-        };
+    // Three panes: list + gutter + center + gutter + props. Panes may
+    // shrink to zero, and neither side pane grows past the shared
+    // maximum; both dividers always stay grabbable.
+    let span = area.width.saturating_sub(2);
+    let mut left_width =
+        ((span as f32 * list_ratio.clamp(MIN_SPLIT_RATIO, MAX_SPLIT_RATIO)) as u16).min(span);
+    left_width = left_width.min(MAX_SIDE_WIDTH);
+    let rest = span.saturating_sub(left_width);
+    let mut right_width =
+        ((rest as f32 * props_ratio.clamp(MIN_DETAIL_RATIO, MAX_DETAIL_RATIO)) as u16).min(rest);
+    right_width = right_width.min(MAX_SIDE_WIDTH);
+    let center_width = rest.saturating_sub(right_width);
+    let list = Rect {
+        x: area.x,
+        y: area.y,
+        width: left_width,
+        height: area.height,
+    };
+    let center = Rect {
+        x: area.x.saturating_add(left_width).saturating_add(1),
+        y: area.y,
+        width: center_width,
+        height: area.height,
+    };
+    let props = Rect {
+        x: center.x.saturating_add(center_width).saturating_add(1),
+        y: area.y,
+        width: right_width,
+        height: area.height,
+    };
+    let dividers = vec![
+        list.x.saturating_add(list.width),
+        center.x.saturating_add(center.width),
+    ];
+    PaneSplit {
+        list,
+        center,
+        props,
+        dividers,
     }
-    // Two panes: list + center.
-    if area.width > MIN_LEFT_WIDTH + MIN_COMPACT_CENTER_WIDTH {
-        let span = area.width.saturating_sub(1);
-        let max_left = span.saturating_sub(MIN_COMPACT_CENTER_WIDTH);
-        let left_width = ((span as f32 * list_ratio.clamp(MIN_SPLIT_RATIO, MAX_SPLIT_RATIO))
-            as u16)
-            .clamp(MIN_LEFT_WIDTH, max_left.max(MIN_LEFT_WIDTH));
-        let list = Rect {
-            x: area.x,
-            y: area.y,
-            width: left_width,
-            height: area.height,
-        };
-        let center = Rect {
-            x: area.x.saturating_add(left_width).saturating_add(1),
-            y: area.y,
-            width: area.width.saturating_sub(left_width).saturating_sub(1),
-            height: area.height,
-        };
-        let dividers = vec![list.x.saturating_add(list.width)];
-        return PaneSplit {
-            list,
-            center,
-            props: Rect::default(),
-            dividers,
-        };
-    }
-    empty()
 }
 
 /// Divider gutter columns for a full-frame line. Empty when collapsed
@@ -160,8 +129,8 @@ pub(crate) fn divider_hit(
     None
 }
 
-/// List share that puts the list divider gutter at `column`, keeping
-/// minimum widths while the terminal allows it.
+/// List share that puts the list divider gutter at `column`. Panes may
+/// close all the way to either edge; the divider stays grabbable there.
 pub(crate) fn split_ratio_for_column(area: Rect, column: u16) -> f32 {
     let gutter = area.width.saturating_sub(1).max(1) as f32;
     let ratio = column.saturating_sub(area.x) as f32 / gutter;
