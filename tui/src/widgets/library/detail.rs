@@ -358,10 +358,7 @@ fn render_header_row(
         let line = Line::from(vec![
             Span::styled(
                 visible.to_string(),
-                Style::default()
-                    .fg(theme.text)
-                    .bg(theme.surface)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
             ),
             Span::raw(" ".repeat(gap as usize + 1)),
             toggle,
@@ -403,10 +400,7 @@ fn render_description_row(
         let (visible, caret) = edit.line().window(row.width);
         let gap = row.width.saturating_sub(visible.chars().count() as u16);
         let line = Line::from(vec![
-            Span::styled(
-                visible.to_string(),
-                Style::default().fg(theme.text).bg(theme.surface),
-            ),
+            Span::styled(visible.to_string(), Style::default().fg(theme.text)),
             Span::raw(" ".repeat(gap as usize)),
         ]);
         frame.render_widget(Paragraph::new(line), row);
@@ -648,12 +642,11 @@ fn render_content_editor(
             height: 1,
         };
         if index == caret_visual {
+            // honey: no backgrounds while editing; the real caret alone
+            // marks the position.
             let gap = text.width.saturating_sub(line.chars().count() as u16);
             let rendered = Line::from(vec![
-                Span::styled(
-                    line.clone(),
-                    Style::default().fg(theme.text).bg(theme.surface),
-                ),
+                Span::styled(line.clone(), Style::default().fg(theme.text)),
                 Span::raw(" ".repeat(gap as usize)),
             ]);
             frame.render_widget(Paragraph::new(rendered), row);
