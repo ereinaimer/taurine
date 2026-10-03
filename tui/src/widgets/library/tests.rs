@@ -1568,6 +1568,59 @@ fn click_selects_without_opening() {
 }
 
 #[test]
+fn search_caret_moves_and_edits_mid_text() {
+    let mut state = LibraryPageState::default();
+    state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+    for ch in "gmt".chars() {
+        state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    assert_eq!(state.search_query(), "gmt");
+    assert_eq!(state.search_field().cursor(), 3);
+
+    state.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+    state.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+    assert_eq!(state.search_field().cursor(), 1);
+    state.handle_key(KeyEvent::new(KeyCode::Char('X'), KeyModifiers::NONE));
+    assert_eq!(state.search_query(), "gXmt");
+
+    state.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
+    assert_eq!(state.search_field().cursor(), 0);
+    state.handle_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE));
+    assert_eq!(state.search_query(), "Xmt");
+
+    state.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+    assert_eq!(state.search_field().cursor(), 3);
+    state.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+    assert_eq!(state.search_query(), "Xm");
+}
+
+#[test]
+fn search_bar_click_places_caret() {
+    let mut state = LibraryPageState::default();
+    state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+    for ch in "gm".chars() {
+        state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    // Search box line starts at the search area plus border and padding.
+    let area = ratatui::layout::Rect::new(0, 0, 80, 30);
+    let content = left_content(area, state.split_ratio(), state.detail_ratio());
+    let (_, search_area) = content_sections(content, false);
+    let line_x = search_area.x + 2;
+    assert_eq!(
+        list::hit_test(area, &state, line_x, search_area.y),
+        Some(list::LibraryHit::SearchAt(0))
+    );
+    assert_eq!(
+        list::hit_test(area, &state, line_x + 1, search_area.y),
+        Some(list::LibraryHit::SearchAt(1))
+    );
+    assert_eq!(
+        list::hit_test(area, &state, line_x + 10, search_area.y),
+        Some(list::LibraryHit::SearchAt(2))
+    );
+}
+
+#[test]
 fn hit_test_finds_bottom_anchored_rows_and_search() {
     let state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
@@ -1587,7 +1640,7 @@ fn hit_test_finds_bottom_anchored_rows_and_search() {
     );
     assert_eq!(
         list::hit_test(area, &state, 5, 28),
-        Some(list::LibraryHit::Search)
+        Some(list::LibraryHit::SearchAt(0))
     );
     assert_eq!(list::hit_test(area, &state, 79, 5), None);
 }

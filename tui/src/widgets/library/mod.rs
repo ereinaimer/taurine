@@ -265,7 +265,7 @@ pub fn render_library_content(
         frame,
         search_area,
         theme,
-        state.search_query(),
+        state.search_field(),
         state.is_search_active(),
     );
     detail::render_detail(frame, area, theme, state);

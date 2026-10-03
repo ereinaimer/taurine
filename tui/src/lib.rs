@@ -348,8 +348,8 @@ fn handle_tui_mouse_event(
                             let interaction = app.library_page_mut().click_item(position, anchor);
                             apply_library_interaction(app, interaction);
                         }
-                        Some(library::list::LibraryHit::Search) => {
-                            app.library_page_mut().activate_search();
+                        Some(library::list::LibraryHit::SearchAt(cursor)) => {
+                            app.library_page_mut().activate_search_at(cursor);
                         }
                         // honey: header toggle flips enable (committing a
                         // pending rename first), name click starts editing;
@@ -404,8 +404,8 @@ fn handle_tui_mouse_event(
                             let interaction = app.settings_page_mut().click_setting(key, anchor);
                             apply_settings_interaction(app, interaction);
                         }
-                        Some(settings::SettingsHit::Search) => {
-                            app.settings_page_mut().activate_search();
+                        Some(settings::SettingsHit::SearchAt(cursor)) => {
+                            app.settings_page_mut().activate_search_at(cursor);
                         }
                         None => {}
                     }

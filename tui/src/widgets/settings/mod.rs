@@ -17,8 +17,8 @@ use crate::widgets::settings::state::{SettingKeyMeta, SettingsPageState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SettingsHit {
-    Row(crate::widgets::settings::state::SettingKey),
-    Search,
+    Row(SettingKey),
+    SearchAt(usize),
 }
 
 fn page_area(area: Rect) -> Rect {
@@ -142,7 +142,11 @@ pub(crate) fn hit_test(
     }
     let (list_area, search_area) = content_sections(area, state.status_message().is_some());
     if mouse::contains(search_area, column, row) {
-        return Some(SettingsHit::Search);
+        // honey: border plus one padding cell before the text starts.
+        let offset = column.saturating_sub(search_area.x.saturating_add(2));
+        return Some(SettingsHit::SearchAt(
+            state.search_field().index_at(offset as usize),
+        ));
     }
     if !mouse::contains(list_area, column, row) {
         return None;
@@ -215,7 +219,7 @@ pub fn render_settings_content(
         frame,
         search_area,
         theme,
-        state.search_query(),
+        state.search_field(),
         state.is_search_active(),
         "Search settings…",
     );
@@ -358,7 +362,10 @@ mod tests {
             hit_test(area, &state, 30, 6),
             Some(SettingsHit::Row(SettingKey::PauseHotkey))
         );
-        assert_eq!(hit_test(area, &state, 30, 24), Some(SettingsHit::Search));
+        assert_eq!(
+            hit_test(area, &state, 30, 24),
+            Some(SettingsHit::SearchAt(0))
+        );
         assert_eq!(hit_test(area, &state, 0, 0), None);
         assert_eq!(hit_test(area, &state, 30, 22), None);
     }
@@ -366,13 +373,17 @@ mod tests {
     #[test]
     fn hit_test_returns_none_for_empty_results() {
         let state = SettingsPageState {
-            search_query: "zzz-no-such-setting".to_string(),
+            search: crate::widgets::field::TextField::new("zzz-no-such-setting"),
             ..SettingsPageState::default()
         };
 
         let area = ratatui::layout::Rect::new(26, 2, 71, 24);
         assert_eq!(hit_test(area, &state, 30, 3), None);
-        assert_eq!(hit_test(area, &state, 30, 24), Some(SettingsHit::Search));
+        // Line text starts two cells in: column 30 is the second character.
+        assert_eq!(
+            hit_test(area, &state, 30, 24),
+            Some(SettingsHit::SearchAt(1))
+        );
     }
 
     #[test]

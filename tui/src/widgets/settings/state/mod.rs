@@ -33,7 +33,7 @@ pub(crate) struct SettingsPageState {
     pub(crate) modal: Option<SettingsModal>,
     pub(crate) status_message: Option<String>,
     pub(crate) load_error: Option<String>,
-    pub(crate) search_query: String,
+    pub(crate) search: crate::widgets::field::TextField,
     pub(crate) search_active: bool,
     pub(crate) window_anchor: Option<usize>,
 }
@@ -62,7 +62,7 @@ impl SettingsPageState {
                     && *k != SettingKey::InlineDatetimeDialect
             });
         }
-        let needle = self.search_query.trim().to_ascii_lowercase();
+        let needle = self.search_query().trim().to_ascii_lowercase();
         if !needle.is_empty() {
             keys.retain(|k| {
                 k.display_name().to_ascii_lowercase().contains(&needle)
@@ -73,15 +73,20 @@ impl SettingsPageState {
     }
 
     pub(crate) fn search_query(&self) -> &str {
-        &self.search_query
+        self.search.text()
+    }
+
+    pub(crate) fn search_field(&self) -> &crate::widgets::field::TextField {
+        &self.search
     }
 
     pub(crate) const fn is_search_active(&self) -> bool {
         self.search_active
     }
 
-    pub(crate) fn activate_search(&mut self) {
+    pub(crate) fn activate_search_at(&mut self, cursor: usize) {
         self.search_active = true;
+        self.search.place(cursor);
     }
 
     /// Click parity with Enter: first click selects the row, clicking the
@@ -202,7 +207,7 @@ impl SettingsPageState {
                 if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
                 self.search_active = true;
-                self.search_query.push(ch);
+                self.search.insert(ch);
                 self.selected = 0;
                 self.window_anchor = None;
                 SettingsInteraction::handled()
@@ -218,15 +223,26 @@ impl SettingsPageState {
             }
             (KeyCode::Up, KeyModifiers::NONE) => self.move_selection(-1),
             (KeyCode::Down, KeyModifiers::NONE) => self.move_selection(1),
+            (KeyCode::Left, KeyModifiers::NONE) => self.search.move_left(),
+            (KeyCode::Right, KeyModifiers::NONE) => self.search.move_right(),
+            (KeyCode::Home, KeyModifiers::NONE) => self.search.move_home(),
+            (KeyCode::End, KeyModifiers::NONE) => self.search.move_end(),
             (KeyCode::Backspace, KeyModifiers::NONE) => {
-                self.search_query.pop();
-                self.selected = 0;
-                self.window_anchor = None;
+                if self.search.backspace() {
+                    self.selected = 0;
+                    self.window_anchor = None;
+                }
+            }
+            (KeyCode::Delete, KeyModifiers::NONE) => {
+                if self.search.delete_at() {
+                    self.selected = 0;
+                    self.window_anchor = None;
+                }
             }
             (KeyCode::Char(ch), modifiers)
                 if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
-                self.search_query.push(ch);
+                self.search.insert(ch);
                 self.selected = 0;
                 self.window_anchor = None;
             }
@@ -639,6 +655,18 @@ mod tests {
     }
 
     #[test]
+    fn test_search_caret_edits_mid_text() {
+        let mut state = SettingsPageState::default();
+        type_query(&mut state, "audoi");
+        state.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+        state.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        assert_eq!(state.search_query(), "audi");
+        state.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
+        state.handle_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE));
+        assert_eq!(state.search_query(), "udi");
+    }
+
+    #[test]
     fn test_search_filters_by_display_name() {
         let mut state = SettingsPageState::default();
         type_query(&mut state, "audio");
@@ -799,7 +827,7 @@ mod tests {
     #[test]
     fn test_select_last_on_empty_results_stays_zero() {
         let mut state = SettingsPageState {
-            search_query: "zzz-no-such-setting".to_string(),
+            search: crate::widgets::field::TextField::new("zzz-no-such-setting"),
             ..SettingsPageState::default()
         };
         assert!(state.visible_keys().is_empty());

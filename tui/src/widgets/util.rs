@@ -321,12 +321,12 @@ pub(crate) fn render_modal_key_value_row(
 
 /// Shared bottom search box: rounded border, three lines total including
 /// the border. No background fill. `placeholder` shows when the query is
-/// empty and inactive.
+/// empty and inactive. The caret-anchored viewport keeps typing visible.
 pub(crate) fn render_search_block(
     frame: &mut Frame,
     area: Rect,
     theme: &Theme,
-    query: &str,
+    field: &super::field::TextField,
     is_active: bool,
     placeholder: &str,
 ) {
@@ -346,7 +346,7 @@ pub(crate) fn render_search_block(
 
     let title_style = if is_active {
         Style::default().fg(theme.text).add_modifier(Modifier::BOLD)
-    } else if query.is_empty() {
+    } else if field.is_empty() {
         Style::default().fg(theme.description)
     } else {
         Style::default().fg(theme.text).add_modifier(Modifier::BOLD)
@@ -363,17 +363,14 @@ pub(crate) fn render_search_block(
     if line_area.width == 0 {
         return;
     }
-    // honey: overlong queries slide left (tail viewport) so the caret
-    // stays visible; filtering still runs on the full string.
-    let visible = search_viewport(query, line_area.width);
-    let title = if is_active || !query.is_empty() {
+    let (visible, caret) = field.window(line_area.width);
+    let title = if is_active || !field.is_empty() {
         Line::from(visible.to_string())
     } else {
         Line::from(placeholder.to_string())
     };
     frame.render_widget(Paragraph::new(title).style(title_style), line_area);
     if is_active {
-        let caret = visible.chars().count();
         let (cx, cy) = caret_position(line_area.x, line_area.y, caret, line_area.width);
         frame.set_cursor_position((cx, cy));
     }

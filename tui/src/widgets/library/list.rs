@@ -20,7 +20,7 @@ const LIBRARY_ROW_HEIGHT: u16 = LIBRARY_ITEM_HEIGHT + 2 * LIBRARY_ITEM_PADDING;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LibraryHit {
     Item(usize),
-    Search,
+    SearchAt(usize),
 }
 
 /// First-row y so the visible stack sits directly above the search bar
@@ -51,7 +51,11 @@ pub(crate) fn hit_test(
     }
     let (list_area, search_area) = content_sections(content, state.status_message().is_some());
     if mouse::contains(search_area, column, row) {
-        return Some(LibraryHit::Search);
+        // honey: border plus one padding cell before the text starts.
+        let offset = column.saturating_sub(search_area.x.saturating_add(2));
+        return Some(LibraryHit::SearchAt(
+            state.search_field().index_at(offset as usize),
+        ));
     }
     if !mouse::contains(list_area, column, row) {
         return None;

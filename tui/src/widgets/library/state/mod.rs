@@ -14,6 +14,7 @@ use std::path::Path;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+use crate::widgets::field::TextField;
 use crate::widgets::library::actions::{
     LibraryImportOutcome, LibraryInteraction, PendingLibraryDelete, PreparedLibraryImport,
 };
@@ -64,7 +65,7 @@ pub(crate) struct LibraryPageState {
     items: Vec<LibraryTrigger>,
     filtered_indices: Vec<usize>,
     selected: usize,
-    search_query: String,
+    search: TextField,
     search_mode: bool,
     window_anchor: Option<usize>,
     pub(crate) modal: Option<LibraryModal>,
@@ -85,7 +86,7 @@ impl Default for LibraryPageState {
             items: Vec::new(),
             filtered_indices: Vec::new(),
             selected: 0,
-            search_query: String::new(),
+            search: TextField::new(""),
             search_mode: false,
             window_anchor: None,
             modal: None,
@@ -145,7 +146,11 @@ impl LibraryPageState {
     }
 
     pub(crate) fn search_query(&self) -> &str {
-        &self.search_query
+        self.search.text()
+    }
+
+    pub(crate) fn search_field(&self) -> &TextField {
+        &self.search
     }
 
     pub(crate) const fn is_search_active(&self) -> bool {
@@ -427,7 +432,7 @@ impl LibraryPageState {
                 if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
                 self.search_mode = true;
-                self.search_query.push(ch);
+                self.search.insert(ch);
                 self.selected = 0;
                 self.window_anchor = None;
                 self.rebuild_filter();
@@ -585,14 +590,24 @@ impl LibraryPageState {
             (KeyCode::Enter, KeyModifiers::NONE) => self.search_mode = false,
             (KeyCode::Up, KeyModifiers::NONE) => self.move_selection(-1),
             (KeyCode::Down, KeyModifiers::NONE) => self.move_selection(1),
+            (KeyCode::Left, KeyModifiers::NONE) => self.search.move_left(),
+            (KeyCode::Right, KeyModifiers::NONE) => self.search.move_right(),
+            (KeyCode::Home, KeyModifiers::NONE) => self.search.move_home(),
+            (KeyCode::End, KeyModifiers::NONE) => self.search.move_end(),
             (KeyCode::Backspace, KeyModifiers::NONE) => {
-                self.search_query.pop();
-                self.rebuild_filter();
+                if self.search.backspace() {
+                    self.rebuild_filter();
+                }
+            }
+            (KeyCode::Delete, KeyModifiers::NONE) => {
+                if self.search.delete_at() {
+                    self.rebuild_filter();
+                }
             }
             (KeyCode::Char(ch), modifiers)
                 if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
-                self.search_query.push(ch);
+                self.search.insert(ch);
                 self.rebuild_filter();
             }
             _ => {}
@@ -620,7 +635,7 @@ impl LibraryPageState {
             .items
             .iter()
             .enumerate()
-            .filter_map(|(index, item)| item.matches_query(&self.search_query).then_some(index))
+            .filter_map(|(index, item)| item.matches_query(self.search_query()).then_some(index))
             .collect();
 
         if self.filtered_indices.is_empty() {
@@ -646,8 +661,9 @@ impl LibraryPageState {
             .and_then(|selected| self.item_at_filtered(selected))
     }
 
-    pub(crate) fn activate_search(&mut self) {
+    pub(crate) fn activate_search_at(&mut self, cursor: usize) {
         self.search_mode = true;
+        self.search.place(cursor);
     }
 
     /// Click selects the row and records the click-time window start so the
