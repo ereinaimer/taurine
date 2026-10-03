@@ -1362,6 +1362,70 @@ pub fn set_trigger_name(conn: &Connection, id: &str, name: &str) -> Result<bool>
     Ok(changed > 0)
 }
 
+/// Rewrites the description of one trigger. Blank becomes NULL.
+/// Returns false when the id is unknown or already deleted.
+pub fn set_trigger_description(
+    conn: &Connection,
+    id: &str,
+    description: Option<&str>,
+) -> Result<bool> {
+    let cleaned = description.map(str::trim).filter(|d| !d.is_empty());
+    trigger_types::TriggerLimits::validate_description(cleaned)?;
+    let changed = conn.execute(
+        "UPDATE triggers
+         SET description = ?1, version = version + 1, updated_at = ?2, is_synced = 0
+         WHERE id = ?3 AND is_deleted = 0",
+        rusqlite::params![cleaned, crate::db::now_unix_secs(), id],
+    )?;
+    Ok(changed > 0)
+}
+
+/// Rewrites the body of one trigger: raw output for text triggers,
+/// script source for scripts (recompressed, interpreter kept).
+/// Text output is validated like the full update path. Whitespace is
+/// significant and never trimmed. Returns false when the id is unknown
+/// or already deleted.
+pub fn set_trigger_content(conn: &Connection, id: &str, content: &str) -> Result<bool> {
+    let row = super::trigger_get::get_trigger(conn, id)?;
+    let Some(row) = row else {
+        return Ok(false);
+    };
+    if row.is_deleted {
+        return Ok(false);
+    }
+    let now = crate::db::now_unix_secs();
+    if row.action_type == "script" {
+        let (Some(interpreter), Some(behavior)) = (row.interpreter, row.behavior) else {
+            return Err(crate::Error::Config(
+                "Script is missing its language metadata.".to_string(),
+            ));
+        };
+        let compressed = crate::engine::shell::compress(content)?;
+        upsert_script(conn, id, interpreter, behavior, &compressed)?;
+        let changed = conn.execute(
+            "UPDATE triggers
+             SET version = version + 1, updated_at = ?1, is_synced = 0
+             WHERE id = ?2 AND is_deleted = 0",
+            rusqlite::params![now, id],
+        )?;
+        return Ok(changed > 0);
+    }
+    let key = row
+        .invocations
+        .iter()
+        .find(|a| a.invocation_type == super::aliases::InvocationType::Word)
+        .map(|a| a.invocation.as_str())
+        .unwrap_or(&row.display);
+    validate_trigger_limits(conn, key, content, &row.action_type)?;
+    let changed = conn.execute(
+        "UPDATE triggers
+         SET output = ?1, version = version + 1, updated_at = ?2, is_synced = 0
+         WHERE id = ?3 AND is_deleted = 0",
+        rusqlite::params![content, now, id],
+    )?;
+    Ok(changed > 0)
+}
+
 /// Flips the per-trigger enable flag. Disabled triggers stay in the DB but
 /// are excluded from expansion and listing queries. Bumps version and marks
 /// the row unsynced like other mutations. Returns false when the id is

@@ -444,6 +444,119 @@ fn test_validate_no_references_passes() {
 }
 
 #[test]
+fn test_set_trigger_description_trims_and_nulls_blank() {
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let (_dir, conn) = crate::testing::open_test_db();
+
+    let now = crate::db::now_unix_secs();
+    let id = uuid::Uuid::new_v4().to_string();
+    conn.execute(
+            "INSERT INTO triggers (id, name, output, action_type, target_os, is_deleted, created_at, updated_at)
+              VALUES (?1, 'test', 'out', 'text', 'all', 0, ?2, ?2)",
+            rusqlite::params![id, now],
+        ).unwrap();
+
+    assert!(set_trigger_description(&conn, &id, Some("  Hello  ")).unwrap());
+    let stored: Option<String> = conn
+        .query_row(
+            "SELECT description FROM triggers WHERE id = ?1",
+            [&id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(stored.as_deref(), Some("Hello"));
+
+    assert!(set_trigger_description(&conn, &id, Some("   ")).unwrap());
+    let stored: Option<String> = conn
+        .query_row(
+            "SELECT description FROM triggers WHERE id = ?1",
+            [&id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(stored, None);
+
+    assert!(set_trigger_description(&conn, &id, None).unwrap());
+    assert!(!set_trigger_description(&conn, "ghost", Some("x")).unwrap());
+    assert!(set_trigger_description(&conn, &id, Some(&"a".repeat(1001))).is_err());
+}
+
+#[test]
+fn test_set_trigger_content_text_and_script() {
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let (_dir, conn) = crate::testing::open_test_db();
+
+    let text_id = create_entry(
+        &conn,
+        NewEntry {
+            name: String::new(),
+            description: None,
+            content: "old output".to_string(),
+            action_type: "text".to_string(),
+            target_os: "all".to_string(),
+            only_apps: None,
+            except_apps: None,
+            tags_json: "[]".to_string(),
+            auto_case: false,
+            interpreter: None,
+            behavior: None,
+            invocations: vec![(
+                crate::db::crud::InvocationType::Word,
+                "myword".to_string(),
+                false,
+            )],
+        },
+    );
+    let text_id = text_id.expect("create text entry").0;
+    assert!(set_trigger_content(&conn, &text_id, "new output").unwrap());
+    let stored: String = conn
+        .query_row(
+            "SELECT output FROM triggers WHERE id = ?1",
+            [&text_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(stored, "new output");
+    assert!(!set_trigger_content(&conn, "ghost", "x").unwrap());
+
+    let script_id = create_entry(
+        &conn,
+        NewEntry {
+            name: String::new(),
+            description: None,
+            content: "echo hi".to_string(),
+            action_type: "script".to_string(),
+            target_os: "all".to_string(),
+            only_apps: None,
+            except_apps: None,
+            tags_json: "[]".to_string(),
+            auto_case: false,
+            interpreter: Some(crate::engine::shell::ScriptInterpreter::Bash),
+            behavior: Some(crate::engine::shell::ScriptBehavior::Inline),
+            invocations: vec![(
+                crate::db::crud::InvocationType::Word,
+                "myscript".to_string(),
+                false,
+            )],
+        },
+    );
+    let script_id = script_id.expect("create script entry").0;
+    assert!(set_trigger_content(&conn, &script_id, "echo updated").unwrap());
+    let row = crate::db::crud::get_trigger(&conn, &script_id)
+        .unwrap()
+        .expect("row");
+    let script = row.script_binary.expect("script bytes");
+    assert_eq!(
+        crate::engine::shell::decompress(&script).unwrap(),
+        "echo updated"
+    );
+}
+
+#[test]
 fn test_set_trigger_name_trims_validates_and_bumps() {
     let _guard = crate::testing::TEST_LOCK
         .lock()
