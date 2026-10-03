@@ -468,6 +468,36 @@ impl LibraryPageState {
                 }
                 LibraryInteraction::handled()
             }
+            (KeyCode::Delete, KeyModifiers::NONE) => {
+                if let Some(edit) = self.edit.as_mut() {
+                    edit.delete_at();
+                }
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Left, KeyModifiers::NONE) => {
+                if let Some(edit) = self.edit.as_mut() {
+                    edit.move_left();
+                }
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Right, KeyModifiers::NONE) => {
+                if let Some(edit) = self.edit.as_mut() {
+                    edit.move_right();
+                }
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Home, KeyModifiers::NONE) => {
+                if let Some(edit) = self.edit.as_mut() {
+                    edit.move_home();
+                }
+                LibraryInteraction::handled()
+            }
+            (KeyCode::End, KeyModifiers::NONE) => {
+                if let Some(edit) = self.edit.as_mut() {
+                    edit.move_end();
+                }
+                LibraryInteraction::handled()
+            }
             (KeyCode::Char(ch), modifiers)
                 if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
