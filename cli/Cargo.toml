@@ -8,13 +8,21 @@ repository.workspace = true
 license-file.workspace = true
 publish = false
 
+[features]
+# Mirrors the daemon switch so the CLI fast loop matches:
+#   cargo check -p taurine --no-default-features
+# Default build is unchanged (voice + self-contained OpenSSL).
+default = ["vendored-openssl", "voice"]
+vendored-openssl = ["taurine_core/vendored-openssl", "taurine_daemon/vendored-openssl", "taurine_tui/vendored-openssl", "rusqlite/bundled-sqlcipher-vendored-openssl"]
+voice = ["taurine_daemon/voice"]
+
 [dev-dependencies]
 tempfile = "3.10"
 
 [dependencies]
-taurine_core = { path = "../core" }
-taurine_daemon = { path = "../daemon" }
-taurine_tui = { path = "../tui" }
+taurine_core = { path = "../core", default-features = false }
+taurine_daemon = { path = "../daemon", default-features = false }
+taurine_tui = { path = "../tui", default-features = false }
 clap = { version = "4", features = ["derive"] }
 time = { version = "0.3", features = ["macros", "local-offset"] }
 tracing = { workspace = true }
@@ -29,7 +37,7 @@ uuid = { version = "1.23.0", features = ["v4"] }
 clap_complete = "4"
 dirs = "7"
 zeroize = "1.8"
-rusqlite = { version = "0.39", features = ["bundled-sqlcipher-vendored-openssl"] }
+rusqlite = { version = "0.39", features = ["bundled-sqlcipher"] }
 keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 genai = "0.6.5"
 regex = "1"

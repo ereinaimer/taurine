@@ -8,8 +8,15 @@ repository.workspace = true
 license-file.workspace = true
 publish = false
 
+[features]
+# Lets the TUI fast loop skip the self-contained OpenSSL the same way core does:
+#   cargo check -p taurine_tui --no-default-features
+# Default build is unchanged.
+default = ["vendored-openssl"]
+vendored-openssl = ["taurine_core/vendored-openssl"]
+
 [dependencies]
-taurine_core = { path = "../core" }
+taurine_core = { path = "../core", default-features = false }
 crossterm = "0.29"
 ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
 tokio = { workspace = true }

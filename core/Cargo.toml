@@ -11,11 +11,19 @@ publish = false
 [lib]
 crate-type = ["lib", "cdylib", "staticlib"]
 
+[features]
+# Default build links a self-contained OpenSSL (no machine setup).
+# Fast dev loop links the system libcrypto instead — same SQLCipher,
+# same encrypted DB bytes, minus the multi-minute source build:
+#   cargo check -p taurine_core --no-default-features
+default = ["vendored-openssl"]
+vendored-openssl = ["rusqlite/bundled-sqlcipher-vendored-openssl", "r2d2_sqlite/bundled-sqlcipher-vendored-openssl"]
+
 [dependencies]
 tracing = { workspace = true }
-rusqlite = { version = "0.39", features = ["bundled-sqlcipher-vendored-openssl"] }
+rusqlite = { version = "0.39", features = ["bundled-sqlcipher"] }
 r2d2 = "0.8"
-r2d2_sqlite = { version = "0.34", features = ["bundled-sqlcipher-vendored-openssl"] }
+r2d2_sqlite = { version = "0.34", features = ["bundled-sqlcipher"] }
 directories = "6.0"
 tracing-appender = "0.2.4"
 tracing-subscriber = { workspace = true, features = ["env-filter", "time", "local-time"] }

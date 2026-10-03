@@ -9,14 +9,16 @@ license-file.workspace = true
 publish = false
 
 [features]
-# Default build ships the full product (voice ML on). Fast dev loops opt out:
+# Default build ships the full product (voice ML + self-contained OpenSSL).
+# Fast dev loops opt out of either independently:
 #   cargo check -p taurine_daemon --no-default-features
 # Release/CI always builds with defaults, so shipped behavior is unchanged.
-default = ["voice"]
+default = ["voice", "vendored-openssl"]
 voice = ["dep:sherpa-onnx", "dep:shenava-ctc-beam"]
+vendored-openssl = ["taurine_core/vendored-openssl", "rusqlite/bundled-sqlcipher-vendored-openssl"]
 
 [dependencies]
-taurine_core = { path = "../core" }
+taurine_core = { path = "../core", default-features = false }
 tracing = { workspace = true }
 # Trimmed from full: audited surface is rt, net, time, signal, sync, io-util, macros, process. No test-util in prod.
 tokio = { workspace = true }
@@ -33,7 +35,7 @@ zeroize = "1.8"
 crossbeam-channel = "0.5"
 libc = "0.2"
 zstd = "0.14"
-rusqlite = { version = "0.39", features = ["bundled-sqlcipher-vendored-openssl"] }
+rusqlite = { version = "0.39", features = ["bundled-sqlcipher"] }
 
 rodio = { version = "0.22", default-features = false, features = ["wav", "playback"] }
 os_info = "3"
