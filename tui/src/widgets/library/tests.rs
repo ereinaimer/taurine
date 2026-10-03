@@ -1293,7 +1293,7 @@ fn description_edit_hits_row_and_commits() {
     for ch in " hi".chars() {
         state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
     }
-    let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let interaction = state.commit_edit();
     let pending = interaction.pending_edit().expect("pending edit");
     assert!(matches!(
         &pending.field,
@@ -1312,7 +1312,7 @@ fn description_edit_blank_clears_to_none() {
     }
     // Blank is a valid unset (not an error): persists as no description,
     // silently, with no warning anywhere.
-    let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let interaction = state.commit_edit();
     let pending = interaction.pending_edit().expect("pending edit");
     assert!(matches!(
         &pending.field,
@@ -1985,6 +1985,54 @@ fn clicked_window_holds_while_default_policy_would_jump() {
 }
 
 #[test]
+fn switching_targets_commits_and_keeps_new_session_across_refresh() {
+    let mut state = sample_state();
+    state.start_description_edit();
+    for ch in " hi".chars() {
+        state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    // Clicking the name commits the description, typed text intact.
+    let interaction = state.start_name_edit_at(0);
+    let pending = interaction.pending_edit().expect("pending edit");
+    assert!(matches!(
+        &pending.field,
+        crate::widgets::library::actions::EditedField::Description(Some(text))
+            if text.ends_with(" hi")
+    ));
+    assert!(matches!(
+        state.edit().map(|edit| edit.target()),
+        Some(crate::widgets::library::state::EditTarget::Name)
+    ));
+
+    // Simulate lib apply + refresh: the new session survives.
+    let fresh: Vec<LibraryTrigger> = (0..state.filtered_len())
+        .filter_map(|index| state.item_at_filtered(index).cloned())
+        .collect();
+    state.replace_items(fresh);
+    assert!(matches!(
+        state.edit().map(|edit| edit.target()),
+        Some(crate::widgets::library::state::EditTarget::Name)
+    ));
+}
+
+#[test]
+fn refresh_drops_session_when_trigger_is_gone() {
+    let mut state = sample_state();
+    state.start_description_edit();
+    let id = state
+        .item_at_filtered(state.selected_index().unwrap())
+        .expect("row")
+        .id()
+        .to_string();
+    let fresh: Vec<LibraryTrigger> = (0..state.filtered_len())
+        .filter_map(|index| state.item_at_filtered(index).cloned())
+        .filter(|item| item.id() != id)
+        .collect();
+    state.replace_items(fresh);
+    assert!(state.edit().is_none());
+}
+
+#[test]
 fn refresh_after_save_keeps_window_still() {
     let mut state = six_item_state();
     state.click_item(3, 3);
@@ -2045,13 +2093,13 @@ fn name_edit_typing_enter_esc_flow() {
 }
 
 #[test]
-fn name_edit_enter_commits_changed_name() {
+fn name_edit_commit_persists_changed_name() {
     let mut state = sample_state();
     state.start_name_edit();
     for ch in " Jr".chars() {
         state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
     }
-    let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let interaction = state.commit_edit();
     let pending = interaction.pending_edit().expect("pending edit");
     assert!(matches!(
         &pending.field,
@@ -2061,7 +2109,20 @@ fn name_edit_enter_commits_changed_name() {
 }
 
 #[test]
-fn name_edit_enter_without_changes_is_noop() {
+fn name_edit_enter_is_dormant() {
+    let mut state = sample_state();
+    state.start_name_edit();
+    for ch in " Jr".chars() {
+        state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    // honey: Enter stays in the field; autosave persists.
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(interaction.pending_edit().is_none());
+    assert!(state.name_edit().is_some());
+}
+
+#[test]
+fn name_edit_commit_without_changes_is_noop() {
     let mut item = list_item(
         "id-gm",
         None,
@@ -2077,7 +2138,7 @@ fn name_edit_enter_without_changes_is_noop() {
     let mut state = LibraryPageState::default();
     state.replace_items(vec![LibraryTrigger::single(item)]);
     state.start_name_edit();
-    let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let interaction = state.commit_edit();
     assert!(interaction.pending_edit().is_none());
     assert!(state.name_edit().is_none());
 }
@@ -2091,11 +2152,88 @@ fn name_edit_blank_is_silent_noop() {
         state.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
     }
     assert_eq!(state.name_edit().expect("editing").field().text(), "");
-    // No warning, no error, no persist: existing value untouched.
+    // No warning, no error, no persist: session stays open, value untouched.
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert!(interaction.pending_edit().is_none());
-    assert!(state.name_edit().is_none());
+    assert!(state.name_edit().is_some());
     assert!(state.status_message().is_none());
+    let interaction = state.commit_edit();
+    assert!(interaction.pending_edit().is_none());
+    assert!(state.name_edit().is_none());
+}
+
+#[test]
+fn autosave_persists_idle_edit_and_keeps_session() {
+    let mut state = sample_state();
+    state.start_name_edit();
+    for ch in " Jr".chars() {
+        state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    let tick = crate::widgets::library::state::now_millis()
+        + crate::widgets::library::state::AUTOSAVE_DELAY_MS
+        + 10;
+    let interaction = state.autosave_tick_at(tick);
+    let pending = interaction.pending_edit().expect("pending edit");
+    assert!(matches!(
+        &pending.field,
+        crate::widgets::library::actions::EditedField::Name(name) if name == "alt+r Jr"
+    ));
+    // Session stays open for continued typing.
+    assert!(state.edit().is_some());
+}
+
+#[test]
+fn autosave_waits_for_quiet_period() {
+    let mut state = sample_state();
+    state.start_name_edit();
+    state.handle_key(KeyEvent::new(KeyCode::Char('!'), KeyModifiers::NONE));
+    let now = crate::widgets::library::state::now_millis();
+    let interaction = state.autosave_tick_at(now);
+    assert!(interaction.pending_edit().is_none());
+    assert!(state.edit().is_some());
+}
+
+#[test]
+fn autosave_silent_on_invalid_text() {
+    let mut state = sample_state();
+    state.start_name_edit();
+    for _ in 0..64 {
+        state.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+    }
+    let tick = crate::widgets::library::state::now_millis()
+        + crate::widgets::library::state::AUTOSAVE_DELAY_MS
+        + 10;
+    let interaction = state.autosave_tick_at(tick);
+    assert!(interaction.pending_edit().is_none());
+    assert!(state.edit().is_some());
+    assert!(state.status_message().is_none());
+}
+
+#[test]
+fn autosave_skips_unchanged_text() {
+    let mut item = list_item(
+        "id-gm",
+        None,
+        TriggerType::Word,
+        "gm",
+        "Good Morning",
+        "text",
+        "all",
+        9,
+        None,
+    );
+    item.name = "Morning Greeting".to_string();
+    let mut state = LibraryPageState::default();
+    state.replace_items(vec![LibraryTrigger::single(item)]);
+    state.start_name_edit();
+    // Type and undo: stamped, but identical to storage.
+    state.handle_key(KeyEvent::new(KeyCode::Char('!'), KeyModifiers::NONE));
+    state.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+    let tick = crate::widgets::library::state::now_millis()
+        + crate::widgets::library::state::AUTOSAVE_DELAY_MS
+        + 10;
+    let interaction = state.autosave_tick_at(tick);
+    assert!(interaction.pending_edit().is_none());
 }
 
 #[test]

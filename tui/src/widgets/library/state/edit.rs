@@ -37,6 +37,10 @@ impl ActiveEdit {
         self.target
     }
 
+    pub(crate) fn trigger_id(&self) -> &str {
+        &self.trigger_id
+    }
+
     pub(crate) fn line(&self) -> &TextField {
         &self.line
     }
@@ -108,8 +112,12 @@ impl super::LibraryPageState {
     /// Click-to-place: caret lands on the clicked character. A session
     /// on another part commits first; the caller persists the result.
     pub(crate) fn start_name_edit_at(&mut self, cursor: usize) -> LibraryInteraction {
-        if let Some(edit) = self.edit.as_mut() {
-            if edit.target == EditTarget::Name {
+        let same_target = self
+            .edit
+            .as_ref()
+            .is_some_and(|edit| edit.target == EditTarget::Name);
+        if same_target {
+            if let Some(edit) = self.edit.as_mut() {
                 edit.line.place(cursor);
             }
             return LibraryInteraction::handled();
@@ -173,13 +181,14 @@ impl super::LibraryPageState {
 
     pub(crate) fn cancel_edit(&mut self) {
         self.edit = None;
+        self.last_edit_at = None;
     }
 
-    /// Validate + persist the draft. Unchanged or invalid text is a
-    /// silent no-op: the existing value is left untouched and no
-    /// warning is shown anywhere.
-    pub(crate) fn commit_edit(&mut self) -> LibraryInteraction {
-        let Some(edit) = self.edit.take() else {
+    /// Validate + persist the draft without closing the session.
+    /// Unchanged or invalid text is a silent no-op. Used by autosave;
+    /// explicit exits go through `commit_edit`.
+    pub(crate) fn build_edit_interaction(&self) -> LibraryInteraction {
+        let Some(edit) = self.edit.as_ref() else {
             return LibraryInteraction::handled();
         };
         let Some(selected) = self.selected_index() else {
@@ -190,7 +199,7 @@ impl super::LibraryPageState {
         };
         if edit.trigger_id != item.id() {
             return LibraryInteraction::handled();
-        }
+        };
         match edit.target {
             EditTarget::Name => {
                 let name = edit.line.text().trim().to_string();
@@ -198,7 +207,7 @@ impl super::LibraryPageState {
                     return LibraryInteraction::handled();
                 }
                 LibraryInteraction::edit(crate::widgets::library::actions::PendingLibraryEdit {
-                    trigger_id: edit.trigger_id,
+                    trigger_id: edit.trigger_id.clone(),
                     trigger: item.trigger().to_string(),
                     field: crate::widgets::library::actions::EditedField::Name(name),
                     restore_index: selected,
@@ -219,7 +228,7 @@ impl super::LibraryPageState {
                     return LibraryInteraction::handled();
                 }
                 LibraryInteraction::edit(crate::widgets::library::actions::PendingLibraryEdit {
-                    trigger_id: edit.trigger_id,
+                    trigger_id: edit.trigger_id.clone(),
                     trigger: item.trigger().to_string(),
                     field: crate::widgets::library::actions::EditedField::Description(description),
                     restore_index: selected,
@@ -231,13 +240,22 @@ impl super::LibraryPageState {
                     return LibraryInteraction::handled();
                 }
                 LibraryInteraction::edit(crate::widgets::library::actions::PendingLibraryEdit {
-                    trigger_id: edit.trigger_id,
+                    trigger_id: edit.trigger_id.clone(),
                     trigger: item.trigger().to_string(),
                     field: crate::widgets::library::actions::EditedField::Content(body),
                     restore_index: selected,
                 })
             }
         }
+    }
+
+    /// Validate + persist the draft, closing the session. Same silent
+    /// no-op policy as the autosave path.
+    pub(crate) fn commit_edit(&mut self) -> LibraryInteraction {
+        let interaction = self.build_edit_interaction();
+        self.edit = None;
+        self.last_edit_at = None;
+        interaction
     }
 
     /// Reopen an edit after a failed save so typed text is never lost.

@@ -78,6 +78,17 @@ pub(crate) struct LibraryPageState {
     detail_scroll: usize,
     usage_expanded: bool,
     edit: Option<ActiveEdit>,
+    last_edit_at: Option<u64>,
+}
+
+/// Millis after the last keystroke before an open edit autosaves.
+pub(crate) const AUTOSAVE_DELAY_MS: u64 = 1000;
+
+pub(crate) fn now_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 impl Default for LibraryPageState {
@@ -99,21 +110,27 @@ impl Default for LibraryPageState {
             detail_scroll: 0,
             usage_expanded: false,
             edit: None,
+            last_edit_at: None,
         }
     }
 }
 
 impl LibraryPageState {
     pub(crate) fn replace_items(&mut self, mut items: Vec<LibraryTrigger>) {
-        // honey: a refresh (e.g. after rename) must not move the list;
-        // the click-time anchor survives, stale values fall back safely
-        // inside visible_window.
+        // honey: a refresh (e.g. after a target switch commit) must not
+        // kill a live session; drop it only when its trigger is gone.
+        // The click-time anchor survives for the same reason: stale
+        // values fall back safely inside visible_window.
         let anchor = self.window_anchor;
+        let live_edit = self
+            .edit
+            .take()
+            .filter(|edit| items.iter().any(|item| item.id() == edit.trigger_id()));
         crate::widgets::library::actions::sort_items(&mut items);
         self.items = items;
         self.load_error = None;
         self.status_message = None;
-        self.edit = None;
+        self.edit = live_edit;
         self.reset_detail_scroll();
         self.rebuild_filter();
         self.window_anchor = anchor;
@@ -216,6 +233,31 @@ impl LibraryPageState {
 
     pub(crate) fn toggle_usage(&mut self) {
         self.usage_expanded = !self.usage_expanded;
+    }
+
+    /// Record a text mutation for autosave timing. Caret moves do not
+    /// stamp: only real changes restart the delay.
+    pub(crate) fn stamp_edit(&mut self) {
+        if self.edit.is_some() {
+            self.last_edit_at = Some(now_millis());
+        }
+    }
+
+    /// Persist an idle edit without closing the session. The refresh
+    /// keeps live sessions, so typing continues uninterrupted.
+    pub(crate) fn autosave_tick(&mut self) -> LibraryInteraction {
+        self.autosave_tick_at(now_millis())
+    }
+
+    pub(crate) fn autosave_tick_at(&mut self, now: u64) -> LibraryInteraction {
+        let Some(stamped) = self.last_edit_at else {
+            return LibraryInteraction::handled();
+        };
+        if now.saturating_sub(stamped) < AUTOSAVE_DELAY_MS {
+            return LibraryInteraction::handled();
+        }
+        self.last_edit_at = None;
+        self.build_edit_interaction()
     }
 
     /// Enable/disable toggle for the selected trigger. Returns a persist
@@ -456,7 +498,8 @@ impl LibraryPageState {
             return self.handle_content_key(key);
         }
         match (key.code, key.modifiers) {
-            (KeyCode::Enter, KeyModifiers::NONE) => self.commit_edit(),
+            // honey: Enter stays in the field; autosave persists.
+            (KeyCode::Enter, KeyModifiers::NONE) => LibraryInteraction::handled(),
             (KeyCode::Esc, KeyModifiers::NONE) => {
                 self.cancel_edit();
                 LibraryInteraction::handled()
@@ -475,12 +518,14 @@ impl LibraryPageState {
                 if let Some(edit) = self.edit.as_mut() {
                     edit.line_mut().backspace();
                 }
+                self.stamp_edit();
                 LibraryInteraction::handled()
             }
             (KeyCode::Delete, KeyModifiers::NONE) => {
                 if let Some(edit) = self.edit.as_mut() {
                     edit.line_mut().delete_at();
                 }
+                self.stamp_edit();
                 LibraryInteraction::handled()
             }
             (KeyCode::Left, KeyModifiers::NONE) => {
@@ -513,6 +558,7 @@ impl LibraryPageState {
                 if let Some(edit) = self.edit.as_mut() {
                     edit.push_char(ch);
                 }
+                self.stamp_edit();
                 LibraryInteraction::handled()
             }
             _ => LibraryInteraction::handled(),
@@ -528,18 +574,21 @@ impl LibraryPageState {
             (KeyCode::Tab, KeyModifiers::NONE) => self.commit_edit(),
             (KeyCode::Enter, KeyModifiers::NONE) => {
                 self.content_newline();
+                self.stamp_edit();
                 LibraryInteraction::handled()
             }
             (KeyCode::Backspace, KeyModifiers::NONE) => {
                 self.move_content_caret(|body| {
                     body.backspace();
                 });
+                self.stamp_edit();
                 LibraryInteraction::handled()
             }
             (KeyCode::Delete, KeyModifiers::NONE) => {
                 self.move_content_caret(|body| {
                     body.delete_at();
                 });
+                self.stamp_edit();
                 LibraryInteraction::handled()
             }
             (KeyCode::Left, KeyModifiers::NONE) => {
@@ -570,6 +619,7 @@ impl LibraryPageState {
                 if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
                 self.insert_content_char(ch);
+                self.stamp_edit();
                 LibraryInteraction::handled()
             }
             _ => LibraryInteraction::handled(),

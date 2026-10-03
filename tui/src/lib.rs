@@ -101,7 +101,12 @@ pub fn run() -> taurine_core::Result<()> {
         match events.next()? {
             Event::Key(key) => handle_tui_key_event(&mut app, key),
             Event::Mouse(mouse) => handle_tui_mouse_event(&mut app, mouse, last_area),
-            Event::Tick => {}
+            Event::Tick => {
+                if app.active_page() == Page::Library {
+                    let interaction = app.library_page_mut().autosave_tick();
+                    apply_library_interaction(&mut app, interaction);
+                }
+            }
         }
 
         if app.should_quit() {
@@ -150,11 +155,16 @@ fn handle_tui_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
 
     // honey: Ctrl+C quits cleanly from anywhere, including modals and
     // search, since raw mode delivers it as a key event, not a signal.
+    // Pending edits flush first so nothing typed is lost to timing.
     if key.code == crossterm::event::KeyCode::Char('c')
         && key
             .modifiers
             .contains(crossterm::event::KeyModifiers::CONTROL)
     {
+        if app.active_page() == Page::Library {
+            let interaction = app.library_page_mut().commit_edit();
+            apply_library_interaction(app, interaction);
+        }
         app.request_quit();
         return;
     }

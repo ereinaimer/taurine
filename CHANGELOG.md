@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **Inline Renaming**: Click a trigger name to edit it in place. Enter saves, switching triggers saves automatically.
 - **Editable Description and Content**: Click the description or the snippet body to edit in place with a real caret. Tab commits content, Esc discards, leaving the trigger auto-saves.
+- **Autosave While Typing**: Edits save themselves after a one-second pause, so Enter stays free for newlines and quitting never loses typed text.
 - **Three-Pane Library**: Trigger list, content, and properties now sit side by side with two draggable dividers, collapsing gracefully on narrow terminals.
 - **Richer Trigger Details**: Library detail pane now shows the description, an enable toggle, type and script option buttons, scrollable content, and tag chips. Disabled triggers stay listed (dimmed) so they can be turned back on.
 - **Arrow-Key Navigation**: The library list now moves with the Up/Down arrow keys; every letter and symbol types straight into search instead.
