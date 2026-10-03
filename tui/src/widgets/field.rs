@@ -25,16 +25,6 @@ impl TextField {
         self.cursor
     }
 
-    pub(crate) fn set_text(&mut self, text: impl Into<String>) {
-        self.text = text.into();
-        self.clamp_cursor();
-    }
-
-    pub(crate) fn clear(&mut self) {
-        self.text.clear();
-        self.cursor = 0;
-    }
-
     pub(crate) fn is_empty(&self) -> bool {
         self.text.is_empty()
     }
@@ -98,31 +88,7 @@ impl TextField {
     /// fits, tail ending at the caret once text overflows. A caret past
     /// the last cell (typing at the end) clamps at render time.
     pub(crate) fn window(&self, width: u16) -> (&str, usize) {
-        let width = (width.max(1)) as usize;
-        let total = self.len_chars();
-        let start = if total <= width {
-            0
-        } else if self.cursor >= total {
-            total.saturating_sub(width)
-        } else {
-            (self.cursor + 1).saturating_sub(width).min(total)
-        };
-        let start_byte = byte_index(&self.text, start);
-        let end_byte = self
-            .text
-            .char_indices()
-            .nth(start.saturating_add(width))
-            .map(|(byte, _)| byte)
-            .unwrap_or(self.text.len());
-        (
-            &self.text[start_byte..end_byte],
-            self.cursor.saturating_sub(start),
-        )
-    }
-
-    /// Width-preserving masked view for password fields.
-    pub(crate) fn masked(&self) -> String {
-        self.text.chars().map(|_| '•').collect()
+        window_of(self.text(), self.cursor, width)
     }
 
     /// Click column (0-based from the field start) to caret index.
@@ -130,10 +96,27 @@ impl TextField {
     pub(crate) fn index_at(&self, column: usize) -> usize {
         column.min(self.len_chars())
     }
+}
 
-    fn clamp_cursor(&mut self) {
-        self.cursor = self.cursor.min(self.len_chars());
-    }
+/// Window math over raw display text plus a caret index, for masked
+/// values whose stored text differs from what is shown.
+pub(crate) fn window_of(text: &str, cursor: usize, width: u16) -> (&str, usize) {
+    let width = (width.max(1)) as usize;
+    let total = text.chars().count();
+    let start = if total <= width {
+        0
+    } else if cursor >= total {
+        total.saturating_sub(width)
+    } else {
+        (cursor + 1).saturating_sub(width).min(total)
+    };
+    let start_byte = byte_index(text, start);
+    let end_byte = text
+        .char_indices()
+        .nth(start.saturating_add(width))
+        .map(|(byte, _)| byte)
+        .unwrap_or(text.len());
+    (&text[start_byte..end_byte], cursor.saturating_sub(start))
 }
 
 fn byte_index(value: &str, char_index: usize) -> usize {
@@ -182,12 +165,9 @@ mod tests {
         field.move_home();
         field.move_left();
         assert_eq!(field.cursor(), 0);
-        field.set_text("x");
-        assert_eq!(field.cursor(), 0);
-        assert_eq!(field.text(), "x");
-        field.clear();
-        assert!(field.is_empty());
-        assert_eq!(field.cursor(), 0);
+        field.move_end();
+        assert_eq!(field.text(), "ab");
+        assert!(!field.is_empty());
     }
 
     #[test]
@@ -214,10 +194,11 @@ mod tests {
     }
 
     #[test]
-    fn masked_view_preserves_width() {
+    fn masked_view_concept() {
+        // Masking renders "*" per character at the call site, keeping the
+        // shared field free of display policy.
         let field = TextField::new("s3cr3t");
-        assert_eq!(field.masked(), "••••••");
-        assert_eq!(field.masked().chars().count(), field.len_chars());
+        assert_eq!("*".repeat(field.len_chars()), "******");
     }
 
     #[test]

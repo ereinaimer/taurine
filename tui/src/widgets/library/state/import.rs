@@ -1,8 +1,9 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+use crate::widgets::field::TextField;
 use crate::widgets::library::actions::{
     LibraryImportConflictMode, LibraryImportOutcome, LibraryInteraction,
-    PendingLibraryImportPrepare, PreparedLibraryImport, char_index_to_byte_index,
+    PendingLibraryImportPrepare, PreparedLibraryImport,
 };
 
 use super::trigger::LibrarySelectState;
@@ -17,10 +18,8 @@ pub(crate) const IMPORT_MODAL_FIELDS: [LibraryImportModalField; 4] = [
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LibraryImportModalState {
-    path: String,
-    path_cursor: usize,
-    password: String,
-    password_cursor: usize,
+    path: TextField,
+    password: TextField,
     conflict_mode: LibraryImportConflictMode,
     focus: LibraryImportModalField,
     error: Option<String>,
@@ -32,10 +31,8 @@ pub(crate) struct LibraryImportModalState {
 impl LibraryImportModalState {
     pub fn new() -> Self {
         Self {
-            path: String::new(),
-            path_cursor: 0,
-            password: String::new(),
-            password_cursor: 0,
+            path: TextField::new(""),
+            password: TextField::new(""),
             conflict_mode: LibraryImportConflictMode::Skip,
             focus: LibraryImportModalField::Path,
             error: None,
@@ -46,13 +43,9 @@ impl LibraryImportModalState {
     }
 
     pub(crate) fn with_path(path: impl Into<String>) -> Self {
-        let path = path.into();
-        let path_cursor = path.chars().count();
         let mut state = Self {
-            path,
-            path_cursor,
-            password: String::new(),
-            password_cursor: 0,
+            path: TextField::new(path),
+            password: TextField::new(""),
             conflict_mode: LibraryImportConflictMode::Skip,
             focus: LibraryImportModalField::ConflictMode,
             error: None,
@@ -69,7 +62,7 @@ impl LibraryImportModalState {
     }
 
     fn detect_file_encryption(&mut self) {
-        let path = self.path.trim();
+        let path = self.path.text().trim();
         if path.is_empty() {
             self.file_is_encrypted = None;
             return;
@@ -90,23 +83,27 @@ impl LibraryImportModalState {
     }
 
     pub(crate) fn path(&self) -> &str {
+        self.path.text()
+    }
+
+    pub(crate) fn path_field(&self) -> &TextField {
         &self.path
     }
 
-    pub(crate) const fn path_cursor(&self) -> usize {
-        self.path_cursor
+    pub(crate) fn path_cursor(&self) -> usize {
+        self.path.cursor()
     }
 
     pub(crate) fn password(&self) -> &str {
-        &self.password
+        self.password.text()
+    }
+
+    pub(crate) fn password_cursor(&self) -> usize {
+        self.password.cursor()
     }
 
     pub(crate) fn password_display_value(&self) -> String {
-        "*".repeat(self.password.chars().count())
-    }
-
-    pub(crate) const fn password_cursor(&self) -> usize {
-        self.password_cursor
+        "*".repeat(self.password.len_chars())
     }
 
     #[cfg(test)]
@@ -222,7 +219,7 @@ impl LibraryImportModalState {
     }
 
     fn build_pending_prepare(&self) -> taurine_core::Result<PendingLibraryImportPrepare> {
-        if self.path.trim().is_empty() {
+        if self.path.text().trim().is_empty() {
             return Err(taurine_core::Error::Config(
                 "Import path is required.".to_string(),
             ));
@@ -236,11 +233,11 @@ impl LibraryImportModalState {
 
         let password = match self.file_is_encrypted {
             Some(false) => None,
-            _ => (!self.password.is_empty()).then(|| self.password.clone()),
+            _ => (!self.password.is_empty()).then(|| self.password.text().to_string()),
         };
 
         Ok(PendingLibraryImportPrepare {
-            path: self.path.clone(),
+            path: self.path.text().to_string(),
             password,
             conflict_mode: self.conflict_mode,
             return_to_modal: self.clone(),
@@ -298,33 +295,36 @@ impl LibraryImportModalState {
     fn handle_path_key(&mut self, key: KeyEvent) -> LibraryInteraction {
         match (key.code, key.modifiers) {
             (KeyCode::Left, KeyModifiers::NONE) => {
-                self.path_cursor = self.path_cursor.saturating_sub(1);
+                self.path.move_left();
                 LibraryInteraction::handled()
             }
             (KeyCode::Right, KeyModifiers::NONE) => {
-                self.path_cursor = (self.path_cursor + 1).min(self.path.chars().count());
+                self.path.move_right();
                 LibraryInteraction::handled()
             }
             (KeyCode::Home, KeyModifiers::NONE) => {
-                self.path_cursor = 0;
+                self.path.move_home();
                 LibraryInteraction::handled()
             }
             (KeyCode::End, KeyModifiers::NONE) => {
-                self.path_cursor = self.path.chars().count();
+                self.path.move_end();
                 LibraryInteraction::handled()
             }
             (KeyCode::Backspace, KeyModifiers::NONE) => {
-                self.delete_path_backward();
+                self.path.backspace();
+                self.detect_file_encryption();
                 LibraryInteraction::handled()
             }
             (KeyCode::Delete, KeyModifiers::NONE) => {
-                self.delete_path_forward();
+                self.path.delete_at();
+                self.detect_file_encryption();
                 LibraryInteraction::handled()
             }
             (KeyCode::Char(ch), modifiers)
                 if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
-                self.insert_path_char(ch);
+                self.path.insert(ch);
+                self.detect_file_encryption();
                 LibraryInteraction::handled()
             }
             _ => LibraryInteraction::handled(),
@@ -334,34 +334,33 @@ impl LibraryImportModalState {
     fn handle_password_key(&mut self, key: KeyEvent) -> LibraryInteraction {
         match (key.code, key.modifiers) {
             (KeyCode::Left, KeyModifiers::NONE) => {
-                self.password_cursor = self.password_cursor.saturating_sub(1);
+                self.password.move_left();
                 LibraryInteraction::handled()
             }
             (KeyCode::Right, KeyModifiers::NONE) => {
-                self.password_cursor =
-                    (self.password_cursor + 1).min(self.password.chars().count());
+                self.password.move_right();
                 LibraryInteraction::handled()
             }
             (KeyCode::Home, KeyModifiers::NONE) => {
-                self.password_cursor = 0;
+                self.password.move_home();
                 LibraryInteraction::handled()
             }
             (KeyCode::End, KeyModifiers::NONE) => {
-                self.password_cursor = self.password.chars().count();
+                self.password.move_end();
                 LibraryInteraction::handled()
             }
             (KeyCode::Backspace, KeyModifiers::NONE) => {
-                self.delete_password_backward();
+                self.password.backspace();
                 LibraryInteraction::handled()
             }
             (KeyCode::Delete, KeyModifiers::NONE) => {
-                self.delete_password_forward();
+                self.password.delete_at();
                 LibraryInteraction::handled()
             }
             (KeyCode::Char(ch), modifiers)
                 if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
-                self.insert_password_char(ch);
+                self.password.insert(ch);
                 LibraryInteraction::handled()
             }
             _ => LibraryInteraction::handled(),
@@ -418,59 +417,6 @@ impl LibraryImportModalState {
 
     fn should_skip_field(&self, field: LibraryImportModalField) -> bool {
         field == LibraryImportModalField::Password && self.file_is_encrypted == Some(false)
-    }
-
-    fn insert_path_char(&mut self, ch: char) {
-        let byte_index = char_index_to_byte_index(&self.path, self.path_cursor);
-        self.path.insert(byte_index, ch);
-        self.path_cursor += 1;
-        self.detect_file_encryption();
-    }
-
-    fn delete_path_backward(&mut self) {
-        if self.path_cursor == 0 {
-            return;
-        }
-        let end = char_index_to_byte_index(&self.path, self.path_cursor);
-        let start = char_index_to_byte_index(&self.path, self.path_cursor - 1);
-        self.path.replace_range(start..end, "");
-        self.path_cursor -= 1;
-        self.detect_file_encryption();
-    }
-
-    fn delete_path_forward(&mut self) {
-        if self.path_cursor >= self.path.chars().count() {
-            return;
-        }
-        let start = char_index_to_byte_index(&self.path, self.path_cursor);
-        let end = char_index_to_byte_index(&self.path, self.path_cursor + 1);
-        self.path.replace_range(start..end, "");
-        self.detect_file_encryption();
-    }
-
-    fn insert_password_char(&mut self, ch: char) {
-        let byte_index = char_index_to_byte_index(&self.password, self.password_cursor);
-        self.password.insert(byte_index, ch);
-        self.password_cursor += 1;
-    }
-
-    fn delete_password_backward(&mut self) {
-        if self.password_cursor == 0 {
-            return;
-        }
-        let end = char_index_to_byte_index(&self.password, self.password_cursor);
-        let start = char_index_to_byte_index(&self.password, self.password_cursor - 1);
-        self.password.replace_range(start..end, "");
-        self.password_cursor -= 1;
-    }
-
-    fn delete_password_forward(&mut self) {
-        if self.password_cursor >= self.password.chars().count() {
-            return;
-        }
-        let start = char_index_to_byte_index(&self.password, self.password_cursor);
-        let end = char_index_to_byte_index(&self.password, self.password_cursor + 1);
-        self.password.replace_range(start..end, "");
     }
 }
 

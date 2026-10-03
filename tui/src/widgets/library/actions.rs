@@ -357,14 +357,6 @@ pub(crate) fn sort_items(items: &mut [LibraryTrigger]) {
     });
 }
 
-pub(crate) fn char_index_to_byte_index(value: &str, char_index: usize) -> usize {
-    value
-        .char_indices()
-        .nth(char_index)
-        .map(|(byte_index, _)| byte_index)
-        .unwrap_or(value.len())
-}
-
 const SCRIPT_PREVIEW_FALLBACK: &str = "Script content unavailable.";
 
 /// Full multi-line body for the detail content section: script source for

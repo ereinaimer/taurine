@@ -2,9 +2,8 @@ use std::path::Path;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::widgets::library::actions::{
-    LibraryInteraction, PendingLibraryExport, char_index_to_byte_index,
-};
+use crate::widgets::field::TextField;
+use crate::widgets::library::actions::{LibraryInteraction, PendingLibraryExport};
 
 use super::ButtonSelection;
 
@@ -29,10 +28,8 @@ impl LibraryExportModalField {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LibraryExportModalState {
-    path: String,
-    path_cursor: usize,
-    password: String,
-    password_cursor: usize,
+    path: TextField,
+    password: TextField,
     focus: LibraryExportModalField,
     error: Option<String>,
     button_selection: ButtonSelection,
@@ -43,13 +40,10 @@ impl LibraryExportModalState {
         let path = taurine_core::exchange::resolve_export_path(None)?
             .to_string_lossy()
             .into_owned();
-        let path_cursor = path.chars().count();
 
         Ok(Self {
-            path,
-            path_cursor,
-            password: String::new(),
-            password_cursor: 0,
+            path: TextField::new(path),
+            password: TextField::new(""),
             focus: LibraryExportModalField::Path,
             error: None,
             button_selection: ButtonSelection::Cancel,
@@ -57,27 +51,27 @@ impl LibraryExportModalState {
     }
 
     pub(crate) fn path(&self) -> &str {
+        self.path.text()
+    }
+
+    pub(crate) fn path_field(&self) -> &TextField {
         &self.path
     }
 
-    pub(crate) const fn path_cursor(&self) -> usize {
-        self.path_cursor
+    pub(crate) fn path_cursor(&self) -> usize {
+        self.path.cursor()
+    }
+
+    pub(crate) fn password_cursor(&self) -> usize {
+        self.password.cursor()
     }
 
     pub(crate) fn password_masked(&self) -> String {
-        "*".repeat(self.password.chars().count())
-    }
-
-    pub(crate) fn password(&self) -> &str {
-        &self.password
+        "*".repeat(self.password.len_chars())
     }
 
     pub(crate) fn password_display_value(&self) -> String {
         self.password_masked()
-    }
-
-    pub(crate) const fn password_cursor(&self) -> usize {
-        self.password_cursor
     }
 
     pub(crate) const fn focus(&self) -> LibraryExportModalField {
@@ -176,21 +170,21 @@ impl LibraryExportModalState {
     }
 
     fn build_pending_export(&self) -> taurine_core::Result<PendingLibraryExport> {
-        if self.path.trim().is_empty() {
+        if self.path.text().trim().is_empty() {
             return Err(taurine_core::Error::Config(
                 "Export path is required.".to_string(),
             ));
         }
 
-        let password = if self.password.trim().is_empty() {
+        let password = if self.password.text().trim().is_empty() {
             None
         } else {
-            taurine_core::exchange::validate_export_password(&self.password)?;
-            Some(self.password.clone())
+            taurine_core::exchange::validate_export_password(self.password.text())?;
+            Some(self.password.text().to_string())
         };
 
         Ok(PendingLibraryExport {
-            path: self.path.clone(),
+            path: self.path.text().to_string(),
             password,
         })
     }
@@ -208,33 +202,33 @@ impl LibraryExportModalState {
     fn handle_path_key(&mut self, key: KeyEvent) -> LibraryInteraction {
         match (key.code, key.modifiers) {
             (KeyCode::Left, KeyModifiers::NONE) => {
-                self.path_cursor = self.path_cursor.saturating_sub(1);
+                self.path.move_left();
                 LibraryInteraction::handled()
             }
             (KeyCode::Right, KeyModifiers::NONE) => {
-                self.path_cursor = (self.path_cursor + 1).min(self.path.chars().count());
+                self.path.move_right();
                 LibraryInteraction::handled()
             }
             (KeyCode::Home, KeyModifiers::NONE) => {
-                self.path_cursor = 0;
+                self.path.move_home();
                 LibraryInteraction::handled()
             }
             (KeyCode::End, KeyModifiers::NONE) => {
-                self.path_cursor = self.path.chars().count();
+                self.path.move_end();
                 LibraryInteraction::handled()
             }
             (KeyCode::Backspace, KeyModifiers::NONE) => {
-                self.delete_path_backward();
+                self.path.backspace();
                 LibraryInteraction::handled()
             }
             (KeyCode::Delete, KeyModifiers::NONE) => {
-                self.delete_path_forward();
+                self.path.delete_at();
                 LibraryInteraction::handled()
             }
             (KeyCode::Char(ch), modifiers)
                 if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
-                self.insert_path_char(ch);
+                self.path.insert(ch);
                 LibraryInteraction::handled()
             }
             _ => LibraryInteraction::handled(),
@@ -244,34 +238,33 @@ impl LibraryExportModalState {
     fn handle_password_key(&mut self, key: KeyEvent) -> LibraryInteraction {
         match (key.code, key.modifiers) {
             (KeyCode::Left, KeyModifiers::NONE) => {
-                self.password_cursor = self.password_cursor.saturating_sub(1);
+                self.password.move_left();
                 LibraryInteraction::handled()
             }
             (KeyCode::Right, KeyModifiers::NONE) => {
-                self.password_cursor =
-                    (self.password_cursor + 1).min(self.password.chars().count());
+                self.password.move_right();
                 LibraryInteraction::handled()
             }
             (KeyCode::Home, KeyModifiers::NONE) => {
-                self.password_cursor = 0;
+                self.password.move_home();
                 LibraryInteraction::handled()
             }
             (KeyCode::End, KeyModifiers::NONE) => {
-                self.password_cursor = self.password.chars().count();
+                self.password.move_end();
                 LibraryInteraction::handled()
             }
             (KeyCode::Backspace, KeyModifiers::NONE) => {
-                self.delete_password_backward();
+                self.password.backspace();
                 LibraryInteraction::handled()
             }
             (KeyCode::Delete, KeyModifiers::NONE) => {
-                self.delete_password_forward();
+                self.password.delete_at();
                 LibraryInteraction::handled()
             }
             (KeyCode::Char(ch), modifiers)
                 if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
-                self.insert_password_char(ch);
+                self.password.insert(ch);
                 LibraryInteraction::handled()
             }
             _ => LibraryInteraction::handled(),
@@ -296,60 +289,6 @@ impl LibraryExportModalState {
             }
             self.focus = fields[current_index - 1];
         }
-    }
-
-    fn insert_path_char(&mut self, ch: char) {
-        let byte_index = char_index_to_byte_index(&self.path, self.path_cursor);
-        self.path.insert(byte_index, ch);
-        self.path_cursor += 1;
-    }
-
-    fn delete_path_backward(&mut self) {
-        if self.path_cursor == 0 {
-            return;
-        }
-
-        let end = char_index_to_byte_index(&self.path, self.path_cursor);
-        let start = char_index_to_byte_index(&self.path, self.path_cursor - 1);
-        self.path.replace_range(start..end, "");
-        self.path_cursor -= 1;
-    }
-
-    fn delete_path_forward(&mut self) {
-        if self.path_cursor >= self.path.chars().count() {
-            return;
-        }
-
-        let start = char_index_to_byte_index(&self.path, self.path_cursor);
-        let end = char_index_to_byte_index(&self.path, self.path_cursor + 1);
-        self.path.replace_range(start..end, "");
-    }
-
-    fn insert_password_char(&mut self, ch: char) {
-        let byte_index = char_index_to_byte_index(&self.password, self.password_cursor);
-        self.password.insert(byte_index, ch);
-        self.password_cursor += 1;
-    }
-
-    fn delete_password_backward(&mut self) {
-        if self.password_cursor == 0 {
-            return;
-        }
-
-        let end = char_index_to_byte_index(&self.password, self.password_cursor);
-        let start = char_index_to_byte_index(&self.password, self.password_cursor - 1);
-        self.password.replace_range(start..end, "");
-        self.password_cursor -= 1;
-    }
-
-    fn delete_password_forward(&mut self) {
-        if self.password_cursor >= self.password.chars().count() {
-            return;
-        }
-
-        let start = char_index_to_byte_index(&self.password, self.password_cursor);
-        let end = char_index_to_byte_index(&self.password, self.password_cursor + 1);
-        self.password.replace_range(start..end, "");
     }
 }
 

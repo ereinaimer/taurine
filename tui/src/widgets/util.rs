@@ -23,20 +23,6 @@ pub(crate) fn truncate_to_width(value: &str, max_chars: u16) -> String {
     }
 }
 
-/// Visible tail of a search query for a `width`-wide field. The caret
-/// always sits at the end of the query (no mid-text movement), so the
-/// viewport is the last `width` characters and overlong input slides
-/// left instead of clipping invisibly.
-pub(crate) fn search_viewport(query: &str, width: u16) -> &str {
-    let count = query.chars().count();
-    let keep = (width as usize).min(count);
-    let skip = count.saturating_sub(keep);
-    match query.char_indices().nth(skip) {
-        Some((byte, _)) => &query[byte..],
-        None => query,
-    }
-}
-
 /// Caret column for a char-index cursor inside a one-line field starting
 /// at `x` with `width` cells. Stays inside the field so the terminal
 /// caret (which honors the configured cursor style) is what the user sees.
@@ -204,9 +190,10 @@ pub(crate) fn render_modal_input_field(
 
     let block = Block::default().style(Style::default().bg(bg));
     frame.render_widget(block, area);
-    frame.render_widget(Paragraph::new(value.to_string()).style(text_style), area);
+    let (visible, caret) = super::field::window_of(value, cursor, area.width);
+    frame.render_widget(Paragraph::new(visible.to_string()).style(text_style), area);
     if focused && area.width > 0 && area.height > 0 {
-        let (cx, cy) = caret_position(area.x, area.y, cursor, area.width);
+        let (cx, cy) = caret_position(area.x, area.y, caret, area.width);
         frame.set_cursor_position((cx, cy));
     }
 }
@@ -256,13 +243,14 @@ pub(crate) fn render_modal_password_row(
         Line::from(vec![Span::styled(label, label_style)])
     };
     frame.render_widget(Paragraph::new(label_line), sections[0]);
-
+    // honey: same "*" mask as before, windowed so long secrets slide.
+    let (visible, caret) = super::field::window_of(value, cursor, sections[1].width);
     frame.render_widget(
-        Paragraph::new(value.to_string()).style(value_style),
+        Paragraph::new(visible.to_string()).style(value_style),
         sections[1],
     );
     if focused && !disabled && sections[1].width > 0 && sections[1].height > 0 {
-        let (cx, cy) = caret_position(sections[1].x, sections[1].y, cursor, sections[1].width);
+        let (cx, cy) = caret_position(sections[1].x, sections[1].y, caret, sections[1].width);
         frame.set_cursor_position((cx, cy));
     }
 }
@@ -378,25 +366,28 @@ pub(crate) fn render_search_block(
 
 #[cfg(test)]
 mod tests {
-    use super::search_viewport;
+    use crate::widgets::field::TextField;
 
     #[test]
     fn viewport_shows_full_query_when_it_fits() {
-        assert_eq!(search_viewport("gm", 37), "gm");
-        assert_eq!(search_viewport("", 37), "");
+        let field = TextField::new("gm");
+        assert_eq!(field.window(37), ("gm", 2));
+        assert_eq!(TextField::new("").window(37), ("", 0));
     }
 
     #[test]
     fn viewport_slides_to_tail_when_overlong() {
-        let query = "a".repeat(50);
-        assert_eq!(search_viewport(&query, 37), "a".repeat(37));
+        let field = TextField::new("a".repeat(50));
+        let (visible, caret) = field.window(37);
+        assert_eq!(visible, "a".repeat(37));
+        assert_eq!(caret, 37);
     }
 
     #[test]
     fn viewport_never_splits_a_char() {
-        let query = "héllo wörld";
-        let visible = search_viewport(query, 5);
-        assert_eq!(visible, "wörld");
+        let field = TextField::new("héllo wörld");
+        let (visible, _) = field.window(5);
         assert!(visible.is_char_boundary(0));
+        assert!(visible.is_char_boundary(visible.len()));
     }
 }
