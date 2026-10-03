@@ -407,8 +407,16 @@ impl LibraryPageState {
         self.filtered_indices.len()
     }
 
-    pub(crate) fn select_last(&mut self) {
-        self.selected = self.filtered_indices.len().saturating_sub(1);
+    /// Startup selection: highlight the bottom row of the first window
+    /// so the topmost entries stay visible with the cursor on the row
+    /// touching the search bar.
+    pub(crate) fn select_first_window_bottom(&mut self, capacity: usize) {
+        let total = self.filtered_indices.len();
+        if total == 0 || capacity == 0 {
+            self.selected = 0;
+            return;
+        }
+        self.selected = capacity.min(total).saturating_sub(1);
     }
 
     pub(crate) fn item_at_filtered(&self, index: usize) -> Option<&LibraryTrigger> {

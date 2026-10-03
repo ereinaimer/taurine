@@ -36,10 +36,10 @@ pub fn run() -> taurine_core::Result<()> {
     refresh_library_page(&mut app);
     refresh_settings_page(&mut app);
     // honey: bottom-anchored lists open on the row touching the search bar.
-    app.library_page_mut().select_last();
     app.settings_page_mut().select_last();
 
     let mut terminal = TerminalGuard::new()?;
+    select_first_visible_library_row(&mut app, &mut terminal);
     setup_signal_handler(|code| std::process::exit(code));
     let mut events = EventHandler::new(EVENT_TICK_RATE);
     let mut last_area = ratatui::layout::Rect::default();
@@ -692,6 +692,23 @@ fn refresh_settings_page(app: &mut App) {
             app.settings_page_mut().set_load_error(error.to_string());
         }
     }
+}
+
+/// Startup selection from the real terminal size: mirror the draw chain
+/// down to the list area so the highlight lands on the bottom row of the
+/// first window (topmost entries visible, cursor above the search bar).
+fn select_first_visible_library_row(app: &mut App, terminal: &mut TerminalGuard) {
+    let Ok(size) = terminal.terminal.size() else {
+        return;
+    };
+    let area = ratatui::layout::Rect::new(0, 0, size.width, size.height);
+    let page = terminal::mouse::frame_layout(area).page;
+    let full = terminal::mouse::library_full_area(page);
+    let state = app.library_page();
+    let content = library::left_content(full, state.split_ratio(), state.detail_ratio());
+    let (list_area, _) = library::content_sections(content, false);
+    let capacity = widgets::util::visible_library_item_capacity(list_area.height);
+    app.library_page_mut().select_first_window_bottom(capacity);
 }
 
 struct TerminalGuard {

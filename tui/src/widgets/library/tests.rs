@@ -1808,16 +1808,17 @@ fn hit_test_finds_bottom_anchored_rows_and_search() {
 }
 
 #[test]
-fn select_last_targets_final_row() {
+fn select_first_window_bottom_pins_cursor_to_first_page() {
     let mut state = sample_state();
-    state.select_last();
-    assert_eq!(state.selected_index(), Some(2));
+    state.select_first_window_bottom(2);
+    assert_eq!(state.selected_index(), Some(1));
+    assert_eq!(state.visible_window(2), (0, 2));
 }
 
 #[test]
-fn select_last_on_empty_state_stays_zero() {
+fn select_first_window_bottom_on_empty_state_stays_zero() {
     let mut state = LibraryPageState::default();
-    state.select_last();
+    state.select_first_window_bottom(5);
     assert_eq!(state.selected_index(), None);
 }
 
