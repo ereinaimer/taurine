@@ -1188,10 +1188,7 @@ fn pack_tag_chips_fits_and_breaks() {
         props::pack_tag_chips(&tags, 30),
         vec!["#work".to_string(), "#powershell".to_string()]
     );
-    assert_eq!(
-        props::pack_tag_chips(&tags, 6),
-        vec!["#work".to_string()]
-    );
+    assert_eq!(props::pack_tag_chips(&tags, 6), vec!["#work".to_string()]);
     assert!(props::pack_tag_chips(&tags, 2).is_empty());
     assert!(props::pack_tag_chips(&[], 30).is_empty());
 }
@@ -1777,9 +1774,249 @@ fn clicked_window_holds_while_default_policy_would_jump() {
 }
 
 #[test]
+fn refresh_after_save_keeps_window_still() {
+    let mut state = six_item_state();
+    state.click_item(3, 3);
+    assert_eq!(state.visible_window(2), (3, 5));
+
+    // Simulate the post-save refresh: identical rows, rebuilt.
+    let fresh: Vec<LibraryTrigger> = (0..state.filtered_len())
+        .filter_map(|index| state.item_at_filtered(index).cloned())
+        .collect();
+    state.replace_items(fresh);
+    assert_eq!(state.selected_index(), Some(3));
+    assert_eq!(state.visible_window(2), (3, 5));
+}
+
+#[test]
+fn select_row_keeps_click_anchor() {
+    let mut state = six_item_state();
+    state.click_item(3, 3);
+    let target = state.item_at_filtered(4).expect("fifth row").clone();
+    assert!(state.select_row(target.id(), target.trigger()));
+    assert_eq!(state.selected_index(), Some(4));
+    assert_eq!(state.visible_window(2), (3, 5));
+}
+
+#[test]
 fn stale_anchor_falls_back_to_default_window() {
     let mut state = six_item_state();
     state.click_item(0, 3);
     assert_eq!(state.selected_index(), Some(0));
     assert_eq!(state.visible_window(2), (0, 2));
+}
+
+#[test]
+fn name_edit_typing_enter_esc_flow() {
+    let mut state = sample_state();
+    assert!(state.name_edit().is_none());
+
+    state.start_name_edit();
+    // Draft starts with the displayed text; clicking never erases.
+    assert_eq!(state.name_edit().expect("editing").draft(), "alt+r");
+
+    state.handle_key(KeyEvent::new(KeyCode::Char('!'), KeyModifiers::NONE));
+    assert!(state.name_edit().expect("editing").draft().ends_with('!'));
+
+    state.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+    assert_eq!(state.name_edit().expect("editing").draft(), "alt+r");
+
+    // Esc cancels without persisting.
+    state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(state.name_edit().is_none());
+}
+
+#[test]
+fn name_edit_enter_commits_changed_name() {
+    let mut state = sample_state();
+    state.start_name_edit();
+    for ch in " Jr".chars() {
+        state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let pending = interaction.pending_rename().expect("pending rename");
+    assert_eq!(pending.name, "alt+r Jr");
+    assert!(state.name_edit().is_none());
+}
+
+#[test]
+fn name_edit_enter_without_changes_is_noop() {
+    let mut item = list_item(
+        "id-gm",
+        None,
+        TriggerType::Word,
+        "gm",
+        "Good Morning",
+        "text",
+        "all",
+        9,
+        None,
+    );
+    item.name = "Morning Greeting".to_string();
+    let mut state = LibraryPageState::default();
+    state.replace_items(vec![LibraryTrigger::single(item)]);
+    state.start_name_edit();
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(interaction.pending_rename().is_none());
+    assert!(state.name_edit().is_none());
+}
+
+#[test]
+fn name_edit_blank_is_silent_noop() {
+    let mut state = sample_state();
+    state.start_name_edit();
+    // Clear the whole draft.
+    for _ in 0..64 {
+        state.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+    }
+    assert_eq!(state.name_edit().expect("editing").draft(), "");
+    // No warning, no error, no persist: existing value untouched.
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(interaction.pending_rename().is_none());
+    assert!(state.name_edit().is_none());
+    assert!(state.status_message().is_none());
+}
+
+#[test]
+fn name_edit_blank_then_navigate_moves_on() {
+    let mut state = sample_state();
+    let first = state.selected_index().unwrap();
+    state.start_name_edit();
+    for _ in 0..64 {
+        state.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+    }
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    assert!(interaction.pending_rename().is_none());
+    assert_eq!(state.selected_index(), Some(first + 1));
+    assert!(state.name_edit().is_none());
+}
+
+#[test]
+fn name_edit_navigation_commits_and_moves() {
+    let mut state = sample_state();
+    let first = state.selected_index().unwrap();
+    state.start_name_edit();
+    for ch in " Jr".chars() {
+        state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    assert!(interaction.pending_rename().is_some());
+    assert_eq!(state.selected_index(), Some(first + 1));
+    assert!(state.name_edit().is_none());
+}
+
+#[test]
+fn name_edit_click_other_row_commits() {
+    let mut state = sample_state();
+    state.start_name_edit();
+    for ch in " Jr".chars() {
+        state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    let interaction = state.click_item(1, 0);
+    assert!(interaction.pending_rename().is_some());
+    assert_eq!(state.selected_index(), Some(1));
+}
+
+#[test]
+fn name_edit_click_same_row_keeps_editing() {
+    let mut state = sample_state();
+    let current = state.selected_index().unwrap();
+    state.start_name_edit();
+    let interaction = state.click_item(current, 0);
+    assert!(interaction.pending_rename().is_none());
+    assert_eq!(state.selected_index(), Some(current));
+    assert!(state.name_edit().is_some());
+}
+
+#[test]
+fn restore_name_edit_reselects_and_keeps_draft() {
+    let mut state = sample_state();
+    let id = state
+        .item_at_filtered(1)
+        .expect("second row")
+        .id()
+        .to_string();
+    assert!(state.restore_name_edit(&id, "half typed".to_string()));
+    assert_eq!(state.selected_index(), Some(1));
+    assert_eq!(state.name_edit().expect("editing").draft(), "half typed");
+    assert!(!state.restore_name_edit("ghost", "x".to_string()));
+}
+
+#[test]
+fn select_row_prefers_exact_alias_over_first_match() {
+    let mut state = LibraryPageState::default();
+    state.replace_items(LibraryTrigger::expand(multi_alias_list_item()));
+    // Same trigger id owns three rows; the middle alias must win.
+    assert!(state.select_row("id-multi", "gst"));
+    assert_eq!(
+        state
+            .item_at_filtered(state.selected_index().unwrap())
+            .unwrap()
+            .trigger(),
+        "gst"
+    );
+    // Unknown invocation falls back to the id match.
+    assert!(state.select_row("id-multi", "gone"));
+    assert_eq!(
+        state
+            .item_at_filtered(state.selected_index().unwrap())
+            .unwrap()
+            .id(),
+        "id-multi"
+    );
+    assert!(!state.select_row("ghost", "gst"));
+}
+
+#[test]
+fn select_by_id_clamps_to_known_rows() {
+    let mut state = sample_state();
+    let id = state
+        .item_at_filtered(2)
+        .expect("third row")
+        .id()
+        .to_string();
+    assert!(state.select_by_id(&id));
+    assert_eq!(state.selected_index(), Some(2));
+    assert!(!state.select_by_id("ghost"));
+}
+
+#[test]
+fn name_edit_hit_only_on_name_cells() {
+    let state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 80, 30);
+    // Center content at x=25 width=31: toggle owns the last 4 cells,
+    // the cell before it is a gap, everything left of it edits.
+    assert_eq!(
+        detail::hit_test(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            30,
+            1
+        ),
+        Some(detail::DetailHit::NameEdit)
+    );
+    assert_eq!(
+        detail::hit_test(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            56,
+            1
+        ),
+        None
+    );
+    assert_eq!(
+        detail::hit_test(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            52,
+            1
+        ),
+        Some(detail::DetailHit::EnableToggle)
+    );
 }

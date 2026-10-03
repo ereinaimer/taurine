@@ -112,7 +112,13 @@ pub(crate) fn pack_tag_chips(tags: &[String], available: usize) -> Vec<String> {
 
 /// Tags property row: dim label left, packed color chips (or the add
 /// button when empty) right-aligned like every other row.
-fn render_tags_row(frame: &mut Frame, content: Rect, theme: &Theme, item: &LibraryTrigger, offset: u16) {
+fn render_tags_row(
+    frame: &mut Frame,
+    content: Rect,
+    theme: &Theme,
+    item: &LibraryTrigger,
+    offset: u16,
+) {
     use crate::widgets::library::icons::ADD_ICON;
 
     let row = Rect {

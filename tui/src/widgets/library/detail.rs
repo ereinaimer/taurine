@@ -29,10 +29,11 @@ const BUTTONS_OFFSET: u16 = 4;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DetailHit {
     EnableToggle,
+    NameEdit,
 }
 
-/// Which detail row a click landed on. The header toggle is interactive;
-/// everything else is read-only preview.
+/// Which detail row a click landed on. The header toggle flips enable,
+/// the name opens an inline edit; everything else is read-only preview.
 pub(crate) fn hit_test(
     area: Rect,
     list_ratio: f32,
@@ -54,6 +55,9 @@ pub(crate) fn hit_test(
             .saturating_add(content.width.saturating_sub(width));
         if column >= start && column < start.saturating_add(width) {
             return Some(DetailHit::EnableToggle);
+        }
+        if column >= content.x && column < start.saturating_sub(1) {
+            return Some(DetailHit::NameEdit);
         }
         return None;
     }
@@ -136,10 +140,7 @@ fn detail_layout(
         .map(|(index, line)| (start.saturating_add(index as u16), line))
         .collect::<Vec<_>>();
     let rest = total.saturating_sub(scroll.saturating_add(visible));
-    Some(DetailLayout {
-        content_rows,
-        rest,
-    })
+    Some(DetailLayout { content_rows, rest })
 }
 
 /// Max scroll offset for the content section at this pane size.
@@ -193,7 +194,7 @@ pub(crate) fn render_detail(
     };
 
     let scroll = state.detail_scroll();
-    render_header_row(frame, content, theme, item);
+    render_header_row(frame, content, theme, state, item);
     render_description_row(frame, content, theme, item);
     render_buttons_row(frame, content, theme, item);
     let Some(layout) = detail_layout(content.height, content.width, item, scroll) else {
@@ -247,7 +248,13 @@ fn toggle_width(item: &LibraryTrigger) -> u16 {
     }
 }
 
-fn render_header_row(frame: &mut Frame, area: Rect, theme: &Theme, item: &LibraryTrigger) {
+fn render_header_row(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    state: &LibraryPageState,
+    item: &LibraryTrigger,
+) {
     let row = row_area(area, 0);
     if row.width == 0 {
         return;
@@ -265,6 +272,28 @@ fn render_header_row(frame: &mut Frame, area: Rect, theme: &Theme, item: &Librar
     };
     let width = toggle_width(item);
     let available = row.width.saturating_sub(width).saturating_sub(1);
+    // honey: editing shows the draft tail with a real caret, mirroring
+    // the search box; read mode shows the truncated display name.
+    if let Some(edit) = state.name_edit() {
+        let visible = util::search_viewport(edit.draft(), available);
+        let caret = visible.chars().count() as u16;
+        let gap = available.saturating_sub(caret);
+        let line = Line::from(vec![
+            Span::styled(
+                visible.to_string(),
+                Style::default()
+                    .fg(theme.text)
+                    .bg(theme.surface)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" ".repeat(gap as usize + 1)),
+            toggle,
+        ]);
+        frame.render_widget(Paragraph::new(line), row);
+        let (cx, cy) = util::caret_position(row.x, row.y, caret as usize, available);
+        frame.set_cursor_position((cx, cy));
+        return;
+    }
     let name = util::truncate_to_width(item.display_name(), available);
     let name_width = name.chars().count();
     let gap = available.saturating_sub(name_width as u16);
@@ -432,7 +461,10 @@ fn render_content_rows(frame: &mut Frame, area: Rect, theme: &Theme, layout: &De
     let walls_end = frame.area().y.saturating_add(frame.area().height);
     let mut y = popup.y.saturating_add(popup.height);
     while y < walls_end {
-        for x in [popup.x, popup.x.saturating_add(popup.width.saturating_sub(1))] {
+        for x in [
+            popup.x,
+            popup.x.saturating_add(popup.width.saturating_sub(1)),
+        ] {
             frame.render_widget(
                 Paragraph::new(Line::from("│")).style(wall),
                 Rect {

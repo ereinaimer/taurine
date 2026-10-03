@@ -351,32 +351,46 @@ fn handle_tui_mouse_event(
                         Some(library::list::LibraryHit::Search) => {
                             app.library_page_mut().activate_search();
                         }
-                        // honey: header enable toggle and props usage
-                        // toggle are clickable; everything else is read-only.
+                        // honey: header toggle flips enable (committing a
+                        // pending rename first), name click starts editing;
+                        // everything else is read-only.
                         None => {
-                            let page = app.library_page();
-                            let hit = library::detail::hit_test(
-                                layout.page,
-                                page.split_ratio(),
-                                page.detail_ratio(),
-                                page,
-                                mouse.column,
-                                mouse.row,
-                            );
-                            if hit == Some(library::detail::DetailHit::EnableToggle) {
-                                let interaction = app.library_page_mut().toggle_selected_enabled();
-                                apply_library_interaction(app, interaction);
-                                return;
+                            let hit = {
+                                let page = app.library_page();
+                                library::detail::hit_test(
+                                    layout.page,
+                                    page.split_ratio(),
+                                    page.detail_ratio(),
+                                    page,
+                                    mouse.column,
+                                    mouse.row,
+                                )
+                            };
+                            match hit {
+                                Some(library::detail::DetailHit::NameEdit) => {
+                                    app.library_page_mut().start_name_edit();
+                                }
+                                Some(library::detail::DetailHit::EnableToggle) => {
+                                    let flush = app.library_page_mut().commit_name_edit();
+                                    apply_library_interaction(app, flush);
+                                    let interaction =
+                                        app.library_page_mut().toggle_selected_enabled();
+                                    apply_library_interaction(app, interaction);
+                                }
+                                None => {}
                             }
-                            if library::props::hit_test(
-                                layout.page,
-                                page.split_ratio(),
-                                page.detail_ratio(),
-                                page,
-                                mouse.column,
-                                mouse.row,
-                            ) == Some(library::props::PropsHit::UsageToggle)
-                            {
+                            let usage_hit = {
+                                let page = app.library_page();
+                                library::props::hit_test(
+                                    layout.page,
+                                    page.split_ratio(),
+                                    page.detail_ratio(),
+                                    page,
+                                    mouse.column,
+                                    mouse.row,
+                                )
+                            };
+                            if usage_hit == Some(library::props::PropsHit::UsageToggle) {
                                 app.library_page_mut().toggle_usage();
                             }
                         }
@@ -525,6 +539,27 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
                 app.library_page_mut().select_after_delete(restore_index);
             }
             Err(error) => app.library_page_mut().set_save_error(error.to_string()),
+        }
+    }
+
+    if let Some(pending_rename) = interaction.pending_rename() {
+        let trigger_id = pending_rename.trigger_id.clone();
+        let trigger = pending_rename.trigger.clone();
+        let draft = pending_rename.name.clone();
+        let restore_index = pending_rename.restore_index;
+        match pending_rename.apply() {
+            Ok(()) => {
+                refresh_library_page(app);
+                if !app.library_page_mut().select_row(&trigger_id, &trigger) {
+                    app.library_page_mut().select_after_delete(restore_index);
+                }
+            }
+            // honey: typed text is never lost; the edit reopens on the
+            // same row with the draft intact.
+            Err(error) => {
+                app.library_page_mut().set_save_error(error.to_string());
+                app.library_page_mut().restore_name_edit(&trigger_id, draft);
+            }
         }
     }
 }

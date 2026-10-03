@@ -1,9 +1,11 @@
 mod delete;
+mod edit;
 mod export;
 mod import;
 mod trigger;
 
 pub(crate) use delete::*;
+pub(crate) use edit::*;
 pub(crate) use export::*;
 pub(crate) use import::*;
 pub(crate) use trigger::*;
@@ -74,6 +76,7 @@ pub(crate) struct LibraryPageState {
     divider_drag: Option<super::DividerSide>,
     detail_scroll: usize,
     usage_expanded: bool,
+    edit: Option<TriggerNameEdit>,
 }
 
 impl Default for LibraryPageState {
@@ -94,19 +97,25 @@ impl Default for LibraryPageState {
             divider_drag: None,
             detail_scroll: 0,
             usage_expanded: false,
+            edit: None,
         }
     }
 }
 
 impl LibraryPageState {
     pub(crate) fn replace_items(&mut self, mut items: Vec<LibraryTrigger>) {
+        // honey: a refresh (e.g. after rename) must not move the list;
+        // the click-time anchor survives, stale values fall back safely
+        // inside visible_window.
+        let anchor = self.window_anchor;
         crate::widgets::library::actions::sort_items(&mut items);
         self.items = items;
         self.load_error = None;
         self.status_message = None;
-        self.window_anchor = None;
+        self.edit = None;
         self.reset_detail_scroll();
         self.rebuild_filter();
+        self.window_anchor = anchor;
     }
 
     pub(crate) fn set_load_error(&mut self, error: String) {
@@ -324,6 +333,43 @@ impl LibraryPageState {
             .and_then(|item_index| self.items.get(*item_index))
     }
 
+    pub(crate) fn select_by_id(&mut self, id: &str) -> bool {
+        let Some(position) = self
+            .filtered_indices
+            .iter()
+            .position(|item_index| self.items[*item_index].id() == id)
+        else {
+            return false;
+        };
+        self.selected = position;
+        self.reset_detail_scroll();
+        true
+    }
+
+    /// Reselect the exact alias row after a refresh. Same trigger id can
+    /// own several rows (one per invocation), so the trigger string
+    /// disambiguates; falls back to id match, then stays put.
+    pub(crate) fn select_row(&mut self, id: &str, trigger: &str) -> bool {
+        let position = self
+            .filtered_indices
+            .iter()
+            .position(|item_index| {
+                let item = &self.items[*item_index];
+                item.id() == id && item.trigger() == trigger
+            })
+            .or_else(|| {
+                self.filtered_indices
+                    .iter()
+                    .position(|item_index| self.items[*item_index].id() == id)
+            });
+        let Some(position) = position else {
+            return false;
+        };
+        self.selected = position;
+        self.reset_detail_scroll();
+        true
+    }
+
     pub(crate) fn select_after_delete(&mut self, previous_index: usize) {
         self.window_anchor = None;
         if self.filtered_indices.is_empty() {
@@ -346,6 +392,10 @@ impl LibraryPageState {
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> LibraryInteraction {
         if self.modal.is_some() {
             return self.handle_modal_key(key);
+        }
+
+        if self.edit.is_some() {
+            return self.handle_edit_key(key);
         }
 
         if self.search_mode {
@@ -381,6 +431,44 @@ impl LibraryPageState {
                 self.selected = 0;
                 self.window_anchor = None;
                 self.rebuild_filter();
+                LibraryInteraction::handled()
+            }
+            _ => LibraryInteraction::handled(),
+        }
+    }
+
+    /// Keys while a trigger name is being edited. Enter commits, Esc
+    /// cancels, Up/Down commit then move, text appends to the draft.
+    /// Everything else is swallowed so typing never leaks into search.
+    fn handle_edit_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        match (key.code, key.modifiers) {
+            (KeyCode::Enter, KeyModifiers::NONE) => self.commit_name_edit(),
+            (KeyCode::Esc, KeyModifiers::NONE) => {
+                self.cancel_name_edit();
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Down, KeyModifiers::NONE) => {
+                let interaction = self.commit_name_edit();
+                self.move_selection(1);
+                interaction
+            }
+            (KeyCode::Up, KeyModifiers::NONE) => {
+                let interaction = self.commit_name_edit();
+                self.move_selection(-1);
+                interaction
+            }
+            (KeyCode::Backspace, KeyModifiers::NONE) => {
+                if let Some(edit) = self.edit.as_mut() {
+                    edit.pop();
+                }
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Char(ch), modifiers)
+                if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                if let Some(edit) = self.edit.as_mut() {
+                    edit.push(ch);
+                }
                 LibraryInteraction::handled()
             }
             _ => LibraryInteraction::handled(),
@@ -563,13 +651,20 @@ impl LibraryPageState {
     }
 
     /// Click selects the row and records the click-time window start so the
-    /// list does not jump. The editor is removed pending revamp, so there is
-    /// no second-click open action.
+    /// list does not jump. A pending name edit commits first when the
+    /// click lands on another row; blank text silently no-ops.
     pub(crate) fn click_item(
         &mut self,
         filtered_position: usize,
         anchor: usize,
     ) -> LibraryInteraction {
+        if self.edit.is_some() && Some(filtered_position) != self.selected_index() {
+            let interaction = self.commit_name_edit();
+            self.selected = filtered_position;
+            self.window_anchor = Some(anchor);
+            self.reset_detail_scroll();
+            return interaction;
+        }
         self.selected = filtered_position;
         self.window_anchor = Some(anchor);
         self.reset_detail_scroll();
