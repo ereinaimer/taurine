@@ -14,7 +14,6 @@ crate-type = ["lib", "cdylib", "staticlib"]
 [dependencies]
 tracing = { workspace = true }
 rusqlite = { version = "0.39", features = ["bundled-sqlcipher-vendored-openssl"] }
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 r2d2 = "0.8"
 r2d2_sqlite = { version = "0.34", features = ["bundled-sqlcipher-vendored-openssl"] }
 directories = "6.0"
@@ -27,8 +26,9 @@ hyper-util = { version = "0.1", features = ["tokio"] }
 tonic-prost = "0.14"
 tower = { version = "0.5", features = ["util"] }
 prost = "0.14"
-# Trimmed from full: core uses rt, net, time, and sync outside tests.
-tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "net", "time", "signal", "sync", "io-util", "macros"] }
+# Trimmed from full: audited surface is rt, net, time, signal, sync, io-util, macros, process.
+tokio = { workspace = true }
+reqwest = { workspace = true }
 ahash = "0.8"
 parking_lot = "0.12"
 smallvec = "1.13"

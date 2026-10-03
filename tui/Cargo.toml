@@ -12,7 +12,7 @@ publish = false
 taurine_core = { path = "../core" }
 crossterm = "0.29"
 ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
-tokio = { version = "1.0", features = ["full"] }
+tokio = { workspace = true }
 tonic = "0.14"
 tracing = { workspace = true }
 zeroize = "1.8"
