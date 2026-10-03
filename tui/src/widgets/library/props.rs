@@ -62,6 +62,10 @@ pub(crate) fn render_props(
         }
         render_row(frame, content, theme, offset, label, value);
     }
+    let tags_at = usage_toggle_offset(item).saturating_sub(2);
+    if tags_at < content.height {
+        render_tags_row(frame, content, theme, item, tags_at);
+    }
     let toggle_at = usage_toggle_offset(item);
     if toggle_at < content.height {
         render_toggle(frame, content, theme, toggle_at, state.usage_expanded());
@@ -77,6 +81,84 @@ pub(crate) fn render_props(
             render_row(frame, content, theme, offset, label, value);
         }
     }
+}
+
+fn tag_color(theme: &Theme, index: usize) -> ratatui::style::Color {
+    match index % 5 {
+        0 => theme.accent,
+        1 => theme.success,
+        2 => theme.warning,
+        3 => theme.error,
+        _ => theme.primary,
+    }
+}
+
+/// Chip strings that fit `available` cells, space-separated downstream.
+/// Conservative by one cell; matches the old strip behavior.
+pub(crate) fn pack_tag_chips(tags: &[String], available: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut used = 0usize;
+    for tag in tags {
+        let chip = format!("#{tag}");
+        let width = chip.chars().count().saturating_add(1);
+        if used.saturating_add(width) > available {
+            break;
+        }
+        used = used.saturating_add(width);
+        out.push(chip);
+    }
+    out
+}
+
+/// Tags property row: dim label left, packed color chips (or the add
+/// button when empty) right-aligned like every other row.
+fn render_tags_row(frame: &mut Frame, content: Rect, theme: &Theme, item: &LibraryTrigger, offset: u16) {
+    use crate::widgets::library::icons::ADD_ICON;
+
+    let row = Rect {
+        x: content.x,
+        y: content.y.saturating_add(offset),
+        width: content.width,
+        height: 1,
+    };
+    let label = "Tags";
+    let available = edge_value_width(label, row.width);
+    let (spans, width) = if item.tags().is_empty() {
+        (
+            vec![Span::styled(
+                format!(" {ADD_ICON} "),
+                Style::default()
+                    .fg(theme.button.text)
+                    .bg(theme.button.inactive_bg),
+            )],
+            3usize,
+        )
+    } else {
+        let packed = pack_tag_chips(item.tags(), available as usize);
+        let mut spans: Vec<Span<'static>> = Vec::new();
+        let mut used = 0usize;
+        for (index, chip) in packed.into_iter().enumerate() {
+            if index > 0 {
+                spans.push(Span::raw(" ".to_string()));
+                used = used.saturating_add(1);
+            }
+            let width = chip.chars().count();
+            spans.push(Span::styled(
+                chip,
+                Style::default().fg(tag_color(theme, index)),
+            ));
+            used = used.saturating_add(width);
+        }
+        let width = used;
+        (spans, width)
+    };
+    if spans.is_empty() {
+        return;
+    }
+    frame.render_widget(
+        Paragraph::new(edge_line(label, spans, width, row.width, theme)),
+        row,
+    );
 }
 
 fn render_toggle(frame: &mut Frame, content: Rect, theme: &Theme, offset: u16, expanded: bool) {
@@ -125,7 +207,7 @@ fn render_row(
 /// Toggle offset for the usage section, shared by rendering and
 /// hit-testing. Caller checks it against the pane height.
 pub(crate) fn usage_toggle_offset(item: &LibraryTrigger) -> u16 {
-    2 + (usage_start(item) as u16).saturating_mul(2)
+    2 + (usage_start(item) as u16 + 1).saturating_mul(2)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

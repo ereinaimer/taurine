@@ -1182,7 +1182,19 @@ fn info_rows_carry_properties_and_raw_usage() {
 }
 
 #[test]
-fn usage_toggle_starts_collapsed_and_flips() {
+fn pack_tag_chips_fits_and_breaks() {
+    let tags = vec!["work".to_string(), "powershell".to_string()];
+    assert_eq!(
+        props::pack_tag_chips(&tags, 30),
+        vec!["#work".to_string(), "#powershell".to_string()]
+    );
+    assert_eq!(
+        props::pack_tag_chips(&tags, 6),
+        vec!["#work".to_string()]
+    );
+    assert!(props::pack_tag_chips(&tags, 2).is_empty());
+    assert!(props::pack_tag_chips(&[], 30).is_empty());
+}
     let mut state = sample_state();
     assert!(!state.usage_expanded());
     state.toggle_usage();
@@ -1195,14 +1207,14 @@ fn usage_toggle_starts_collapsed_and_flips() {
 fn usage_toggle_hit_only_on_toggle_row() {
     let state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
-    // Selected hotkey script carries five base rows: toggle at pane
-    // top + 12, whatever the pane widths are.
+    // Selected hotkey script carries five base rows plus the Tags row:
+    // toggle at pane top + 14, whatever the pane widths are.
     let item = state
         .item_at_filtered(state.selected_index().unwrap())
         .unwrap();
-    assert_eq!(props::usage_toggle_offset(item), 12);
+    assert_eq!(props::usage_toggle_offset(item), 14);
     let content = props::props_content(area, state.split_ratio(), state.detail_ratio());
-    let (x, toggle_y) = (content.x, content.y + 12);
+    let (x, toggle_y) = (content.x, content.y + 14);
     assert_eq!(
         props::hit_test(
             area,

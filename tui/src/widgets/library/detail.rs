@@ -9,7 +9,7 @@ use ratatui::{
 };
 
 use crate::theme::Theme;
-use crate::widgets::library::icons::{ADD_ICON, CHEVRON_DOWN, os_icon};
+use crate::widgets::library::icons::{CHEVRON_DOWN, os_icon};
 use crate::widgets::library::state::{LibraryPageState, LibraryTrigger};
 use crate::widgets::util;
 
@@ -98,12 +98,10 @@ pub(crate) fn wrap_content_lines(content: &str, width: u16) -> Vec<String> {
 
 /// Full flow layout, top to bottom: header 0, blank 1, description 2,
 /// blank 3, buttons 4, blank 5, static content box (18 rows: border +
-/// 16 text + border), gap, tags. Sections that do not fit are None
-/// and skipped.
+/// 16 text + border). Nothing follows the box.
 struct DetailLayout {
     content_rows: Vec<(u16, String)>,
     rest: usize,
-    tags: Option<u16>,
 }
 
 const CONTENT_BOX_TOP: u16 = 6;
@@ -138,12 +136,9 @@ fn detail_layout(
         .map(|(index, line)| (start.saturating_add(index as u16), line))
         .collect::<Vec<_>>();
     let rest = total.saturating_sub(scroll.saturating_add(visible));
-    let tags = box_bottom.saturating_add(1);
-    let tags = (tags < height).then_some(tags);
     Some(DetailLayout {
         content_rows,
         rest,
-        tags,
     })
 }
 
@@ -205,7 +200,6 @@ pub(crate) fn render_detail(
         return;
     };
     render_content_rows(frame, content, theme, &layout);
-    render_tags_row(frame, content, theme, item, &layout);
 }
 
 fn render_empty(frame: &mut Frame, area: Rect, theme: &Theme, message: &str) {
@@ -448,85 +442,6 @@ fn render_content_rows(frame: &mut Frame, area: Rect, theme: &Theme, layout: &De
             row,
         );
     }
-}
-
-fn tag_color(theme: &Theme, index: usize) -> ratatui::style::Color {
-    match index % 5 {
-        0 => theme.accent,
-        1 => theme.success,
-        2 => theme.warning,
-        3 => theme.error,
-        _ => theme.primary,
-    }
-}
-
-fn render_tags_row(
-    frame: &mut Frame,
-    area: Rect,
-    theme: &Theme,
-    item: &LibraryTrigger,
-    layout: &DetailLayout,
-) {
-    let Some(offset) = layout.tags else {
-        return;
-    };
-    let row = row_area(area, offset);
-    let plus = || {
-        Span::styled(
-            format!(" {ADD_ICON} "),
-            Style::default()
-                .fg(theme.button.text)
-                .bg(theme.button.inactive_bg),
-        )
-    };
-    if item.tags().is_empty() {
-        let label = "No tags available. ";
-        let width = label.chars().count().saturating_add(3);
-        if width > row.width as usize {
-            frame.render_widget(Paragraph::new(Line::from(vec![plus()])), row);
-            return;
-        }
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled(
-                    label.to_string(),
-                    Style::default().fg(theme.text).add_modifier(Modifier::DIM),
-                ),
-                plus(),
-            ])),
-            row,
-        );
-        return;
-    }
-    let mut spans: Vec<Span<'static>> = Vec::new();
-    let mut used = 0usize;
-    let plus_width = 3usize;
-    for (index, tag) in item.tags().iter().enumerate() {
-        let chip = format!("#{tag}");
-        let width = chip.chars().count().saturating_add(1);
-        if used.saturating_add(width).saturating_add(plus_width) > row.width as usize {
-            break;
-        }
-        if index > 0 {
-            spans.push(Span::raw(" ".to_string()));
-            used = used.saturating_add(1);
-        }
-        spans.push(Span::styled(
-            chip,
-            Style::default().fg(tag_color(theme, index)),
-        ));
-        used = used.saturating_add(width.saturating_sub(1));
-    }
-    if used + plus_width <= row.width as usize {
-        if !spans.is_empty() {
-            spans.push(Span::raw(" ".to_string()));
-        }
-        spans.push(plus());
-    }
-    if spans.is_empty() {
-        spans.push(plus());
-    }
-    frame.render_widget(Paragraph::new(Line::from(spans)), row);
 }
 
 /// Sibling invocations, excluding the currently displayed trigger.
