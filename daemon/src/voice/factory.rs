@@ -1,39 +1,74 @@
-use super::parakeet::ParakeetTranscriber;
 use std::path::Path;
 use taurine_core::voice::Transcriber;
+
+#[cfg(feature = "voice")]
+use super::parakeet::ParakeetTranscriber;
 
 /// Create a boxed Transcriber for exactly one configured voice model.
 ///
 /// Only the resolved model is instantiated; the other model is never touched,
 /// keeping idle voice RAM at zero until a PTT/Hands-Free session loads it.
+///
+/// Without the `voice` feature this returns a disabled stub that fails closed
+/// on transcribe. Default builds enable `voice`, so shipped behavior is unchanged.
 pub fn create_transcriber(model_name: &str, models_dir: Option<&Path>) -> Box<dyn Transcriber> {
-    let canonical = taurine_core::voice::resolve_configured_model(model_name);
-    match canonical {
-        "parakeet-unified-en-0.6b" => {
-            let path = models_dir.map(|d| d.join("parakeet-unified"));
-            Box::new(ParakeetTranscriber::new(canonical, path.as_deref()))
+    #[cfg(feature = "voice")]
+    {
+        let canonical = taurine_core::voice::resolve_configured_model(model_name);
+        match canonical {
+            "parakeet-unified-en-0.6b" => {
+                let path = models_dir.map(|d| d.join("parakeet-unified"));
+                Box::new(ParakeetTranscriber::new(canonical, path.as_deref()))
+            }
+            "parakeet-tdt-0.6b-v2" => {
+                let path = models_dir.map(|d| d.join("parakeet-0.6b-v2"));
+                Box::new(ParakeetTranscriber::new(canonical, path.as_deref()))
+            }
+            "parakeet-tdt-ctc-110m" => {
+                let path = models_dir.map(|d| d.join("parakeet-110m"));
+                Box::new(ParakeetTranscriber::new(canonical, path.as_deref()))
+            }
+            _ => {
+                // `resolve_configured_model` only returns canonical catalog IDs;
+                // fail closed to the light model rather than loading both.
+                let path = models_dir.map(|d| d.join("parakeet-110m"));
+                Box::new(ParakeetTranscriber::new(
+                    "parakeet-tdt-ctc-110m",
+                    path.as_deref(),
+                ))
+            }
         }
-        "parakeet-tdt-0.6b-v2" => {
-            let path = models_dir.map(|d| d.join("parakeet-0.6b-v2"));
-            Box::new(ParakeetTranscriber::new(canonical, path.as_deref()))
-        }
-        "parakeet-tdt-ctc-110m" => {
-            let path = models_dir.map(|d| d.join("parakeet-110m"));
-            Box::new(ParakeetTranscriber::new(canonical, path.as_deref()))
-        }
-        _ => {
-            // `resolve_configured_model` only returns canonical catalog IDs;
-            // fail closed to the light model rather than loading both.
-            let path = models_dir.map(|d| d.join("parakeet-110m"));
-            Box::new(ParakeetTranscriber::new(
-                "parakeet-tdt-ctc-110m",
-                path.as_deref(),
-            ))
-        }
+    }
+    #[cfg(not(feature = "voice"))]
+    {
+        let _ = (model_name, models_dir);
+        Box::new(DisabledTranscriber)
     }
 }
 
-#[cfg(test)]
+/// Stub used when the `voice` ML stack is compiled out. Fails closed so no
+/// caller can mistake a no-voice dev build for working transcription.
+#[cfg(not(feature = "voice"))]
+struct DisabledTranscriber;
+
+#[cfg(not(feature = "voice"))]
+impl Transcriber for DisabledTranscriber {
+    fn name(&self) -> &str {
+        "disabled-no-voice-feature"
+    }
+
+    fn transcribe(
+        &mut self,
+        _audio: &[f32],
+        _sample_rate: u32,
+    ) -> taurine_core::error::Result<taurine_core::voice::Transcription> {
+        Err(taurine_core::error::Error::Service(
+            "voice model disabled in this build (rebuild with default features)".to_string(),
+        ))
+    }
+}
+
+#[cfg(all(test, feature = "voice"))]
 mod tests {
     use super::*;
 
@@ -63,5 +98,17 @@ mod tests {
         );
         let t5 = create_transcriber("parakeet-tdt-0.6b-v2", None);
         assert_eq!(t5.name(), "parakeet-tdt-0.6b-v2");
+    }
+}
+
+#[cfg(all(test, not(feature = "voice")))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_factory_stub_fails_closed_without_voice() {
+        let mut t = create_transcriber("auto", None);
+        assert_eq!(t.name(), "disabled-no-voice-feature");
+        assert!(t.transcribe(&[0.0; 1600], 16000).is_err());
     }
 }

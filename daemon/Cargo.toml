@@ -8,11 +8,18 @@ repository.workspace = true
 license-file.workspace = true
 publish = false
 
+[features]
+# Default build ships the full product (voice ML on). Fast dev loops opt out:
+#   cargo check -p taurine_daemon --no-default-features
+# Release/CI always builds with defaults, so shipped behavior is unchanged.
+default = ["voice"]
+voice = ["dep:sherpa-onnx", "dep:shenava-ctc-beam"]
+
 [dependencies]
 taurine_core = { path = "../core" }
 tracing = { workspace = true }
 # Trimmed from full: audited surface is rt, net, time, signal, sync, io-util, macros, process. No test-util in prod.
-tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "net", "time", "signal", "sync", "io-util", "macros", "process"] }
+tokio = { workspace = true }
 tokio-stream = { version = "0.1", features = ["net"] }
 tracing-appender = "0.2.4"
 tonic = "0.14"
@@ -32,11 +39,11 @@ rodio = { version = "0.22", default-features = false, features = ["wav", "playba
 os_info = "3"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 unicode-normalization = "0.1"
-reqwest = "0.13.4"
+reqwest = { workspace = true }
 cpal = "0.18"
 rubato = "5.0"
-sherpa-onnx = "1.13.8"
-shenava-ctc-beam = "0.1.0"
+sherpa-onnx = { version = "1.13.8", optional = true }
+shenava-ctc-beam = { version = "0.1.0", optional = true }
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 rdev = { version = "0.5.3", features = ["unstable_grab"] }
