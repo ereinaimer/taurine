@@ -1257,16 +1257,155 @@ fn usage_toggle_hit_only_on_toggle_row() {
         None
     );
     assert_eq!(
-        props::hit_test(
+        detail::hit_test(
             area,
             state.split_ratio(),
             state.detail_ratio(),
             &state,
-            x,
-            toggle_y + 1
+            66,
+            1
+        ),
+        Some(detail::DetailHit::EnableToggle)
+    );
+}
+
+#[test]
+fn description_edit_hits_row_and_commits() {
+    let state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 80, 30);
+    // Description row at content.y(1) + 2.
+    assert_eq!(
+        detail::hit_test(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            30,
+            3
+        ),
+        Some(detail::DetailHit::DescriptionEdit)
+    );
+
+    let mut state = sample_state();
+    let interaction = state.start_description_edit();
+    assert!(interaction.pending_edit().is_none());
+    assert!(state.edit().is_some());
+    for ch in " hi".chars() {
+        state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let pending = interaction.pending_edit().expect("pending edit");
+    assert!(matches!(
+        &pending.field,
+        crate::widgets::library::actions::EditedField::Description(Some(text))
+            if text.ends_with(" hi")
+    ));
+    assert!(state.edit().is_none());
+}
+
+#[test]
+fn description_edit_blank_clears_to_none() {
+    let mut state = sample_state();
+    state.start_description_edit();
+    for _ in 0..64 {
+        state.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+    }
+    // Blank is a valid unset (not an error): persists as no description,
+    // silently, with no warning anywhere.
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let pending = interaction.pending_edit().expect("pending edit");
+    assert!(matches!(
+        &pending.field,
+        crate::widgets::library::actions::EditedField::Description(None)
+    ));
+    assert!(state.edit().is_none());
+    assert!(state.status_message().is_none());
+}
+
+#[test]
+fn content_edit_typing_newline_arrows_and_tab_commit() {
+    let mut state = sample_state();
+    let interaction = state.start_content_edit_at(0, 0);
+    assert!(interaction.pending_edit().is_none());
+    assert!(state.edit().is_some());
+
+    state.handle_key(KeyEvent::new(KeyCode::Char('X'), KeyModifiers::NONE));
+    state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    state.handle_key(KeyEvent::new(KeyCode::Char('Y'), KeyModifiers::NONE));
+    let (row, col) = state.edit().expect("editing").body().cursor();
+    assert_eq!((row, col), (1, 1));
+
+    state.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+    assert_eq!(state.edit().expect("editing").body().cursor(), (0, 1));
+    // Selection never moves on arrows inside the body editor.
+    assert_eq!(state.selected_index(), Some(0));
+
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    let pending = interaction.pending_edit().expect("pending edit");
+    assert!(matches!(
+        &pending.field,
+        crate::widgets::library::actions::EditedField::Content(_)
+    ));
+    assert!(state.edit().is_none());
+}
+
+#[test]
+fn content_edit_esc_discards() {
+    let mut state = sample_state();
+    state.start_content_edit_at(0, 0);
+    state.handle_key(KeyEvent::new(KeyCode::Char('X'), KeyModifiers::NONE));
+    state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(state.edit().is_none());
+}
+
+#[test]
+fn content_edit_hit_maps_wrapped_rows_to_source() {
+    let state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 80, 30);
+    // Box text starts at (25, 8): first text row hits source row 0.
+    assert_eq!(
+        detail::hit_test(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            27,
+            8
+        ),
+        Some(detail::DetailHit::ContentEditAt { row: 0, col: 0 })
+    );
+    // Border frame itself is not editable.
+    assert_eq!(
+        detail::hit_test(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            23,
+            7
         ),
         None
     );
+}
+
+#[test]
+fn content_source_cell_folds_wrapped_chunks() {
+    let item = LibraryTrigger::single(list_item(
+        "id-long",
+        None,
+        TriggerType::Word,
+        "long",
+        &"x".repeat(100),
+        "text",
+        "all",
+        0,
+        None,
+    ));
+    // 100 chars at width 33 wrap to four visual rows of one source row.
+    assert_eq!(detail::content_source_cell(&item, 33, 0, 5), (0, 5));
+    assert_eq!(detail::content_source_cell(&item, 33, 3, 0), (0, 99));
+    // Past the end lands at the end of the last source row.
+    assert_eq!(detail::content_source_cell(&item, 33, 9, 0), (0, 100));
 }
 
 #[test]
@@ -1913,8 +2052,11 @@ fn name_edit_enter_commits_changed_name() {
         state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
     }
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    let pending = interaction.pending_rename().expect("pending rename");
-    assert_eq!(pending.name, "alt+r Jr");
+    let pending = interaction.pending_edit().expect("pending edit");
+    assert!(matches!(
+        &pending.field,
+        crate::widgets::library::actions::EditedField::Name(name) if name == "alt+r Jr"
+    ));
     assert!(state.name_edit().is_none());
 }
 
@@ -1936,7 +2078,7 @@ fn name_edit_enter_without_changes_is_noop() {
     state.replace_items(vec![LibraryTrigger::single(item)]);
     state.start_name_edit();
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    assert!(interaction.pending_rename().is_none());
+    assert!(interaction.pending_edit().is_none());
     assert!(state.name_edit().is_none());
 }
 
@@ -1951,7 +2093,7 @@ fn name_edit_blank_is_silent_noop() {
     assert_eq!(state.name_edit().expect("editing").field().text(), "");
     // No warning, no error, no persist: existing value untouched.
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    assert!(interaction.pending_rename().is_none());
+    assert!(interaction.pending_edit().is_none());
     assert!(state.name_edit().is_none());
     assert!(state.status_message().is_none());
 }
@@ -1965,7 +2107,7 @@ fn name_edit_blank_then_navigate_moves_on() {
         state.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
     }
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-    assert!(interaction.pending_rename().is_none());
+    assert!(interaction.pending_edit().is_none());
     assert_eq!(state.selected_index(), Some(first + 1));
     assert!(state.name_edit().is_none());
 }
@@ -1979,7 +2121,7 @@ fn name_edit_navigation_commits_and_moves() {
         state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
     }
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-    assert!(interaction.pending_rename().is_some());
+    assert!(interaction.pending_edit().is_some());
     assert_eq!(state.selected_index(), Some(first + 1));
     assert!(state.name_edit().is_none());
 }
@@ -1992,7 +2134,7 @@ fn name_edit_click_other_row_commits() {
         state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
     }
     let interaction = state.click_item(1, 0);
-    assert!(interaction.pending_rename().is_some());
+    assert!(interaction.pending_edit().is_some());
     assert_eq!(state.selected_index(), Some(1));
 }
 
@@ -2002,7 +2144,7 @@ fn name_edit_click_same_row_keeps_editing() {
     let current = state.selected_index().unwrap();
     state.start_name_edit();
     let interaction = state.click_item(current, 0);
-    assert!(interaction.pending_rename().is_none());
+    assert!(interaction.pending_edit().is_none());
     assert_eq!(state.selected_index(), Some(current));
     assert!(state.name_edit().is_some());
 }
@@ -2015,13 +2157,13 @@ fn restore_name_edit_reselects_and_keeps_draft() {
         .expect("second row")
         .id()
         .to_string();
-    assert!(state.restore_name_edit(&id, "half typed".to_string()));
+    assert!(state.restore_edit(&id, EditTarget::Name, "half typed".to_string()));
     assert_eq!(state.selected_index(), Some(1));
     assert_eq!(
         state.name_edit().expect("editing").field().text(),
         "half typed"
     );
-    assert!(!state.restore_name_edit("ghost", "x".to_string()));
+    assert!(!state.restore_edit("ghost", EditTarget::Name, "x".to_string()));
 }
 
 #[test]

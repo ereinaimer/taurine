@@ -1,136 +1,305 @@
 use taurine_core::db::crud::TriggerLimits;
 
 use crate::widgets::field::TextField;
-use crate::widgets::library::actions::{LibraryInteraction, PendingLibraryRename};
+use crate::widgets::library::actions::LibraryInteraction;
+use crate::widgets::textarea::TextArea;
 
-/// In-progress trigger-name edit. Clicking the name parks the caret at
-/// the click; selection changes commit automatically.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct TriggerNameEdit {
-    trigger_id: String,
-    draft: TextField,
+/// Which trigger part an edit session targets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EditTarget {
+    Name,
+    Description,
+    Content,
 }
 
-impl TriggerNameEdit {
-    pub(crate) fn begin(trigger_id: &str, name: &str) -> Self {
+/// In-progress edit of one trigger part. Clicking a value parks the
+/// caret at the click; selection changes commit automatically, Esc
+/// discards, and invalid text silently no-ops without touching storage.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActiveEdit {
+    trigger_id: String,
+    target: EditTarget,
+    line: TextField,
+    body: TextArea,
+}
+
+impl ActiveEdit {
+    fn begin(trigger_id: &str, target: EditTarget, initial: &str) -> Self {
         Self {
             trigger_id: trigger_id.to_string(),
-            draft: TextField::new(name),
+            target,
+            line: TextField::new(initial),
+            body: TextArea::new(initial),
         }
     }
 
+    pub(crate) const fn target(&self) -> EditTarget {
+        self.target
+    }
+
+    pub(crate) fn line(&self) -> &TextField {
+        &self.line
+    }
+
+    // honey: line-view alias kept for the header render path.
     pub(crate) fn field(&self) -> &TextField {
-        &self.draft
+        &self.line
     }
-    pub(crate) fn push(&mut self, ch: char) {
-        if self.draft.len_chars() < TriggerLimits::MAX_NAME_LENGTH {
-            self.draft.insert(ch);
+
+    pub(crate) fn line_mut(&mut self) -> &mut TextField {
+        &mut self.line
+    }
+
+    pub(crate) fn body(&self) -> &TextArea {
+        &self.body
+    }
+
+    fn line_cap(&self) -> usize {
+        match self.target {
+            EditTarget::Name => TriggerLimits::MAX_NAME_LENGTH,
+            _ => TriggerLimits::MAX_DESCRIPTION_LENGTH,
         }
     }
 
-    pub(crate) fn pop(&mut self) {
-        self.draft.backspace();
-    }
-
-    pub(crate) fn delete_at(&mut self) {
-        self.draft.delete_at();
-    }
-
-    pub(crate) fn move_left(&mut self) {
-        self.draft.move_left();
-    }
-
-    pub(crate) fn move_right(&mut self) {
-        self.draft.move_right();
-    }
-
-    pub(crate) fn move_home(&mut self) {
-        self.draft.move_home();
-    }
-
-    pub(crate) fn move_end(&mut self) {
-        self.draft.move_end();
-    }
-
-    pub(crate) fn place(&mut self, index: usize) {
-        self.draft.place(index);
+    pub(crate) fn push_char(&mut self, ch: char) {
+        if self.line.len_chars() < self.line_cap() {
+            self.line.insert(ch);
+        }
     }
 }
 
 impl super::LibraryPageState {
-    pub(crate) fn name_edit(&self) -> Option<&TriggerNameEdit> {
+    pub(crate) fn edit(&self) -> Option<&ActiveEdit> {
         self.edit.as_ref()
     }
 
-    /// Click on the trigger name starts an edit session; typing captures
-    /// all keys until Enter commits or Esc cancels. The draft starts
-    /// with the displayed text so nothing is ever erased on click.
+    /// Old name-edit entry point, kept for the header click path.
+    pub(crate) fn name_edit(&self) -> Option<&ActiveEdit> {
+        self.edit
+            .as_ref()
+            .filter(|edit| edit.target == EditTarget::Name)
+    }
+
+    fn begin_edit(&mut self, target: EditTarget, initial: String) -> LibraryInteraction {
+        // honey: one session at a time; opening another commits first.
+        let flush = self.commit_edit();
+        let Some(selected) = self.selected_index() else {
+            return flush;
+        };
+        let Some(id) = self
+            .item_at_filtered(selected)
+            .map(|item| item.id().to_string())
+        else {
+            return flush;
+        };
+        self.search_mode = false;
+        self.edit = Some(ActiveEdit::begin(&id, target, &initial));
+        flush
+    }
+
+    /// Click on the trigger name starts an edit session with the caret
+    /// at the click; the draft starts with the displayed text.
     // honey: exercised by tests; production opens via start_name_edit_at.
     #[allow(dead_code)]
     pub(crate) fn start_name_edit(&mut self) {
         self.start_name_edit_at(usize::MAX);
     }
 
-    /// Click-to-place: caret lands on the clicked character. Clicking
-    /// while already editing just moves the caret.
-    pub(crate) fn start_name_edit_at(&mut self, cursor: usize) {
+    /// Click-to-place: caret lands on the clicked character. A session
+    /// on another part commits first; the caller persists the result.
+    pub(crate) fn start_name_edit_at(&mut self, cursor: usize) -> LibraryInteraction {
         if let Some(edit) = self.edit.as_mut() {
-            edit.place(cursor);
-            return;
+            if edit.target == EditTarget::Name {
+                edit.line.place(cursor);
+            }
+            return LibraryInteraction::handled();
         }
-        let Some(selected) = self.selected_index() else {
-            return;
-        };
-        let Some((id, name)) = self
-            .item_at_filtered(selected)
-            .map(|item| (item.id().to_string(), item.display_name().to_string()))
-        else {
-            return;
-        };
-        self.search_mode = false;
-        let mut edit = TriggerNameEdit::begin(&id, &name);
-        edit.place(cursor);
-        self.edit = Some(edit);
+        let initial = self
+            .selected_item_text(EditTarget::Name)
+            .unwrap_or_default();
+        let flush = self.begin_edit(EditTarget::Name, initial);
+        if let Some(edit) = self.edit.as_mut() {
+            edit.line.place(cursor);
+        }
+        flush
     }
 
-    pub(crate) fn cancel_name_edit(&mut self) {
+    /// Click on the description starts an edit session.
+    pub(crate) fn start_description_edit(&mut self) -> LibraryInteraction {
+        if self
+            .edit
+            .as_ref()
+            .is_some_and(|edit| edit.target == EditTarget::Description)
+        {
+            return LibraryInteraction::handled();
+        }
+        let initial = self
+            .selected_item_text(EditTarget::Description)
+            .unwrap_or_default();
+        self.begin_edit(EditTarget::Description, initial)
+    }
+
+    /// Click in the content box starts a body edit with the caret placed.
+    pub(crate) fn start_content_edit_at(&mut self, row: usize, col: usize) -> LibraryInteraction {
+        if let Some(edit) = self.edit.as_mut()
+            && edit.target == EditTarget::Content
+        {
+            edit.body.place(row, col);
+            return LibraryInteraction::handled();
+        }
+        let initial = self
+            .selected_item_text(EditTarget::Content)
+            .unwrap_or_default();
+        let flush = self.begin_edit(EditTarget::Content, initial);
+        if let Some(edit) = self
+            .edit
+            .as_mut()
+            .filter(|edit| edit.target == EditTarget::Content)
+        {
+            edit.body.place(row, col);
+        }
+        flush
+    }
+
+    fn selected_item_text(&self, target: EditTarget) -> Option<String> {
+        let selected = self.selected_index()?;
+        let item = self.item_at_filtered(selected)?;
+        Some(match target {
+            EditTarget::Name => item.display_name().to_string(),
+            EditTarget::Description => item.description().unwrap_or("").to_string(),
+            EditTarget::Content => item.content().to_string(),
+        })
+    }
+
+    pub(crate) fn cancel_edit(&mut self) {
         self.edit = None;
     }
 
     /// Validate + persist the draft. Unchanged or invalid text is a
     /// silent no-op: the existing value is left untouched and no
     /// warning is shown anywhere.
-    pub(crate) fn commit_name_edit(&mut self) -> LibraryInteraction {
+    pub(crate) fn commit_edit(&mut self) -> LibraryInteraction {
         let Some(edit) = self.edit.take() else {
             return LibraryInteraction::handled();
         };
-        let name = edit.draft.text().trim().to_string();
         let Some(selected) = self.selected_index() else {
             return LibraryInteraction::handled();
         };
         let Some(item) = self.item_at_filtered(selected) else {
             return LibraryInteraction::handled();
         };
-        if TriggerLimits::validate_name(&name).is_err() || name == item.name() {
+        if edit.trigger_id != item.id() {
             return LibraryInteraction::handled();
         }
-        LibraryInteraction::rename(PendingLibraryRename {
-            trigger_id: edit.trigger_id,
-            trigger: item.trigger().to_string(),
-            name,
-            restore_index: selected,
-        })
+        match edit.target {
+            EditTarget::Name => {
+                let name = edit.line.text().trim().to_string();
+                if TriggerLimits::validate_name(&name).is_err() || name == item.name() {
+                    return LibraryInteraction::handled();
+                }
+                LibraryInteraction::edit(crate::widgets::library::actions::PendingLibraryEdit {
+                    trigger_id: edit.trigger_id,
+                    trigger: item.trigger().to_string(),
+                    field: crate::widgets::library::actions::EditedField::Name(name),
+                    restore_index: selected,
+                })
+            }
+            EditTarget::Description => {
+                let raw = edit.line.text().trim();
+                let description = if raw.is_empty() {
+                    None
+                } else {
+                    Some(raw.to_string())
+                };
+                let current = item.description().map(str::trim).filter(|d| !d.is_empty());
+                if description.as_deref() == current {
+                    return LibraryInteraction::handled();
+                }
+                if TriggerLimits::validate_description(description.as_deref()).is_err() {
+                    return LibraryInteraction::handled();
+                }
+                LibraryInteraction::edit(crate::widgets::library::actions::PendingLibraryEdit {
+                    trigger_id: edit.trigger_id,
+                    trigger: item.trigger().to_string(),
+                    field: crate::widgets::library::actions::EditedField::Description(description),
+                    restore_index: selected,
+                })
+            }
+            EditTarget::Content => {
+                let body = edit.body.text();
+                if body == item.content() {
+                    return LibraryInteraction::handled();
+                }
+                LibraryInteraction::edit(crate::widgets::library::actions::PendingLibraryEdit {
+                    trigger_id: edit.trigger_id,
+                    trigger: item.trigger().to_string(),
+                    field: crate::widgets::library::actions::EditedField::Content(body),
+                    restore_index: selected,
+                })
+            }
+        }
     }
 
     /// Reopen an edit after a failed save so typed text is never lost.
-    pub(crate) fn restore_name_edit(&mut self, trigger_id: &str, draft: String) -> bool {
+    pub(crate) fn restore_edit(
+        &mut self,
+        trigger_id: &str,
+        target: EditTarget,
+        draft: String,
+    ) -> bool {
         if !self.select_by_id(trigger_id) {
             return false;
         }
-        self.edit = Some(TriggerNameEdit {
-            trigger_id: trigger_id.to_string(),
-            draft: TextField::new(draft),
-        });
+        self.edit = Some(ActiveEdit::begin(trigger_id, target, &draft));
         true
+    }
+
+    /// Move the body caret, keeping it inside the scrolled window.
+    pub(crate) fn move_content_caret(&mut self, apply: impl FnOnce(&mut TextArea)) {
+        let Some(edit) = self.edit.as_mut() else {
+            return;
+        };
+        if edit.target != EditTarget::Content {
+            return;
+        }
+        apply(&mut edit.body);
+        let (row, _) = edit.body.cursor();
+        let height = crate::widgets::library::detail::CONTENT_INNER_HEIGHT;
+        if row < self.detail_scroll {
+            self.detail_scroll = row;
+        } else if row >= self.detail_scroll + height {
+            self.detail_scroll = row + 1 - height;
+        }
+    }
+
+    pub(crate) fn content_newline(&mut self) {
+        let row = match self.edit.as_mut() {
+            Some(edit) if edit.target == EditTarget::Content => {
+                edit.body.insert_newline();
+                edit.body.cursor().0
+            }
+            _ => return,
+        };
+        self.scroll_content_to(row);
+    }
+
+    pub(crate) fn insert_content_char(&mut self, ch: char) {
+        let row = match self.edit.as_mut() {
+            Some(edit) if edit.target == EditTarget::Content => {
+                edit.body.insert_char(ch);
+                edit.body.cursor().0
+            }
+            _ => return,
+        };
+        self.scroll_content_to(row);
+    }
+
+    fn scroll_content_to(&mut self, row: usize) {
+        let height = crate::widgets::library::detail::CONTENT_INNER_HEIGHT;
+        if row < self.detail_scroll {
+            self.detail_scroll = row;
+        } else if row >= self.detail_scroll + height {
+            self.detail_scroll = row + 1 - height;
+        }
     }
 }

@@ -80,18 +80,41 @@ impl PendingLibraryToggle {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct PendingLibraryRename {
+pub(crate) enum EditedField {
+    Name(String),
+    Description(Option<String>),
+    Content(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PendingLibraryEdit {
     pub(crate) trigger_id: String,
     pub(crate) trigger: String,
-    pub(crate) name: String,
+    pub(crate) field: EditedField,
     pub(crate) restore_index: usize,
 }
 
-impl PendingLibraryRename {
-    /// Display names never reach the expander, so no daemon reload.
+impl PendingLibraryEdit {
+    /// Display names and descriptions never reach the expander, so no
+    /// daemon reload. Content changes reload so expansion picks them up.
     pub(crate) fn apply(&self) -> taurine_core::Result<()> {
         let conn = taurine_core::db::init::setup()?;
-        taurine_core::db::crud::set_trigger_name(&conn, &self.trigger_id, &self.name)?;
+        match &self.field {
+            EditedField::Name(name) => {
+                taurine_core::db::crud::set_trigger_name(&conn, &self.trigger_id, name)?;
+            }
+            EditedField::Description(description) => {
+                taurine_core::db::crud::set_trigger_description(
+                    &conn,
+                    &self.trigger_id,
+                    description.as_deref(),
+                )?;
+            }
+            EditedField::Content(body) => {
+                taurine_core::db::crud::set_trigger_content(&conn, &self.trigger_id, body)?;
+                taurine_core::rpc::notify_daemon_reload();
+            }
+        }
         Ok(())
     }
 }
@@ -219,7 +242,7 @@ impl PreparedLibraryImport {
 pub(crate) struct LibraryInteraction {
     pending_delete: Option<PendingLibraryDelete>,
     pending_toggle: Option<PendingLibraryToggle>,
-    pending_rename: Option<PendingLibraryRename>,
+    pending_edit: Option<PendingLibraryEdit>,
     pending_export: Option<PendingLibraryExport>,
     pending_import_prepare: Option<PendingLibraryImportPrepare>,
     pending_import_commit: Option<PreparedLibraryImport>,
@@ -235,8 +258,8 @@ impl LibraryInteraction {
         self.pending_toggle.as_ref()
     }
 
-    pub(crate) const fn pending_rename(&self) -> Option<&PendingLibraryRename> {
-        self.pending_rename.as_ref()
+    pub(crate) const fn pending_edit(&self) -> Option<&PendingLibraryEdit> {
+        self.pending_edit.as_ref()
     }
 
     pub(crate) const fn pending_export(&self) -> Option<&PendingLibraryExport> {
@@ -263,7 +286,7 @@ impl LibraryInteraction {
         Self {
             pending_delete: Some(pending_delete),
             pending_toggle: None,
-            pending_rename: None,
+            pending_edit: None,
             pending_export: None,
             pending_import_prepare: None,
             pending_import_commit: None,
@@ -275,7 +298,7 @@ impl LibraryInteraction {
         Self {
             pending_delete: None,
             pending_toggle: Some(pending_toggle),
-            pending_rename: None,
+            pending_edit: None,
             pending_export: None,
             pending_import_prepare: None,
             pending_import_commit: None,
@@ -283,11 +306,11 @@ impl LibraryInteraction {
         }
     }
 
-    pub(crate) fn rename(pending_rename: PendingLibraryRename) -> Self {
+    pub(crate) fn edit(pending_edit: PendingLibraryEdit) -> Self {
         Self {
             pending_delete: None,
             pending_toggle: None,
-            pending_rename: Some(pending_rename),
+            pending_edit: Some(pending_edit),
             pending_export: None,
             pending_import_prepare: None,
             pending_import_commit: None,
@@ -299,7 +322,7 @@ impl LibraryInteraction {
         Self {
             pending_delete: None,
             pending_toggle: None,
-            pending_rename: None,
+            pending_edit: None,
             pending_export: Some(pending_export),
             pending_import_prepare: None,
             pending_import_commit: None,
@@ -311,7 +334,7 @@ impl LibraryInteraction {
         Self {
             pending_delete: None,
             pending_toggle: None,
-            pending_rename: None,
+            pending_edit: None,
             pending_export: None,
             pending_import_prepare: Some(pending_import_prepare),
             pending_import_commit: None,
@@ -323,7 +346,7 @@ impl LibraryInteraction {
         Self {
             pending_delete: None,
             pending_toggle: None,
-            pending_rename: None,
+            pending_edit: None,
             pending_export: None,
             pending_import_prepare: None,
             pending_import_commit: Some(prepared),
@@ -335,7 +358,7 @@ impl LibraryInteraction {
         Self {
             pending_delete: None,
             pending_toggle: None,
-            pending_rename: None,
+            pending_edit: None,
             pending_export: None,
             pending_import_prepare: None,
             pending_import_commit: None,

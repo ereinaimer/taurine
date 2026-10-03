@@ -10,12 +10,12 @@ use ratatui::{
 
 use crate::theme::Theme;
 use crate::widgets::library::icons::{CHEVRON_DOWN, os_icon};
-use crate::widgets::library::state::{LibraryPageState, LibraryTrigger};
+use crate::widgets::library::state::{EditTarget, LibraryPageState, LibraryTrigger};
 use crate::widgets::util;
 
 use super::split_panes;
 
-const CONTENT_INNER_HEIGHT: usize = 16;
+pub(crate) const CONTENT_INNER_HEIGHT: usize = 16;
 /// Empty-state token: three ROUNDED-border horizontals, matching the pane
 /// border glyph set.
 pub(crate) const EMPTY_TOKEN: &str = "───";
@@ -30,10 +30,13 @@ const BUTTONS_OFFSET: u16 = 4;
 pub(crate) enum DetailHit {
     EnableToggle,
     NameEditAt(usize),
+    DescriptionEdit,
+    ContentEditAt { row: usize, col: usize },
 }
 
-/// Which detail row a click landed on. The header toggle flips enable,
-/// the name opens an inline edit; everything else is read-only preview.
+/// Which detail cell a click landed on. Toggle flips enable, name and
+/// description open inline edits, content-box text opens the body
+/// editor; everything else is read-only preview.
 pub(crate) fn hit_test(
     area: Rect,
     list_ratio: f32,
@@ -62,6 +65,30 @@ pub(crate) fn hit_test(
             ));
         }
         return None;
+    }
+    if row == content.y.saturating_add(DESCRIPTION_OFFSET)
+        && column >= content.x
+        && column < content.x.saturating_add(content.width)
+    {
+        return Some(DetailHit::DescriptionEdit);
+    }
+    // honey: text rows inside the box map straight onto wrapped visual
+    // rows; the border frame itself is not editable. Text starts two
+    // cells in (border plus padding), mirroring the render path.
+    let box_top = content.y.saturating_add(CONTENT_BOX_TOP);
+    let text_top = box_top.saturating_add(1);
+    let text_bottom = text_top.saturating_add(CONTENT_INNER_HEIGHT as u16);
+    let text_x = content.x.saturating_add(2);
+    if row >= text_top
+        && row < text_bottom
+        && row < content.y.saturating_add(content.height)
+        && column >= text_x
+        && column < content.x.saturating_add(content.width).saturating_sub(1)
+    {
+        return Some(DetailHit::ContentEditAt {
+            row: row.saturating_sub(text_top) as usize,
+            col: column.saturating_sub(text_x) as usize,
+        });
     }
     None
 }
@@ -115,8 +142,33 @@ const CONTENT_BOX_HEIGHT: u16 = CONTENT_INNER_HEIGHT as u16 + 2;
 
 /// Text width inside the content box: border plus one cell of padding
 /// each side, mirroring the search box.
-fn content_text_width(box_width: u16) -> u16 {
+pub(crate) fn content_text_width(box_width: u16) -> u16 {
     box_width.saturating_sub(4)
+}
+
+/// Map a wrapped visual row + column onto the source (row, column).
+/// Edit mode shows lines unwrapped, so clicks land on the source row
+/// with an approximate column; placement clamps into the line.
+pub(crate) fn content_source_cell(
+    item: &LibraryTrigger,
+    width: u16,
+    visual_row: usize,
+    visual_col: usize,
+) -> (usize, usize) {
+    let width = (width.max(1)) as usize;
+    let mut acc = 0usize;
+    let mut last = (0usize, 0usize);
+    for (srow, line) in item.content().lines().enumerate() {
+        let chunks = wrap_content_lines(line, width as u16);
+        let n = chunks.len().max(1);
+        if visual_row < acc + n {
+            let col = (visual_row - acc) * width + visual_col;
+            return (srow, col);
+        }
+        acc += n;
+        last = (srow, line.chars().count());
+    }
+    last
 }
 
 fn detail_layout(
@@ -197,12 +249,12 @@ pub(crate) fn render_detail(
 
     let scroll = state.detail_scroll();
     render_header_row(frame, content, theme, state, item);
-    render_description_row(frame, content, theme, item);
+    render_description_row(frame, content, theme, state, item);
     render_buttons_row(frame, content, theme, item);
     let Some(layout) = detail_layout(content.height, content.width, item, scroll) else {
         return;
     };
-    render_content_rows(frame, content, theme, &layout);
+    render_content_rows(frame, content, theme, state, &layout);
 }
 
 fn render_empty(frame: &mut Frame, area: Rect, theme: &Theme, message: &str) {
@@ -310,8 +362,33 @@ fn render_header_row(
     frame.render_widget(Paragraph::new(line), row);
 }
 
-fn render_description_row(frame: &mut Frame, area: Rect, theme: &Theme, item: &LibraryTrigger) {
+fn render_description_row(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    state: &LibraryPageState,
+    item: &LibraryTrigger,
+) {
     if DESCRIPTION_OFFSET >= area.height {
+        return;
+    }
+    let row = row_area(area, DESCRIPTION_OFFSET);
+    if let Some(edit) = state
+        .edit()
+        .filter(|edit| edit.target() == EditTarget::Description)
+    {
+        let (visible, caret) = edit.line().window(row.width);
+        let gap = row.width.saturating_sub(visible.chars().count() as u16);
+        let line = Line::from(vec![
+            Span::styled(
+                visible.to_string(),
+                Style::default().fg(theme.text).bg(theme.surface),
+            ),
+            Span::raw(" ".repeat(gap as usize)),
+        ]);
+        frame.render_widget(Paragraph::new(line), row);
+        let (cx, cy) = util::caret_position(row.x, row.y, caret, row.width);
+        frame.set_cursor_position((cx, cy));
         return;
     }
     let text = match item.description() {
@@ -432,7 +509,13 @@ pub(crate) fn property_rows(item: &LibraryTrigger) -> Vec<(&'static str, String)
 /// Static content box: fixed 18 rows with the rounded search-box border
 /// and 16 scrollable text rows inside, no scrollbar.
 /// The box never grows or shrinks with the content length.
-fn render_content_rows(frame: &mut Frame, area: Rect, theme: &Theme, layout: &DetailLayout) {
+fn render_content_rows(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    state: &LibraryPageState,
+    layout: &DetailLayout,
+) {
     use ratatui::symbols::border;
     use ratatui::widgets::{Block, Borders};
 
@@ -489,6 +572,13 @@ fn render_content_rows(frame: &mut Frame, area: Rect, theme: &Theme, layout: &De
         width: inner.width.saturating_sub(2),
         height: CONTENT_INNER_HEIGHT as u16,
     };
+    if let Some(edit) = state
+        .edit()
+        .filter(|edit| edit.target() == EditTarget::Content)
+    {
+        render_content_editor(frame, theme, text, edit, state.detail_scroll());
+        return;
+    }
     for (index, (_, line)) in layout.content_rows.iter().enumerate() {
         if index >= text.height as usize {
             break;
@@ -504,6 +594,53 @@ fn render_content_rows(frame: &mut Frame, area: Rect, theme: &Theme, layout: &De
             Paragraph::new(Line::from(line.clone())).style(Style::default().fg(theme.text)),
             row,
         );
+    }
+}
+
+/// Body editor: session lines with per-line horizontal viewports and a
+/// real caret. Non-caret lines show their head, truncated like read mode.
+fn render_content_editor(
+    frame: &mut Frame,
+    theme: &Theme,
+    text: Rect,
+    edit: &crate::widgets::library::state::ActiveEdit,
+    scroll: usize,
+) {
+    use crate::widgets::field::window_of;
+
+    let body = edit.body();
+    let (caret_row, caret_col) = body.cursor();
+    for (index, line) in body.lines().iter().enumerate().skip(scroll) {
+        let visual = index.saturating_sub(scroll);
+        if visual >= text.height as usize {
+            break;
+        }
+        let row = Rect {
+            x: text.x,
+            y: text.y.saturating_add(visual as u16),
+            width: text.width,
+            height: 1,
+        };
+        if index == caret_row {
+            let (visible, caret) = window_of(line, caret_col, text.width);
+            let gap = text.width.saturating_sub(visible.chars().count() as u16);
+            let rendered = Line::from(vec![
+                Span::styled(
+                    visible.to_string(),
+                    Style::default().fg(theme.text).bg(theme.surface),
+                ),
+                Span::raw(" ".repeat(gap as usize)),
+            ]);
+            frame.render_widget(Paragraph::new(rendered), row);
+            let (cx, cy) = util::caret_position(row.x, row.y, caret, text.width);
+            frame.set_cursor_position((cx, cy));
+        } else {
+            frame.render_widget(
+                Paragraph::new(util::truncate_to_width(line.trim_end(), text.width))
+                    .style(Style::default().fg(theme.text)),
+                row,
+            );
+        }
     }
 }
 

@@ -349,11 +349,13 @@ fn handle_tui_mouse_event(
                             apply_library_interaction(app, interaction);
                         }
                         Some(library::list::LibraryHit::SearchAt(cursor)) => {
+                            let flush = app.library_page_mut().commit_edit();
+                            apply_library_interaction(app, flush);
                             app.library_page_mut().activate_search_at(cursor);
                         }
-                        // honey: header toggle flips enable (committing a
-                        // pending rename first), name click starts editing;
-                        // everything else is read-only.
+                        // honey: toggle flips enable (committing any edit
+                        // first); name, description, and content clicks
+                        // start editing; everything else is read-only.
                         None => {
                             let hit = {
                                 let page = app.library_page();
@@ -368,10 +370,54 @@ fn handle_tui_mouse_event(
                             };
                             match hit {
                                 Some(library::detail::DetailHit::NameEditAt(cursor)) => {
-                                    app.library_page_mut().start_name_edit_at(cursor);
+                                    let interaction =
+                                        app.library_page_mut().start_name_edit_at(cursor);
+                                    apply_library_interaction(app, interaction);
+                                }
+                                Some(library::detail::DetailHit::DescriptionEdit) => {
+                                    let interaction =
+                                        app.library_page_mut().start_description_edit();
+                                    apply_library_interaction(app, interaction);
+                                }
+                                Some(library::detail::DetailHit::ContentEditAt { row, col }) => {
+                                    let interaction = {
+                                        let page = app.library_page();
+                                        match page.selected_index().and_then(|index| {
+                                            page.item_at_filtered(index).cloned().map(|item| {
+                                                (
+                                                    item,
+                                                    page.detail_scroll(),
+                                                    page.split_ratio(),
+                                                    page.detail_ratio(),
+                                                )
+                                            })
+                                        }) {
+                                            Some((item, scroll, list_ratio, props_ratio)) => {
+                                                let width = library::detail::content_text_width(
+                                                    library::detail::center_content(
+                                                        layout.page,
+                                                        list_ratio,
+                                                        props_ratio,
+                                                    )
+                                                    .width,
+                                                );
+                                                let (srow, scol) =
+                                                    library::detail::content_source_cell(
+                                                        &item,
+                                                        width,
+                                                        scroll + row,
+                                                        col,
+                                                    );
+                                                app.library_page_mut()
+                                                    .start_content_edit_at(srow, scol)
+                                            }
+                                            None => library::LibraryInteraction::handled(),
+                                        }
+                                    };
+                                    apply_library_interaction(app, interaction);
                                 }
                                 Some(library::detail::DetailHit::EnableToggle) => {
-                                    let flush = app.library_page_mut().commit_name_edit();
+                                    let flush = app.library_page_mut().commit_edit();
                                     apply_library_interaction(app, flush);
                                     let interaction =
                                         app.library_page_mut().toggle_selected_enabled();
@@ -542,12 +588,25 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
         }
     }
 
-    if let Some(pending_rename) = interaction.pending_rename() {
-        let trigger_id = pending_rename.trigger_id.clone();
-        let trigger = pending_rename.trigger.clone();
-        let draft = pending_rename.name.clone();
-        let restore_index = pending_rename.restore_index;
-        match pending_rename.apply() {
+    if let Some(pending_edit) = interaction.pending_edit() {
+        let trigger_id = pending_edit.trigger_id.clone();
+        let trigger = pending_edit.trigger.clone();
+        let restore_index = pending_edit.restore_index;
+        let draft = match &pending_edit.field {
+            library::EditedField::Name(name) => Some((
+                crate::widgets::library::state::EditTarget::Name,
+                name.clone(),
+            )),
+            library::EditedField::Description(description) => Some((
+                crate::widgets::library::state::EditTarget::Description,
+                description.clone().unwrap_or_default(),
+            )),
+            library::EditedField::Content(body) => Some((
+                crate::widgets::library::state::EditTarget::Content,
+                body.clone(),
+            )),
+        };
+        match pending_edit.apply() {
             Ok(()) => {
                 refresh_library_page(app);
                 if !app.library_page_mut().select_row(&trigger_id, &trigger) {
@@ -558,7 +617,10 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
             // same row with the draft intact.
             Err(error) => {
                 app.library_page_mut().set_save_error(error.to_string());
-                app.library_page_mut().restore_name_edit(&trigger_id, draft);
+                if let Some((target, text)) = draft {
+                    app.library_page_mut()
+                        .restore_edit(&trigger_id, target, text);
+                }
             }
         }
     }

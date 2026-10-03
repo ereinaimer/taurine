@@ -77,7 +77,7 @@ pub(crate) struct LibraryPageState {
     divider_drag: Option<super::DividerSide>,
     detail_scroll: usize,
     usage_expanded: bool,
-    edit: Option<TriggerNameEdit>,
+    edit: Option<ActiveEdit>,
 }
 
 impl Default for LibraryPageState {
@@ -442,59 +442,68 @@ impl LibraryPageState {
         }
     }
 
-    /// Keys while a trigger name is being edited. Enter commits, Esc
-    /// cancels, Up/Down commit then move, text appends to the draft.
-    /// Everything else is swallowed so typing never leaks into search.
+    /// Keys while a trigger part is being edited. Single-line parts
+    /// (name, description): Enter commits, Esc cancels, Up/Down commit
+    /// then move. Content: Enter breaks the line, Tab commits, arrows
+    /// move the caret, Esc discards. Everything else is swallowed so
+    /// typing never leaks into search.
     fn handle_edit_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        let is_content = self
+            .edit
+            .as_ref()
+            .is_some_and(|edit| edit.target() == EditTarget::Content);
+        if is_content {
+            return self.handle_content_key(key);
+        }
         match (key.code, key.modifiers) {
-            (KeyCode::Enter, KeyModifiers::NONE) => self.commit_name_edit(),
+            (KeyCode::Enter, KeyModifiers::NONE) => self.commit_edit(),
             (KeyCode::Esc, KeyModifiers::NONE) => {
-                self.cancel_name_edit();
+                self.cancel_edit();
                 LibraryInteraction::handled()
             }
             (KeyCode::Down, KeyModifiers::NONE) => {
-                let interaction = self.commit_name_edit();
+                let interaction = self.commit_edit();
                 self.move_selection(1);
                 interaction
             }
             (KeyCode::Up, KeyModifiers::NONE) => {
-                let interaction = self.commit_name_edit();
+                let interaction = self.commit_edit();
                 self.move_selection(-1);
                 interaction
             }
             (KeyCode::Backspace, KeyModifiers::NONE) => {
                 if let Some(edit) = self.edit.as_mut() {
-                    edit.pop();
+                    edit.line_mut().backspace();
                 }
                 LibraryInteraction::handled()
             }
             (KeyCode::Delete, KeyModifiers::NONE) => {
                 if let Some(edit) = self.edit.as_mut() {
-                    edit.delete_at();
+                    edit.line_mut().delete_at();
                 }
                 LibraryInteraction::handled()
             }
             (KeyCode::Left, KeyModifiers::NONE) => {
                 if let Some(edit) = self.edit.as_mut() {
-                    edit.move_left();
+                    edit.line_mut().move_left();
                 }
                 LibraryInteraction::handled()
             }
             (KeyCode::Right, KeyModifiers::NONE) => {
                 if let Some(edit) = self.edit.as_mut() {
-                    edit.move_right();
+                    edit.line_mut().move_right();
                 }
                 LibraryInteraction::handled()
             }
             (KeyCode::Home, KeyModifiers::NONE) => {
                 if let Some(edit) = self.edit.as_mut() {
-                    edit.move_home();
+                    edit.line_mut().move_home();
                 }
                 LibraryInteraction::handled()
             }
             (KeyCode::End, KeyModifiers::NONE) => {
                 if let Some(edit) = self.edit.as_mut() {
-                    edit.move_end();
+                    edit.line_mut().move_end();
                 }
                 LibraryInteraction::handled()
             }
@@ -502,8 +511,65 @@ impl LibraryPageState {
                 if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
                 if let Some(edit) = self.edit.as_mut() {
-                    edit.push(ch);
+                    edit.push_char(ch);
                 }
+                LibraryInteraction::handled()
+            }
+            _ => LibraryInteraction::handled(),
+        }
+    }
+
+    fn handle_content_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        match (key.code, key.modifiers) {
+            (KeyCode::Esc, KeyModifiers::NONE) => {
+                self.cancel_edit();
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Tab, KeyModifiers::NONE) => self.commit_edit(),
+            (KeyCode::Enter, KeyModifiers::NONE) => {
+                self.content_newline();
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Backspace, KeyModifiers::NONE) => {
+                self.move_content_caret(|body| {
+                    body.backspace();
+                });
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Delete, KeyModifiers::NONE) => {
+                self.move_content_caret(|body| {
+                    body.delete_at();
+                });
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Left, KeyModifiers::NONE) => {
+                self.move_content_caret(|body| body.move_left());
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Right, KeyModifiers::NONE) => {
+                self.move_content_caret(|body| body.move_right());
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Up, KeyModifiers::NONE) => {
+                self.move_content_caret(|body| body.move_up());
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Down, KeyModifiers::NONE) => {
+                self.move_content_caret(|body| body.move_down());
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Home, KeyModifiers::NONE) => {
+                self.move_content_caret(|body| body.move_home());
+                LibraryInteraction::handled()
+            }
+            (KeyCode::End, KeyModifiers::NONE) => {
+                self.move_content_caret(|body| body.move_end());
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Char(ch), modifiers)
+                if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                self.insert_content_char(ch);
                 LibraryInteraction::handled()
             }
             _ => LibraryInteraction::handled(),
@@ -697,15 +763,15 @@ impl LibraryPageState {
     }
 
     /// Click selects the row and records the click-time window start so the
-    /// list does not jump. A pending name edit commits first when the
-    /// click lands on another row; blank text silently no-ops.
+    /// list does not jump. A pending edit commits first when the click
+    /// lands on another row; blank text silently no-ops.
     pub(crate) fn click_item(
         &mut self,
         filtered_position: usize,
         anchor: usize,
     ) -> LibraryInteraction {
         if self.edit.is_some() && Some(filtered_position) != self.selected_index() {
-            let interaction = self.commit_name_edit();
+            let interaction = self.commit_edit();
             self.selected = filtered_position;
             self.window_anchor = Some(anchor);
             self.reset_detail_scroll();
