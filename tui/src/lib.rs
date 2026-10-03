@@ -99,7 +99,11 @@ pub fn run() -> taurine_core::Result<()> {
         })?;
 
         match events.next()? {
-            Event::Key(key) => handle_tui_key_event(&mut app, key),
+            Event::Key(key) => {
+                let layout = terminal::mouse::frame_layout(last_area);
+                track_content_width(&mut app, layout.page);
+                handle_tui_key_event(&mut app, key);
+            }
             Event::Mouse(mouse) => handle_tui_mouse_event(&mut app, mouse, last_area),
             Event::Tick => {
                 if app.active_page() == Page::Library {
@@ -209,6 +213,21 @@ fn handle_tui_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
     }
 }
 
+/// Tracks the content text width for caret math. Width mirrors the
+/// render path (border plus padding); zero falls back to unwrapped math.
+fn track_content_width(app: &mut App, page: ratatui::layout::Rect) {
+    if app.active_page() != Page::Library {
+        return;
+    }
+    let ratios = (
+        app.library_page().split_ratio(),
+        app.library_page().detail_ratio(),
+    );
+    let content = library::detail::center_content(page, ratios.0, ratios.1);
+    app.library_page_mut()
+        .set_content_width(content.width.saturating_sub(4));
+}
+
 fn handle_tui_mouse_event(
     app: &mut App,
     mouse: crossterm::event::MouseEvent,
@@ -271,6 +290,7 @@ fn handle_tui_mouse_event(
             }
             if app.active_page() == Page::Library {
                 let layout = terminal::mouse::frame_layout(area);
+                track_content_width(app, layout.page);
                 let page = app.library_page();
                 if library::detail::detail_contains(
                     layout.page,
@@ -339,6 +359,7 @@ fn handle_tui_mouse_event(
                 return;
             }
             let layout = terminal::mouse::frame_layout(area);
+            track_content_width(app, layout.page);
             if app.active_page() == Page::Library
                 && grab_divider(app, layout.page, mouse.column, mouse.row)
             {

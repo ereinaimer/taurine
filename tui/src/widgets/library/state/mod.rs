@@ -79,6 +79,7 @@ pub(crate) struct LibraryPageState {
     usage_expanded: bool,
     edit: Option<ActiveEdit>,
     last_edit_at: Option<u64>,
+    content_width: u16,
 }
 
 /// Millis after the last keystroke before an open edit autosaves.
@@ -111,6 +112,7 @@ impl Default for LibraryPageState {
             usage_expanded: false,
             edit: None,
             last_edit_at: None,
+            content_width: 0,
         }
     }
 }
@@ -217,6 +219,13 @@ impl LibraryPageState {
 
     pub(crate) const fn detail_scroll(&self) -> usize {
         self.detail_scroll
+    }
+
+    /// Last known content text width, tracked by the event loop so caret
+    /// math stays width-aware without threading geometry through keys.
+    /// Zero until the first event; moves then skip scroll adjustment.
+    pub(crate) fn set_content_width(&mut self, width: u16) {
+        self.content_width = width;
     }
     pub(crate) fn scroll_detail(&mut self, delta: isize, max_scroll: usize) {
         let next = self.detail_scroll as isize + delta;

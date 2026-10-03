@@ -273,6 +273,8 @@ impl super::LibraryPageState {
     }
 
     /// Move the body caret, keeping it inside the scrolled window.
+    /// Scroll math runs in wrapped visual rows at the tracked width;
+    /// unknown width (zero) skips adjustment.
     pub(crate) fn move_content_caret(&mut self, apply: impl FnOnce(&mut TextArea)) {
         let Some(edit) = self.edit.as_mut() else {
             return;
@@ -281,43 +283,30 @@ impl super::LibraryPageState {
             return;
         }
         apply(&mut edit.body);
-        let (row, _) = edit.body.cursor();
+        let width = self.content_width;
+        if width == 0 {
+            return;
+        }
+        let (row, col) = edit.body.cursor();
+        let (visual, _) = crate::widgets::library::detail::content_visual_cursor(
+            edit.body.lines(),
+            row,
+            col,
+            width,
+        );
         let height = crate::widgets::library::detail::CONTENT_INNER_HEIGHT;
-        if row < self.detail_scroll {
-            self.detail_scroll = row;
-        } else if row >= self.detail_scroll + height {
-            self.detail_scroll = row + 1 - height;
+        if visual < self.detail_scroll {
+            self.detail_scroll = visual;
+        } else if visual >= self.detail_scroll + height {
+            self.detail_scroll = visual + 1 - height;
         }
     }
 
     pub(crate) fn content_newline(&mut self) {
-        let row = match self.edit.as_mut() {
-            Some(edit) if edit.target == EditTarget::Content => {
-                edit.body.insert_newline();
-                edit.body.cursor().0
-            }
-            _ => return,
-        };
-        self.scroll_content_to(row);
+        self.move_content_caret(|body| body.insert_newline());
     }
 
     pub(crate) fn insert_content_char(&mut self, ch: char) {
-        let row = match self.edit.as_mut() {
-            Some(edit) if edit.target == EditTarget::Content => {
-                edit.body.insert_char(ch);
-                edit.body.cursor().0
-            }
-            _ => return,
-        };
-        self.scroll_content_to(row);
-    }
-
-    fn scroll_content_to(&mut self, row: usize) {
-        let height = crate::widgets::library::detail::CONTENT_INNER_HEIGHT;
-        if row < self.detail_scroll {
-            self.detail_scroll = row;
-        } else if row >= self.detail_scroll + height {
-            self.detail_scroll = row + 1 - height;
-        }
+        self.move_content_caret(|body| body.insert_char(ch));
     }
 }

@@ -1409,6 +1409,21 @@ fn content_source_cell_folds_wrapped_chunks() {
 }
 
 #[test]
+fn content_visual_cursor_round_trips_wrapped_rows() {
+    let lines = vec!["x".repeat(100)];
+    // Chunk boundaries at width 33: visual rows 0..4.
+    assert_eq!(detail::content_visual_cursor(&lines, 0, 5, 33), (0, 5));
+    assert_eq!(detail::content_visual_cursor(&lines, 0, 33, 33), (1, 0));
+    assert_eq!(detail::content_visual_cursor(&lines, 0, 99, 33), (3, 0));
+    // Second source row offsets by the first row's chunk count.
+    let lines = vec!["ab".to_string(), "cdef".to_string()];
+    assert_eq!(detail::content_visual_cursor(&lines, 1, 2, 33), (1, 2));
+    // Empty input stays at the origin.
+    let empty: Vec<String> = Vec::new();
+    assert_eq!(detail::content_visual_cursor(&empty, 0, 0, 33), (0, 0));
+}
+
+#[test]
 fn display_name_falls_back_to_trigger_when_unnamed() {
     let item = LibraryTrigger::single(list_item(
         "id-gm",

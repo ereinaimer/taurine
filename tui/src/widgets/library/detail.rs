@@ -146,6 +146,29 @@ pub(crate) fn content_text_width(box_width: u16) -> u16 {
     box_width.saturating_sub(4)
 }
 
+/// Map a source caret (row, column) onto wrapped visual (row, column)
+/// at `width`, using the same chunking as the render path.
+pub(crate) fn content_visual_cursor(
+    lines: &[String],
+    row: usize,
+    col: usize,
+    width: u16,
+) -> (usize, usize) {
+    let width = (width.max(1)) as usize;
+    let mut visual = 0usize;
+    for (index, line) in lines.iter().enumerate() {
+        let chunks = wrap_content_lines(line, width as u16);
+        let count = chunks.len().max(1);
+        if index == row.min(lines.len().saturating_sub(1)) && !lines.is_empty() {
+            let clamped = col.min(line.chars().count());
+            let chunk = clamped / width;
+            return (visual + chunk.min(count - 1), clamped - chunk * width);
+        }
+        visual += count;
+    }
+    (visual.saturating_sub(1), 0)
+}
+
 /// Map a wrapped visual row + column onto the source (row, column).
 /// Edit mode shows lines unwrapped, so clicks land on the source row
 /// with an approximate column; placement clamps into the line.
@@ -606,11 +629,14 @@ fn render_content_editor(
     edit: &crate::widgets::library::state::ActiveEdit,
     scroll: usize,
 ) {
-    use crate::widgets::field::window_of;
-
+    // honey: identical wrapping to read mode; the caret paints on the
+    // wrapped visual row, so long paragraphs stay editable in place.
     let body = edit.body();
     let (caret_row, caret_col) = body.cursor();
-    for (index, line) in body.lines().iter().enumerate().skip(scroll) {
+    let (caret_visual, caret_cell) =
+        content_visual_cursor(body.lines(), caret_row, caret_col, text.width);
+    let wrapped = wrap_content_lines(&body.text(), text.width);
+    for (index, line) in wrapped.into_iter().enumerate().skip(scroll) {
         let visual = index.saturating_sub(scroll);
         if visual >= text.height as usize {
             break;
@@ -621,23 +647,21 @@ fn render_content_editor(
             width: text.width,
             height: 1,
         };
-        if index == caret_row {
-            let (visible, caret) = window_of(line, caret_col, text.width);
-            let gap = text.width.saturating_sub(visible.chars().count() as u16);
+        if index == caret_visual {
+            let gap = text.width.saturating_sub(line.chars().count() as u16);
             let rendered = Line::from(vec![
                 Span::styled(
-                    visible.to_string(),
+                    line.clone(),
                     Style::default().fg(theme.text).bg(theme.surface),
                 ),
                 Span::raw(" ".repeat(gap as usize)),
             ]);
             frame.render_widget(Paragraph::new(rendered), row);
-            let (cx, cy) = util::caret_position(row.x, row.y, caret, text.width);
+            let (cx, cy) = util::caret_position(row.x, row.y, caret_cell, text.width);
             frame.set_cursor_position((cx, cy));
         } else {
             frame.render_widget(
-                Paragraph::new(util::truncate_to_width(line.trim_end(), text.width))
-                    .style(Style::default().fg(theme.text)),
+                Paragraph::new(Line::from(line)).style(Style::default().fg(theme.text)),
                 row,
             );
         }
