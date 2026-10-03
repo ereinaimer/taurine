@@ -1090,35 +1090,43 @@ fn parse_tags_handles_stored_shapes() {
 }
 
 #[test]
-fn info_modal_open_and_esc_close() {
-    let mut state = sample_state();
-    assert!(state.modal.is_none());
-
-    state.open_info_modal_for_selected();
-    assert!(matches!(state.modal, Some(LibraryModal::Info(_))));
-
-    let interaction = state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-    assert!(interaction.should_close_modal());
-}
-
-#[test]
-fn header_hit_regions_for_toggle_and_info() {
+fn header_hit_region_for_toggle() {
     let state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
-    let ratio = state.split_ratio();
-    // Header content at x=42 width=37: info button owns the last 3 cells,
-    // [ON] toggle the 4 before a 2-cell gap.
+    // Center content at x=23 width=31: [ON] toggle owns the last 4 cells.
     assert_eq!(
-        detail::hit_test(area, ratio, &state, 77, 1),
-        Some(detail::DetailHit::InfoOpen)
-    );
-    assert_eq!(
-        detail::hit_test(area, ratio, &state, 71, 1),
+        detail::hit_test(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            52,
+            1
+        ),
         Some(detail::DetailHit::EnableToggle)
     );
-    assert_eq!(detail::hit_test(area, ratio, &state, 74, 1), None);
-    assert_eq!(detail::hit_test(area, ratio, &state, 69, 1), None);
-    assert_eq!(detail::hit_test(area, ratio, &state, 42, 1), None);
+    assert_eq!(
+        detail::hit_test(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            49,
+            1
+        ),
+        None
+    );
+    assert_eq!(
+        detail::hit_test(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            23,
+            1
+        ),
+        None
+    );
 }
 
 #[test]
@@ -1136,13 +1144,15 @@ fn header_toggle_hit_for_text_trigger_row() {
         None,
     ))]);
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
-    let ratio = state.split_ratio();
     assert_eq!(
-        detail::hit_test(area, ratio, &state, 77, 1),
-        Some(detail::DetailHit::InfoOpen)
-    );
-    assert_eq!(
-        detail::hit_test(area, ratio, &state, 71, 1),
+        detail::hit_test(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            52,
+            1
+        ),
         Some(detail::DetailHit::EnableToggle)
     );
 }
@@ -1160,7 +1170,7 @@ fn info_rows_carry_properties_and_usage_extras() {
         9,
         None,
     ));
-    let rows = info_rows(&item);
+    let rows = props::info_rows(&item);
     let get = |label: &str| {
         rows.iter()
             .find(|(key, _)| *key == label)
@@ -1190,7 +1200,7 @@ fn info_rows_skip_savings_for_scripts() {
         4,
         Some("npm run build && npm publish"),
     ));
-    let rows = info_rows(&item);
+    let rows = props::info_rows(&item);
     assert!(rows.iter().all(|(key, _)| *key != "Keystrokes saved"));
     assert!(rows.iter().all(|(key, _)| *key != "Time saved"));
     assert!(rows.iter().any(|(key, _)| *key == "Frequency"));
@@ -1209,7 +1219,7 @@ fn info_rows_show_empty_token_without_usage() {
         0,
         None,
     ));
-    let rows = info_rows(&item);
+    let rows = props::info_rows(&item);
     let get = |label: &str| {
         rows.iter()
             .find(|(key, _)| *key == label)
@@ -1577,81 +1587,121 @@ fn right_pane_clicks_hit_nothing() {
 #[test]
 fn default_split_matches_legacy_halves() {
     let state = LibraryPageState::default();
-    assert_eq!(state.split_ratio(), 0.5);
+    assert_eq!(state.split_ratio(), 2.0 / 7.0);
+    assert_eq!(state.detail_ratio(), 0.4);
 
-    let area = ratatui::layout::Rect::new(0, 0, 80, 30);
-    let (left, right) = content_halves(area, state.split_ratio());
-    assert_eq!(left.width, 39);
-    assert_eq!(divider_column(area, state.split_ratio()), Some(39));
-    assert_eq!(right.x, 40);
+    // 2:3:2 proportions: sides near-equal, content biggest.
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let split = split_panes(area, state.split_ratio(), state.detail_ratio());
+    assert!((27..=29).contains(&split.list.width));
+    assert!((27..=29).contains(&split.props.width));
+    assert!(split.center.width > split.list.width);
+    assert!(split.center.width > split.props.width);
+    let columns = divider_columns(area, state.split_ratio(), state.detail_ratio());
+    assert_eq!(columns.len(), 2);
+    assert_eq!(columns[0], split.list.width);
+    assert_eq!(
+        columns[1],
+        split.center.x.saturating_add(split.center.width)
+    );
 }
 
 #[test]
 fn custom_split_moves_divider_and_clamps() {
-    let area = ratatui::layout::Rect::new(0, 0, 80, 30);
-    let (left, _) = content_halves(area, 0.25);
-    assert_eq!(left.width, 19);
-    assert_eq!(divider_column(area, 0.25), Some(19));
-
     let mut state = LibraryPageState::default();
     state.set_split_ratio(0.0);
     assert_eq!(state.split_ratio(), MIN_SPLIT_RATIO);
     state.set_split_ratio(2.0);
     assert_eq!(state.split_ratio(), MAX_SPLIT_RATIO);
+    state.set_detail_ratio(0.0);
+    assert_eq!(state.detail_ratio(), MIN_DETAIL_RATIO);
+    state.set_detail_ratio(2.0);
+    assert_eq!(state.detail_ratio(), MAX_DETAIL_RATIO);
 }
 
 #[test]
 fn narrow_page_collapses_to_list_only() {
     let state = LibraryPageState::default();
-    let ratio = state.split_ratio();
 
-    // Right half would be 21 wide: collapse.
+    // Center would fall below its compact minimum: list only.
     let area = ratatui::layout::Rect::new(0, 0, 42, 30);
-    let (left, right) = content_halves(area, ratio);
-    assert_eq!(left.width, 42);
-    assert_eq!(right.width, 0);
-    assert_eq!(divider_column(area, ratio), None);
-    assert!(!divider_hit(area, ratio, 21, 5));
+    let split = split_panes(area, state.split_ratio(), state.detail_ratio());
+    assert_eq!(split.list.width, 42);
+    assert_eq!(split.center.width, 0);
+    assert_eq!(split.props.width, 0);
+    assert!(divider_columns(area, state.split_ratio(), state.detail_ratio()).is_empty());
+    assert_eq!(
+        divider_hit(area, state.split_ratio(), state.detail_ratio(), 21, 5),
+        None
+    );
 
-    // Right half is exactly the minimum: split kept.
-    let area = ratatui::layout::Rect::new(0, 0, 44, 30);
-    let (left, right) = content_halves(area, ratio);
-    assert_eq!(left.width, 21);
-    assert_eq!(right.width, 22);
-    assert_eq!(divider_column(area, ratio), Some(21));
+    // Wide enough for list + center, not props.
+    let area = ratatui::layout::Rect::new(0, 0, 60, 30);
+    let split = split_panes(area, state.split_ratio(), state.detail_ratio());
+    assert_eq!(split.list.width, 20);
+    assert_eq!(split.center.width, 39);
+    assert_eq!(split.props.width, 0);
+    assert_eq!(
+        divider_columns(area, state.split_ratio(), state.detail_ratio()),
+        vec![20]
+    );
 }
 
 #[test]
 fn drag_range_keeps_both_pane_minimums() {
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
     // honey: float truncation keeps this within one cell of the minimum.
-    let (left, _) = content_halves(area, split_ratio_for_column(area, 0));
-    assert!((MIN_LEFT_WIDTH - 1..=MIN_LEFT_WIDTH + 1).contains(&left.width));
-    let (_, right) = content_halves(area, split_ratio_for_column(area, 79));
-    assert!(right.width >= MIN_RIGHT_WIDTH);
+    let split = split_panes(area, split_ratio_for_column(area, 0), DEFAULT_DETAIL_RATIO);
+    assert!((MIN_LEFT_WIDTH - 1..=MIN_LEFT_WIDTH + 1).contains(&split.list.width));
+    let split = split_panes(area, split_ratio_for_column(area, 79), DEFAULT_DETAIL_RATIO);
+    assert!(split.center.width >= MIN_COMPACT_CENTER_WIDTH);
 }
 
 #[test]
 fn divider_hit_only_on_gutter_column() {
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
-    let ratio = LibraryPageState::default().split_ratio();
+    let state = LibraryPageState::default();
 
-    assert!(divider_hit(area, ratio, 39, 5));
-    assert!(!divider_hit(area, ratio, 38, 5));
-    assert!(!divider_hit(area, ratio, 40, 5));
-    assert!(!divider_hit(area, ratio, 39, 30));
+    assert_eq!(
+        divider_hit(area, state.split_ratio(), state.detail_ratio(), 22, 5),
+        Some(DividerSide::List)
+    );
+    assert_eq!(
+        divider_hit(area, state.split_ratio(), state.detail_ratio(), 57, 5),
+        Some(DividerSide::Props)
+    );
+    assert_eq!(
+        divider_hit(area, state.split_ratio(), state.detail_ratio(), 23, 5),
+        None
+    );
+    assert_eq!(
+        divider_hit(area, state.split_ratio(), state.detail_ratio(), 22, 30),
+        None
+    );
 
     let narrow = ratatui::layout::Rect::new(0, 0, 4, 30);
-    assert!(!divider_hit(narrow, ratio, 2, 5));
+    assert_eq!(
+        divider_hit(narrow, state.split_ratio(), state.detail_ratio(), 2, 5),
+        None
+    );
 }
 
 #[test]
 fn split_ratio_for_column_round_trips_divider() {
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
     let ratio = split_ratio_for_column(area, 20);
-    let (left, _) = content_halves(area, ratio);
-    assert!((19..=21).contains(&left.width));
-    assert_eq!(divider_column(area, ratio), Some(left.width));
+    let split = split_panes(area, ratio, DEFAULT_DETAIL_RATIO);
+    assert!((19..=21).contains(&split.list.width));
+    assert!(divider_columns(area, ratio, DEFAULT_DETAIL_RATIO).contains(&split.list.width));
+}
+
+#[test]
+fn detail_ratio_for_column_round_trips_props_divider() {
+    let area = ratatui::layout::Rect::new(0, 0, 80, 30);
+    let ratio = detail_ratio_for_column(area, DEFAULT_SPLIT_RATIO, 55);
+    let split = split_panes(area, DEFAULT_SPLIT_RATIO, ratio);
+    let divider = split.center.x.saturating_add(split.center.width);
+    assert!((56..=58).contains(&divider));
 }
 
 fn six_item_state() -> LibraryPageState {

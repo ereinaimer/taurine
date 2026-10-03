@@ -59,31 +59,41 @@ pub fn run() -> taurine_core::Result<()> {
 
             render_page_content(frame, layout.page, &app, theme);
 
-            if app.active_page() == Page::Library
-                && let Some(column) =
-                    library::divider_column(layout.page, app.library_page().split_ratio())
-                && area.height > 0
-            {
+            if app.active_page() == Page::Library && area.height > 0 {
                 use ratatui::text::Line;
 
-                // honey: divider lifts one subtle step on hover and while dragging.
-                let color =
-                    if app.library_page().divider_drag() || app.library_page().divider_hover() {
+                // honey: only the hovered or dragged divider lifts; the
+                // other stays on the base border color.
+                let page = app.library_page();
+                let sides = [library::DividerSide::List, library::DividerSide::Props];
+                for (index, column) in library::divider_columns(
+                    layout.page,
+                    page.split_ratio(),
+                    page.detail_ratio(),
+                )
+                .into_iter()
+                .enumerate()
+                {
+                    let side = sides[index.min(sides.len() - 1)];
+                    let color = if page.divider_drag() == Some(side)
+                        || page.divider_hover() == Some(side)
+                    {
                         library::DIVIDER_HOVER_COLOR
                     } else {
                         theme.border
                     };
-                let glyphs = vec![Line::from("│"); area.height as usize];
-                frame.render_widget(
-                    ratatui::widgets::Paragraph::new(glyphs)
-                        .style(ratatui::style::Style::default().fg(color)),
-                    ratatui::layout::Rect {
-                        x: column,
-                        y: area.y,
-                        width: 1,
-                        height: area.height,
-                    },
-                );
+                    let glyphs = vec![Line::from("│"); area.height as usize];
+                    frame.render_widget(
+                        ratatui::widgets::Paragraph::new(glyphs)
+                            .style(ratatui::style::Style::default().fg(color)),
+                        ratatui::layout::Rect {
+                            x: column,
+                            y: area.y,
+                            width: 1,
+                            height: area.height,
+                        },
+                    );
+                }
             }
 
             if let Some(msg) = app.notification() {
@@ -213,20 +223,38 @@ fn handle_tui_mouse_event(
         Page::Settings => app.settings_page().is_modal_open(),
     };
 
-    // honey: grabbing the divider starts a drag; pointer motion after that
+    // honey: grabbing a divider starts a drag; pointer motion after that
     // moves the split freely without re-hitting the gutter column.
     fn grab_divider(app: &mut App, page: ratatui::layout::Rect, column: u16, row: u16) -> bool {
-        let ratio = app.library_page().split_ratio();
-        if !library::divider_hit(page, ratio, column, row) {
+        let ratios = (
+            app.library_page().split_ratio(),
+            app.library_page().detail_ratio(),
+        );
+        let Some(side) = library::divider_hit(page, ratios.0, ratios.1, column, row) else {
             return false;
-        }
-        app.library_page_mut().set_divider_drag(true);
+        };
+        app.library_page_mut().set_divider_drag(Some(side));
         true
     }
 
     fn drag_divider_to(app: &mut App, page: ratatui::layout::Rect, column: u16) {
-        let ratio = library::split_ratio_for_column(page, column);
-        app.library_page_mut().set_split_ratio(ratio);
+        let Some(side) = app.library_page().divider_drag() else {
+            return;
+        };
+        match side {
+            library::DividerSide::List => {
+                let ratio = library::split_ratio_for_column(page, column);
+                app.library_page_mut().set_split_ratio(ratio);
+            }
+            library::DividerSide::Props => {
+                let ratio = library::detail_ratio_for_column(
+                    page,
+                    app.library_page().split_ratio(),
+                    column,
+                );
+                app.library_page_mut().set_detail_ratio(ratio);
+            }
+        }
     }
 
     match mouse.kind {
@@ -240,11 +268,16 @@ fn handle_tui_mouse_event(
                 if library::detail::detail_contains(
                     layout.page,
                     page.split_ratio(),
+                    page.detail_ratio(),
                     mouse.column,
                     mouse.row,
                 ) {
                     let down = mouse.kind == MouseEventKind::ScrollDown;
-                    let content = library::detail::right_content(layout.page, page.split_ratio());
+                    let content = library::detail::center_content(
+                        layout.page,
+                        page.split_ratio(),
+                        page.detail_ratio(),
+                    );
                     let item = match page
                         .selected_index()
                         .and_then(|index| page.item_at_filtered(index))
@@ -267,9 +300,14 @@ fn handle_tui_mouse_event(
             }
             let layout = terminal::mouse::frame_layout(area);
             let page = app.library_page();
-            let hover =
-                library::divider_hit(layout.page, page.split_ratio(), mouse.column, mouse.row);
-            if page.divider_drag() {
+            let hover = library::divider_hit(
+                layout.page,
+                page.split_ratio(),
+                page.detail_ratio(),
+                mouse.column,
+                mouse.row,
+            );
+            if page.divider_drag().is_some() {
                 drag_divider_to(app, layout.page, mouse.column);
             } else {
                 app.library_page_mut().set_divider_hover(hover);
@@ -279,29 +317,18 @@ fn handle_tui_mouse_event(
             if modal_open || app.active_page() != Page::Library {
                 return;
             }
-            if app.library_page().divider_drag() {
+            if app.library_page().divider_drag().is_some() {
                 let layout = terminal::mouse::frame_layout(area);
                 drag_divider_to(app, layout.page, mouse.column);
             }
         }
         MouseEventKind::Up(_) => {
             if app.active_page() == Page::Library {
-                app.library_page_mut().set_divider_drag(false);
+                app.library_page_mut().set_divider_drag(None);
             }
         }
         MouseEventKind::Down(MouseButton::Left) => {
             if modal_open {
-                // honey: info popup dismisses on outside click; other
-                // modals keep ignoring background clicks.
-                if app.active_page() == Page::Library
-                    && let Some(library::LibraryModal::Info(_)) = app.library_page().modal()
-                {
-                    let layout = terminal::mouse::frame_layout(area);
-                    let popup = library::modals::info_popup_rect(layout.page);
-                    if !terminal::mouse::contains(popup, mouse.column, mouse.row) {
-                        app.library_page_mut().clear_modal();
-                    }
-                }
                 return;
             }
             let layout = terminal::mouse::frame_layout(area);
@@ -327,27 +354,21 @@ fn handle_tui_mouse_event(
                         Some(library::list::LibraryHit::Search) => {
                             app.library_page_mut().activate_search();
                         }
-                        // honey: header enable toggle and info button are
-                        // clickable; the rest of the preview is read-only.
+                        // honey: header enable toggle is clickable; the
+                        // rest of the preview is read-only.
                         None => {
                             let page = app.library_page();
                             let hit = library::detail::hit_test(
                                 layout.page,
                                 page.split_ratio(),
+                                page.detail_ratio(),
                                 page,
                                 mouse.column,
                                 mouse.row,
                             );
-                            match hit {
-                                Some(library::detail::DetailHit::InfoOpen) => {
-                                    app.library_page_mut().open_info_modal_for_selected();
-                                }
-                                Some(library::detail::DetailHit::EnableToggle) => {
-                                    let interaction =
-                                        app.library_page_mut().toggle_selected_enabled();
-                                    apply_library_interaction(app, interaction);
-                                }
-                                None => {}
+                            if hit == Some(library::detail::DetailHit::EnableToggle) {
+                                let interaction = app.library_page_mut().toggle_selected_enabled();
+                                apply_library_interaction(app, interaction);
                             }
                         }
                     }
@@ -1006,7 +1027,7 @@ mod tests {
             }),
         ]);
 
-        handle_tui_mouse_event(&mut app, left_click(30, 22), TEST_AREA);
+        handle_tui_mouse_event(&mut app, left_click(10, 22), TEST_AREA);
 
         assert_eq!(app.library_page().selected_index(), Some(1));
         assert!(!app.library_page().is_modal_open());
@@ -1017,10 +1038,13 @@ mod tests {
         let mut app = App::default();
         app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
 
-        handle_tui_mouse_event(&mut app, left_click(49, 10), TEST_AREA);
+        handle_tui_mouse_event(&mut app, left_click(28, 10), TEST_AREA);
 
-        assert!(app.library_page().divider_drag());
-        assert_eq!(app.library_page().split_ratio(), 0.5);
+        assert_eq!(
+            app.library_page().divider_drag(),
+            Some(library::DividerSide::List)
+        );
+        assert_eq!(app.library_page().split_ratio(), 0.22);
         assert!(!app.library_page().is_modal_open());
     }
 
@@ -1028,7 +1052,7 @@ mod tests {
     fn dragging_divider_moves_split_and_release_ends_it() {
         let mut app = App::default();
         app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
-        handle_tui_mouse_event(&mut app, left_click(49, 10), TEST_AREA);
+        handle_tui_mouse_event(&mut app, left_click(28, 10), TEST_AREA);
 
         handle_tui_mouse_event(
             &mut app,
@@ -1038,7 +1062,7 @@ mod tests {
 
         let ratio = app.library_page().split_ratio();
         assert!((ratio - 58.0 / 95.0).abs() < 0.01);
-        assert!(app.library_page().divider_drag());
+        assert!(app.library_page().divider_drag().is_some());
 
         handle_tui_mouse_event(
             &mut app,
@@ -1046,7 +1070,7 @@ mod tests {
             TEST_AREA,
         );
 
-        assert!(!app.library_page().divider_drag());
+        assert!(app.library_page().divider_drag().is_none());
         assert!((app.library_page().split_ratio() - 58.0 / 95.0).abs() < 0.01);
     }
 
@@ -1055,11 +1079,11 @@ mod tests {
         let mut app = App::default();
         app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
 
-        handle_tui_mouse_event(&mut app, mouse_at(49, 10, MouseEventKind::Moved), TEST_AREA);
-        assert!(app.library_page().divider_hover());
+        handle_tui_mouse_event(&mut app, mouse_at(28, 10, MouseEventKind::Moved), TEST_AREA);
+        assert!(app.library_page().divider_hover().is_some());
 
         handle_tui_mouse_event(&mut app, mouse_at(10, 10, MouseEventKind::Moved), TEST_AREA);
-        assert!(!app.library_page().divider_hover());
+        assert!(app.library_page().divider_hover().is_none());
     }
 
     #[test]
