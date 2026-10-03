@@ -1346,6 +1346,22 @@ pub fn update_trigger_app_filters(
     Ok(())
 }
 
+/// Renames the display label of one trigger. Names are display-only, so
+/// no alias or conflict checks apply; duplicates only warn like the
+/// full update path. Bumps version and marks the row unsynced.
+/// Returns false when the id is unknown or already deleted.
+pub fn set_trigger_name(conn: &Connection, id: &str, name: &str) -> Result<bool> {
+    trigger_types::TriggerLimits::validate_name(name)?;
+    warn_on_duplicate_name(conn, name.trim(), Some(id));
+    let changed = conn.execute(
+        "UPDATE triggers
+         SET name = ?1, version = version + 1, updated_at = ?2, is_synced = 0
+         WHERE id = ?3 AND is_deleted = 0",
+        rusqlite::params![name.trim(), crate::db::now_unix_secs(), id],
+    )?;
+    Ok(changed > 0)
+}
+
 /// Flips the per-trigger enable flag. Disabled triggers stay in the DB but
 /// are excluded from expansion and listing queries. Bumps version and marks
 /// the row unsynced like other mutations. Returns false when the id is

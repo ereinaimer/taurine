@@ -19,10 +19,10 @@ pub use triggers::{
     get_syncable_triggers, get_trigger, get_triggers_list, increment_usage_count_by_id,
     increment_usage_count_by_trigger, list_active_voice_invocations, list_aliases, normalize_tags,
     normalize_voice_phrase, prepare_trigger, prepare_trigger_with_type, record_expansion_usage,
-    search_triggers, set_trigger_enabled, target_os_values_overlap, threshold_for_phrase,
-    tombstone_entry, update_existing_trigger, update_trigger_app_filters, upsert_entry_full,
-    upsert_script, upsert_trigger, upsert_trigger_with_type, upsert_trigger_with_type_and_case,
-    validate_trigger_target_os_conflict, validate_voice_phrase,
+    search_triggers, set_trigger_enabled, set_trigger_name, target_os_values_overlap,
+    threshold_for_phrase, tombstone_entry, update_existing_trigger, update_trigger_app_filters,
+    upsert_entry_full, upsert_script, upsert_trigger, upsert_trigger_with_type,
+    upsert_trigger_with_type_and_case, validate_trigger_target_os_conflict, validate_voice_phrase,
 };
 
 pub use crate::stats::TriggerStatKind;

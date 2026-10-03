@@ -444,6 +444,39 @@ fn test_validate_no_references_passes() {
 }
 
 #[test]
+fn test_set_trigger_name_trims_validates_and_bumps() {
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let (_dir, conn) = crate::testing::open_test_db();
+
+    let now = crate::db::now_unix_secs();
+    let id = uuid::Uuid::new_v4().to_string();
+    conn.execute(
+            "INSERT INTO triggers (id, name, output, action_type, target_os, is_deleted, created_at, updated_at)
+              VALUES (?1, 'old', 'out', 'text', 'all', 0, ?2, ?2)",
+            rusqlite::params![id, now],
+        ).unwrap();
+
+    assert!(set_trigger_name(&conn, &id, "  New Name  ").unwrap());
+    let (name, synced, version): (String, bool, i64) = conn
+        .query_row(
+            "SELECT name, is_synced, version FROM triggers WHERE id = ?1",
+            [&id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(name, "New Name");
+    assert!(!synced);
+    assert_eq!(version, 2);
+
+    assert!(set_trigger_name(&conn, &id, "New Name").unwrap());
+    assert!(!set_trigger_name(&conn, "ghost", "x").unwrap());
+    assert!(set_trigger_name(&conn, &id, "   ").is_err());
+    assert!(set_trigger_name(&conn, &id, &"a".repeat(201)).is_err());
+}
+
+#[test]
 fn test_set_trigger_enabled_flips_flag_without_version_churn_on_missing() {
     let _guard = crate::testing::TEST_LOCK
         .lock()
