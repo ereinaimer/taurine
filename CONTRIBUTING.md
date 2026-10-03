@@ -56,7 +56,7 @@ brew install sccache
 ```
 
 #### Compiler Wrapper & Linkers
-The repository pre-configures `sccache` (`rustc-wrapper = "sccache"`) to cache compiled dependencies across builds, as well as the fastest available linker for each platform: Windows (`rust-lld`, ships with the Rust toolchain), macOS (`rust-lld`), and Linux (`mold`).
+`sccache` is the recommended local compiler cache (install only, wired per-machine so CI stays untouched): set the rustc wrapper and C-compiler launcher env vars in your shell or user cargo config to reuse compiled dependencies across builds. Fastest available linker per platform: Windows (`rust-lld`, ships with the Rust toolchain), macOS (`rust-lld`), and Linux (`mold`).
 
 ### 4. Setup Pre-commit (Recommended)
 We use `pre-commit` to automatically run code formatters and linters (`cargo fmt` and `cargo clippy`) before every commit. This ensures clean code and prevents CI from failing over simple styling issues.

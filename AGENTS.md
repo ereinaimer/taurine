@@ -1,12 +1,14 @@
 # Fast Dev Workflows (compile-time)
-- **Default dev loop skips the voice ML stack.** `sherpa-onnx` + `shenava-ctc-beam` (C++/heavy) are behind the default-on `voice` feature of `taurine_daemon`. Release/CI builds with defaults, so shipped behavior is unchanged.
-- **Fastest path for everyday work:**
-  - `cargo check -p taurine_core` (core-only iteration, no daemon/voice at all)
-  - `cargo check -p taurine_daemon --no-default-features` (daemon without voice ML; transcription stubs fail closed)
-  - `cargo clippy -p taurine_core` / `cargo nextest run -p taurine_core` before touching the full workspace
+- **Default dev loop skips the voice ML stack and the self-contained OpenSSL build.** Both are default-on features, so release/CI builds with defaults are unchanged. The dev database stays SQLCipher-encrypted either way — only the source of the crypto helper changes.
+- **Fastest path for everyday work (needs a system libcrypto once):**
+  - `cargo check -p taurine_core --no-default-features` (core-only, no daemon/voice, no vendored OpenSSL)
+  - `cargo check -p taurine_daemon --no-default-features` (daemon without voice ML or vendored OpenSSL)
+  - `cargo clippy -p taurine_core --no-default-features` / `cargo nextest run -p taurine_core --no-default-features` before touching the full workspace
 - **Full workspace only when needed:** plain `cargo check --workspace` / `cargo nextest run` still builds voice (default features) and the vendored OpenSSL/SQLCipher C stack. Use it pre-push, not per-edit.
-- **Windows note:** `core/build.rs` reuses `target/startup-target` and skips the nested `startup` rebuild when the cached launcher is newer than `startup/` sources. `TAURINE_SKIP_STARTUP_BUILD=1` skips it when a cached launcher exists.
-- **Do not re-add:** `opt-level` overrides under `[profile.dev]`, `tokio = "full"`, or a second `reqwest` major. Single workspace `tokio`/`reqwest` lines are the union of audited use.
+- **System libcrypto one-time setup for the fast loop:** macOS usually works out of the box (Homebrew OpenSSL or SecurityFramework fallback); Linux needs the SSL dev package; Windows needs an install plus the standard OpenSSL prefix env var. The no-vendor escape env var forces system lookup for a zero-config trial.
+- **Local compiler cache (not in repo config, so CI is unaffected):** set the rustc wrapper and C-compiler launcher env vars locally to reuse C build results across target dirs. First build stays slow, repeats go fast.
+- **Windows note:** `core/build.rs` reuses `target/startup-target` and skips the nested `startup` rebuild when the cached launcher is newer than `startup/` sources. `TAURINE_SKIP_STARTUP_BUILD=1` skips it when a cached launcher exists. Strawberry Perl is still required for default (vendored) builds.
+- **Do not re-add:** `opt-level` overrides under `[profile.dev]`, `tokio = "full"`, a second `reqwest` major, or hardcoded `bundled-sqlcipher-vendored-openssl` without the `vendored-openssl` opt-out. Single workspace `tokio`/`reqwest` lines are the union of audited use.
 
 # Project Overview & Tech Stack
 - **Backend:** Rust.
