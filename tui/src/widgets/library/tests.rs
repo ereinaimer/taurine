@@ -1158,7 +1158,7 @@ fn header_toggle_hit_for_text_trigger_row() {
 }
 
 #[test]
-fn info_rows_carry_properties_and_usage_extras() {
+fn info_rows_carry_properties_and_raw_usage() {
     let item = LibraryTrigger::single(list_item(
         "id-gm",
         None,
@@ -1171,64 +1171,71 @@ fn info_rows_carry_properties_and_usage_extras() {
         None,
     ));
     let rows = props::info_rows(&item);
-    let get = |label: &str| {
-        rows.iter()
-            .find(|(key, _)| *key == label)
-            .map(|(_, value)| value.clone())
-            .expect("row present")
-    };
-    // Base properties first, extras appended.
+    // Base properties first, raw usage appended; nothing derived.
     assert_eq!(rows[0].0, "Auto case");
+    assert!(rows.iter().any(|(key, _)| *key == "Usage"));
+    assert!(rows.iter().any(|(key, _)| *key == "Last used"));
     assert!(rows.iter().any(|(key, _)| *key == "Created"));
-    assert!(rows.iter().any(|(key, _)| *key == "Frequency"));
-    assert!(rows.iter().any(|(key, _)| *key == "Keystrokes saved"));
-    assert!(rows.iter().any(|(key, _)| *key == "Time saved"));
-    // 12 output chars minus 2 trigger chars, times 9 uses.
-    assert_eq!(get("Keystrokes saved"), "90");
-}
-
-#[test]
-fn info_rows_skip_savings_for_scripts() {
-    let item = LibraryTrigger::single(list_item(
-        "id-deploy",
-        None,
-        TriggerType::Word,
-        "deploy",
-        "[Script: bash]",
-        "script",
-        "linux",
-        4,
-        Some("npm run build && npm publish"),
-    ));
-    let rows = props::info_rows(&item);
+    assert!(rows.iter().all(|(key, _)| *key != "Frequency"));
     assert!(rows.iter().all(|(key, _)| *key != "Keystrokes saved"));
     assert!(rows.iter().all(|(key, _)| *key != "Time saved"));
-    assert!(rows.iter().any(|(key, _)| *key == "Frequency"));
 }
 
 #[test]
-fn info_rows_show_empty_token_without_usage() {
-    let item = LibraryTrigger::single(list_item(
-        "id-fresh",
-        None,
-        TriggerType::Word,
-        "fresh",
-        "Fresh output",
-        "text",
-        "all",
-        0,
-        None,
-    ));
-    let rows = props::info_rows(&item);
-    let get = |label: &str| {
-        rows.iter()
-            .find(|(key, _)| *key == label)
-            .map(|(_, value)| value.clone())
-            .expect("row present")
-    };
-    assert_eq!(get("Keystrokes saved"), detail::EMPTY_TOKEN);
-    assert_eq!(get("Time saved"), detail::EMPTY_TOKEN);
-    assert_eq!(get("Frequency"), detail::EMPTY_TOKEN);
+fn usage_toggle_starts_collapsed_and_flips() {
+    let mut state = sample_state();
+    assert!(!state.usage_expanded());
+    state.toggle_usage();
+    assert!(state.usage_expanded());
+    state.toggle_usage();
+    assert!(!state.usage_expanded());
+}
+
+#[test]
+fn usage_toggle_hit_only_on_toggle_row() {
+    let state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    // Selected hotkey script carries five base rows: toggle at pane
+    // top + 12, whatever the pane widths are.
+    let item = state
+        .item_at_filtered(state.selected_index().unwrap())
+        .unwrap();
+    assert_eq!(props::usage_toggle_offset(item), 12);
+    let content = props::props_content(area, state.split_ratio(), state.detail_ratio());
+    let (x, toggle_y) = (content.x, content.y + 12);
+    assert_eq!(
+        props::hit_test(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            x,
+            toggle_y
+        ),
+        Some(props::PropsHit::UsageToggle)
+    );
+    assert_eq!(
+        props::hit_test(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            x,
+            toggle_y - 1
+        ),
+        None
+    );
+    assert_eq!(
+        props::hit_test(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            x,
+            toggle_y + 1
+        ),
+        None
+    );
 }
 
 #[test]
@@ -1679,7 +1686,7 @@ fn divider_hit_only_on_gutter_column() {
         Some(DividerSide::List)
     );
     assert_eq!(
-        divider_hit(area, state.split_ratio(), state.detail_ratio(), 57, 5),
+        divider_hit(area, state.split_ratio(), state.detail_ratio(), 55, 5),
         Some(DividerSide::Props)
     );
     assert_eq!(
@@ -1713,7 +1720,7 @@ fn detail_ratio_for_column_round_trips_props_divider() {
     let ratio = detail_ratio_for_column(area, DEFAULT_SPLIT_RATIO, 55);
     let split = split_panes(area, DEFAULT_SPLIT_RATIO, ratio);
     let divider = split.center.x.saturating_add(split.center.width);
-    assert!((56..=58).contains(&divider));
+    assert!((54..=58).contains(&divider));
 }
 
 fn six_item_state() -> LibraryPageState {

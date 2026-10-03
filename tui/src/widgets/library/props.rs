@@ -1,5 +1,3 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use ratatui::{
     Frame,
     layout::Rect,
@@ -7,7 +5,6 @@ use ratatui::{
     text::Span,
     widgets::Paragraph,
 };
-use taurine_core::stats::{calculate_saved_keystrokes, calculate_time_saved_ms};
 
 use crate::theme::Theme;
 use crate::widgets::library::detail::{EMPTY_TOKEN, edge_line, edge_value_width, relative_time};
@@ -55,35 +52,115 @@ pub(crate) fn render_props(
             height: 1.min(content.height),
         },
     );
-    for (position, (label, value)) in info_rows(item).into_iter().enumerate() {
+    let rows = info_rows(item);
+    let split_at = usage_start(item);
+    for (position, (label, value)) in rows.iter().take(split_at).enumerate() {
         // Single blank line between items.
         let offset = (position as u16).saturating_mul(2).saturating_add(2);
         if offset >= content.height {
             break;
         }
-        let row = Rect {
+        render_row(frame, content, theme, offset, label, value);
+    }
+    let toggle_at = usage_toggle_offset(item);
+    if toggle_at < content.height {
+        render_toggle(frame, content, theme, toggle_at, state.usage_expanded());
+    }
+    if state.usage_expanded() {
+        for (position, (label, value)) in rows.iter().skip(split_at).enumerate() {
+            let offset = toggle_at
+                .saturating_add(2)
+                .saturating_add((position as u16).saturating_mul(2));
+            if offset >= content.height {
+                break;
+            }
+            render_row(frame, content, theme, offset, label, value);
+        }
+    }
+}
+
+fn render_toggle(frame: &mut Frame, content: Rect, theme: &Theme, offset: u16, expanded: bool) {
+    use crate::widgets::library::icons::{CHEVRON_DOWN, CHEVRON_UP};
+    let chevron = if expanded { CHEVRON_UP } else { CHEVRON_DOWN };
+    let label = format!("Usage {chevron}");
+    frame.render_widget(
+        Paragraph::new(label).style(Style::default().fg(theme.text)),
+        Rect {
             x: content.x,
             y: content.y.saturating_add(offset),
             width: content.width,
             height: 1,
-        };
-        let value = util::truncate_to_width(&value, edge_value_width(label, row.width));
-        let width = value.chars().count();
-        frame.render_widget(
-            Paragraph::new(edge_line(
-                label,
-                vec![Span::styled(value, Style::default().fg(theme.text))],
-                width,
-                row.width,
-                theme,
-            )),
-            row,
-        );
-    }
+        },
+    );
 }
 
-/// Pane rows: base properties plus usage extras. Text and voice triggers
-/// show computed savings; scripts show runs only (no keystrokes saved).
+fn render_row(
+    frame: &mut Frame,
+    content: Rect,
+    theme: &Theme,
+    offset: u16,
+    label: &str,
+    value: &str,
+) {
+    let row = Rect {
+        x: content.x,
+        y: content.y.saturating_add(offset),
+        width: content.width,
+        height: 1,
+    };
+    let value = util::truncate_to_width(value, edge_value_width(label, row.width));
+    let width = value.chars().count();
+    frame.render_widget(
+        Paragraph::new(edge_line(
+            label,
+            vec![Span::styled(value, Style::default().fg(theme.text))],
+            width,
+            row.width,
+            theme,
+        )),
+        row,
+    );
+}
+
+/// Toggle offset for the usage section, shared by rendering and
+/// hit-testing. Caller checks it against the pane height.
+pub(crate) fn usage_toggle_offset(item: &LibraryTrigger) -> u16 {
+    2 + (usage_start(item) as u16).saturating_mul(2)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PropsHit {
+    UsageToggle,
+}
+
+/// Click on the usage toggle row. Nothing else in the pane is interactive.
+pub(crate) fn hit_test(
+    area: Rect,
+    list_ratio: f32,
+    props_ratio: f32,
+    state: &crate::widgets::library::state::LibraryPageState,
+    column: u16,
+    row: u16,
+) -> Option<PropsHit> {
+    let content = props_content(area, list_ratio, props_ratio);
+    if content.width == 0 || content.height == 0 {
+        return None;
+    }
+    let selected = state.selected_index()?;
+    let item = state.item_at_filtered(selected)?;
+    let toggle = content.y.saturating_add(usage_toggle_offset(item));
+    if row == toggle
+        && row < content.y.saturating_add(content.height)
+        && column >= content.x
+        && column < content.x.saturating_add(content.width)
+    {
+        return Some(PropsHit::UsageToggle);
+    }
+    None
+}
+
+/// Pane rows: base properties plus the raw usage history (totals only,
+/// no computed savings). The usage section folds behind a toggle.
 pub(crate) fn info_rows(item: &LibraryTrigger) -> Vec<(&'static str, String)> {
     use crate::widgets::library::detail::property_rows;
 
@@ -92,14 +169,16 @@ pub(crate) fn info_rows(item: &LibraryTrigger) -> Vec<(&'static str, String)> {
     rows
 }
 
-/// Usage section, shown after the base properties behind a divider.
+/// Index in `info_rows` where the usage section starts.
+fn usage_start(item: &LibraryTrigger) -> usize {
+    use crate::widgets::library::detail::property_rows;
+
+    property_rows(item).len()
+}
+
+/// Raw usage history: stored totals, nothing derived.
 pub(crate) fn usage_rows(item: &LibraryTrigger) -> Vec<(&'static str, String)> {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .ok()
-        .map(|duration| duration.as_secs() as i64)
-        .unwrap_or(0);
-    let mut rows = vec![
+    vec![
         ("Usage", usage_count_line(item.usage_count())),
         (
             "Last used",
@@ -107,37 +186,11 @@ pub(crate) fn usage_rows(item: &LibraryTrigger) -> Vec<(&'static str, String)> {
                 .and_then(relative_time)
                 .unwrap_or_else(|| EMPTY_TOKEN.to_string()),
         ),
-    ];
-    rows.push((
-        "Created",
-        relative_time(item.created_at()).unwrap_or_else(|| EMPTY_TOKEN.to_string()),
-    ));
-    rows.push(("Frequency", frequency_line(item, now)));
-    if !item.is_script() {
-        let per_use = calculate_saved_keystrokes(
-            item.content().chars().count(),
-            item.trigger().chars().count(),
-        );
-        rows.push((
-            "Keystrokes saved",
-            if item.usage_count() <= 0 {
-                EMPTY_TOKEN.to_string()
-            } else {
-                format_int(per_use.saturating_mul(item.usage_count()))
-            },
-        ));
-        rows.push((
-            "Time saved",
-            if item.usage_count() <= 0 {
-                EMPTY_TOKEN.to_string()
-            } else {
-                format_duration(
-                    calculate_time_saved_ms(per_use, 0).saturating_mul(item.usage_count()),
-                )
-            },
-        ));
-    }
-    rows
+        (
+            "Created",
+            relative_time(item.created_at()).unwrap_or_else(|| EMPTY_TOKEN.to_string()),
+        ),
+    ]
 }
 
 fn usage_count_line(usage_count: i64) -> String {
@@ -148,69 +201,5 @@ fn usage_count_line(usage_count: i64) -> String {
         "1 time".to_string()
     } else {
         format!("{usage_count} times")
-    }
-}
-
-fn frequency_line(item: &LibraryTrigger, now: i64) -> String {
-    if item.usage_count() <= 0 {
-        return EMPTY_TOKEN.to_string();
-    }
-    let days = now
-        .saturating_sub(item.created_at())
-        .saturating_div(86_400)
-        .max(1);
-    let per_day = item.usage_count() as f64 / days as f64;
-    if per_day < 0.05 {
-        return format!("{} total", usage_total(item.usage_count()));
-    }
-    let rounded = (per_day * 10.0).round() / 10.0;
-    if rounded.fract() == 0.0 {
-        format!("{:.0}/day", rounded)
-    } else {
-        format!("{rounded:.1}/day")
-    }
-}
-
-fn usage_total(count: i64) -> String {
-    if count == 1 {
-        "1 use".to_string()
-    } else {
-        format!("{count} uses")
-    }
-}
-
-fn format_int(value: i64) -> String {
-    let negative = value < 0;
-    let digits: Vec<char> = value.abs().to_string().chars().collect();
-    let mut out = String::new();
-    for (index, ch) in digits.iter().enumerate() {
-        if index > 0 && (digits.len() - index).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(*ch);
-    }
-    if negative { format!("-{out}") } else { out }
-}
-
-fn format_duration(ms: i64) -> String {
-    let secs = ms.max(0) / 1000;
-    if secs < 60 {
-        return format!("{secs}s");
-    }
-    let minutes = secs / 60;
-    if minutes < 60 {
-        let rest = secs % 60;
-        return if rest == 0 {
-            format!("{minutes}m")
-        } else {
-            format!("{minutes}m {rest}s")
-        };
-    }
-    let hours = minutes / 60;
-    let rest = minutes % 60;
-    if rest == 0 {
-        format!("{hours}h")
-    } else {
-        format!("{hours}h {rest}m")
     }
 }

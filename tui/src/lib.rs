@@ -66,13 +66,10 @@ pub fn run() -> taurine_core::Result<()> {
                 // other stays on the base border color.
                 let page = app.library_page();
                 let sides = [library::DividerSide::List, library::DividerSide::Props];
-                for (index, column) in library::divider_columns(
-                    layout.page,
-                    page.split_ratio(),
-                    page.detail_ratio(),
-                )
-                .into_iter()
-                .enumerate()
+                for (index, column) in
+                    library::divider_columns(layout.page, page.split_ratio(), page.detail_ratio())
+                        .into_iter()
+                        .enumerate()
                 {
                     let side = sides[index.min(sides.len() - 1)];
                     let color = if page.divider_drag() == Some(side)
@@ -354,8 +351,8 @@ fn handle_tui_mouse_event(
                         Some(library::list::LibraryHit::Search) => {
                             app.library_page_mut().activate_search();
                         }
-                        // honey: header enable toggle is clickable; the
-                        // rest of the preview is read-only.
+                        // honey: header enable toggle and props usage
+                        // toggle are clickable; everything else is read-only.
                         None => {
                             let page = app.library_page();
                             let hit = library::detail::hit_test(
@@ -369,6 +366,18 @@ fn handle_tui_mouse_event(
                             if hit == Some(library::detail::DetailHit::EnableToggle) {
                                 let interaction = app.library_page_mut().toggle_selected_enabled();
                                 apply_library_interaction(app, interaction);
+                                return;
+                            }
+                            if library::props::hit_test(
+                                layout.page,
+                                page.split_ratio(),
+                                page.detail_ratio(),
+                                page,
+                                mouse.column,
+                                mouse.row,
+                            ) == Some(library::props::PropsHit::UsageToggle)
+                            {
+                                app.library_page_mut().toggle_usage();
                             }
                         }
                     }
@@ -1044,7 +1053,7 @@ mod tests {
             app.library_page().divider_drag(),
             Some(library::DividerSide::List)
         );
-        assert_eq!(app.library_page().split_ratio(), 0.22);
+        assert_eq!(app.library_page().split_ratio(), 2.0 / 7.0);
         assert!(!app.library_page().is_modal_open());
     }
 

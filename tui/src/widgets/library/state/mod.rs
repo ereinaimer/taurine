@@ -73,6 +73,7 @@ pub(crate) struct LibraryPageState {
     divider_hover: Option<super::DividerSide>,
     divider_drag: Option<super::DividerSide>,
     detail_scroll: usize,
+    usage_expanded: bool,
 }
 
 impl Default for LibraryPageState {
@@ -92,6 +93,7 @@ impl Default for LibraryPageState {
             divider_hover: None,
             divider_drag: None,
             detail_scroll: 0,
+            usage_expanded: false,
         }
     }
 }
@@ -185,7 +187,6 @@ impl LibraryPageState {
     pub(crate) const fn detail_scroll(&self) -> usize {
         self.detail_scroll
     }
-
     pub(crate) fn scroll_detail(&mut self, delta: isize, max_scroll: usize) {
         let next = self.detail_scroll as isize + delta;
         self.detail_scroll = next.clamp(0, max_scroll as isize).max(0) as usize;
@@ -193,6 +194,14 @@ impl LibraryPageState {
 
     fn reset_detail_scroll(&mut self) {
         self.detail_scroll = 0;
+    }
+
+    pub(crate) const fn usage_expanded(&self) -> bool {
+        self.usage_expanded
+    }
+
+    pub(crate) fn toggle_usage(&mut self) {
+        self.usage_expanded = !self.usage_expanded;
     }
 
     /// Enable/disable toggle for the selected trigger. Returns a persist
