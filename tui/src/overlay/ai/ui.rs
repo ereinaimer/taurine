@@ -188,13 +188,7 @@ fn render_add_view(frame: &mut Frame, area: Rect, state: &AddModalState) {
     if is_custom {
         let (ep_area, ep_desc) = desc_area(sections[idx]);
         let ep_focused = state.focus == AddField::Endpoint;
-        row_input(
-            frame,
-            ep_area,
-            &state.endpoint,
-            state.endpoint.chars().count(),
-            ep_focused,
-        );
+        row_input(frame, ep_area, &state.endpoint, ep_focused);
         render_desc(
             frame,
             ep_desc,
@@ -207,21 +201,24 @@ fn render_add_view(frame: &mut Frame, area: Rect, state: &AddModalState) {
     // 3. API Key row
     let (key_area, key_desc) = desc_area(sections[idx]);
     let key_focused = state.focus == AddField::ApiKey;
-    let masked_key: String = "*".repeat(state.api_key.chars().count());
+    let masked_key: String = "*".repeat(state.api_key.len_chars());
     let display_key = if state.api_key.is_empty() && !key_focused {
         "<enter key>".to_string()
     } else {
         masked_key
     };
-    row_password(
+    if let Some((cx, cy)) = row_password(
         frame,
         key_area,
         " API Key",
         &display_key,
+        state.api_key.cursor(),
         key_focused,
         false,
         false,
-    );
+    ) {
+        frame.set_cursor_position((cx, cy));
+    }
     render_desc(
         frame,
         key_desc,
@@ -233,13 +230,7 @@ fn render_add_view(frame: &mut Frame, area: Rect, state: &AddModalState) {
     // 4. Model row
     let (m_area, m_desc) = desc_area(sections[idx]);
     let m_focused = state.focus == AddField::Model;
-    row_input(
-        frame,
-        m_area,
-        &state.model,
-        state.model.chars().count(),
-        m_focused,
-    );
+    row_input(frame, m_area, &state.model, m_focused);
     render_desc(frame, m_desc, "model identifier for provider", m_focused);
     idx += 1;
 
@@ -318,13 +309,7 @@ fn render_edit_view(frame: &mut Frame, area: Rect, state: &EditModelModalState) 
     render_desc(frame, p_desc, "selected provider", false);
 
     let (m_area, m_desc) = desc_area(sections[3]);
-    row_input(
-        frame,
-        m_area,
-        &state.model,
-        state.model.chars().count(),
-        true,
-    );
+    row_input(frame, m_area, &state.model, true);
     render_desc(frame, m_desc, "press Enter to save model name", true);
 
     frame.render_widget(

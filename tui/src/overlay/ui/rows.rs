@@ -1,4 +1,5 @@
 use crate::theme::builtin::DARK_THEME;
+use crate::widgets::field::{TextField, window_of};
 use crate::widgets::library::LibrarySelectState;
 use ratatui::{
     Frame,
@@ -16,7 +17,7 @@ pub(crate) fn padded(area: Rect) -> Rect {
     }
 }
 
-pub(crate) fn row_input(frame: &mut Frame, area: Rect, value: &str, cursor: usize, focused: bool) {
+pub(crate) fn row_input(frame: &mut Frame, area: Rect, field: &TextField, focused: bool) {
     let bg = if focused {
         DARK_THEME.surface
     } else {
@@ -35,17 +36,18 @@ pub(crate) fn row_input(frame: &mut Frame, area: Rect, value: &str, cursor: usiz
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
+    // honey: windowed like every other field; the painted caret marks
+    // the window-relative caret cell.
+    let (visible, caret) = field.window(inner.width);
     let text = if focused {
-        let total_chars = value.chars().count();
-        let safe_cursor = cursor.min(total_chars);
-        let chars: Vec<char> = value.chars().collect();
-        let before: String = chars.iter().take(safe_cursor).collect();
-
-        if safe_cursor == total_chars {
+        let chars: Vec<char> = visible.chars().collect();
+        if caret >= chars.len() {
+            let before: String = chars.iter().collect();
             Paragraph::new(Line::from(vec![Span::raw(before)]))
         } else {
-            let at_cursor = chars[safe_cursor];
-            let after: String = chars.iter().skip(safe_cursor + 1).collect();
+            let before: String = chars.iter().take(caret).collect();
+            let at_cursor = chars[caret];
+            let after: String = chars.iter().skip(caret + 1).collect();
             Paragraph::new(Line::from(vec![
                 Span::raw(before),
                 Span::styled(
@@ -59,7 +61,7 @@ pub(crate) fn row_input(frame: &mut Frame, area: Rect, value: &str, cursor: usiz
             ]))
         }
     } else {
-        Paragraph::new(value.to_string())
+        Paragraph::new(visible.to_string())
     };
     frame.render_widget(text.style(text_style), inner);
 }
@@ -108,15 +110,17 @@ pub(crate) fn row_key_value(
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn row_password(
     frame: &mut Frame,
     area: Rect,
     label: &str,
     value: &str,
+    cursor: usize,
     focused: bool,
     disabled: bool,
     red_asterisk: bool,
-) {
+) -> Option<(u16, u16)> {
     if disabled {
         let dimmed = Style::default()
             .fg(DARK_THEME.text_muted)
@@ -127,7 +131,7 @@ pub(crate) fn row_password(
         );
         frame.render_widget(Paragraph::new(label).style(dimmed), area);
         frame.render_widget(Paragraph::new(value).style(dimmed), area);
-        return;
+        return None;
     }
     let bg = if focused {
         DARK_THEME.surface
@@ -163,16 +167,25 @@ pub(crate) fn row_password(
     };
     frame.render_widget(Paragraph::new(label_line), area);
 
-    let value_width = value.chars().count() as u16;
+    // honey: windowed display with the caret tracked, right-aligned as before.
+    let text_width = area.width.saturating_sub(2);
+    let (visible, caret) = window_of(value, cursor, text_width);
+    let value_width = visible.chars().count() as u16;
+    let val_x = area.x + area.width.saturating_sub(value_width).saturating_sub(2);
     frame.render_widget(
-        Paragraph::new(format!(" {value} ")).style(val_style),
+        Paragraph::new(format!(" {visible} ")).style(val_style),
         Rect {
-            x: area.x + area.width.saturating_sub(value_width).saturating_sub(2),
+            x: val_x,
             y: area.y,
             width: value_width + 2,
             height: area.height,
         },
     );
+    if focused && !disabled {
+        Some((val_x + 1 + caret as u16, area.y))
+    } else {
+        None
+    }
 }
 
 pub(crate) fn render_select_list(frame: &mut Frame, selector: &LibrarySelectState) {
@@ -212,8 +225,7 @@ pub(crate) fn render_select_list(frame: &mut Frame, selector: &LibrarySelectStat
 pub(crate) fn render_path_row(
     frame: &mut Frame,
     area: Rect,
-    value: &str,
-    cursor: usize,
+    field: &TextField,
     focused: bool,
 ) -> Option<(u16, u16)> {
     let bg = if focused {
@@ -240,13 +252,16 @@ pub(crate) fn render_path_row(
 
     frame.render_widget(Block::default().style(Style::default().bg(bg)), area);
 
-    let value_width = value.chars().count() as u16;
+    // honey: windowed display with the caret tracked, right-aligned as before.
+    let text_width = area.width.saturating_sub(2);
+    let (visible, caret) = field.window(text_width);
+    let value_width = visible.chars().count() as u16;
     let label = " Path";
     frame.render_widget(Paragraph::new(label).style(label_style), area);
 
     let val_x = area.x + area.width.saturating_sub(value_width).saturating_sub(2);
     frame.render_widget(
-        Paragraph::new(format!(" {value} ")).style(val_style),
+        Paragraph::new(format!(" {visible} ")).style(val_style),
         Rect {
             x: val_x,
             y: area.y,
@@ -256,7 +271,7 @@ pub(crate) fn render_path_row(
     );
 
     if focused {
-        Some((val_x + 1 + cursor as u16, area.y))
+        Some((val_x + 1 + caret as u16, area.y))
     } else {
         None
     }
