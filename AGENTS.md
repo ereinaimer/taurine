@@ -1,3 +1,13 @@
+# Fast Dev Workflows (compile-time)
+- **Default dev loop skips the voice ML stack.** `sherpa-onnx` + `shenava-ctc-beam` (C++/heavy) are behind the default-on `voice` feature of `taurine_daemon`. Release/CI builds with defaults, so shipped behavior is unchanged.
+- **Fastest path for everyday work:**
+  - `cargo check -p taurine_core` (core-only iteration, no daemon/voice at all)
+  - `cargo check -p taurine_daemon --no-default-features` (daemon without voice ML; transcription stubs fail closed)
+  - `cargo clippy -p taurine_core` / `cargo nextest run -p taurine_core` before touching the full workspace
+- **Full workspace only when needed:** plain `cargo check --workspace` / `cargo nextest run` still builds voice (default features) and the vendored OpenSSL/SQLCipher C stack. Use it pre-push, not per-edit.
+- **Windows note:** `core/build.rs` reuses `target/startup-target` and skips the nested `startup` rebuild when the cached launcher is newer than `startup/` sources. `TAURINE_SKIP_STARTUP_BUILD=1` skips it when a cached launcher exists.
+- **Do not re-add:** `opt-level` overrides under `[profile.dev]`, `tokio = "full"`, or a second `reqwest` major. Single workspace `tokio`/`reqwest` lines are the union of audited use.
+
 # Project Overview & Tech Stack
 - **Backend:** Rust.
 - **Knowledge Graph:** Uses `graphify` for deterministic AST-based dependency tracking.
