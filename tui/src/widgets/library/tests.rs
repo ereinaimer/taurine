@@ -1894,6 +1894,29 @@ fn narrow_page_collapses_to_list_only() {
 }
 
 #[test]
+fn divider_double_click_resets_pane_width() {
+    let mut state = LibraryPageState::default();
+    state.set_split_ratio(0.6);
+    state.set_detail_ratio(0.6);
+
+    // Slow second click: no reset.
+    assert!(!state.divider_double_click_at(DividerSide::List, 1000));
+    assert!(!state.divider_double_click_at(DividerSide::List, 1000 + DIVIDER_DOUBLE_CLICK_MS + 1));
+    assert_eq!(state.split_ratio(), 0.6);
+
+    // Quick double-click on the list divider resets only it.
+    assert!(!state.divider_double_click_at(DividerSide::List, 2000));
+    assert!(state.divider_double_click_at(DividerSide::List, 2100));
+    assert_eq!(state.split_ratio(), DEFAULT_SPLIT_RATIO);
+    assert_eq!(state.detail_ratio(), 0.6);
+
+    // Other side is independent.
+    assert!(!state.divider_double_click_at(DividerSide::Props, 3000));
+    assert!(state.divider_double_click_at(DividerSide::Props, 3050));
+    assert_eq!(state.detail_ratio(), DEFAULT_DETAIL_RATIO);
+}
+
+#[test]
 fn drag_range_parks_panes_at_either_edge() {
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
     // honey: float truncation keeps this within one cell of the edge.

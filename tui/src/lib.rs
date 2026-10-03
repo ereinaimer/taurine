@@ -262,6 +262,10 @@ fn handle_tui_mouse_event(
         let Some(side) = library::divider_hit(page, ratios.0, ratios.1, column, row) else {
             return false;
         };
+        // honey: double-click resets the pane instead of grabbing.
+        if app.library_page_mut().divider_double_click(side) {
+            return true;
+        }
         app.library_page_mut().set_divider_drag(Some(side));
         true
     }

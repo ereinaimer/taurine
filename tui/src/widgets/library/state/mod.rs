@@ -80,7 +80,11 @@ pub(crate) struct LibraryPageState {
     edit: Option<ActiveEdit>,
     last_edit_at: Option<u64>,
     content_width: u16,
+    last_divider_click: Option<(super::DividerSide, u64)>,
 }
+
+/// Double-click window for divider reset, mirroring the overlay.
+pub(crate) const DIVIDER_DOUBLE_CLICK_MS: u64 = 300;
 
 /// Millis after the last keystroke before an open edit autosaves.
 pub(crate) const AUTOSAVE_DELAY_MS: u64 = 1000;
@@ -113,6 +117,7 @@ impl Default for LibraryPageState {
             edit: None,
             last_edit_at: None,
             content_width: 0,
+            last_divider_click: None,
         }
     }
 }
@@ -215,6 +220,29 @@ impl LibraryPageState {
         if drag.is_some() {
             self.divider_hover = drag;
         }
+    }
+
+    /// Second click on the same divider within the window resets that
+    /// pane to its default width instead of starting a drag. Returns
+    /// true when a reset happened.
+    pub(crate) fn divider_double_click(&mut self, side: super::DividerSide) -> bool {
+        self.divider_double_click_at(side, now_millis())
+    }
+
+    pub(crate) fn divider_double_click_at(&mut self, side: super::DividerSide, now: u64) -> bool {
+        let double = self.last_divider_click.is_some_and(|(last_side, at)| {
+            last_side == side && now.saturating_sub(at) <= DIVIDER_DOUBLE_CLICK_MS
+        });
+        self.last_divider_click = Some((side, now));
+        if !double {
+            return false;
+        }
+        self.last_divider_click = None;
+        match side {
+            super::DividerSide::List => self.set_split_ratio(super::DEFAULT_SPLIT_RATIO),
+            super::DividerSide::Props => self.set_detail_ratio(super::DEFAULT_DETAIL_RATIO),
+        }
+        true
     }
 
     pub(crate) const fn detail_scroll(&self) -> usize {
