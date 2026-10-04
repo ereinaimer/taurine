@@ -10,7 +10,9 @@ use ratatui::{
 
 use crate::theme::Theme;
 use crate::widgets::library::icons::{CHEVRON_DOWN, os_icon};
-use crate::widgets::library::state::{DropdownKind, EditTarget, LibraryPageState, LibraryTrigger};
+use crate::widgets::library::state::{
+    EditTarget, HeaderMenuKind, LibraryPageState, LibraryTrigger,
+};
 use crate::widgets::util;
 
 use super::split_panes;
@@ -333,11 +335,9 @@ pub(crate) fn render_detail(
     render_header_row(frame, content, theme, state, item);
     render_description_row(frame, content, theme, state, item);
     render_buttons_row(frame, content, theme, item);
-    render_dropdown(frame, area, theme, state);
-    let Some(layout) = detail_layout(content.height, content.width, item, scroll) else {
-        return;
-    };
-    render_content_rows(frame, content, theme, state, &layout);
+    if let Some(layout) = detail_layout(content.height, content.width, item, scroll) {
+        render_content_rows(frame, content, theme, state, &layout);
+    }
 }
 
 fn render_empty(frame: &mut Frame, area: Rect, theme: &Theme, message: &str) {
@@ -523,131 +523,12 @@ fn render_buttons_row(frame: &mut Frame, area: Rect, theme: &Theme, item: &Libra
 /// Header button index onto its menu: type first, then script
 /// language and run behavior. Hit-testing only fires on rendered
 /// buttons, so trailing indices are always script menus.
-pub(crate) const fn dropdown_kind_for_button(index: usize) -> DropdownKind {
+pub(crate) const fn dropdown_kind_for_button(index: usize) -> HeaderMenuKind {
     match index {
-        0 => DropdownKind::InvocationType,
-        1 => DropdownKind::Interpreter,
-        _ => DropdownKind::Behavior,
+        0 => HeaderMenuKind::InvocationType,
+        1 => HeaderMenuKind::Interpreter,
+        _ => HeaderMenuKind::Behavior,
     }
-}
-
-/// Popup rect for the open header menu: directly under its button,
-/// clamped into the center pane. Shared by rendering and hit-testing.
-pub(crate) fn dropdown_area(
-    area: Rect,
-    list_ratio: f32,
-    props_ratio: f32,
-    state: &LibraryPageState,
-) -> Option<Rect> {
-    let menu = state.dropdown()?;
-    let content = center_content(area, list_ratio, props_ratio);
-    let selected = state.selected_index()?;
-    let item = state.item_at_filtered(selected)?;
-    let cells = button_layout(content.width, &button_labels(item));
-    let target = match menu.kind() {
-        DropdownKind::InvocationType => 0,
-        DropdownKind::Interpreter => 1,
-        DropdownKind::Behavior => 2,
-    };
-    let cell = cells.iter().find(|cell| cell.index == target)?;
-    let widest = menu
-        .options()
-        .iter()
-        .map(|option| option.chars().count())
-        .max()
-        .unwrap_or(0);
-    let width = (widest as u16).saturating_add(4).max(6);
-    let right = content.x.saturating_add(content.width);
-    let mut x = content.x.saturating_add(cell.x);
-    if x.saturating_add(width) > right {
-        x = right.saturating_sub(width);
-    }
-    Some(Rect {
-        x,
-        y: content.y.saturating_add(BUTTONS_OFFSET).saturating_add(1),
-        width,
-        height: menu.options().len() as u16 + 2,
-    })
-}
-
-/// Menu option index under the cell, if the open popup covers it.
-/// Border cells never select.
-pub(crate) fn dropdown_option_hit(
-    area: Rect,
-    list_ratio: f32,
-    props_ratio: f32,
-    state: &LibraryPageState,
-    column: u16,
-    row: u16,
-) -> Option<usize> {
-    let popup = dropdown_area(area, list_ratio, props_ratio, state)?;
-    if column < popup.x.saturating_add(1)
-        || column >= popup.x.saturating_add(popup.width).saturating_sub(1)
-        || row < popup.y.saturating_add(1)
-        || row >= popup.y.saturating_add(popup.height).saturating_sub(1)
-    {
-        return None;
-    }
-    let index = row.saturating_sub(popup.y.saturating_add(1)) as usize;
-    state.dropdown()?.options().get(index)?;
-    Some(index)
-}
-
-fn render_dropdown(frame: &mut Frame, area: Rect, theme: &Theme, state: &LibraryPageState) {
-    use ratatui::symbols::border;
-    use ratatui::widgets::{Block, Borders, Clear};
-
-    let Some(menu) = state.dropdown() else {
-        return;
-    };
-    let Some(popup) = dropdown_area(area, state.split_ratio(), state.detail_ratio(), state) else {
-        return;
-    };
-    if popup.width == 0 || popup.height == 0 {
-        return;
-    }
-    // honey: Clear wipes underlying glyphs (Block alone only repaints
-    // styles, leaving text visible through the background color).
-    frame.render_widget(Clear, popup);
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_set(border::ROUNDED)
-        .border_style(Style::default().fg(theme.border))
-        .style(Style::default().bg(ratatui::style::Color::Rgb(0x1E, 0x1E, 0x1E)));
-    let inner = block.inner(popup);
-    frame.render_widget(block, popup);
-    if inner.width == 0 || inner.height == 0 {
-        return;
-    }
-    for (index, option) in menu.options().iter().enumerate() {
-        if index >= inner.height as usize {
-            break;
-        }
-        let padded = pad_to_width(&format!(" {option} "), inner.width);
-        let style = if index == menu.selected() {
-            Style::default()
-                .fg(theme.button.text)
-                .bg(theme.button.inactive_bg)
-        } else {
-            Style::default().fg(theme.text)
-        };
-        frame.render_widget(
-            Paragraph::new(padded).style(style),
-            Rect {
-                x: inner.x,
-                y: inner.y.saturating_add(index as u16),
-                width: inner.width,
-                height: 1,
-            },
-        );
-    }
-}
-
-fn pad_to_width(text: &str, width: u16) -> String {
-    let mut out: String = text.chars().take(width as usize).collect();
-    let missing = (width as usize).saturating_sub(out.chars().count());
-    out.push_str(&" ".repeat(missing));
-    out
 }
 
 pub(crate) fn property_rows(item: &LibraryTrigger) -> Vec<(&'static str, String)> {

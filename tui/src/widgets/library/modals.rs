@@ -9,9 +9,9 @@ use ratatui::{
 use crate::theme::Theme;
 use crate::widgets::library::state::{
     LibraryDeleteModalState, LibraryExportModalField, LibraryExportModalState,
-    LibraryExportResultModalState, LibraryImportModalField, LibraryImportModalState,
-    LibraryImportResultModalState, LibraryImportRunVariablesModalState, LibraryModal,
-    LibrarySelectState,
+    LibraryExportResultModalState, LibraryHeaderMenuState, LibraryImportModalField,
+    LibraryImportModalState, LibraryImportResultModalState, LibraryImportRunVariablesModalState,
+    LibraryModal, LibrarySelectState,
 };
 use crate::widgets::util::{self};
 
@@ -37,6 +37,9 @@ pub fn render_library_modal(frame: &mut Frame, area: Rect, theme: &Theme, modal:
         }
         LibraryModal::ConfirmDelete(state) => {
             render_library_delete_modal(frame, area, theme, state)
+        }
+        LibraryModal::HeaderMenu(state) => {
+            render_library_header_menu_modal(frame, area, theme, state)
         }
     }
 }
@@ -501,6 +504,48 @@ fn render_library_select_modal(
         .collect();
     let mut list_state = ListState::default();
     list_state.select(Some(state.selected));
+
+    let list = List::new(items).highlight_symbol("").highlight_style(
+        Style::default()
+            .bg(theme.surface)
+            .fg(theme.text)
+            .add_modifier(Modifier::BOLD),
+    );
+    frame.render_stateful_widget(list, inner, &mut list_state);
+}
+
+/// Centered option menu for the detail header buttons (trigger type,
+/// script language, run behavior). Same overlay pattern as the other
+/// library modals: cleared area, bordered block, highlighted cursor.
+fn render_library_header_menu_modal(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    state: &LibraryHeaderMenuState,
+) {
+    let width = if area.width > 24 {
+        area.width.saturating_sub(4).min(44)
+    } else {
+        area.width.max(1)
+    };
+    let body_height = state.options().len().min(8) as u16;
+    let desired_height = body_height + 4;
+    let height = if area.height >= 6 {
+        desired_height.min(area.height.saturating_sub(2).max(6))
+    } else {
+        area.height.max(1)
+    };
+    let popup = centered_rect(width, height, area);
+    frame.render_widget(Clear, popup);
+    let inner = util::render_modal_block(frame, popup, state.kind().title(), theme);
+
+    let items: Vec<ListItem> = state
+        .options()
+        .iter()
+        .map(|option| ListItem::new(option.as_str()))
+        .collect();
+    let mut list_state = ListState::default();
+    list_state.select(Some(state.selected()));
 
     let list = List::new(items).highlight_symbol("").highlight_style(
         Style::default()

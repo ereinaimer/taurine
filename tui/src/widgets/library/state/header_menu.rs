@@ -1,36 +1,46 @@
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 
-/// Which header button spawned the open menu: invocation type first,
-/// then script language and run behavior for scripts.
+/// Which header button spawned the centered menu: invocation type
+/// first, then script language and run behavior for scripts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum DropdownKind {
+pub(crate) enum HeaderMenuKind {
     InvocationType,
     Interpreter,
     Behavior,
 }
 
-/// Open popup menu over the detail pane: option labels with a cursor.
-/// Options are plain labels; the caller maps the confirmed label back
-/// onto its domain value.
+impl HeaderMenuKind {
+    pub(crate) const fn title(self) -> &'static str {
+        match self {
+            Self::InvocationType => "Trigger type",
+            Self::Interpreter => "Script language",
+            Self::Behavior => "Run behavior",
+        }
+    }
+}
+
+/// Centered option menu over the detail pane: option labels with a
+/// cursor. Options are plain labels; the caller maps the confirmed
+/// label back onto its domain value.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct LibraryDropdown {
-    kind: DropdownKind,
+pub(crate) struct LibraryHeaderMenuState {
+    kind: HeaderMenuKind,
     options: Vec<String>,
     selected: usize,
 }
 
-impl LibraryDropdown {
-    pub(crate) fn new(kind: DropdownKind, current: &str) -> Self {
+impl LibraryHeaderMenuState {
+    pub(crate) fn new(kind: HeaderMenuKind, current: &str) -> Self {
         let options: Vec<String> = match kind {
-            DropdownKind::InvocationType => ["word", "hotkey", "regex", "voice"]
+            HeaderMenuKind::InvocationType => ["word", "hotkey", "regex", "voice"]
                 .into_iter()
                 .map(str::to_string)
                 .collect(),
-            DropdownKind::Interpreter => ScriptInterpreter::ALL
+            HeaderMenuKind::Interpreter => ScriptInterpreter::ALL
                 .iter()
                 .map(|interpreter| interpreter.as_str().to_string())
                 .collect(),
-            DropdownKind::Behavior => ScriptBehavior::ALL
+            HeaderMenuKind::Behavior => ScriptBehavior::ALL
                 .iter()
                 .map(|behavior| behavior.as_str().to_string())
                 .collect(),
@@ -46,7 +56,7 @@ impl LibraryDropdown {
         }
     }
 
-    pub(crate) const fn kind(&self) -> DropdownKind {
+    pub(crate) const fn kind(&self) -> HeaderMenuKind {
         self.kind
     }
 
@@ -56,12 +66,6 @@ impl LibraryDropdown {
 
     pub(crate) const fn selected(&self) -> usize {
         self.selected
-    }
-
-    pub(crate) fn set_selected(&mut self, index: usize) {
-        if index < self.options.len() {
-            self.selected = index;
-        }
     }
 
     /// Menus wrap around both ends.

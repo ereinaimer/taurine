@@ -1,14 +1,14 @@
 mod delete;
-mod dropdown;
 mod edit;
 mod export;
+mod header_menu;
 mod import;
 mod trigger;
 
 pub(crate) use delete::*;
-pub(crate) use dropdown::*;
 pub(crate) use edit::*;
 pub(crate) use export::*;
+pub(crate) use header_menu::*;
 pub(crate) use import::*;
 pub(crate) use trigger::*;
 
@@ -48,6 +48,7 @@ pub(crate) enum LibraryModal {
     // honey: unreachable until the shortcut rework lands; kept with tests.
     #[allow(dead_code)]
     ConfirmDelete(LibraryDeleteModalState),
+    HeaderMenu(LibraryHeaderMenuState),
 }
 
 impl LibraryModal {
@@ -59,6 +60,9 @@ impl LibraryModal {
             Self::ImportResult(state) => state.set_error(error),
             Self::ConfirmImportRunVariables(state) => state.set_error(error),
             Self::ConfirmDelete(state) => state.set_error(error),
+            // honey: menu confirms carry no typed text to restore, so a
+            // failed pick only surfaces through the status line.
+            Self::HeaderMenu(_) => {}
         }
     }
 }
@@ -84,7 +88,6 @@ pub(crate) struct LibraryPageState {
     last_edit_at: Option<u64>,
     content_width: u16,
     last_divider_click: Option<(super::DividerSide, u64)>,
-    dropdown: Option<LibraryDropdown>,
 }
 
 /// Double-click window for divider reset, mirroring the overlay.
@@ -122,7 +125,6 @@ impl Default for LibraryPageState {
             last_edit_at: None,
             content_width: 0,
             last_divider_click: None,
-            dropdown: None,
         }
     }
 }
@@ -318,26 +320,18 @@ impl LibraryPageState {
         })
     }
 
-    pub(crate) const fn dropdown(&self) -> Option<&LibraryDropdown> {
-        self.dropdown.as_ref()
-    }
-
-    pub(crate) fn close_dropdown(&mut self) {
-        self.dropdown = None;
-    }
-
     /// Current option label for a header menu on the selected row.
-    fn dropdown_current(&self, kind: DropdownKind) -> Option<String> {
+    fn header_menu_current(&self, kind: HeaderMenuKind) -> Option<String> {
         let selected = self.selected_index()?;
         let item = self.item_at_filtered(selected)?;
         Some(match kind {
-            DropdownKind::InvocationType => item.invocation_type_label().to_string(),
-            DropdownKind::Interpreter => item
+            HeaderMenuKind::InvocationType => item.invocation_type_label().to_string(),
+            HeaderMenuKind::Interpreter => item
                 .interpreter()
                 .map(|interpreter| interpreter.as_str())
                 .unwrap_or(super::detail::EMPTY_TOKEN)
                 .to_string(),
-            DropdownKind::Behavior => item
+            HeaderMenuKind::Behavior => item
                 .behavior()
                 .map(|behavior| behavior.as_str())
                 .unwrap_or(super::detail::EMPTY_TOKEN)
@@ -345,37 +339,20 @@ impl LibraryPageState {
         })
     }
 
-    /// Opens the header-button menu with the cursor parked on the current
-    /// value. Clicking the spawning button again toggles it shut.
-    pub(crate) fn open_dropdown(&mut self, kind: DropdownKind) {
-        if self
-            .dropdown
-            .as_ref()
-            .is_some_and(|open| open.kind() == kind)
-        {
-            self.dropdown = None;
-            return;
-        }
-        let Some(current) = self.dropdown_current(kind) else {
+    /// Opens the header-button menu as a centered overlay with the cursor
+    /// parked on the current value.
+    pub(crate) fn open_header_menu(&mut self, kind: HeaderMenuKind) {
+        let Some(current) = self.header_menu_current(kind) else {
             return;
         };
-        self.dropdown = Some(LibraryDropdown::new(kind, &current));
-    }
-
-    /// Click confirm: jump the cursor to the clicked row, then commit.
-    pub(crate) fn confirm_dropdown_at(&mut self, index: usize) -> LibraryInteraction {
-        if let Some(menu) = self.dropdown.as_mut() {
-            menu.set_selected(index);
-        }
-        self.confirm_dropdown()
+        self.modal = Some(LibraryModal::HeaderMenu(LibraryHeaderMenuState::new(
+            kind, &current,
+        )));
     }
 
     /// Commits the menu cursor as a persist interaction. Unchanged values
     /// close silently; the caller refreshes the list on success.
-    pub(crate) fn confirm_dropdown(&mut self) -> LibraryInteraction {
-        let Some(menu) = self.dropdown.take() else {
-            return LibraryInteraction::handled();
-        };
+    fn confirm_header_menu(&mut self, menu: LibraryHeaderMenuState) -> LibraryInteraction {
         let Some(selected) = self.selected_index() else {
             return LibraryInteraction::handled();
         };
@@ -386,13 +363,13 @@ impl LibraryPageState {
             return LibraryInteraction::handled();
         };
         let current = match menu.kind() {
-            DropdownKind::InvocationType => item.invocation_type_label().to_string(),
-            DropdownKind::Interpreter => item
+            HeaderMenuKind::InvocationType => item.invocation_type_label().to_string(),
+            HeaderMenuKind::Interpreter => item
                 .interpreter()
                 .map(|interpreter| interpreter.as_str())
                 .unwrap_or(super::detail::EMPTY_TOKEN)
                 .to_string(),
-            DropdownKind::Behavior => item
+            HeaderMenuKind::Behavior => item
                 .behavior()
                 .map(|behavior| behavior.as_str())
                 .unwrap_or(super::detail::EMPTY_TOKEN)
@@ -402,15 +379,15 @@ impl LibraryPageState {
             return LibraryInteraction::handled();
         }
         let field = match menu.kind() {
-            DropdownKind::InvocationType => {
+            HeaderMenuKind::InvocationType => {
                 taurine_core::db::crud::InvocationType::parse_str(&option)
                     .map(EditedField::InvocationType)
             }
-            DropdownKind::Interpreter => {
+            HeaderMenuKind::Interpreter => {
                 taurine_core::engine::shell::ScriptInterpreter::parse_str(&option)
                     .map(EditedField::Interpreter)
             }
-            DropdownKind::Behavior => {
+            HeaderMenuKind::Behavior => {
                 taurine_core::engine::shell::ScriptBehavior::parse_str(&option)
                     .map(EditedField::Behavior)
             }
@@ -424,32 +401,6 @@ impl LibraryPageState {
             field,
             restore_index: selected,
         })
-    }
-
-    /// Keys while a header menu is open. Arrows walk (wrapping), Enter
-    /// commits, Esc cancels; everything else is swallowed so typing never
-    /// leaks into search.
-    fn handle_dropdown_key(&mut self, key: KeyEvent) -> LibraryInteraction {
-        match (key.code, key.modifiers) {
-            (KeyCode::Up, KeyModifiers::NONE) => {
-                if let Some(menu) = self.dropdown.as_mut() {
-                    menu.move_cursor(-1);
-                }
-                LibraryInteraction::handled()
-            }
-            (KeyCode::Down, KeyModifiers::NONE) => {
-                if let Some(menu) = self.dropdown.as_mut() {
-                    menu.move_cursor(1);
-                }
-                LibraryInteraction::handled()
-            }
-            (KeyCode::Enter, KeyModifiers::NONE) => self.confirm_dropdown(),
-            (KeyCode::Esc, KeyModifiers::NONE) => {
-                self.dropdown = None;
-                LibraryInteraction::handled()
-            }
-            _ => LibraryInteraction::handled(),
-        }
     }
 
     pub(crate) const fn modal(&self) -> Option<&LibraryModal> {
@@ -623,10 +574,6 @@ impl LibraryPageState {
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> LibraryInteraction {
         if self.modal.is_some() {
             return self.handle_modal_key(key);
-        }
-
-        if self.dropdown.is_some() {
-            return self.handle_dropdown_key(key);
         }
 
         if self.edit.is_some() {
@@ -912,6 +859,29 @@ impl LibraryPageState {
                 }
                 _ => {
                     self.modal = Some(LibraryModal::ConfirmDelete(state));
+                    LibraryInteraction::handled()
+                }
+            },
+            // honey: header menus close on confirm so a failed pick
+            // surfaces through the status line, not a reopened menu.
+            LibraryModal::HeaderMenu(mut state) => match (key.code, key.modifiers) {
+                (KeyCode::Up, KeyModifiers::NONE) => {
+                    state.move_cursor(-1);
+                    self.modal = Some(LibraryModal::HeaderMenu(state));
+                    LibraryInteraction::handled()
+                }
+                (KeyCode::Down, KeyModifiers::NONE) => {
+                    state.move_cursor(1);
+                    self.modal = Some(LibraryModal::HeaderMenu(state));
+                    LibraryInteraction::handled()
+                }
+                (KeyCode::Enter, KeyModifiers::NONE) => self.confirm_header_menu(state),
+                (KeyCode::Esc, KeyModifiers::NONE) => {
+                    self.modal = None;
+                    LibraryInteraction::handled()
+                }
+                _ => {
+                    self.modal = Some(LibraryModal::HeaderMenu(state));
                     LibraryInteraction::handled()
                 }
             },
