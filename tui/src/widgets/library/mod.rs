@@ -148,6 +148,30 @@ pub(crate) fn divider_columns(area: Rect, list_ratio: f32, props_ratio: f32) -> 
     split_panes(area, list_ratio, props_ratio).dividers
 }
 
+/// Divider columns worth painting, each tagged with its side: a
+/// divider separating nothing from nothing is never drawn, so a fully
+/// parked edge shows one line. Hit-testing still uses every column so
+/// the edge stays grabbable.
+pub(crate) fn visible_divider_columns(
+    area: Rect,
+    list_ratio: f32,
+    props_ratio: f32,
+) -> Vec<(DividerSide, u16)> {
+    let split = split_panes(area, list_ratio, props_ratio);
+    let mut shown = Vec::new();
+    if (split.list.width > 0 || split.center.width > 0)
+        && let Some(column) = split.dividers.first()
+    {
+        shown.push((DividerSide::List, *column));
+    }
+    if (split.center.width > 0 || split.props.width > 0)
+        && let Some(column) = split.dividers.get(1)
+    {
+        shown.push((DividerSide::Props, *column));
+    }
+    shown
+}
+
 /// Whether a click at `(column, row)` grabs a divider, and which one.
 pub(crate) fn divider_hit(
     area: Rect,
@@ -159,11 +183,13 @@ pub(crate) fn divider_hit(
     if row < area.y || row >= area.y.saturating_add(area.height) {
         return None;
     }
-    let split = split_panes(area, list_ratio, props_ratio);
-    if split.dividers.first() == Some(&column) {
+    // honey: every gutter column stays grabbable, even ones too
+    // degenerate to paint, so a parked edge drags back open.
+    let dividers = divider_columns(area, list_ratio, props_ratio);
+    if dividers.first() == Some(&column) {
         return Some(DividerSide::List);
     }
-    if split.dividers.get(1) == Some(&column) {
+    if dividers.get(1) == Some(&column) {
         return Some(DividerSide::Props);
     }
     None

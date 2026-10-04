@@ -63,16 +63,14 @@ pub fn run() -> taurine_core::Result<()> {
                 use ratatui::text::Line;
 
                 // honey: only the hovered or dragged divider lifts; the
-                // other stays on the base border color.
+                // other stays on the base border color. Degenerate
+                // dividers are never painted, so a parked edge shows
+                // one line while staying grabbable.
                 let full = terminal::mouse::library_full_area(layout.page);
                 let page = app.library_page();
-                let sides = [library::DividerSide::List, library::DividerSide::Props];
-                for (index, column) in
-                    library::divider_columns(full, page.split_ratio(), page.detail_ratio())
-                        .into_iter()
-                        .enumerate()
+                for (side, column) in
+                    library::visible_divider_columns(full, page.split_ratio(), page.detail_ratio())
                 {
-                    let side = sides[index.min(sides.len() - 1)];
                     let color = if page.divider_drag() == Some(side)
                         || page.divider_hover() == Some(side)
                     {

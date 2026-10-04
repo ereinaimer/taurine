@@ -2300,6 +2300,30 @@ fn split_extreme_ratios_park_without_resurrection() {
 }
 
 #[test]
+fn visible_dividers_hide_parked_nothing_dividers() {
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    // List parked full screen: only its own divider paints.
+    assert_eq!(
+        visible_divider_columns(area, 1.0, DEFAULT_DETAIL_RATIO),
+        vec![(DividerSide::List, 98)]
+    );
+    // Props parked full screen: only its own divider paints.
+    assert_eq!(
+        visible_divider_columns(area, DEFAULT_SPLIT_RATIO, 2.0),
+        vec![(DividerSide::Props, 1)]
+    );
+    // Ordinary split paints both, tagged in order.
+    let split = split_panes(area, DEFAULT_SPLIT_RATIO, DEFAULT_DETAIL_RATIO);
+    assert_eq!(
+        visible_divider_columns(area, DEFAULT_SPLIT_RATIO, DEFAULT_DETAIL_RATIO),
+        vec![
+            (DividerSide::List, split.dividers[0]),
+            (DividerSide::Props, split.dividers[1]),
+        ]
+    );
+}
+
+#[test]
 fn divider_hit_only_on_gutter_column() {
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
     let state = LibraryPageState::default();
