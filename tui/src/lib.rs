@@ -98,6 +98,16 @@ pub fn run() -> taurine_core::Result<()> {
                 notification::render_notification(frame, area, theme, msg);
             }
 
+            // honey: scrim pass darkens everything behind an open modal;
+            // the modal paints afterward onto the dimmed backdrop.
+            let any_modal = match app.active_page() {
+                Page::Library => app.library_page().is_modal_open(),
+                Page::Settings => app.settings_page().is_modal_open(),
+            };
+            if any_modal {
+                dim_frame(frame);
+            }
+
             // honey: modals render last so they sit above panes,
             // dividers, and toasts.
             match app.active_page() {
@@ -136,6 +146,24 @@ pub fn run() -> taurine_core::Result<()> {
     }
 
     Ok(())
+}
+
+/// Scales every rendered background toward black so an open modal
+/// sits on a dimmed backdrop. Only RGB cells scale; named/reset
+/// cells keep their color.
+fn dim_frame(frame: &mut ratatui::Frame) {
+    use ratatui::style::Color;
+
+    const DIM: f32 = 0.45;
+    for cell in frame.buffer_mut().content.iter_mut() {
+        if let Color::Rgb(red, green, blue) = cell.bg {
+            cell.set_bg(Color::Rgb(
+                (red as f32 * DIM) as u8,
+                (green as f32 * DIM) as u8,
+                (blue as f32 * DIM) as u8,
+            ));
+        }
+    }
 }
 
 fn render_page_content(
