@@ -9,7 +9,9 @@ pub const DARK_THEME: Theme = Theme {
     border: Color::Rgb(0x22, 0x22, 0x22),
     background: Color::Rgb(0x0A, 0x0A, 0x0A),
     surface: Color::Rgb(0x1E, 0x1E, 0x1E),
-    text: Color::Rgb(0xE5, 0xE5, 0xE5),
+    // honey: off-white body text; pure white on near-black blows out,
+    // especially under bold, so the dark theme never uses it.
+    text: Color::Rgb(0xD8, 0xD8, 0xD8),
     text_muted: Color::Rgb(0x80, 0x80, 0x80),
     description: Color::Rgb(0x73, 0x73, 0x73),
     accent: Color::Rgb(0x1E, 0x90, 0xFF),
@@ -18,12 +20,12 @@ pub const DARK_THEME: Theme = Theme {
     success: Color::Green,
     header: HeaderTheme {
         bg: Color::Rgb(0x1E, 0x1E, 0x1E),
-        text: Color::Rgb(0xE5, 0xE5, 0xE5),
+        text: Color::Rgb(0xD8, 0xD8, 0xD8),
     },
     button: ButtonTheme {
         active_bg: Color::Rgb(0x3A, 0x3A, 0x3A),
         inactive_bg: Color::Rgb(0x1E, 0x1E, 0x1E),
-        text: Color::Rgb(0xE5, 0xE5, 0xE5),
+        text: Color::Rgb(0xD8, 0xD8, 0xD8),
     },
 };
 
