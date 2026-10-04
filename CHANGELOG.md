@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Arrow-Key Navigation**: The library list now moves with the Up/Down arrow keys; every letter and symbol types straight into search instead.
 - **Header Dropdowns**: The type, language, and behavior buttons above the snippet now open a centered dialog. Pick a new trigger type, script language, or run mode with the arrow keys and Enter.
 - **Target Platform Picker**: Click the Platform row in properties to choose the operating system from a centered dialog with icons.
+- **Tags Builder**: Click the Tags row to filter every known tag, toggle them live, and create new ones with Enter.
 
 ### Removed
 - **Trigger Editor Popup**: The overlay editor is gone pending a revamped editor; use the CLI to add or edit triggers for now.

@@ -90,6 +90,7 @@ pub(crate) enum EditedField {
     Behavior(ScriptBehavior),
     AutoCase(bool),
     TargetOs(String),
+    Tags(Vec<String>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -150,6 +151,10 @@ impl PendingLibraryEdit {
             EditedField::TargetOs(target_os) => {
                 taurine_core::db::crud::set_trigger_target_os(&conn, &self.trigger_id, target_os)?;
                 taurine_core::rpc::notify_daemon_reload();
+            }
+            // honey: tags never reach the expander, so no daemon reload.
+            EditedField::Tags(tags) => {
+                taurine_core::db::crud::set_trigger_tags(&conn, &self.trigger_id, tags)?;
             }
         }
         Ok(())

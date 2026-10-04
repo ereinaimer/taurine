@@ -2286,6 +2286,102 @@ fn platform_menu_confirm_persists_db_value() {
     assert!(state.modal().is_none());
 }
 
+fn tags_menu(trigger_tags: &[&str], all_tags: &[&str]) -> LibraryTagsModalState {
+    LibraryTagsModalState::new(
+        "id-tags".to_string(),
+        0,
+        trigger_tags.iter().map(|tag| tag.to_string()).collect(),
+        all_tags.iter().map(|tag| tag.to_string()).collect(),
+    )
+}
+
+#[test]
+fn tags_menu_filters_by_substring() {
+    let mut menu = tags_menu(&["work"], &["work", "home", "play"]);
+    assert_eq!(menu.visible(), vec!["work", "home", "play"]);
+    menu.push_filter('o');
+    menu.push_filter('r');
+    assert_eq!(menu.visible(), vec!["work"]);
+}
+
+#[test]
+fn tags_menu_toggle_builds_full_list() {
+    let menu = tags_menu(&["work"], &["work", "home"]);
+    // Cursor starts on "work": toggling removes it.
+    let pending = menu.toggle_selected().expect("pending toggle");
+    assert_eq!(pending.trigger_id, "id-tags");
+    assert_eq!(pending.field, EditedField::Tags(Vec::new()));
+}
+
+#[test]
+fn tags_menu_create_validates_filter() {
+    let mut menu = tags_menu(&["work"], &["work", "home"]);
+    for ch in "newtag".chars() {
+        menu.push_filter(ch);
+    }
+    assert!(menu.visible().is_empty());
+    let pending = menu.create_from_filter().expect("pending create");
+    assert_eq!(
+        pending.field,
+        EditedField::Tags(vec!["work".to_string(), "newtag".to_string()])
+    );
+
+    let mut blank = tags_menu(&[], &["work"]);
+    blank.push_filter(' ');
+    assert!(blank.create_from_filter().is_none());
+
+    let mut dup = tags_menu(&["work"], &["work"]);
+    for ch in "WORK".chars() {
+        dup.push_filter(ch);
+    }
+    assert!(dup.create_from_filter().is_none());
+
+    let mut long = tags_menu(&[], &[]);
+    for _ in 0..51 {
+        long.push_filter('a');
+    }
+    assert!(long.create_from_filter().is_none());
+}
+
+#[test]
+fn tags_menu_esc_closes_and_enter_lives_on() {
+    let mut state = sample_state();
+    state.modal = Some(LibraryModal::Tags(tags_menu(&[], &["work"])));
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(interaction.pending_edit().is_none());
+    assert!(state.modal().is_none());
+
+    state.modal = Some(LibraryModal::Tags(tags_menu(&[], &["work"])));
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let pending = interaction.pending_edit().expect("pending toggle");
+    assert_eq!(pending.field, EditedField::Tags(vec!["work".to_string()]));
+    assert!(state.modal().is_some());
+}
+
+#[test]
+fn tags_row_hit_opens_position() {
+    let state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let content = props::props_content(area, state.split_ratio(), state.detail_ratio());
+    let selected = state.selected_index().expect("selection");
+    let item = state.item_at_filtered(selected).expect("item");
+    let tags_at = content
+        .y
+        .saturating_add(props::usage_toggle_offset(item))
+        .saturating_sub(2);
+    assert_eq!(
+        props::hit_test(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            content.x,
+            tags_at
+        ),
+        Some(props::PropsHit::Tags)
+    );
+}
+
 #[test]
 fn right_pane_clicks_hit_nothing() {
     let state = sample_state();

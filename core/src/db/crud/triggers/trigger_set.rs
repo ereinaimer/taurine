@@ -1441,6 +1441,22 @@ pub fn set_trigger_target_os(conn: &Connection, id: &str, target_os: &str) -> Re
     Ok(changed > 0)
 }
 
+/// Rewrites the tag list of one trigger. Tags normalize strictly
+/// (lowercase, at most 50 chars each, at most 20 per trigger);
+/// violations error back to the caller. Bumps version and marks the
+/// row unsynced. Returns false when the id is unknown or already
+/// deleted.
+pub fn set_trigger_tags(conn: &Connection, id: &str, tags: &[String]) -> Result<bool> {
+    let cleaned = super::validate::normalize_tags(&serde_json::to_string(tags)?)?;
+    let changed = conn.execute(
+        "UPDATE triggers
+         SET tags = ?1, version = version + 1, updated_at = ?2, is_synced = 0
+         WHERE id = ?3 AND is_deleted = 0",
+        rusqlite::params![cleaned, crate::db::now_unix_secs(), id],
+    )?;
+    Ok(changed > 0)
+}
+
 /// Flips the per-trigger auto-case flag. Bumps version and marks the
 /// row unsynced like other mutations. Returns false when the id is
 /// unknown or already deleted.

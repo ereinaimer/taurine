@@ -317,6 +317,17 @@ AND (t.target_os = 'all' OR t.target_os = ?1)",
     Ok(actions)
 }
 
+/// Every distinct tag across live triggers, sorted, backing tag
+/// pickers. Empty tags never persist, so none surface here.
+pub fn list_distinct_tags(conn: &Connection) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT DISTINCT json_each.value FROM triggers, json_each(triggers.tags)
+         WHERE triggers.is_deleted = 0 ORDER BY 1",
+    )?;
+    stmt.query_map([], |row| row.get(0))?
+        .collect::<rusqlite::Result<Vec<String>>>()
+}
+
 /// Fetches all active voice invocations with their parent payloads.
 ///
 /// Voice aliases JOIN parents (+ scripts join for script actions), filling

@@ -548,6 +548,22 @@ fn handle_tui_mouse_event(
                                 Some(library::props::PropsHit::UsageToggle) => {
                                     app.library_page_mut().toggle_usage();
                                 }
+                                Some(library::props::PropsHit::Tags) => {
+                                    let flush = app.library_page_mut().commit_edit();
+                                    apply_library_interaction(app, flush);
+                                    match taurine_core::db::init::setup().and_then(|conn| {
+                                        taurine_core::db::crud::list_distinct_tags(&conn)
+                                            .map_err(Into::into)
+                                    }) {
+                                        Ok(all_tags) => {
+                                            app.library_page_mut().open_tags_modal(all_tags);
+                                        }
+                                        Err(error) => {
+                                            app.library_page_mut()
+                                                .set_save_error(error.to_string());
+                                        }
+                                    }
+                                }
                                 None => {}
                             }
                         }
@@ -722,13 +738,21 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
             | library::EditedField::Interpreter(_)
             | library::EditedField::Behavior(_)
             | library::EditedField::AutoCase(_)
-            | library::EditedField::TargetOs(_) => None,
+            | library::EditedField::TargetOs(_)
+            | library::EditedField::Tags(_) => None,
         };
+        // honey: the tags builder lives on across live toggles; the
+        // menu reopens from refreshed rows after each write.
+        let reopen_tags = matches!(pending_edit.field, library::EditedField::Tags(_));
         match pending_edit.apply() {
             Ok(()) => {
                 refresh_library_page(app);
+                // honey: a vanished trigger closes menus with it; the
+                // tags menu otherwise reseeds from refreshed rows.
                 if !app.library_page_mut().select_row(&trigger_id, &trigger) {
                     app.library_page_mut().select_after_delete(restore_index);
+                } else if reopen_tags {
+                    app.library_page_mut().sync_tags_modal(&trigger_id);
                 }
             }
             // honey: typed text is never lost; the edit reopens on the

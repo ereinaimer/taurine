@@ -238,6 +238,7 @@ pub(crate) fn usage_toggle_offset(item: &LibraryTrigger) -> u16 {
 pub(crate) enum PropsHit {
     AutoCase,
     Platform,
+    Tags,
     UsageToggle,
 }
 
@@ -270,6 +271,14 @@ pub(crate) fn hit_test(
         if row == platform && row < content.y.saturating_add(content.height) {
             return Some(PropsHit::Platform);
         }
+    }
+    let tags = content
+        .y
+        .saturating_add(usage_toggle_offset(item))
+        .saturating_add(alias_extra_lines(item, content.width))
+        .saturating_sub(2);
+    if row == tags && row < content.y.saturating_add(content.height) {
+        return Some(PropsHit::Tags);
     }
     let toggle = content
         .y

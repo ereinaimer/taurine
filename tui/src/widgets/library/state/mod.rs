@@ -3,6 +3,7 @@ mod edit;
 mod export;
 mod header_menu;
 mod import;
+mod tags;
 mod trigger;
 
 pub(crate) use delete::*;
@@ -10,6 +11,7 @@ pub(crate) use edit::*;
 pub(crate) use export::*;
 pub(crate) use header_menu::*;
 pub(crate) use import::*;
+pub(crate) use tags::*;
 pub(crate) use trigger::*;
 
 use std::path::Path;
@@ -49,6 +51,7 @@ pub(crate) enum LibraryModal {
     #[allow(dead_code)]
     ConfirmDelete(LibraryDeleteModalState),
     HeaderMenu(LibraryHeaderMenuState),
+    Tags(LibraryTagsModalState),
 }
 
 impl LibraryModal {
@@ -63,6 +66,7 @@ impl LibraryModal {
             // honey: menu confirms carry no typed text to restore, so a
             // failed pick only surfaces through the status line.
             Self::HeaderMenu(_) => {}
+            Self::Tags(state) => state.set_error(error),
         }
     }
 }
@@ -392,6 +396,43 @@ impl LibraryPageState {
 
     pub(crate) fn header_menu_open(&self) -> bool {
         matches!(self.modal, Some(LibraryModal::HeaderMenu(_)))
+    }
+
+    /// Opens the tags builder for the selected trigger, seeded with
+    /// its current tags and every known tag.
+    pub(crate) fn open_tags_modal(&mut self, all_tags: Vec<String>) {
+        let Some(selected) = self.selected_index() else {
+            return;
+        };
+        let Some(item) = self.item_at_filtered(selected) else {
+            return;
+        };
+        self.modal = Some(LibraryModal::Tags(LibraryTagsModalState::new(
+            item.id().to_string(),
+            selected,
+            item.tags().to_vec(),
+            all_tags,
+        )));
+    }
+
+    /// Re-seeds an open tags menu from refreshed rows after a live
+    /// toggle, so core-side normalization never desyncs it. A vanished
+    /// trigger closes the menu with it.
+    pub(crate) fn sync_tags_modal(&mut self, trigger_id: &str) {
+        let tags = self
+            .items
+            .iter()
+            .find(|item| item.id() == trigger_id)
+            .map(|item| item.tags().to_vec());
+        match (self.modal.take(), tags) {
+            (Some(LibraryModal::Tags(mut state)), Some(tags)) => {
+                state.reseed(tags);
+                self.modal = Some(LibraryModal::Tags(state));
+            }
+            (modal, _) => {
+                self.modal = modal;
+            }
+        }
     }
 
     /// Wheel scroll over an open header menu walks the cursor.
@@ -961,6 +1002,80 @@ impl LibraryPageState {
                 }
                 _ => {
                     self.modal = Some(LibraryModal::HeaderMenu(state));
+                    LibraryInteraction::handled()
+                }
+            },
+            // honey: the tags builder lives on across live toggles;
+            // the menu stays open and reseeds from refreshed rows.
+            LibraryModal::Tags(mut state) => match (key.code, key.modifiers) {
+                (KeyCode::Up, KeyModifiers::NONE) => {
+                    state.move_cursor(-1);
+                    self.modal = Some(LibraryModal::Tags(state));
+                    LibraryInteraction::handled()
+                }
+                (KeyCode::Down, KeyModifiers::NONE) => {
+                    state.move_cursor(1);
+                    self.modal = Some(LibraryModal::Tags(state));
+                    LibraryInteraction::handled()
+                }
+                (KeyCode::Enter, KeyModifiers::NONE) => {
+                    let interaction = if state.visible().is_empty() {
+                        state
+                            .create_from_filter()
+                            .map(LibraryInteraction::edit)
+                            .unwrap_or_else(LibraryInteraction::handled)
+                    } else {
+                        state
+                            .toggle_selected()
+                            .map(LibraryInteraction::edit)
+                            .unwrap_or_else(LibraryInteraction::handled)
+                    };
+                    self.modal = Some(LibraryModal::Tags(state));
+                    interaction
+                }
+                (KeyCode::Esc, KeyModifiers::NONE) => {
+                    self.modal = None;
+                    LibraryInteraction::handled()
+                }
+                (KeyCode::Backspace, KeyModifiers::NONE) => {
+                    state.backspace_filter();
+                    self.modal = Some(LibraryModal::Tags(state));
+                    LibraryInteraction::handled()
+                }
+                (KeyCode::Delete, KeyModifiers::NONE) => {
+                    state.delete_filter_at();
+                    self.modal = Some(LibraryModal::Tags(state));
+                    LibraryInteraction::handled()
+                }
+                (KeyCode::Left, KeyModifiers::NONE) => {
+                    state.filter_mut().move_left();
+                    self.modal = Some(LibraryModal::Tags(state));
+                    LibraryInteraction::handled()
+                }
+                (KeyCode::Right, KeyModifiers::NONE) => {
+                    state.filter_mut().move_right();
+                    self.modal = Some(LibraryModal::Tags(state));
+                    LibraryInteraction::handled()
+                }
+                (KeyCode::Home, KeyModifiers::NONE) => {
+                    state.filter_mut().move_home();
+                    self.modal = Some(LibraryModal::Tags(state));
+                    LibraryInteraction::handled()
+                }
+                (KeyCode::End, KeyModifiers::NONE) => {
+                    state.filter_mut().move_end();
+                    self.modal = Some(LibraryModal::Tags(state));
+                    LibraryInteraction::handled()
+                }
+                (KeyCode::Char(ch), modifiers)
+                    if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+                {
+                    state.push_filter(ch);
+                    self.modal = Some(LibraryModal::Tags(state));
+                    LibraryInteraction::handled()
+                }
+                _ => {
+                    self.modal = Some(LibraryModal::Tags(state));
                     LibraryInteraction::handled()
                 }
             },

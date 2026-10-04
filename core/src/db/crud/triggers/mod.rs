@@ -25,7 +25,7 @@ pub use trigger_delete::{
 pub use trigger_get::{
     get_action_by_trigger, get_all_active_hotkey_triggers, get_all_active_regex_triggers,
     get_all_active_triggers, get_library_triggers, get_trigger, get_triggers_list,
-    list_active_voice_invocations, search_triggers,
+    list_active_voice_invocations, list_distinct_tags, search_triggers,
 };
 pub use validate::{
     audit_payload_tags, audit_payload_tags_with_trigger_type, audit_script_payload_tags,
@@ -44,9 +44,9 @@ pub use trigger_set::{
     add_trigger_by_type, add_trigger_by_type_with_case, add_trigger_with_case, create_entry,
     create_trigger, prepare_trigger, prepare_trigger_with_type, set_script_behavior,
     set_script_interpreter, set_trigger_auto_case, set_trigger_content, set_trigger_description,
-    set_trigger_enabled, set_trigger_name, set_trigger_target_os, update_existing_trigger,
-    update_trigger_app_filters, upsert_entry_full, upsert_script, upsert_trigger,
-    upsert_trigger_with_type, upsert_trigger_with_type_and_case,
+    set_trigger_enabled, set_trigger_name, set_trigger_tags, set_trigger_target_os,
+    update_existing_trigger, update_trigger_app_filters, upsert_entry_full, upsert_script,
+    upsert_trigger, upsert_trigger_with_type, upsert_trigger_with_type_and_case,
 };
 pub use trigger_sync::get_syncable_triggers;
 pub use trigger_types::{

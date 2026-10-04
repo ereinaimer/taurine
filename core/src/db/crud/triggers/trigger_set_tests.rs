@@ -1875,6 +1875,64 @@ fn test_set_alias_invocation_type_retypes_row_and_bumps() {
 }
 
 #[test]
+fn test_set_trigger_tags_normalizes_and_bumps() {
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let (_dir, conn) = crate::testing::open_test_db();
+
+    let id = create_entry(&conn, word_entry_fixture("tagged_me", "text"))
+        .expect("create entry")
+        .0;
+    assert!(
+        set_trigger_tags(
+            &conn,
+            &id,
+            &["Work".to_string(), " work ".to_string(), "home".to_string()]
+        )
+        .unwrap()
+    );
+    let (stored, version, synced): (String, i64, bool) = conn
+        .query_row(
+            "SELECT tags, version, is_synced FROM triggers WHERE id = ?1",
+            [&id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(stored, "[\"work\",\"home\"]");
+    assert_eq!(version, 2);
+    assert!(!synced);
+    assert!(set_trigger_tags(&conn, &id, &["a".repeat(51)]).is_err());
+    assert!(!set_trigger_tags(&conn, "ghost", &["x".to_string()]).unwrap());
+}
+
+#[test]
+fn test_list_distinct_tags_skips_deleted() {
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let (_dir, conn) = crate::testing::open_test_db();
+
+    let first = create_entry(&conn, word_entry_fixture("tag_one", "text"))
+        .expect("create first")
+        .0;
+    let second = create_entry(&conn, word_entry_fixture("tag_two", "text"))
+        .expect("create second")
+        .0;
+    assert!(set_trigger_tags(&conn, &first, &["beta".to_string(), "alpha".to_string()]).unwrap());
+    assert!(set_trigger_tags(&conn, &second, &["gamma".to_string()]).unwrap());
+    assert_eq!(
+        list_distinct_tags(&conn).unwrap(),
+        vec!["alpha".to_string(), "beta".to_string(), "gamma".to_string()]
+    );
+    crate::db::crud::delete_trigger(&conn, &second).unwrap();
+    assert_eq!(
+        list_distinct_tags(&conn).unwrap(),
+        vec!["alpha".to_string(), "beta".to_string()]
+    );
+}
+
+#[test]
 fn test_set_trigger_target_os_rewrites_platform_and_bumps() {
     let _guard = crate::testing::TEST_LOCK
         .lock()

@@ -11,7 +11,7 @@ use crate::widgets::library::state::{
     LibraryDeleteModalState, LibraryExportModalField, LibraryExportModalState,
     LibraryExportResultModalState, LibraryHeaderMenuState, LibraryImportModalField,
     LibraryImportModalState, LibraryImportResultModalState, LibraryImportRunVariablesModalState,
-    LibraryModal, LibrarySelectState,
+    LibraryModal, LibrarySelectState, LibraryTagsModalState,
 };
 use crate::widgets::util::{self};
 
@@ -41,6 +41,7 @@ pub fn render_library_modal(frame: &mut Frame, area: Rect, theme: &Theme, modal:
         LibraryModal::HeaderMenu(state) => {
             render_library_header_menu_modal(frame, area, theme, state)
         }
+        LibraryModal::Tags(state) => render_library_tags_modal(frame, area, theme, state),
     }
 }
 
@@ -502,5 +503,131 @@ fn render_library_header_menu_modal(
         state.kind().title(),
         &entries,
         state.selected(),
+    );
+}
+
+/// Tags builder overlay on the shared popup geometry: filter line
+/// with a real caret, scrolling checklist, footer hint. Same overlay
+/// language as the option menus (dark fill, title row, full-bleed
+/// cursor), owned by the tags flow for its input line.
+fn render_library_tags_modal(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    state: &LibraryTagsModalState,
+) {
+    use ratatui::layout::Margin;
+    use ratatui::style::Color::Rgb;
+    use ratatui::widgets::{Block, List, ListItem, ListState};
+
+    let popup = util::overlay_popup(area);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(
+        Block::default().style(Style::default().bg(Rgb(0x14, 0x14, 0x14))),
+        popup,
+    );
+    let body = popup.inner(Margin::new(3, 1));
+    if body.width == 0 || body.height == 0 {
+        return;
+    }
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            "Tags".to_string(),
+            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+        ))),
+        Rect {
+            x: body.x,
+            y: body.y,
+            width: body.width,
+            height: 1,
+        },
+    );
+    // honey: filter line with a real caret, mirroring the search box.
+    let filter_y = body.y.saturating_add(1);
+    if body.height > 2 {
+        let (visible, caret) = state.filter().window(body.width);
+        let gap = body.width.saturating_sub(visible.chars().count() as u16);
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled(visible.to_string(), Style::default().fg(theme.text)),
+                Span::raw(" ".repeat(gap as usize)),
+            ])),
+            Rect {
+                x: body.x,
+                y: filter_y,
+                width: body.width,
+                height: 1,
+            },
+        );
+        let (caret_x, caret_y) = util::caret_position(body.x, filter_y, caret, body.width);
+        frame.set_cursor_position((caret_x, caret_y));
+    }
+
+    let list_y = body.y.saturating_add(2);
+    let list_height = body.height.saturating_sub(3).clamp(1, 8) as usize;
+    let visible = state.visible();
+    let (start, end) = util::visible_range(visible.len(), state.cursor(), list_height.max(1));
+    let items: Vec<ListItem> = visible[start..end]
+        .iter()
+        .map(|tag| {
+            let mark = if state.is_checked(tag) { "x" } else { " " };
+            ListItem::new(Line::from(vec![
+                Span::styled(format!("   [{mark}] "), Style::default().fg(theme.text)),
+                Span::styled((*tag).to_string(), Style::default().fg(theme.text)),
+            ]))
+        })
+        .collect();
+    let mut list_state = ListState::default();
+    if !visible.is_empty() {
+        list_state.select(Some(state.cursor().saturating_sub(start)));
+    }
+    let list = List::new(items).highlight_symbol("").highlight_style(
+        Style::default()
+            .bg(theme.surface)
+            .add_modifier(Modifier::BOLD),
+    );
+    frame.render_stateful_widget(
+        list,
+        Rect {
+            x: popup.x,
+            y: list_y,
+            width: popup.width,
+            height: list_height.min(body.height.saturating_sub(2) as usize) as u16,
+        },
+        &mut list_state,
+    );
+
+    let footer = if let Some(error) = state.error() {
+        Line::from(Span::styled(
+            util::truncate_to_width(error, body.width),
+            Style::default()
+                .fg(theme.error)
+                .add_modifier(Modifier::BOLD),
+        ))
+    } else if visible.is_empty() && !state.filter().is_empty() {
+        Line::from(vec![
+            Span::styled(
+                "Enter creates ".to_string(),
+                Style::default().fg(theme.text_muted),
+            ),
+            Span::styled(
+                format!("\"{}\"", state.filter().text()),
+                Style::default().fg(theme.text),
+            ),
+        ])
+    } else {
+        Line::from(Span::styled(
+            "Enter toggle • Esc close".to_string(),
+            Style::default().fg(theme.text_muted),
+        ))
+    };
+    frame.render_widget(
+        Paragraph::new(footer),
+        Rect {
+            x: body.x,
+            y: body.y.saturating_add(body.height).saturating_sub(1),
+            width: body.width,
+            height: 1,
+        },
     );
 }
