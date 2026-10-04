@@ -43,7 +43,7 @@ pub(crate) fn render_props(
     frame.render_widget(
         Paragraph::new(Span::styled(
             "Properties".to_string(),
-            Style::default().fg(theme.text).add_modifier(Modifier::DIM),
+            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
         )),
         Rect {
             x: content.x,
