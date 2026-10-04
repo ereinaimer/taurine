@@ -36,9 +36,9 @@ You can start by looking through our open issues. If you want to work on somethi
 If you are compiling Taurine on a Linux system, you must install the following system dependencies:
 ```bash
 sudo apt update
-sudo apt install build-essential protobuf-compiler libdbus-1-dev pkg-config libasound2-dev libxkbcommon-dev mold sccache -y
+sudo apt install build-essential protobuf-compiler libdbus-1-dev pkg-config libssl-dev libasound2-dev libxkbcommon-dev mold sccache -y
 ```
-`mold` is the linker used for all Linux builds (it's the fastest linker available and dramatically cuts link times). If your distribution's GCC is older than 12.1, install `clang` as well and the build will use it as the linker driver instead.
+`libssl-dev` lets dev builds link the system OpenSSL instead of compiling a private copy from source (see the fast loop below). `mold` is the linker used for all Linux builds (it's the fastest linker available and dramatically cuts link times). If your distribution's GCC is older than 12.1, install `clang` as well and the build will use it as the linker driver instead.
 
 #### Windows
 If you are compiling Taurine on Windows, you must install Protocol Buffers, `sccache`, and Strawberry Perl. You can easily do this using `winget`:
@@ -46,14 +46,32 @@ If you are compiling Taurine on Windows, you must install Protocol Buffers, `scc
 winget install protobuf
 winget install Mozilla.sccache
 winget install StrawberryPerl.StrawberryPerl
+winget install ShiningLight.OpenSSL.Full
 ```
-Strawberry Perl is required because the database encryption dependency builds OpenSSL from source, and OpenSSL's build script needs a native Windows Perl (the Perl bundled with Git for Windows does not work). After installing, open a fresh terminal so `perl` is on your `PATH` before running `cargo` commands.
+Strawberry Perl is required because the default (release/CI) build compiles OpenSSL from source, and OpenSSL's build script needs a native Windows Perl (the Perl bundled with Git for Windows does not work). After installing, open a fresh terminal so `perl` is on your `PATH` before running `cargo` commands.
+
+The Full (not Light) OpenSSL package ships the MSVC import libraries the dev loop needs. Then point the build at it once per machine:
+```powershell
+setx OPENSSL_DIR "C:\Program Files\OpenSSL-Win64"
+```
+(The Light package has no import libraries, so dev builds cannot link against it. Strawberry Perl's copy also works but needs a hand-built import library — prefer Full.)
 
 #### macOS
 Install `sccache` via Homebrew:
 ```bash
 brew install sccache
 ```
+macOS dev builds usually link the system SecurityFramework with no extra setup. If you installed Homebrew OpenSSL and the build cannot find it, point the build at it with `OPENSSL_DIR` (e.g. the Homebrew `opt/openssl@3` prefix).
+
+#### Fast dev loop (skip the vendored OpenSSL)
+The default build compiles a private copy of OpenSSL from source (several minutes, needs Perl). Dev builds can link your system copy instead — same encrypted database, fraction of the time:
+```bash
+cargo check -p taurine_core --no-default-features
+cargo check -p taurine_daemon --no-default-features
+```
+`--no-default-features` is what selects system crypto (plus skips voice ML on the daemon); without it you get the slow vendored build by design. Full `cargo check --workspace` / `cargo nextest run` (defaults) are for pre-push only.
+
+Optional, voice builds only: skip the ~120MB sherpa download by fetching the prebuilt lib archive matching the `sherpa-onnx-sys` version in `Cargo.lock` from the sherpa-onnx releases page, extracting it once, and setting `SHERPA_ONNX_LIB_DIR` to its `lib` folder.
 
 #### Compiler Wrapper & Linkers
 `sccache` is the recommended local compiler cache (install only, wired per-machine so CI stays untouched): set the rustc wrapper and C-compiler launcher env vars in your shell or user cargo config to reuse compiled dependencies across builds. Fastest available linker per platform: Windows (`rust-lld`, ships with the Rust toolchain), macOS (`rust-lld`), and Linux (`mold`).
