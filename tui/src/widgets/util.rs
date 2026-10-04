@@ -126,8 +126,9 @@ pub(crate) fn render_overlay_select(
         .iter()
         .map(|entry| if entry.detail.is_empty() { 1 } else { 4 })
         .sum();
-    // honey: title row plus one cell of padding top and bottom.
-    let height = rows.saturating_add(3).max(1);
+    // honey: title row, one blank line, then the options, plus one
+    // cell of padding top and bottom.
+    let height = rows.saturating_add(4).max(1);
     let popup = centered_rect(width, height, area);
     frame.render_widget(Clear, popup);
     // honey: flat borderless fill; the cursor keeps the lighter
@@ -154,9 +155,9 @@ pub(crate) fn render_overlay_select(
     );
     let list_area = Rect {
         x: body.x,
-        y: body.y.saturating_add(1),
+        y: body.y.saturating_add(2),
         width: body.width,
-        height: body.height.saturating_sub(1),
+        height: body.height.saturating_sub(2),
     };
     if list_area.height == 0 {
         return;
