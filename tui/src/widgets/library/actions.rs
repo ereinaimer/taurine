@@ -474,18 +474,9 @@ pub(crate) fn preview_from_item(item: &TriggerListItem) -> String {
     "No preview available.".to_string()
 }
 
-/// Alias detail line per CLI `list.rs`: `type: invocation` with a
-/// ` (confirm)` suffix on confirming aliases.
-pub(crate) fn alias_line(
-    invocation_type: &str,
-    invocation: &str,
-    require_confirmation: bool,
-) -> String {
-    let mut line = format!("{invocation_type}: {invocation}");
-    if require_confirmation {
-        line.push_str(" (confirm)");
-    }
-    line
+/// Alias detail line per CLI `list.rs`: `type: invocation`.
+pub(crate) fn alias_line(invocation_type: &str, invocation: &str) -> String {
+    format!("{invocation_type}: {invocation}")
 }
 
 pub(crate) fn build_search_text(

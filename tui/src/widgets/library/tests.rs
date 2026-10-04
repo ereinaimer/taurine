@@ -1064,19 +1064,15 @@ fn expanded_rows_carry_auto_case_and_script_meta() {
 }
 
 #[test]
-fn alias_row_hides_selected_trigger_and_keeps_confirm_flags() {
-    let aliases = vec![
-        "gs".to_string(),
-        "gst (confirm)".to_string(),
-        "ctrl+g".to_string(),
-    ];
+fn alias_row_hides_selected_trigger() {
+    let aliases = vec!["gs".to_string(), "gst".to_string(), "ctrl+g".to_string()];
     assert_eq!(
         detail::sibling_aliases(&aliases, "gst"),
         vec!["gs", "ctrl+g"]
     );
     assert_eq!(
         detail::sibling_aliases(&aliases, "gs"),
-        vec!["gst (confirm)", "ctrl+g"]
+        vec!["gst", "ctrl+g"]
     );
     assert!(detail::sibling_aliases(&["solo".to_string()], "solo").is_empty());
 }
@@ -1662,11 +1658,8 @@ fn entry_without_invocations_falls_back_to_display_row() {
 
 #[test]
 fn detail_lists_each_invocation_as_type_colon_invocation() {
-    assert_eq!(alias_line("word", "hi", false), "word: hi");
-    assert_eq!(
-        alias_line("voice", "say hi", true),
-        "voice: say hi (confirm)"
-    );
+    assert_eq!(alias_line("word", "hi"), "word: hi");
+    assert_eq!(alias_line("voice", "say hi"), "voice: say hi");
 }
 
 #[test]
@@ -2132,6 +2125,109 @@ fn auto_case_toggle_flips_value() {
     let pending = interaction.pending_edit().expect("pending autocase");
     assert_eq!(pending.trigger_id, "id-alt+r");
     assert_eq!(pending.field, EditedField::AutoCase(true));
+}
+
+#[test]
+fn alias_text_lines_pack_three_across_lines() {
+    let rows = LibraryTrigger::expand(multi_alias_list_item());
+    let item = &rows[0];
+    assert_eq!(
+        props::alias_text_lines(item, 30, 40),
+        vec!["gst, ctrl+g".to_string()]
+    );
+    assert_eq!(
+        props::alias_text_lines(item, 5, 40),
+        vec!["gst".to_string(), "ctrl+g".to_string()]
+    );
+    assert_eq!(props::alias_extra_lines(item, 40), 0);
+    assert_eq!(props::alias_extra_lines(item, 5), 1);
+}
+
+#[test]
+fn alias_text_lines_mark_siblings_past_three() {
+    let mut list_item = multi_alias_list_item();
+    list_item
+        .invocations
+        .push(alias_fixture("id-multi", "ga", InvocationType::Word, false));
+    list_item
+        .invocations
+        .push(alias_fixture("id-multi", "gb", InvocationType::Word, false));
+    let rows = LibraryTrigger::expand(list_item);
+    let lines = props::alias_text_lines(&rows[0], 40, 40);
+    assert_eq!(lines, vec!["gst, ctrl+g, ga …".to_string()]);
+}
+
+#[test]
+fn alias_text_lines_empty_stays_border_token() {
+    let item = LibraryTrigger::single(list_item(
+        "id-solo",
+        None,
+        TriggerType::Word,
+        "solo",
+        "output",
+        "text",
+        "all",
+        0,
+        None,
+    ));
+    assert_eq!(
+        props::alias_text_lines(&item, 30, 40),
+        vec![detail::EMPTY_TOKEN.to_string()]
+    );
+}
+
+#[test]
+fn wrapped_alias_block_shifts_usage_toggle_down() {
+    let item = TriggerListItem {
+        id: "id-long".to_string(),
+        name: String::new(),
+        description: None,
+        invocations: vec![
+            alias_fixture(
+                "id-long",
+                "first-long-alias-name",
+                InvocationType::Word,
+                false,
+            ),
+            alias_fixture("id-long", "second-long-alias", InvocationType::Word, false),
+            alias_fixture("id-long", "third", InvocationType::Word, false),
+        ],
+        display: "first-long-alias-name".to_string(),
+        output: "output".to_string(),
+        action_type: "text".to_string(),
+        target_os: "all".to_string(),
+        only_apps: None,
+        except_apps: None,
+        auto_case: false,
+        is_enabled: true,
+        usage_count: 0,
+        last_used_at: None,
+        created_at: 0,
+        tags: "[]".to_string(),
+        script_content: None,
+        interpreter: None,
+        behavior: None,
+    };
+    let mut state = LibraryPageState::default();
+    state.replace_items(LibraryTrigger::expand(item));
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let content = props::props_content(area, state.split_ratio(), state.detail_ratio());
+    let selected = state.selected_index().expect("selection");
+    let item = state.item_at_filtered(selected).expect("item").clone();
+    let base = props::usage_toggle_offset(&item);
+    let extra = props::alias_extra_lines(&item, content.width);
+    assert!(extra > 0);
+    assert_eq!(
+        props::hit_test(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            content.x,
+            content.y.saturating_add(base).saturating_add(extra)
+        ),
+        Some(props::PropsHit::UsageToggle)
+    );
 }
 
 #[test]

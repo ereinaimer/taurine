@@ -187,13 +187,7 @@ impl LibraryTrigger {
             aliases: item
                 .invocations
                 .iter()
-                .map(|a| {
-                    if a.require_confirmation {
-                        format!("{} (confirm)", a.invocation)
-                    } else {
-                        a.invocation.clone()
-                    }
-                })
+                .map(|a| a.invocation.clone())
                 .collect(),
             description: item.description.clone(),
             tags: parse_tags(&item.tags),

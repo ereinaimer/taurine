@@ -316,19 +316,12 @@ fn incoming_alias_lines(incoming: &TriggerExport) -> Vec<String> {
         return vec![alias_line(
             incoming.trigger_type.as_db_str(),
             &incoming.trigger,
-            false,
         )];
     }
     incoming
         .aliases
         .iter()
-        .map(|alias| {
-            alias_line(
-                alias.invocation_type.as_db_str(),
-                &alias.invocation,
-                alias.require_confirmation,
-            )
-        })
+        .map(|alias| alias_line(alias.invocation_type.as_db_str(), &alias.invocation))
         .collect()
 }
 
@@ -336,13 +329,7 @@ fn existing_alias_lines(existing: &ExistingTriggerConflict) -> Vec<String> {
     existing
         .invocations
         .iter()
-        .map(|alias| {
-            alias_line(
-                alias.invocation_type.as_db_str(),
-                &alias.invocation,
-                alias.require_confirmation,
-            )
-        })
+        .map(|alias| alias_line(alias.invocation_type.as_db_str(), &alias.invocation))
         .collect()
 }
 
@@ -534,13 +521,10 @@ mod tests {
     }
 
     #[test]
-    fn conflict_lists_each_existing_invocation_with_confirm_suffix() {
+    fn conflict_lists_each_existing_invocation_without_confirm_suffix() {
         assert_eq!(
             existing_alias_lines(&existing_fixture()),
-            vec![
-                "word: hi".to_string(),
-                "voice: say hi (confirm)".to_string()
-            ]
+            vec!["word: hi".to_string(), "voice: say hi".to_string()]
         );
     }
 

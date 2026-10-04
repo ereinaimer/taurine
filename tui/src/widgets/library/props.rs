@@ -2,7 +2,7 @@ use ratatui::{
     Frame,
     layout::Rect,
     style::{Modifier, Style},
-    text::Span,
+    text::{Line, Span},
     widgets::Paragraph,
 };
 
@@ -54,19 +54,37 @@ pub(crate) fn render_props(
     );
     let rows = info_rows(item);
     let split_at = usage_start(item);
+    let alias_at = alias_position(&rows);
+    let alias_text = alias_text_lines(
+        item,
+        edge_value_width("Alias", content.width) as usize,
+        content.width as usize,
+    );
+    // honey: wrapped alias lines push every row below them down.
+    let alias_extra = alias_text.len().saturating_sub(1) as u16;
     for (position, (label, value)) in rows.iter().take(split_at).enumerate() {
+        let position = position as u16;
+        if Some(position) == alias_at {
+            render_alias_block(frame, content, theme, &alias_text, position);
+            continue;
+        }
         // Single blank line between items.
-        let offset = (position as u16).saturating_mul(2).saturating_add(2);
+        let mut offset = position.saturating_mul(2).saturating_add(2);
+        if alias_at.is_some_and(|at| position > at) {
+            offset = offset.saturating_add(alias_extra);
+        }
         if offset >= content.height {
             break;
         }
         render_row(frame, content, theme, offset, label, value);
     }
-    let tags_at = usage_toggle_offset(item).saturating_sub(2);
+    let tags_at = usage_toggle_offset(item)
+        .saturating_add(alias_extra)
+        .saturating_sub(2);
     if tags_at < content.height {
         render_tags_row(frame, content, theme, item, tags_at);
     }
-    let toggle_at = usage_toggle_offset(item);
+    let toggle_at = usage_toggle_offset(item).saturating_add(alias_extra);
     if toggle_at < content.height {
         render_toggle(frame, content, theme, toggle_at, state.usage_expanded());
     }
@@ -241,11 +259,15 @@ pub(crate) fn hit_test(
     }
     let selected = state.selected_index()?;
     let item = state.item_at_filtered(selected)?;
+    let extra = alias_extra_lines(item, content.width);
     let auto_case = content.y.saturating_add(auto_case_offset(item));
     if row == auto_case && row < content.y.saturating_add(content.height) {
         return Some(PropsHit::AutoCase);
     }
-    let toggle = content.y.saturating_add(usage_toggle_offset(item));
+    let toggle = content
+        .y
+        .saturating_add(usage_toggle_offset(item))
+        .saturating_add(extra);
     if row == toggle && row < content.y.saturating_add(content.height) {
         return Some(PropsHit::UsageToggle);
     }
@@ -260,6 +282,135 @@ fn auto_case_offset(item: &LibraryTrigger) -> u16 {
         .position(|(label, _)| *label == "Auto case")
         .map(|position| (position as u16).saturating_mul(2).saturating_add(2))
         .unwrap_or(2)
+}
+
+/// Position of the Alias row within `info_rows`, if present.
+fn alias_position(rows: &[(&str, String)]) -> Option<u16> {
+    rows.iter()
+        .position(|(label, _)| *label == "Alias")
+        .map(|position| position as u16)
+}
+
+/// Wrapped alias text: up to three sibling aliases, greedy
+/// comma-packed into the first budget, then full-width continuation
+/// lines. A lone overlong alias truncates in place; a marker trails
+/// when siblings remain past three; empty stays the border token.
+pub(crate) fn alias_text_lines(
+    item: &LibraryTrigger,
+    first_budget: usize,
+    cont_budget: usize,
+) -> Vec<String> {
+    use crate::widgets::library::detail::sibling_aliases;
+
+    const MAX_SHOWN_ALIASES: usize = 3;
+    if first_budget == 0 && cont_budget == 0 {
+        return vec![String::new()];
+    }
+    let siblings = sibling_aliases(item.aliases(), item.trigger());
+    if siblings.is_empty() {
+        return vec![EMPTY_TOKEN.to_string()];
+    }
+    let mut lines: Vec<String> = vec![String::new()];
+    for alias in siblings.iter().take(MAX_SHOWN_ALIASES) {
+        let budget = if lines.len() == 1 {
+            first_budget
+        } else {
+            cont_budget
+        };
+        let current = lines.last().map(String::as_str).unwrap_or("");
+        let piece = if current.is_empty() {
+            (*alias).to_string()
+        } else {
+            format!(", {alias}")
+        };
+        if current
+            .chars()
+            .count()
+            .saturating_add(piece.chars().count())
+            <= budget
+        {
+            lines.last_mut().expect("alias line").push_str(&piece);
+        } else if current.is_empty() {
+            lines
+                .last_mut()
+                .expect("alias line")
+                .push_str(&util::truncate_to_width(alias, budget as u16));
+        } else {
+            lines.push(util::truncate_to_width(alias, cont_budget as u16));
+        }
+    }
+    if siblings.len() > MAX_SHOWN_ALIASES {
+        let budget = if lines.len() == 1 {
+            first_budget
+        } else {
+            cont_budget
+        };
+        let last = lines.last().map(String::as_str).unwrap_or("");
+        if last.chars().count().saturating_add(2) <= budget {
+            lines.last_mut().expect("alias line").push_str(" …");
+        } else {
+            lines.push("…".to_string());
+        }
+    }
+    lines
+}
+
+/// Extra rows the wrapped alias block adds below its first line,
+/// shared by rendering and hit-testing.
+pub(crate) fn alias_extra_lines(item: &LibraryTrigger, width: u16) -> u16 {
+    alias_text_lines(
+        item,
+        edge_value_width("Alias", width) as usize,
+        width as usize,
+    )
+    .len()
+    .saturating_sub(1) as u16
+}
+
+/// Alias block: first line shares the row with the dim label like
+/// every other row; continuations run full width in text color.
+fn render_alias_block(
+    frame: &mut Frame,
+    content: Rect,
+    theme: &Theme,
+    lines: &[String],
+    position: u16,
+) {
+    let base = position.saturating_mul(2).saturating_add(2);
+    for (index, line) in lines.iter().enumerate() {
+        let offset = base.saturating_add(index as u16);
+        if offset >= content.height {
+            break;
+        }
+        let row = Rect {
+            x: content.x,
+            y: content.y.saturating_add(offset),
+            width: content.width,
+            height: 1,
+        };
+        if index == 0 {
+            let width = line.chars().count();
+            frame.render_widget(
+                Paragraph::new(edge_line(
+                    "Alias",
+                    vec![Span::styled(line.clone(), Style::default().fg(theme.text))],
+                    width,
+                    row.width,
+                    theme,
+                )),
+                row,
+            );
+        } else {
+            // honey: continuations right-align under the first line,
+            // mirroring the label row above them.
+            let pad = content.width.saturating_sub(line.chars().count() as u16) as usize;
+            frame.render_widget(
+                Paragraph::new(Line::from(format!("{}{}", " ".repeat(pad), line)))
+                    .style(Style::default().fg(theme.text)),
+                row,
+            );
+        }
+    }
 }
 
 /// Pane rows: base properties plus the raw usage history (totals only,

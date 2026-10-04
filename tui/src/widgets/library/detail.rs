@@ -739,7 +739,7 @@ pub(crate) fn sibling_aliases<'a>(aliases: &'a [String], current: &str) -> Vec<&
     aliases
         .iter()
         .map(String::as_str)
-        .filter(|alias| alias.strip_suffix(" (confirm)").unwrap_or(alias) != current)
+        .filter(|alias| *alias != current)
         .collect()
 }
 
