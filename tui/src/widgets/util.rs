@@ -95,10 +95,9 @@ pub(crate) fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
 }
 
 /// Shared centered option overlay: flat #141414 fill, no borders, one
-/// cell of padding, cursor list. Each option renders like a library
-/// list item: blank line, white value, dimmed detail, blank line.
-/// Every plain option menu renders through here so future overlays
-/// reuse it instead of copying it.
+/// cell of padding, cursor list. Each option renders as a white value
+/// over a dimmed detail line. Every plain option menu renders through
+/// here so future overlays reuse it instead of copying it.
 pub(crate) struct OverlayEntry {
     pub(crate) label: String,
     pub(crate) detail: String,
@@ -107,11 +106,11 @@ pub(crate) struct OverlayEntry {
 /// Fixed overlay rect shared by rendering and hit-testing so clicks
 /// land on the options as drawn.
 pub(crate) fn overlay_popup(area: Rect) -> Rect {
-    centered_rect(80, 24, area)
+    centered_rect(56, 14, area)
 }
 
 /// Option index under the cell inside an overlay popup. `line_counts`
-/// carries each option's rendered row height (1 or 4), mirroring the
+/// carries each option's rendered row height (1 or 2), mirroring the
 /// render path; title, blank, and padding cells never select.
 pub(crate) fn overlay_option_hit(
     area: Rect,
@@ -121,8 +120,10 @@ pub(crate) fn overlay_option_hit(
 ) -> Option<usize> {
     let popup = overlay_popup(area);
     let body = popup.inner(Margin::new(3, 1));
-    if column < body.x
-        || column >= body.x.saturating_add(body.width)
+    // honey: rows run full-bleed across the popup; only the title
+    // offset and vertical padding constrain the hit.
+    if column < popup.x
+        || column >= popup.x.saturating_add(popup.width)
         || row < body.y.saturating_add(2)
     {
         return None;
@@ -177,9 +178,9 @@ pub(crate) fn render_overlay_select(
         },
     );
     let list_area = Rect {
-        x: body.x,
+        x: popup.x,
         y: body.y.saturating_add(2),
-        width: body.width,
+        width: popup.width,
         height: body.height.saturating_sub(2),
     };
     if list_area.height == 0 {
@@ -190,21 +191,21 @@ pub(crate) fn render_overlay_select(
         .iter()
         .map(|entry| {
             if entry.detail.is_empty() {
-                ListItem::new(Line::from(format!("  {}", entry.label)))
+                ListItem::new(Line::from(entry.label.as_str()))
             } else {
                 // honey: unselected values stay regular so the bold
                 // highlight patch marks the cursor on the dark fill.
+                // Rows run full-bleed: the highlight ignores the
+                // container padding and spans the overlay width.
                 ListItem::new(vec![
-                    Line::from(""),
                     Line::from(Span::styled(
-                        format!("  {}", entry.label),
+                        entry.label.as_str(),
                         Style::default().fg(theme.text),
                     )),
                     Line::from(Span::styled(
-                        format!("  {}", entry.detail),
+                        entry.detail.as_str(),
                         Style::default().fg(theme.description),
                     )),
-                    Line::from(""),
                 ])
             }
         })

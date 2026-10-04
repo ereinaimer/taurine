@@ -1860,19 +1860,21 @@ fn header_menu_options_carry_descriptions() {
 }
 
 #[test]
-fn overlay_option_hit_maps_four_line_rows() {
+fn overlay_option_hit_maps_two_line_rows() {
     use crate::widgets::util::overlay_option_hit;
 
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
-    let counts = [4u16, 4];
-    // Popup 80x24 centered: body starts at (13, 4), options at row 6.
-    assert_eq!(overlay_option_hit(area, &counts, 13, 4), None);
-    assert_eq!(overlay_option_hit(area, &counts, 13, 5), None);
-    assert_eq!(overlay_option_hit(area, &counts, 13, 6), Some(0));
-    assert_eq!(overlay_option_hit(area, &counts, 13, 9), Some(0));
-    assert_eq!(overlay_option_hit(area, &counts, 13, 10), Some(1));
-    assert_eq!(overlay_option_hit(area, &counts, 12, 6), None);
-    assert_eq!(overlay_option_hit(area, &counts, 13, 14), None);
+    let counts = [2u16, 2];
+    // Popup 56x14 centered: rows run full-bleed from column 22,
+    // options start at row 11.
+    assert_eq!(overlay_option_hit(area, &counts, 25, 9), None);
+    assert_eq!(overlay_option_hit(area, &counts, 25, 10), None);
+    assert_eq!(overlay_option_hit(area, &counts, 25, 11), Some(0));
+    assert_eq!(overlay_option_hit(area, &counts, 25, 12), Some(0));
+    assert_eq!(overlay_option_hit(area, &counts, 25, 13), Some(1));
+    assert_eq!(overlay_option_hit(area, &counts, 22, 11), Some(0));
+    assert_eq!(overlay_option_hit(area, &counts, 21, 11), None);
+    assert_eq!(overlay_option_hit(area, &counts, 25, 15), None);
 }
 
 #[test]
@@ -1880,8 +1882,8 @@ fn click_header_menu_confirms_clicked_option() {
     let mut state = script_state();
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
     open_menu(&mut state, HeaderMenuKind::Interpreter);
-    // Third option (python) starts at row 14.
-    let interaction = state.click_header_menu(area, 20, 14);
+    // Third option (python) spans rows 15-16.
+    let interaction = state.click_header_menu(area, 30, 15);
     let pending = interaction.pending_edit().expect("pending language");
     assert_eq!(
         pending.field,
