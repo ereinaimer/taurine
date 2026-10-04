@@ -165,11 +165,26 @@ pub(crate) fn render_overlay_select(
     if body.width == 0 || body.height == 0 {
         return;
     }
+    // honey: dimmed Esc hint flush right on the title row.
+    let hint = "Esc";
+    let gap = body
+        .width
+        .saturating_sub(title.chars().count() as u16)
+        .saturating_sub(hint.chars().count() as u16);
     frame.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            title.to_string(),
-            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
-        ))),
+        Paragraph::new(Line::from(vec![
+            Span::styled(
+                title.to_string(),
+                Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" ".repeat(gap as usize)),
+            Span::styled(
+                hint.to_string(),
+                Style::default()
+                    .fg(theme.text_muted)
+                    .add_modifier(Modifier::DIM),
+            ),
+        ])),
         Rect {
             x: body.x,
             y: body.y,
