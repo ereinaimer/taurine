@@ -530,18 +530,7 @@ fn render_library_tags_modal(
     if body.width == 0 || body.height == 0 {
         return;
     }
-    frame.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            "Tags".to_string(),
-            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
-        ))),
-        Rect {
-            x: body.x,
-            y: body.y,
-            width: body.width,
-            height: 1,
-        },
-    );
+    util::render_overlay_title(frame, body, theme, "Tags");
     // honey: filter line with a real caret, mirroring the search box.
     let filter_y = body.y.saturating_add(1);
     if body.height > 2 {
@@ -597,37 +586,22 @@ fn render_library_tags_modal(
         &mut list_state,
     );
 
-    let footer = if let Some(error) = state.error() {
-        Line::from(Span::styled(
-            util::truncate_to_width(error, body.width),
-            Style::default()
-                .fg(theme.error)
-                .add_modifier(Modifier::BOLD),
-        ))
-    } else if visible.is_empty() && !state.filter().is_empty() {
-        Line::from(vec![
-            Span::styled(
-                "Enter creates ".to_string(),
-                Style::default().fg(theme.text_muted),
-            ),
-            Span::styled(
-                format!("\"{}\"", state.filter().text()),
-                Style::default().fg(theme.text),
-            ),
-        ])
-    } else {
-        Line::from(Span::styled(
-            "Enter toggle • Esc close".to_string(),
-            Style::default().fg(theme.text_muted),
-        ))
-    };
-    frame.render_widget(
-        Paragraph::new(footer),
-        Rect {
-            x: body.x,
-            y: body.y.saturating_add(body.height).saturating_sub(1),
-            width: body.width,
-            height: 1,
-        },
-    );
+    // honey: no hint footer; errors alone take the bottom row so a
+    // failed write stays visible inside the menu.
+    if let Some(error) = state.error() {
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                util::truncate_to_width(error, body.width),
+                Style::default()
+                    .fg(theme.error)
+                    .add_modifier(Modifier::BOLD),
+            ))),
+            Rect {
+                x: body.x,
+                y: body.y.saturating_add(body.height).saturating_sub(1),
+                width: body.width,
+                height: 1,
+            },
+        );
+    }
 }

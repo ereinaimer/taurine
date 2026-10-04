@@ -150,33 +150,12 @@ pub(crate) fn overlay_option_hit(
     None
 }
 
-pub(crate) fn render_overlay_select(
-    frame: &mut Frame,
-    area: Rect,
-    theme: &Theme,
-    title: &str,
-    entries: &[OverlayEntry],
-    selected: usize,
-) {
-    use ratatui::style::Color::Rgb;
-
-    // honey: fixed size for every option overlay so all menus feel
-    // like the same component; terminal cells run taller than wide,
-    // so the width floor keeps the landscape read. Centered_rect
-    // clamps to the terminal.
-    let popup = overlay_popup(area);
-    frame.render_widget(Clear, popup);
-    // honey: flat borderless fill; the cursor keeps the lighter
-    // highlight band so it stays visible on the dark fill.
-    frame.render_widget(
-        Block::default().style(Style::default().bg(Rgb(0x14, 0x14, 0x14))),
-        popup,
-    );
-    let body = popup.inner(Margin::new(3, 1));
-    if body.width == 0 || body.height == 0 {
+/// Overlay title row shared by every overlay: bold title left,
+/// dimmed Esc hint flush right.
+pub(crate) fn render_overlay_title(frame: &mut Frame, body: Rect, theme: &Theme, title: &str) {
+    if body.height == 0 {
         return;
     }
-    // honey: dimmed Esc hint flush right on the title row.
     let hint = "Esc";
     let gap = body
         .width
@@ -203,6 +182,35 @@ pub(crate) fn render_overlay_select(
             height: 1,
         },
     );
+}
+
+pub(crate) fn render_overlay_select(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    title: &str,
+    entries: &[OverlayEntry],
+    selected: usize,
+) {
+    use ratatui::style::Color::Rgb;
+
+    // honey: fixed size for every option overlay so all menus feel
+    // like the same component; terminal cells run taller than wide,
+    // so the width floor keeps the landscape read. Centered_rect
+    // clamps to the terminal.
+    let popup = overlay_popup(area);
+    frame.render_widget(Clear, popup);
+    // honey: flat borderless fill; the cursor keeps the lighter
+    // highlight band so it stays visible on the dark fill.
+    frame.render_widget(
+        Block::default().style(Style::default().bg(Rgb(0x14, 0x14, 0x14))),
+        popup,
+    );
+    let body = popup.inner(Margin::new(3, 1));
+    if body.width == 0 || body.height == 0 {
+        return;
+    }
+    render_overlay_title(frame, body, theme, title);
     let list_area = Rect {
         x: popup.x,
         y: body.y.saturating_add(2),
