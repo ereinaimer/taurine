@@ -120,12 +120,10 @@ pub(crate) fn overlay_popup(area: Rect) -> Rect {
     centered_rect(56, 14, area)
 }
 
-/// Column of the row action icon: three cells of margin from the
-/// edge, aligned under the title-row Esc hint, mirroring the render
-/// path.
-pub(crate) fn overlay_icon_column(area: Rect) -> u16 {
-    let popup = overlay_popup(area);
-    popup.x.saturating_add(popup.width).saturating_sub(4)
+/// Content rect inside an overlay popup, shared by overlay renders
+/// and hit-testing so both agree on padding.
+pub(crate) fn overlay_body(popup: Rect) -> Rect {
+    popup.inner(Margin::new(3, 1))
 }
 
 /// Option index under the cell inside an overlay popup. `line_counts`

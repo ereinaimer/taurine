@@ -11,7 +11,7 @@ use crate::widgets::library::state::{
     LibraryDeleteModalState, LibraryExportModalField, LibraryExportModalState,
     LibraryExportResultModalState, LibraryHeaderMenuState, LibraryImportModalField,
     LibraryImportModalState, LibraryImportResultModalState, LibraryImportRunVariablesModalState,
-    LibraryModal, LibrarySelectState, LibraryTagsModalState,
+    LibraryModal, LibrarySelectState, LibraryTagsModalState, TagsView,
 };
 use crate::widgets::util::{self};
 
@@ -506,19 +506,18 @@ fn render_library_header_menu_modal(
     );
 }
 
-/// Tags builder overlay on the shared popup geometry: filter line
-/// with a real caret, scrolling checklist, footer hint. Same overlay
-/// language as the option menus (dark fill, title row, full-bleed
-/// cursor), owned by the tags flow for its input line.
+/// Tags builder overlay on the shared popup geometry: chips view
+/// shows the trigger's tags as a wrapping cloud with a `+ Add tag`
+/// row, the add view a fuzzy filter with matches. Same overlay
+/// language as the option menus (dark fill, title row).
 fn render_library_tags_modal(
     frame: &mut Frame,
     area: Rect,
     theme: &Theme,
     state: &LibraryTagsModalState,
 ) {
-    use ratatui::layout::Margin;
     use ratatui::style::Color::Rgb;
-    use ratatui::widgets::{Block, List, ListItem, ListState};
+    use ratatui::widgets::Block;
 
     let popup = util::overlay_popup(area);
     frame.render_widget(Clear, popup);
@@ -526,11 +525,132 @@ fn render_library_tags_modal(
         Block::default().style(Style::default().bg(Rgb(0x14, 0x14, 0x14))),
         popup,
     );
-    let body = popup.inner(Margin::new(3, 1));
+    let body = util::overlay_body(popup);
     if body.width == 0 || body.height == 0 {
         return;
     }
+    if state.view() == TagsView::Chips {
+        render_tags_chips(frame, body, theme, state);
+    } else {
+        render_tags_add(frame, popup, body, theme, state);
+    }
+    // honey: no hint footer; errors alone take the bottom row so a
+    // failed write stays visible inside the menu.
+    if let Some(error) = state.error() {
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                util::truncate_to_width(error, body.width),
+                Style::default()
+                    .fg(theme.error)
+                    .add_modifier(Modifier::BOLD),
+            ))),
+            Rect {
+                x: body.x,
+                y: body.y.saturating_add(body.height).saturating_sub(1),
+                width: body.width,
+                height: 1,
+            },
+        );
+    }
+}
+
+/// Chips cloud: title row, wrapped `#tag <icon>` chips with the
+/// focused chip banded, `+ Add tag` action row below.
+fn render_tags_chips(frame: &mut Frame, body: Rect, theme: &Theme, state: &LibraryTagsModalState) {
     util::render_overlay_title(frame, body, theme, "Tags");
+    // honey: one blank line separates the title from the cloud.
+    let max_rows = body.height.saturating_sub(3);
+    let (painted, add) = state.paint_layout(body.width, max_rows);
+    let origin_y = body.y.saturating_add(2);
+    // honey: bucket painted chips by relative row for one Paragraph
+    // per row; the focused chip swaps its `#` for the close X and
+    // carries the highlight band.
+    let mut rows: Vec<Vec<(u16, String, bool)>> = Vec::new();
+    for (cell, rel_y) in &painted {
+        while rows.len() <= *rel_y as usize {
+            rows.push(Vec::new());
+        }
+        let tag = state
+            .checked()
+            .get(cell.index)
+            .map(String::as_str)
+            .unwrap_or_default();
+        // honey: the focused chip swaps its `#` for the close icon
+        // in the same cell, so nothing shifts.
+        let focused = state.focus() == cell.index;
+        let raw = if focused {
+            format!("{}{tag}", crate::widgets::library::icons::CLOSE_ICON)
+        } else {
+            format!("#{tag}")
+        };
+        let avail = body.width.saturating_sub(cell.x).max(1);
+        let shown = util::truncate_to_width(&raw, avail);
+        rows[*rel_y as usize].push((cell.x, shown, state.focus() == cell.index));
+    }
+    for (offset, chips) in rows.iter().enumerate() {
+        let mut spans = Vec::new();
+        let mut cursor = 0u16;
+        for (x, text, focused) in chips {
+            if *x > cursor {
+                spans.push(Span::raw(" ".repeat(x.saturating_sub(cursor) as usize)));
+                cursor = *x;
+            }
+            let style = if *focused {
+                Style::default()
+                    .fg(theme.text)
+                    .bg(theme.surface)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(theme.text)
+            };
+            spans.push(Span::styled(text.clone(), style));
+            cursor = cursor.saturating_add(text.chars().count() as u16);
+        }
+        let rest = (body.width as usize).saturating_sub(cursor as usize);
+        spans.push(Span::raw(" ".repeat(rest)));
+        frame.render_widget(
+            Paragraph::new(Line::from(spans)),
+            Rect {
+                x: body.x,
+                y: origin_y.saturating_add(offset as u16),
+                width: body.width,
+                height: 1,
+            },
+        );
+    }
+    if let Some(add_rel) = add {
+        let focused = state.focus_is_add_row();
+        let style = if focused {
+            Style::default()
+                .fg(theme.text)
+                .bg(theme.surface)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme.text_muted)
+        };
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled("+ Add tag".to_string(), style))),
+            Rect {
+                x: body.x,
+                y: origin_y.saturating_add(add_rel),
+                width: body.width,
+                height: 1,
+            },
+        );
+    }
+}
+
+/// Add step: fuzzy filter with a real caret over single-line match
+/// rows, cursor band on the selection.
+fn render_tags_add(
+    frame: &mut Frame,
+    popup: Rect,
+    body: Rect,
+    theme: &Theme,
+    state: &LibraryTagsModalState,
+) {
+    use ratatui::widgets::{List, ListItem, ListState};
+
     // honey: filter line with a real caret, mirroring the search box.
     let filter_y = body.y.saturating_add(1);
     if body.height > 2 {
@@ -559,29 +679,13 @@ fn render_library_tags_modal(
     let items: Vec<ListItem> = visible[start..end]
         .iter()
         .map(|tag| {
-            use crate::widgets::library::icons::DELETE_ICON;
-
-            // honey: checked rows read white with the trash icon
-            // under the Esc column; unchecked rows stay dimmed.
-            let checked = state.is_checked(tag);
+            // honey: every match here is an add candidate, so rows
+            // read plain white with no adornments.
             let name = util::truncate_to_width(tag, popup.width.saturating_sub(8).max(1));
-            let text = format!("   {name}");
-            let icon = if checked { DELETE_ICON } else { "" };
-            let gap = (popup.width as usize)
-                .saturating_sub(text.chars().count())
-                .saturating_sub(icon.chars().count())
-                .saturating_sub(3);
-            let tag_style = if checked {
-                Style::default().fg(theme.text)
-            } else {
-                Style::default().fg(theme.text_muted)
-            };
-            ListItem::new(Line::from(vec![
-                Span::styled(text, tag_style),
-                Span::raw(" ".repeat(gap)),
-                Span::styled(icon.to_string(), Style::default().fg(theme.text)),
-                Span::raw("   ".to_string()),
-            ]))
+            ListItem::new(Line::from(Span::styled(
+                format!("   {name}"),
+                Style::default().fg(theme.text),
+            )))
         })
         .collect();
     let mut list_state = ListState::default();
@@ -603,23 +707,4 @@ fn render_library_tags_modal(
         },
         &mut list_state,
     );
-
-    // honey: no hint footer; errors alone take the bottom row so a
-    // failed write stays visible inside the menu.
-    if let Some(error) = state.error() {
-        frame.render_widget(
-            Paragraph::new(Line::from(Span::styled(
-                util::truncate_to_width(error, body.width),
-                Style::default()
-                    .fg(theme.error)
-                    .add_modifier(Modifier::BOLD),
-            ))),
-            Rect {
-                x: body.x,
-                y: body.y.saturating_add(body.height).saturating_sub(1),
-                width: body.width,
-                height: 1,
-            },
-        );
-    }
 }
