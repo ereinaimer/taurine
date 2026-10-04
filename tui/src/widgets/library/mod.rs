@@ -22,7 +22,10 @@ pub(crate) const DEFAULT_DETAIL_RATIO: f32 = 0.4;
 pub(crate) const MIN_SPLIT_RATIO: f32 = 0.0;
 pub(crate) const MAX_SPLIT_RATIO: f32 = 1.0;
 pub(crate) const MIN_DETAIL_RATIO: f32 = 0.0;
-pub(crate) const MAX_DETAIL_RATIO: f32 = 1.0;
+/// Ceiling for the props share of the remainder. Above 1.0 the want
+/// exceeds the remainder so deep drags keep stealing toward a full
+/// park; ordinary ratios stay below 1.0.
+pub(crate) const MAX_DETAIL_RATIO: f32 = 2.0;
 /// Divider highlight on hover and while dragging: barely above the
 /// `#1a1a1a` border so the affordance stays whisper-quiet.
 pub(crate) const DIVIDER_HOVER_COLOR: ratatui::style::Color =
@@ -65,24 +68,18 @@ pub(crate) fn split_panes(area: Rect, list_ratio: f32, props_ratio: f32) -> Pane
     // maxima are overflow points, not walls: a side wanting more than
     // its maximum keeps growing by shrinking the far pane first, then
     // the middle, so drags glide past the cap instead of snapping.
-    // Both dividers always stay grabbable. Exact edge ratios bypass
-    // the maximum so a deliberate drag parks fully open.
+    // Both dividers always stay grabbable. Extreme ratios flow through
+    // the same redistribution, so either side can park fully open
+    // with no edge-case snap.
     let span = area.width.saturating_sub(2);
     let list_wanted =
         ((span as f32 * list_ratio.clamp(MIN_SPLIT_RATIO, MAX_SPLIT_RATIO)) as u16).min(span);
-    let left_capped = if list_ratio < 1.0 {
-        list_wanted.min(MAX_LIST_WIDTH)
-    } else {
-        list_wanted
-    };
+    let left_capped = list_wanted.min(MAX_LIST_WIDTH);
     let rest = span.saturating_sub(left_capped);
-    let props_wanted =
-        ((rest as f32 * props_ratio.clamp(MIN_DETAIL_RATIO, MAX_DETAIL_RATIO)) as u16).min(rest);
-    let right_capped = if props_ratio < 1.0 {
-        props_wanted.min(MAX_PROPS_WIDTH)
-    } else {
-        props_wanted
-    };
+    // honey: props want is intentionally uncapped at rest so deep
+    // drags keep stealing toward a full park.
+    let props_wanted = (rest as f32 * props_ratio.clamp(MIN_DETAIL_RATIO, MAX_DETAIL_RATIO)) as u16;
+    let right_capped = props_wanted.min(MAX_PROPS_WIDTH).min(rest);
     let center_natural = rest.saturating_sub(right_capped);
     // honey: left overflow eats props first, then center.
     let mut left_width = left_capped;

@@ -2238,6 +2238,31 @@ fn split_overflow_on_props_side_eats_list_then_center() {
 }
 
 #[test]
+fn split_extreme_ratios_park_without_resurrection() {
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    // Props side: 0.99 and 1.0 differ by single cells; the list stays
+    // gone instead of snapping back.
+    let before = split_panes(area, DEFAULT_SPLIT_RATIO, 0.99);
+    let parked = split_panes(area, DEFAULT_SPLIT_RATIO, 1.0);
+    assert_eq!(before.list.width, 0);
+    assert_eq!(parked.list.width, 0);
+    assert!((before.center.width as i16 - parked.center.width as i16).abs() <= 2);
+    assert!((parked.props.width as i16 - before.props.width as i16).abs() <= 2);
+
+    // Deep overflow parks props nearly full screen.
+    let parked = split_panes(area, DEFAULT_SPLIT_RATIO, 2.0);
+    assert_eq!(parked.list.width, 0);
+    assert_eq!(parked.center.width, 0);
+    assert_eq!(parked.props.width, 98);
+
+    // List side parks fully open with no survivors.
+    let parked = split_panes(area, 1.0, DEFAULT_DETAIL_RATIO);
+    assert_eq!(parked.list.width, 98);
+    assert_eq!(parked.center.width, 0);
+    assert_eq!(parked.props.width, 0);
+}
+
+#[test]
 fn divider_hit_only_on_gutter_column() {
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
     let state = LibraryPageState::default();
