@@ -121,11 +121,7 @@ pub(crate) fn render_overlay_select(
         .unwrap_or(0) as u16;
     // honey: big landscape overlay with a wide floor; centered_rect
     // clamps to the terminal.
-    let width = content_width
-        .max(title.chars().count() as u16)
-        .saturating_add(6)
-        .max(56)
-        .max(1);
+    let width = content_width.saturating_add(8).max(68).max(1);
     let rows: u16 = entries
         .iter()
         .map(|entry| if entry.detail.is_empty() { 1 } else { 4 })
@@ -170,18 +166,18 @@ pub(crate) fn render_overlay_select(
         .iter()
         .map(|entry| {
             if entry.detail.is_empty() {
-                ListItem::new(Line::from(entry.label.as_str()))
+                ListItem::new(Line::from(format!("  {}", entry.label)))
             } else {
                 // honey: unselected values stay regular so the bold
                 // highlight patch marks the cursor on the dark fill.
                 ListItem::new(vec![
                     Line::from(""),
                     Line::from(Span::styled(
-                        entry.label.as_str(),
+                        format!("  {}", entry.label),
                         Style::default().fg(theme.text),
                     )),
                     Line::from(Span::styled(
-                        entry.detail.as_str(),
+                        format!("  {}", entry.detail),
                         Style::default().fg(theme.description),
                     )),
                     Line::from(""),

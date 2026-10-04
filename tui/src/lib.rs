@@ -97,6 +97,22 @@ pub fn run() -> taurine_core::Result<()> {
             if let Some(msg) = app.notification() {
                 notification::render_notification(frame, area, theme, msg);
             }
+
+            // honey: modals render last so they sit above panes,
+            // dividers, and toasts.
+            match app.active_page() {
+                Page::Library => {
+                    let full = terminal::mouse::library_full_area(layout.page);
+                    if let Some(modal) = app.library_page().modal() {
+                        library::modals::render_library_modal(frame, full, theme, modal);
+                    }
+                }
+                Page::Settings => {
+                    if let Some(modal) = app.settings_page().modal() {
+                        settings::modals::render_settings_modal(frame, layout.page, theme, modal);
+                    }
+                }
+            }
         })?;
 
         match events.next()? {
@@ -137,9 +153,6 @@ fn render_page_content(
             // honey: library splits edge to edge; settings keeps the page.
             let full = terminal::mouse::library_full_area(area);
             library::render_library_content(frame, full, theme, app.library_page());
-            if let Some(modal) = app.library_page().modal() {
-                library::modals::render_library_modal(frame, full, theme, modal);
-            }
         }
         Page::Settings => {
             let content_block = Block::default()
@@ -150,9 +163,6 @@ fn render_page_content(
             frame.render_widget(content_block, area);
 
             settings::render_settings_content(frame, inner, theme, app.settings_page());
-            if let Some(modal) = app.settings_page().modal() {
-                settings::modals::render_settings_modal(frame, area, theme, modal);
-            }
         }
     }
 }
