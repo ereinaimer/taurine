@@ -104,6 +104,40 @@ pub(crate) struct OverlayEntry {
     pub(crate) detail: String,
 }
 
+/// Fixed overlay rect shared by rendering and hit-testing so clicks
+/// land on the options as drawn.
+pub(crate) fn overlay_popup(area: Rect) -> Rect {
+    centered_rect(80, 24, area)
+}
+
+/// Option index under the cell inside an overlay popup. `line_counts`
+/// carries each option's rendered row height (1 or 4), mirroring the
+/// render path; title, blank, and padding cells never select.
+pub(crate) fn overlay_option_hit(
+    area: Rect,
+    line_counts: &[u16],
+    column: u16,
+    row: u16,
+) -> Option<usize> {
+    let popup = overlay_popup(area);
+    let body = popup.inner(Margin::new(3, 1));
+    if column < body.x
+        || column >= body.x.saturating_add(body.width)
+        || row < body.y.saturating_add(2)
+    {
+        return None;
+    }
+    // honey: title row plus one blank line sit above the options.
+    let mut y = body.y.saturating_add(2);
+    for (index, lines) in line_counts.iter().enumerate() {
+        if row >= y && row < y.saturating_add(*lines) {
+            return Some(index);
+        }
+        y = y.saturating_add(*lines);
+    }
+    None
+}
+
 pub(crate) fn render_overlay_select(
     frame: &mut Frame,
     area: Rect,
@@ -118,11 +152,7 @@ pub(crate) fn render_overlay_select(
     // like the same component; terminal cells run taller than wide,
     // so the width floor keeps the landscape read. Centered_rect
     // clamps to the terminal.
-    let width = 80;
-    // honey: title row, one blank line, five four-line options, plus
-    // one cell of padding top and bottom.
-    let height = 24;
-    let popup = centered_rect(width, height, area);
+    let popup = overlay_popup(area);
     frame.render_widget(Clear, popup);
     // honey: flat borderless fill; the cursor keeps the lighter
     // highlight band so it stays visible on the dark fill.

@@ -1860,6 +1860,63 @@ fn header_menu_options_carry_descriptions() {
 }
 
 #[test]
+fn overlay_option_hit_maps_four_line_rows() {
+    use crate::widgets::util::overlay_option_hit;
+
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let counts = [4u16, 4];
+    // Popup 80x24 centered: body starts at (13, 4), options at row 6.
+    assert_eq!(overlay_option_hit(area, &counts, 13, 4), None);
+    assert_eq!(overlay_option_hit(area, &counts, 13, 5), None);
+    assert_eq!(overlay_option_hit(area, &counts, 13, 6), Some(0));
+    assert_eq!(overlay_option_hit(area, &counts, 13, 9), Some(0));
+    assert_eq!(overlay_option_hit(area, &counts, 13, 10), Some(1));
+    assert_eq!(overlay_option_hit(area, &counts, 12, 6), None);
+    assert_eq!(overlay_option_hit(area, &counts, 13, 14), None);
+}
+
+#[test]
+fn click_header_menu_confirms_clicked_option() {
+    let mut state = script_state();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    open_menu(&mut state, HeaderMenuKind::Interpreter);
+    // Third option (python) starts at row 14.
+    let interaction = state.click_header_menu(area, 20, 14);
+    let pending = interaction.pending_edit().expect("pending language");
+    assert_eq!(
+        pending.field,
+        EditedField::Interpreter(taurine_core::engine::shell::ScriptInterpreter::Python)
+    );
+    assert!(state.modal().is_none());
+}
+
+#[test]
+fn click_header_menu_outside_closes_without_pending() {
+    let mut state = script_state();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    open_menu(&mut state, HeaderMenuKind::Interpreter);
+    let interaction = state.click_header_menu(area, 0, 0);
+    assert!(interaction.pending_edit().is_none());
+    assert!(state.modal().is_none());
+}
+
+#[test]
+fn move_header_menu_cursor_walks_options() {
+    let mut state = script_state();
+    open_menu(&mut state, HeaderMenuKind::Interpreter);
+    state.move_header_menu_cursor(true);
+    let Some(LibraryModal::HeaderMenu(menu)) = state.modal() else {
+        panic!("header menu open");
+    };
+    assert_eq!(menu.selected_option(), Some("powershell"));
+    state.move_header_menu_cursor(false);
+    let Some(LibraryModal::HeaderMenu(menu)) = state.modal() else {
+        panic!("header menu open");
+    };
+    assert_eq!(menu.selected_option(), Some("bash"));
+}
+
+#[test]
 fn header_menu_type_parks_on_current_value() {
     let mut state = sample_state();
     let menu = open_menu(&mut state, HeaderMenuKind::InvocationType);

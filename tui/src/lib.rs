@@ -302,6 +302,11 @@ fn handle_tui_mouse_event(
 
     match mouse.kind {
         MouseEventKind::ScrollDown | MouseEventKind::ScrollUp => {
+            if app.active_page() == Page::Library && app.library_page().header_menu_open() {
+                let down = mouse.kind == MouseEventKind::ScrollDown;
+                app.library_page_mut().move_header_menu_cursor(down);
+                return;
+            }
             if modal_open {
                 return;
             }
@@ -375,6 +380,15 @@ fn handle_tui_mouse_event(
             }
         }
         MouseEventKind::Down(MouseButton::Left) => {
+            if app.active_page() == Page::Library && app.library_page().header_menu_open() {
+                let layout = terminal::mouse::frame_layout(area);
+                let full = terminal::mouse::library_full_area(layout.page);
+                let interaction =
+                    app.library_page_mut()
+                        .click_header_menu(full, mouse.column, mouse.row);
+                apply_library_interaction(app, interaction);
+                return;
+            }
             if modal_open {
                 return;
             }

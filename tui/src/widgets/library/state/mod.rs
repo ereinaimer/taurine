@@ -350,6 +350,42 @@ impl LibraryPageState {
         )));
     }
 
+    pub(crate) fn header_menu_open(&self) -> bool {
+        matches!(self.modal, Some(LibraryModal::HeaderMenu(_)))
+    }
+
+    /// Wheel scroll over an open header menu walks the cursor.
+    pub(crate) fn move_header_menu_cursor(&mut self, down: bool) {
+        if let Some(LibraryModal::HeaderMenu(menu)) = self.modal.as_mut() {
+            menu.move_cursor(if down { 1 } else { -1 });
+        }
+    }
+
+    /// Clicks on an open header menu confirm the clicked option and
+    /// close anything else.
+    pub(crate) fn click_header_menu(
+        &mut self,
+        area: ratatui::layout::Rect,
+        column: u16,
+        row: u16,
+    ) -> LibraryInteraction {
+        let Some(LibraryModal::HeaderMenu(mut menu)) = self.modal.take() else {
+            return LibraryInteraction::handled();
+        };
+        let line_counts: Vec<u16> = menu
+            .details()
+            .iter()
+            .map(|detail| if detail.is_empty() { 1 } else { 4 })
+            .collect();
+        match crate::widgets::util::overlay_option_hit(area, &line_counts, column, row) {
+            Some(index) => {
+                menu.set_selected(index);
+                self.confirm_header_menu(menu)
+            }
+            None => LibraryInteraction::handled(),
+        }
+    }
+
     /// Commits the menu cursor as a persist interaction. Unchanged values
     /// close silently; the caller refreshes the list on success.
     fn confirm_header_menu(&mut self, menu: LibraryHeaderMenuState) -> LibraryInteraction {

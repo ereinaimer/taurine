@@ -100,6 +100,12 @@ impl LibraryHeaderMenuState {
         self.selected
     }
 
+    pub(crate) fn set_selected(&mut self, index: usize) {
+        if index < self.options.len() {
+            self.selected = index;
+        }
+    }
+
     /// Menus wrap around both ends.
     pub(crate) fn move_cursor(&mut self, delta: i32) {
         if self.options.is_empty() {
