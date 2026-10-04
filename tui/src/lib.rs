@@ -149,13 +149,13 @@ pub fn run() -> taurine_core::Result<()> {
 }
 
 /// Scales every rendered cell toward black so an open modal sits on
-/// a dimmed backdrop. RGB channels scale by the scrim factor; a
-/// non-RGB foreground (no RGB base to scale) takes the DIM modifier
-/// instead.
+/// a dimmed backdrop. RGB channels keep 40 percent of their value
+/// (60 percent black opacity); a non-RGB foreground (no RGB base to
+/// scale) takes the DIM modifier instead.
 fn dim_frame(frame: &mut ratatui::Frame) {
     use ratatui::style::{Color, Modifier};
 
-    const DIM: f32 = 0.5;
+    const DIM: f32 = 0.4;
     let scale = |channel: u8| (channel as f32 * DIM) as u8;
     for cell in frame.buffer_mut().content.iter_mut() {
         if let Color::Rgb(red, green, blue) = cell.bg {
@@ -925,7 +925,7 @@ fn restore_terminal() {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn dim_frame_halves_rgb_and_marks_non_rgb() {
+    fn dim_frame_scales_rgb_and_marks_non_rgb() {
         use ratatui::{
             Terminal,
             backend::TestBackend,
@@ -946,8 +946,8 @@ mod tests {
             })
             .expect("test draw");
         let buffer = terminal.backend().buffer().clone();
-        assert_eq!(buffer.content[0].fg, Color::Rgb(50, 50, 50));
-        assert_eq!(buffer.content[0].bg, Color::Rgb(100, 100, 100));
+        assert_eq!(buffer.content[0].fg, Color::Rgb(40, 40, 40));
+        assert_eq!(buffer.content[0].bg, Color::Rgb(80, 80, 80));
     }
 
     #[cfg(unix)]
