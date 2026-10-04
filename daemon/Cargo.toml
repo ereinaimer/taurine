@@ -42,7 +42,7 @@ shenava-ctc-beam = "0.1.0"
 rdev = { version = "0.5.3", features = ["unstable_grab"] }
 
 [target.'cfg(any(windows, target_os = "macos"))'.dependencies]
-tray-icon = { version = "0.25", default-features = false }
+tray-icon = { version = "0.26", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
