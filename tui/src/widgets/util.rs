@@ -104,13 +104,13 @@ pub(crate) struct OverlayEntry {
     pub(crate) icon: String,
 }
 
-/// Label prefix: the icon plus two spaces, or three spaces when
-/// there is no icon, so text always aligns with the title padding.
+/// Label prefix: the icon tucked against the label, or three spaces
+/// when there is no icon, so text always starts inside the padding.
 fn overlay_label_prefix(icon: &str) -> String {
     if icon.is_empty() {
         "   ".to_string()
     } else {
-        format!("{icon}  ")
+        format!("   {icon} ")
     }
 }
 
