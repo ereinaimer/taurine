@@ -2210,6 +2210,34 @@ fn drag_range_parks_panes_at_either_edge() {
 }
 
 #[test]
+fn split_overflow_eats_props_then_center() {
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    // Span 98: list wants 78, capped at 52; 26 overflow takes the
+    // 18-wide props first, then 8 of center.
+    let split = split_panes(area, 0.8, DEFAULT_DETAIL_RATIO);
+    assert_eq!(split.list.width, 78);
+    assert_eq!(split.props.width, 0);
+    assert_eq!(split.center.width, 20);
+
+    // Deeper overflow leaves a 5-cell center sliver.
+    let split = split_panes(area, 0.95, DEFAULT_DETAIL_RATIO);
+    assert_eq!(split.list.width, 93);
+    assert_eq!(split.props.width, 0);
+    assert_eq!(split.center.width, 5);
+}
+
+#[test]
+fn split_overflow_on_props_side_eats_list_then_center() {
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    // List at default 28; props wants 63 of the 70 rest, capped at 40;
+    // 23 overflow takes the far list pane, center untouched.
+    let split = split_panes(area, DEFAULT_SPLIT_RATIO, 0.9);
+    assert_eq!(split.list.width, 5);
+    assert_eq!(split.center.width, 30);
+    assert_eq!(split.props.width, 63);
+}
+
+#[test]
 fn divider_hit_only_on_gutter_column() {
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
     let state = LibraryPageState::default();

@@ -61,23 +61,60 @@ pub(crate) fn split_panes(area: Rect, list_ratio: f32, props_ratio: f32) -> Pane
     if area.width < 5 {
         return empty();
     }
-    // Three panes: list + gutter + center + gutter + props. Panes may
-    // shrink to zero, and neither side pane grows past the shared
-    // maximum; both dividers always stay grabbable. Exact edge ratios
-    // bypass the maximum so a deliberate drag parks fully open.
+    // Three panes: list + gutter + center + gutter + props. The side
+    // maxima are overflow points, not walls: a side wanting more than
+    // its maximum keeps growing by shrinking the far pane first, then
+    // the middle, so drags glide past the cap instead of snapping.
+    // Both dividers always stay grabbable. Exact edge ratios bypass
+    // the maximum so a deliberate drag parks fully open.
     let span = area.width.saturating_sub(2);
-    let mut left_width =
+    let list_wanted =
         ((span as f32 * list_ratio.clamp(MIN_SPLIT_RATIO, MAX_SPLIT_RATIO)) as u16).min(span);
-    if list_ratio < 1.0 {
-        left_width = left_width.min(MAX_LIST_WIDTH);
-    }
-    let rest = span.saturating_sub(left_width);
-    let mut right_width =
+    let left_capped = if list_ratio < 1.0 {
+        list_wanted.min(MAX_LIST_WIDTH)
+    } else {
+        list_wanted
+    };
+    let rest = span.saturating_sub(left_capped);
+    let props_wanted =
         ((rest as f32 * props_ratio.clamp(MIN_DETAIL_RATIO, MAX_DETAIL_RATIO)) as u16).min(rest);
-    if props_ratio < 1.0 {
-        right_width = right_width.min(MAX_PROPS_WIDTH);
-    }
-    let center_width = rest.saturating_sub(right_width);
+    let right_capped = if props_ratio < 1.0 {
+        props_wanted.min(MAX_PROPS_WIDTH)
+    } else {
+        props_wanted
+    };
+    let center_natural = rest.saturating_sub(right_capped);
+    // honey: left overflow eats props first, then center.
+    let mut left_width = left_capped;
+    let mut right_width = right_capped;
+    let mut center_width = center_natural;
+    let mut overflow = list_wanted.saturating_sub(left_capped);
+    let take = overflow.min(right_width);
+    right_width = right_width.saturating_sub(take);
+    overflow = overflow.saturating_sub(take);
+    let take = overflow.min(center_width);
+    center_width = center_width.saturating_sub(take);
+    overflow = overflow.saturating_sub(take);
+    left_width = left_width.saturating_add(
+        list_wanted
+            .saturating_sub(left_capped)
+            .saturating_sub(overflow),
+    );
+    // honey: right overflow eats list first, then center. Overflow
+    // measures against the fair share so it never reclaims cells
+    // the left phase already redistributed.
+    let mut overflow = props_wanted.saturating_sub(right_capped);
+    let take = overflow.min(left_width);
+    left_width = left_width.saturating_sub(take);
+    overflow = overflow.saturating_sub(take);
+    let take = overflow.min(center_width);
+    center_width = center_width.saturating_sub(take);
+    overflow = overflow.saturating_sub(take);
+    right_width = right_width.saturating_add(
+        props_wanted
+            .saturating_sub(right_capped)
+            .saturating_sub(overflow),
+    );
     let list = Rect {
         x: area.x,
         y: area.y,
