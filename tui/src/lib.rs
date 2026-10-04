@@ -539,6 +539,12 @@ fn handle_tui_mouse_event(
                                         app.library_page_mut().toggle_selected_auto_case();
                                     apply_library_interaction(app, interaction);
                                 }
+                                Some(library::props::PropsHit::Platform) => {
+                                    let flush = app.library_page_mut().commit_edit();
+                                    apply_library_interaction(app, flush);
+                                    app.library_page_mut()
+                                        .open_header_menu(library::HeaderMenuKind::Platform);
+                                }
                                 Some(library::props::PropsHit::UsageToggle) => {
                                     app.library_page_mut().toggle_usage();
                                 }
@@ -715,7 +721,8 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
             library::EditedField::InvocationType(_)
             | library::EditedField::Interpreter(_)
             | library::EditedField::Behavior(_)
-            | library::EditedField::AutoCase(_) => None,
+            | library::EditedField::AutoCase(_)
+            | library::EditedField::TargetOs(_) => None,
         };
         match pending_edit.apply() {
             Ok(()) => {

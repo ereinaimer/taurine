@@ -1875,6 +1875,31 @@ fn test_set_alias_invocation_type_retypes_row_and_bumps() {
 }
 
 #[test]
+fn test_set_trigger_target_os_rewrites_platform_and_bumps() {
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let (_dir, conn) = crate::testing::open_test_db();
+
+    let id = create_entry(&conn, word_entry_fixture("platform_me", "text"))
+        .expect("create entry")
+        .0;
+    assert!(set_trigger_target_os(&conn, &id, "win").unwrap());
+    let (stored, version, synced): (String, i64, bool) = conn
+        .query_row(
+            "SELECT target_os, version, is_synced FROM triggers WHERE id = ?1",
+            [&id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(stored, "win");
+    assert_eq!(version, 2);
+    assert!(!synced);
+    assert!(set_trigger_target_os(&conn, &id, "bogus").is_err());
+    assert!(!set_trigger_target_os(&conn, "ghost", "win").unwrap());
+}
+
+#[test]
 fn test_set_trigger_auto_case_flips_flag_and_bumps() {
     let _guard = crate::testing::TEST_LOCK
         .lock()

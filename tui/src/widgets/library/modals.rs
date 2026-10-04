@@ -468,6 +468,7 @@ fn render_library_select_modal(
         .map(|option| util::OverlayEntry {
             label: option.clone(),
             detail: String::new(),
+            icon: String::new(),
         })
         .collect();
     util::render_overlay_select(frame, area, theme, state.title(), &entries, state.selected);
@@ -482,13 +483,16 @@ fn render_library_header_menu_modal(
     theme: &Theme,
     state: &LibraryHeaderMenuState,
 ) {
+    let icons = state.icons();
     let entries: Vec<util::OverlayEntry> = state
         .options()
         .iter()
         .zip(state.details())
-        .map(|(option, detail)| util::OverlayEntry {
+        .zip(icons.iter())
+        .map(|((option, detail), icon)| util::OverlayEntry {
             label: option.clone(),
             detail: detail.clone(),
+            icon: icon.clone(),
         })
         .collect();
     util::render_overlay_select(

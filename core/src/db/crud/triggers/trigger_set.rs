@@ -1426,6 +1426,21 @@ pub fn set_trigger_content(conn: &Connection, id: &str, content: &str) -> Result
     Ok(changed > 0)
 }
 
+/// Rewrites the target platform of one trigger. Only the six known
+/// identifiers validate; conflict checks are the caller's job, mirroring
+/// the enable toggle. Bumps version and marks the row unsynced.
+/// Returns false when the id is unknown or already deleted.
+pub fn set_trigger_target_os(conn: &Connection, id: &str, target_os: &str) -> Result<bool> {
+    super::validate::validate_target_os_value(target_os)?;
+    let changed = conn.execute(
+        "UPDATE triggers
+         SET target_os = ?1, version = version + 1, updated_at = ?2, is_synced = 0
+         WHERE id = ?3 AND is_deleted = 0",
+        rusqlite::params![target_os, crate::db::now_unix_secs(), id],
+    )?;
+    Ok(changed > 0)
+}
+
 /// Flips the per-trigger auto-case flag. Bumps version and marks the
 /// row unsynced like other mutations. Returns false when the id is
 /// unknown or already deleted.

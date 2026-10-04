@@ -1,12 +1,17 @@
+use taurine_core::db::TargetOs;
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 
+use crate::widgets::library::icons::os_icon;
+
 /// Which header button spawned the centered menu: invocation type
-/// first, then script language and run behavior for scripts.
+/// first, then script language and run behavior for scripts, plus
+/// the target platform row from the properties pane.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HeaderMenuKind {
     InvocationType,
     Interpreter,
     Behavior,
+    Platform,
 }
 
 impl HeaderMenuKind {
@@ -15,6 +20,7 @@ impl HeaderMenuKind {
             Self::InvocationType => "Trigger type",
             Self::Interpreter => "Script language",
             Self::Behavior => "Run behavior",
+            Self::Platform => "Target platform",
         }
     }
 }
@@ -48,7 +54,35 @@ impl LibraryHeaderMenuState {
                 .iter()
                 .map(|behavior| behavior.as_str().to_string())
                 .collect(),
+            HeaderMenuKind::Platform => TargetOs::ALL
+                .iter()
+                .map(|os| match os {
+                    TargetOs::All => "All",
+                    TargetOs::Windows => "Windows",
+                    TargetOs::MacOs => "macOS",
+                    TargetOs::Linux => "Linux",
+                    TargetOs::Android => "Android",
+                    TargetOs::Ios => "iOS",
+                })
+                .map(str::to_string)
+                .collect(),
         };
+        if kind == HeaderMenuKind::Platform {
+            // honey: platform rows are single-line icon rows; empty
+            // details render no second line. Labels are proper-cased
+            // while stored values are lowercase, so parking compares
+            // case-insensitively.
+            let selected = options
+                .iter()
+                .position(|option| option.to_lowercase() == current.to_lowercase())
+                .unwrap_or(0);
+            return Self {
+                kind,
+                options,
+                details: vec![String::new(); 6],
+                selected,
+            };
+        }
         let details: Vec<String> = options
             .iter()
             .map(|option| match kind {
@@ -69,6 +103,7 @@ impl LibraryHeaderMenuState {
                     "silent" => "Runs in the background, types nothing",
                     _ => "Script output is typed out",
                 },
+                _ => "Script output is typed out",
             })
             .map(str::to_string)
             .collect();
@@ -94,6 +129,17 @@ impl LibraryHeaderMenuState {
 
     pub(crate) fn details(&self) -> &[String] {
         &self.details
+    }
+
+    /// Nerd-font glyph per option, blank for menus without icons.
+    pub(crate) fn icons(&self) -> Vec<String> {
+        if self.kind != HeaderMenuKind::Platform {
+            return vec![String::new(); self.options.len()];
+        }
+        self.options
+            .iter()
+            .map(|option| os_icon(option).to_string())
+            .collect()
     }
 
     pub(crate) const fn selected(&self) -> usize {

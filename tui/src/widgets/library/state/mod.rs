@@ -375,6 +375,7 @@ impl LibraryPageState {
                 .map(|behavior| behavior.as_str())
                 .unwrap_or(super::detail::EMPTY_TOKEN)
                 .to_string(),
+            HeaderMenuKind::Platform => item.target_os.clone(),
         })
     }
 
@@ -449,6 +450,7 @@ impl LibraryPageState {
                 .map(|behavior| behavior.as_str())
                 .unwrap_or(super::detail::EMPTY_TOKEN)
                 .to_string(),
+            HeaderMenuKind::Platform => item.target_os.clone(),
         };
         if option == current {
             return LibraryInteraction::handled();
@@ -466,6 +468,8 @@ impl LibraryPageState {
                 taurine_core::engine::shell::ScriptBehavior::parse_str(&option)
                     .map(EditedField::Behavior)
             }
+            HeaderMenuKind::Platform => taurine_core::db::TargetOs::parse_str(&option)
+                .map(|os| EditedField::TargetOs(os.to_db_str().to_string())),
         };
         let Some(field) = field else {
             return LibraryInteraction::handled();

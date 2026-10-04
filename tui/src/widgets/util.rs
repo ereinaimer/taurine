@@ -101,6 +101,17 @@ pub(crate) fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
 pub(crate) struct OverlayEntry {
     pub(crate) label: String,
     pub(crate) detail: String,
+    pub(crate) icon: String,
+}
+
+/// Label prefix: the icon plus two spaces, or three spaces when
+/// there is no icon, so text always aligns with the title padding.
+fn overlay_label_prefix(icon: &str) -> String {
+    if icon.is_empty() {
+        "   ".to_string()
+    } else {
+        format!("{icon}  ")
+    }
 }
 
 /// Fixed overlay rect shared by rendering and hit-testing so clicks
@@ -205,8 +216,9 @@ pub(crate) fn render_overlay_select(
     let items: Vec<ListItem> = entries
         .iter()
         .map(|entry| {
+            let prefix = overlay_label_prefix(&entry.icon);
             if entry.detail.is_empty() {
-                ListItem::new(Line::from(format!("   {}", entry.label)))
+                ListItem::new(Line::from(format!("{prefix}{}", entry.label)))
             } else {
                 // honey: unselected values stay regular so the bold
                 // highlight patch marks the cursor on the dark fill.
@@ -214,7 +226,7 @@ pub(crate) fn render_overlay_select(
                 // highlight band runs full-bleed.
                 ListItem::new(vec![
                     Line::from(Span::styled(
-                        format!("   {}", entry.label),
+                        format!("{prefix}{}", entry.label),
                         Style::default().fg(theme.text),
                     )),
                     Line::from(Span::styled(

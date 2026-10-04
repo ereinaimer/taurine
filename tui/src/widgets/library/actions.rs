@@ -89,6 +89,7 @@ pub(crate) enum EditedField {
     Interpreter(ScriptInterpreter),
     Behavior(ScriptBehavior),
     AutoCase(bool),
+    TargetOs(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -144,6 +145,10 @@ impl PendingLibraryEdit {
             }
             EditedField::AutoCase(auto_case) => {
                 taurine_core::db::crud::set_trigger_auto_case(&conn, &self.trigger_id, *auto_case)?;
+                taurine_core::rpc::notify_daemon_reload();
+            }
+            EditedField::TargetOs(target_os) => {
+                taurine_core::db::crud::set_trigger_target_os(&conn, &self.trigger_id, target_os)?;
                 taurine_core::rpc::notify_daemon_reload();
             }
         }

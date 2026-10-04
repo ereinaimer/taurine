@@ -2232,6 +2232,61 @@ fn wrapped_alias_block_shifts_usage_toggle_down() {
 }
 
 #[test]
+fn platform_hit_targets_value_row() {
+    let state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let content = props::props_content(area, state.split_ratio(), state.detail_ratio());
+    let selected = state.selected_index().expect("selection");
+    let item = state.item_at_filtered(selected).expect("item");
+    // honey: recompute the expected row exactly like the renderer.
+    let rows = props::info_rows(item);
+    let position = rows
+        .iter()
+        .position(|(label, _)| *label == "Platform")
+        .expect("platform row") as u16;
+    let offset = position.saturating_mul(2).saturating_add(2);
+    assert_eq!(
+        props::hit_test(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            content.x,
+            content.y.saturating_add(offset)
+        ),
+        Some(props::PropsHit::Platform)
+    );
+}
+
+#[test]
+fn platform_menu_parks_on_current_os_with_icons() {
+    let mut state = sample_state();
+    let menu = open_menu(&mut state, HeaderMenuKind::Platform);
+    assert_eq!(menu.kind(), HeaderMenuKind::Platform);
+    assert_eq!(
+        menu.options(),
+        &["All", "Windows", "macOS", "Linux", "Android", "iOS"]
+    );
+    // First sorted row targets windows.
+    assert_eq!(menu.selected_option(), Some("Windows"));
+    let icons = menu.icons();
+    assert_eq!(icons.len(), 6);
+    assert!(icons.iter().all(|icon| !icon.is_empty()));
+}
+
+#[test]
+fn platform_menu_confirm_persists_db_value() {
+    let mut state = sample_state();
+    open_menu(&mut state, HeaderMenuKind::Platform);
+    state.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let pending = interaction.pending_edit().expect("pending platform");
+    assert_eq!(pending.trigger_id, "id-alt+r");
+    assert_eq!(pending.field, EditedField::TargetOs("all".to_string()));
+    assert!(state.modal().is_none());
+}
+
+#[test]
 fn right_pane_clicks_hit_nothing() {
     let state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);

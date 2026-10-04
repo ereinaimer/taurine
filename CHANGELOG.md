@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Richer Trigger Details**: Library detail pane now shows the description, an enable toggle, type and script option buttons, scrollable content, and tag chips. Disabled triggers stay listed (dimmed) so they can be turned back on.
 - **Arrow-Key Navigation**: The library list now moves with the Up/Down arrow keys; every letter and symbol types straight into search instead.
 - **Header Dropdowns**: The type, language, and behavior buttons above the snippet now open a centered dialog. Pick a new trigger type, script language, or run mode with the arrow keys and Enter.
+- **Target Platform Picker**: Click the Platform row in properties to choose the operating system from a centered dialog with icons.
 
 ### Removed
 - **Trigger Editor Popup**: The overlay editor is gone pending a revamped editor; use the CLI to add or edit triggers for now.

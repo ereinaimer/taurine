@@ -237,6 +237,7 @@ pub(crate) fn usage_toggle_offset(item: &LibraryTrigger) -> u16 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PropsHit {
     AutoCase,
+    Platform,
     UsageToggle,
 }
 
@@ -264,6 +265,12 @@ pub(crate) fn hit_test(
     if row == auto_case && row < content.y.saturating_add(content.height) {
         return Some(PropsHit::AutoCase);
     }
+    if let Some(platform) = platform_offset(item, content.width) {
+        let platform = content.y.saturating_add(platform);
+        if row == platform && row < content.y.saturating_add(content.height) {
+            return Some(PropsHit::Platform);
+        }
+    }
     let toggle = content
         .y
         .saturating_add(usage_toggle_offset(item))
@@ -272,6 +279,20 @@ pub(crate) fn hit_test(
         return Some(PropsHit::UsageToggle);
     }
     None
+}
+
+/// Row offset of the platform property, if present: label position
+/// plus wrapped alias lines above it, shared by rendering and
+/// hit-testing.
+fn platform_offset(item: &LibraryTrigger, width: u16) -> Option<u16> {
+    let rows = info_rows(item);
+    let position = rows.iter().position(|(label, _)| *label == "Platform")? as u16;
+    let alias_at = alias_position(&rows);
+    let mut offset = position.saturating_mul(2).saturating_add(2);
+    if alias_at.is_some_and(|at| position > at) {
+        offset = offset.saturating_add(alias_extra_lines(item, width));
+    }
+    Some(offset)
 }
 
 /// Row offset of the auto-case property, shared by rendering and
