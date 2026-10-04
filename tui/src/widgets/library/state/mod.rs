@@ -229,9 +229,10 @@ impl LibraryPageState {
         }
     }
 
-    /// Second click on the same divider within the window resets that
-    /// pane to its default width instead of starting a drag. Returns
-    /// true when a reset happened.
+    /// Second click on the same divider within the window toggles that
+    /// pane: a default-width pane collapses to the edge, a collapsed
+    /// pane resets to its default width, and a custom width resets to
+    /// default. Returns true when the width changed.
     pub(crate) fn divider_double_click(&mut self, side: super::DividerSide) -> bool {
         self.divider_double_click_at(side, now_millis())
     }
@@ -245,9 +246,30 @@ impl LibraryPageState {
             return false;
         }
         self.last_divider_click = None;
+        // honey: drag math rarely lands exactly on a constant, so
+        // near-enough counts for both ends of the toggle.
+        const NEAR: f32 = 0.0001;
         match side {
-            super::DividerSide::List => self.set_split_ratio(super::DEFAULT_SPLIT_RATIO),
-            super::DividerSide::Props => self.set_detail_ratio(super::DEFAULT_DETAIL_RATIO),
+            super::DividerSide::List => {
+                let ratio = self.split_ratio();
+                if ratio <= super::MIN_SPLIT_RATIO + NEAR {
+                    self.set_split_ratio(super::DEFAULT_SPLIT_RATIO);
+                } else if (ratio - super::DEFAULT_SPLIT_RATIO).abs() <= NEAR {
+                    self.set_split_ratio(super::MIN_SPLIT_RATIO);
+                } else {
+                    self.set_split_ratio(super::DEFAULT_SPLIT_RATIO);
+                }
+            }
+            super::DividerSide::Props => {
+                let ratio = self.detail_ratio();
+                if ratio <= super::MIN_DETAIL_RATIO + NEAR {
+                    self.set_detail_ratio(super::DEFAULT_DETAIL_RATIO);
+                } else if (ratio - super::DEFAULT_DETAIL_RATIO).abs() <= NEAR {
+                    self.set_detail_ratio(super::MIN_DETAIL_RATIO);
+                } else {
+                    self.set_detail_ratio(super::DEFAULT_DETAIL_RATIO);
+                }
+            }
         }
         true
     }
@@ -375,7 +397,7 @@ impl LibraryPageState {
         let line_counts: Vec<u16> = menu
             .details()
             .iter()
-            .map(|detail| if detail.is_empty() { 1 } else { 4 })
+            .map(|detail| if detail.is_empty() { 1 } else { 2 })
             .collect();
         match crate::widgets::util::overlay_option_hit(area, &line_counts, column, row) {
             Some(index) => {

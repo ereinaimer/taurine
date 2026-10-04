@@ -2155,6 +2155,30 @@ fn divider_double_click_resets_pane_width() {
 }
 
 #[test]
+fn divider_double_click_toggles_default_and_collapsed() {
+    let mut state = LibraryPageState::default();
+    assert_eq!(state.split_ratio(), DEFAULT_SPLIT_RATIO);
+
+    // Default width collapses to the edge.
+    assert!(!state.divider_double_click_at(DividerSide::List, 1000));
+    assert!(state.divider_double_click_at(DividerSide::List, 1100));
+    assert_eq!(state.split_ratio(), MIN_SPLIT_RATIO);
+
+    // Collapsed restores the default width.
+    assert!(!state.divider_double_click_at(DividerSide::List, 2000));
+    assert!(state.divider_double_click_at(DividerSide::List, 2100));
+    assert_eq!(state.split_ratio(), DEFAULT_SPLIT_RATIO);
+
+    // Same toggle on the props divider.
+    assert!(!state.divider_double_click_at(DividerSide::Props, 3000));
+    assert!(state.divider_double_click_at(DividerSide::Props, 3050));
+    assert_eq!(state.detail_ratio(), MIN_DETAIL_RATIO);
+    assert!(!state.divider_double_click_at(DividerSide::Props, 4000));
+    assert!(state.divider_double_click_at(DividerSide::Props, 4050));
+    assert_eq!(state.detail_ratio(), DEFAULT_DETAIL_RATIO);
+}
+
+#[test]
 fn drag_range_parks_panes_at_either_edge() {
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
     // honey: float truncation keeps this within one cell of the edge.
