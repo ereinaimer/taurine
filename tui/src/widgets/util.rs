@@ -191,19 +191,19 @@ pub(crate) fn render_overlay_select(
         .iter()
         .map(|entry| {
             if entry.detail.is_empty() {
-                ListItem::new(Line::from(entry.label.as_str()))
+                ListItem::new(Line::from(format!("   {}", entry.label)))
             } else {
                 // honey: unselected values stay regular so the bold
                 // highlight patch marks the cursor on the dark fill.
-                // Rows run full-bleed: the highlight ignores the
-                // container padding and spans the overlay width.
+                // Text aligns with the title padding; only the
+                // highlight band runs full-bleed.
                 ListItem::new(vec![
                     Line::from(Span::styled(
-                        entry.label.as_str(),
+                        format!("   {}", entry.label),
                         Style::default().fg(theme.text),
                     )),
                     Line::from(Span::styled(
-                        entry.detail.as_str(),
+                        format!("   {}", entry.detail),
                         Style::default().fg(theme.description),
                     )),
                 ])
