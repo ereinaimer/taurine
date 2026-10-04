@@ -114,21 +114,12 @@ pub(crate) fn render_overlay_select(
 ) {
     use ratatui::style::Color::Rgb;
 
-    let content_width = entries
-        .iter()
-        .flat_map(|entry| [entry.label.chars().count(), entry.detail.chars().count()])
-        .max()
-        .unwrap_or(0) as u16;
-    // honey: big landscape overlay with a wide floor; centered_rect
-    // clamps to the terminal.
-    let width = content_width.saturating_add(8).max(68).max(1);
-    let rows: u16 = entries
-        .iter()
-        .map(|entry| if entry.detail.is_empty() { 1 } else { 4 })
-        .sum();
-    // honey: title row, one blank line, then the options, plus one
-    // cell of padding top and bottom.
-    let height = rows.saturating_add(4).max(1);
+    // honey: fixed size for every option overlay so all menus feel
+    // like the same component; centered_rect clamps to the terminal.
+    let width = 68;
+    // honey: title row, one blank line, five four-line options, plus
+    // one cell of padding top and bottom.
+    let height = 24;
     let popup = centered_rect(width, height, area);
     frame.render_widget(Clear, popup);
     // honey: flat borderless fill; the cursor keeps the lighter
