@@ -137,7 +137,7 @@ pub(crate) fn render_overlay_select(
         Block::default().style(Style::default().bg(Rgb(0x14, 0x14, 0x14))),
         popup,
     );
-    let body = popup.inner(Margin::new(1, 1));
+    let body = popup.inner(Margin::new(3, 1));
     if body.width == 0 || body.height == 0 {
         return;
     }
@@ -189,10 +189,11 @@ pub(crate) fn render_overlay_select(
     let mut list_state = ListState::default();
     list_state.select(Some(selected));
 
+    // honey: patch adds the cursor band and bold only, so the dimmed
+    // detail keeps its color on the highlighted row.
     let list = List::new(items).highlight_symbol("").highlight_style(
         Style::default()
             .bg(theme.surface)
-            .fg(theme.text)
             .add_modifier(Modifier::BOLD),
     );
     frame.render_stateful_widget(list, list_area, &mut list_state);
