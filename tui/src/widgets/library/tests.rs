@@ -2020,6 +2020,43 @@ fn header_menu_missing_metadata_parks_on_first_option() {
 }
 
 #[test]
+fn open_menu_flips_spawning_button_chevron() {
+    use crate::widgets::library::icons::{CHEVRON_DOWN, CHEVRON_UP};
+    use ratatui::{Terminal, backend::TestBackend};
+
+    fn chevrons(state: &LibraryPageState) -> (usize, usize) {
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal
+            .draw(|frame| {
+                detail::render_detail(
+                    frame,
+                    frame.area(),
+                    &crate::theme::builtin::DARK_THEME,
+                    state,
+                );
+            })
+            .expect("test draw");
+        let text: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        (
+            text.matches(CHEVRON_UP).count(),
+            text.matches(CHEVRON_DOWN).count(),
+        )
+    }
+
+    let mut state = script_state();
+    assert_eq!(chevrons(&state), (0, 3));
+    state.open_header_menu(HeaderMenuKind::Interpreter);
+    assert_eq!(chevrons(&state), (1, 2));
+}
+
+#[test]
 fn header_menu_button_hit_targets_rendered_buttons() {
     let state = script_state();
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);

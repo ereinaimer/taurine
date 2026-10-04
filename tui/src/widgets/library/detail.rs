@@ -9,9 +9,9 @@ use ratatui::{
 };
 
 use crate::theme::Theme;
-use crate::widgets::library::icons::{CHEVRON_DOWN, os_icon};
+use crate::widgets::library::icons::{CHEVRON_DOWN, CHEVRON_UP, os_icon};
 use crate::widgets::library::state::{
-    EditTarget, HeaderMenuKind, LibraryPageState, LibraryTrigger,
+    EditTarget, HeaderMenuKind, LibraryModal, LibraryPageState, LibraryTrigger,
 };
 use crate::widgets::util;
 
@@ -336,7 +336,7 @@ pub(crate) fn render_detail(
     let scroll = state.detail_scroll();
     render_header_row(frame, content, theme, state, item);
     render_description_row(frame, content, theme, state, item);
-    render_buttons_row(frame, content, theme, item);
+    render_buttons_row(frame, content, theme, state, item);
     if let Some(layout) = detail_layout(content.height, content.width, item, scroll) {
         render_content_rows(frame, content, theme, state, &layout);
     }
@@ -485,10 +485,11 @@ fn render_description_row(
     );
 }
 
-/// Dropdown-style button (visual only until the dropdown component lands):
-/// 1-cell horizontal padding inside a background fill.
-fn button_spans(label: &str, theme: &Theme) -> (Vec<Span<'static>>, usize) {
-    let text = format!(" {label} {CHEVRON_DOWN} ");
+/// Header button: 1-cell horizontal padding inside a background
+/// fill, with a chevron pointing up while its menu is open.
+fn button_spans(label: &str, open: bool, theme: &Theme) -> (Vec<Span<'static>>, usize) {
+    let chevron = if open { CHEVRON_UP } else { CHEVRON_DOWN };
+    let text = format!(" {label} {chevron} ");
     let width = text.chars().count();
     (
         vec![Span::styled(
@@ -501,12 +502,24 @@ fn button_spans(label: &str, theme: &Theme) -> (Vec<Span<'static>>, usize) {
     )
 }
 
-fn render_buttons_row(frame: &mut Frame, area: Rect, theme: &Theme, item: &LibraryTrigger) {
+fn render_buttons_row(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    state: &LibraryPageState,
+    item: &LibraryTrigger,
+) {
     if BUTTONS_OFFSET >= area.height {
         return;
     }
     let row = row_area(area, BUTTONS_OFFSET);
     let labels = button_labels(item);
+    // honey: same flip convention as the usage toggle: the spawning
+    // button points up while its menu overlay is open.
+    let open_kind = match state.modal() {
+        Some(LibraryModal::HeaderMenu(menu)) => Some(menu.kind()),
+        _ => None,
+    };
     let mut spans: Vec<Span<'static>> = Vec::new();
     let mut cursor = 0u16;
     for cell in button_layout(row.width, &labels) {
@@ -515,7 +528,11 @@ fn render_buttons_row(frame: &mut Frame, area: Rect, theme: &Theme, item: &Libra
                 " ".repeat(cell.x.saturating_sub(cursor) as usize),
             ));
         }
-        let (button, _) = button_spans(&labels[cell.index], theme);
+        let (button, _) = button_spans(
+            &labels[cell.index],
+            open_kind == Some(dropdown_kind_for_button(cell.index)),
+            theme,
+        );
         spans.extend(button);
         cursor = cell.x.saturating_add(cell.width);
     }
