@@ -21,7 +21,9 @@ pub(crate) const CONTENT_INNER_HEIGHT: usize = 16;
 /// Empty-state token: three ROUNDED-border horizontals, matching the pane
 /// border glyph set.
 pub(crate) const EMPTY_TOKEN: &str = "───";
-const TOGGLE_ON: &str = "[ON]";
+// honey: padded to the same 5-cell width as TOGGLE_OFF so flipping
+// the switch never shifts the header layout.
+const TOGGLE_ON: &str = "[ON ]";
 const TOGGLE_OFF: &str = "[OFF]";
 
 /// Fixed single-row offsets above the content section.

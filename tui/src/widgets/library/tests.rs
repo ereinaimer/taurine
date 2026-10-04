@@ -1093,14 +1093,14 @@ fn parse_tags_handles_stored_shapes() {
 fn header_hit_region_for_toggle() {
     let state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
-    // Center content at x=25 width=31: [ON] toggle owns the last 4 cells.
+    // Center content at x=25 width=31: [ON ] toggle owns the last 5 cells.
     assert_eq!(
         detail::hit_test(
             area,
             state.split_ratio(),
             state.detail_ratio(),
             &state,
-            52,
+            51,
             1
         ),
         Some(detail::DetailHit::EnableToggle)
@@ -1111,7 +1111,7 @@ fn header_hit_region_for_toggle() {
             state.split_ratio(),
             state.detail_ratio(),
             &state,
-            51,
+            50,
             1
         ),
         None
@@ -2709,7 +2709,7 @@ fn select_by_id_clamps_to_known_rows() {
 fn name_edit_hit_only_on_name_cells() {
     let state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
-    // Center content at x=25 width=31: toggle owns the last 4 cells,
+    // Center content at x=25 width=31: toggle owns the last 5 cells,
     // the cell before it is a gap, everything left of it edits with
     // the click column carried through.
     assert_eq!(
