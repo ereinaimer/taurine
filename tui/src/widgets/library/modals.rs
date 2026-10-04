@@ -561,16 +561,16 @@ fn render_library_tags_modal(
         .map(|tag| {
             use crate::widgets::library::icons::DELETE_ICON;
 
-            // honey: checked rows read white with the trash icon flush
-            // right; unchecked rows stay dimmed with no icon.
+            // honey: checked rows read white with the trash icon
+            // under the Esc column; unchecked rows stay dimmed.
             let checked = state.is_checked(tag);
-            let name = util::truncate_to_width(tag, popup.width.saturating_sub(6).max(1));
+            let name = util::truncate_to_width(tag, popup.width.saturating_sub(8).max(1));
             let text = format!("   {name}");
             let icon = if checked { DELETE_ICON } else { "" };
             let gap = (popup.width as usize)
                 .saturating_sub(text.chars().count())
                 .saturating_sub(icon.chars().count())
-                .saturating_sub(1);
+                .saturating_sub(3);
             let tag_style = if checked {
                 Style::default().fg(theme.text)
             } else {
@@ -580,7 +580,7 @@ fn render_library_tags_modal(
                 Span::styled(text, tag_style),
                 Span::raw(" ".repeat(gap)),
                 Span::styled(icon.to_string(), Style::default().fg(theme.text)),
-                Span::raw(" ".to_string()),
+                Span::raw("   ".to_string()),
             ]))
         })
         .collect();

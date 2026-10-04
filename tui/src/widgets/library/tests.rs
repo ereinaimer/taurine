@@ -2394,9 +2394,9 @@ fn tags_menu_remove_drops_checked_row() {
 fn click_tags_menu_icon_removes_and_body_toggles() {
     let mut state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
-    // Popup 56x14 centered: first option row 11, icon column 76.
+    // Popup 56x14 centered: first option row 11, icon column 74.
     state.modal = Some(LibraryModal::Tags(tags_menu(&["work"], &["work", "home"])));
-    let interaction = state.click_tags_menu(area, 76, 11);
+    let interaction = state.click_tags_menu(area, 74, 11);
     let pending = interaction.pending_edit().expect("pending remove");
     assert_eq!(pending.field, EditedField::Tags(Vec::new()));
     assert!(state.modal().is_some());
