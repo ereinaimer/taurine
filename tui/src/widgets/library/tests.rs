@@ -2128,19 +2128,17 @@ fn auto_case_toggle_flips_value() {
 }
 
 #[test]
-fn alias_text_lines_pack_three_across_lines() {
+fn alias_text_lines_show_one_per_line() {
     let rows = LibraryTrigger::expand(multi_alias_list_item());
     let item = &rows[0];
     assert_eq!(
         props::alias_text_lines(item, 30, 40),
-        vec!["gst, ctrl+g".to_string()]
-    );
-    assert_eq!(
-        props::alias_text_lines(item, 5, 40),
         vec!["gst".to_string(), "ctrl+g".to_string()]
     );
-    assert_eq!(props::alias_extra_lines(item, 40), 0);
-    assert_eq!(props::alias_extra_lines(item, 5), 1);
+    assert_eq!(
+        props::alias_text_lines(item, 2, 40),
+        vec!["g…".to_string(), "ctrl+g".to_string()]
+    );
 }
 
 #[test]
@@ -2154,7 +2152,10 @@ fn alias_text_lines_mark_siblings_past_three() {
         .push(alias_fixture("id-multi", "gb", InvocationType::Word, false));
     let rows = LibraryTrigger::expand(list_item);
     let lines = props::alias_text_lines(&rows[0], 40, 40);
-    assert_eq!(lines, vec!["gst, ctrl+g, ga …".to_string()]);
+    assert_eq!(
+        lines,
+        vec!["gst".to_string(), "ctrl+g".to_string(), "ga …".to_string()]
+    );
 }
 
 #[test]

@@ -291,10 +291,9 @@ fn alias_position(rows: &[(&str, String)]) -> Option<u16> {
         .map(|position| position as u16)
 }
 
-/// Wrapped alias text: up to three sibling aliases, greedy
-/// comma-packed into the first budget, then full-width continuation
-/// lines. A lone overlong alias truncates in place; a marker trails
-/// when siblings remain past three; empty stays the border token.
+/// Alias text: up to three sibling aliases, one per line. Overlong
+/// aliases truncate in place; a marker trails when siblings remain
+/// past three; empty stays the border token.
 pub(crate) fn alias_text_lines(
     item: &LibraryTrigger,
     first_budget: usize,
@@ -310,34 +309,14 @@ pub(crate) fn alias_text_lines(
     if siblings.is_empty() {
         return vec![EMPTY_TOKEN.to_string()];
     }
-    let mut lines: Vec<String> = vec![String::new()];
-    for alias in siblings.iter().take(MAX_SHOWN_ALIASES) {
-        let budget = if lines.len() == 1 {
+    let mut lines: Vec<String> = Vec::new();
+    for (index, alias) in siblings.iter().take(MAX_SHOWN_ALIASES).enumerate() {
+        let budget = if index == 0 {
             first_budget
         } else {
             cont_budget
         };
-        let current = lines.last().map(String::as_str).unwrap_or("");
-        let piece = if current.is_empty() {
-            (*alias).to_string()
-        } else {
-            format!(", {alias}")
-        };
-        if current
-            .chars()
-            .count()
-            .saturating_add(piece.chars().count())
-            <= budget
-        {
-            lines.last_mut().expect("alias line").push_str(&piece);
-        } else if current.is_empty() {
-            lines
-                .last_mut()
-                .expect("alias line")
-                .push_str(&util::truncate_to_width(alias, budget as u16));
-        } else {
-            lines.push(util::truncate_to_width(alias, cont_budget as u16));
-        }
+        lines.push(util::truncate_to_width(alias, budget as u16));
     }
     if siblings.len() > MAX_SHOWN_ALIASES {
         let budget = if lines.len() == 1 {
