@@ -115,8 +115,10 @@ pub(crate) fn render_overlay_select(
     use ratatui::style::Color::Rgb;
 
     // honey: fixed size for every option overlay so all menus feel
-    // like the same component; centered_rect clamps to the terminal.
-    let width = 68;
+    // like the same component; terminal cells run taller than wide,
+    // so the width floor keeps the landscape read. Centered_rect
+    // clamps to the terminal.
+    let width = 80;
     // honey: title row, one blank line, five four-line options, plus
     // one cell of padding top and bottom.
     let height = 24;
