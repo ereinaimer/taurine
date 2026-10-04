@@ -20,17 +20,21 @@ impl HeaderMenuKind {
 }
 
 /// Centered option menu over the detail pane: option labels with a
-/// cursor. Options are plain labels; the caller maps the confirmed
-/// label back onto its domain value.
+/// cursor and a one-line description of what each option does.
+/// Options are plain labels; the caller maps the confirmed label
+/// back onto its domain value.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LibraryHeaderMenuState {
     kind: HeaderMenuKind,
     options: Vec<String>,
+    details: Vec<String>,
     selected: usize,
 }
 
 impl LibraryHeaderMenuState {
     pub(crate) fn new(kind: HeaderMenuKind, current: &str) -> Self {
+        // honey: labels derive from the core sets so a new variant
+        // lands in the menu automatically; details describe each one.
         let options: Vec<String> = match kind {
             HeaderMenuKind::InvocationType => ["word", "hotkey", "regex", "voice"]
                 .into_iter()
@@ -45,6 +49,29 @@ impl LibraryHeaderMenuState {
                 .map(|behavior| behavior.as_str().to_string())
                 .collect(),
         };
+        let details: Vec<String> = options
+            .iter()
+            .map(|option| match kind {
+                HeaderMenuKind::InvocationType => match option.as_str() {
+                    "hotkey" => "Fires on a keyboard shortcut",
+                    "regex" => "Fires when typed text matches a pattern",
+                    "voice" => "Fires on a spoken phrase",
+                    _ => "Expands when you type the text",
+                },
+                HeaderMenuKind::Interpreter => match option.as_str() {
+                    "powershell" => "Windows PowerShell scripts",
+                    "python" => "Python scripts",
+                    "node" => "Node.js scripts",
+                    "cmd" => "Windows command scripts",
+                    _ => "Unix shell scripts",
+                },
+                HeaderMenuKind::Behavior => match option.as_str() {
+                    "silent" => "Runs in the background, types nothing",
+                    _ => "Script output is typed out",
+                },
+            })
+            .map(str::to_string)
+            .collect();
         let selected = options
             .iter()
             .position(|option| option == current)
@@ -52,6 +79,7 @@ impl LibraryHeaderMenuState {
         Self {
             kind,
             options,
+            details,
             selected,
         }
     }
@@ -62,6 +90,10 @@ impl LibraryHeaderMenuState {
 
     pub(crate) fn options(&self) -> &[String] {
         &self.options
+    }
+
+    pub(crate) fn details(&self) -> &[String] {
+        &self.details
     }
 
     pub(crate) const fn selected(&self) -> usize {

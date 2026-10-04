@@ -1,9 +1,9 @@
 use ratatui::{
     Frame,
-    layout::Rect,
+    layout::{Constraint, Direction, Layout, Margin, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
 };
 
 use crate::theme::Theme;
@@ -71,6 +71,106 @@ pub(crate) fn render_modal_block(
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
     inner
+}
+
+/// Centered rect clamped to the terminal. Single home for every
+/// overlay popup so renderers never recompute centering.
+pub(crate) fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
+    let width = width.min(area.width).max(1);
+    let height = height.min(area.height).max(1);
+    let vertical = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length((area.height.saturating_sub(height)) / 2),
+            Constraint::Length(height),
+        ])
+        .split(area);
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Length((area.width.saturating_sub(width)) / 2),
+            Constraint::Length(width),
+        ])
+        .split(vertical[1])[1]
+}
+
+/// Shared centered option overlay: highlight-surface fill, one cell of
+/// padding inside the border, cursor list. Each option renders like a
+/// library list item: blank line, white value, dimmed detail, blank
+/// line. Every plain option menu renders through here so future
+/// overlays reuse it instead of copying it.
+pub(crate) struct OverlayEntry {
+    pub(crate) label: String,
+    pub(crate) detail: String,
+}
+
+pub(crate) fn render_overlay_select(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    title: &str,
+    entries: &[OverlayEntry],
+    selected: usize,
+) {
+    let content_width = entries
+        .iter()
+        .flat_map(|entry| [entry.label.chars().count(), entry.detail.chars().count()])
+        .max()
+        .unwrap_or(0) as u16;
+    // honey: big landscape overlay with a wide floor; centered_rect
+    // clamps to the terminal.
+    let width = content_width.saturating_add(6).max(56).max(1);
+    let rows: u16 = entries
+        .iter()
+        .map(|entry| if entry.detail.is_empty() { 1 } else { 4 })
+        .sum();
+    let height = rows.saturating_add(4).max(1);
+    let popup = centered_rect(width, height, area);
+    frame.render_widget(Clear, popup);
+    // honey: the whole overlay sits on the highlight fill.
+    frame.render_widget(
+        Block::default().style(Style::default().bg(theme.surface)),
+        popup,
+    );
+    let inner = render_modal_block(frame, popup, title, theme);
+    let body = inner.inner(Margin::new(1, 1));
+    if body.width == 0 || body.height == 0 {
+        return;
+    }
+
+    let items: Vec<ListItem> = entries
+        .iter()
+        .map(|entry| {
+            if entry.detail.is_empty() {
+                ListItem::new(Line::from(entry.label.as_str()))
+            } else {
+                // honey: unselected values stay regular so the bold
+                // highlight patch marks the cursor on the surface fill.
+                ListItem::new(vec![
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        entry.label.as_str(),
+                        Style::default().fg(theme.text),
+                    )),
+                    Line::from(Span::styled(
+                        entry.detail.as_str(),
+                        Style::default().fg(theme.description),
+                    )),
+                    Line::from(""),
+                ])
+            }
+        })
+        .collect();
+    let mut list_state = ListState::default();
+    list_state.select(Some(selected));
+
+    let list = List::new(items).highlight_symbol("").highlight_style(
+        Style::default()
+            .bg(theme.surface)
+            .fg(theme.text)
+            .add_modifier(Modifier::BOLD),
+    );
+    frame.render_stateful_widget(list, body, &mut list_state);
 }
 
 pub(crate) fn render_action_buttons(

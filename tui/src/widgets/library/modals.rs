@@ -3,7 +3,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Clear, List, ListItem, ListState, Paragraph},
+    widgets::{Clear, Paragraph},
 };
 
 use crate::theme::Theme;
@@ -44,25 +44,6 @@ pub fn render_library_modal(frame: &mut Frame, area: Rect, theme: &Theme, modal:
     }
 }
 
-fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
-    let width = width.min(area.width).max(1);
-    let height = height.min(area.height).max(1);
-    let vertical = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length((area.height.saturating_sub(height)) / 2),
-            Constraint::Length(height),
-        ])
-        .split(area);
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Length((area.width.saturating_sub(width)) / 2),
-            Constraint::Length(width),
-        ])
-        .split(vertical[1])[1]
-}
-
 fn render_library_delete_modal(
     frame: &mut Frame,
     area: Rect,
@@ -75,7 +56,7 @@ fn render_library_delete_modal(
         area.width.max(1)
     };
     let height = 8;
-    let popup = centered_rect(width, height, area);
+    let popup = util::centered_rect(width, height, area);
     frame.render_widget(Clear, popup);
     let inner = util::render_modal_block(frame, popup, "Delete Trigger", theme);
 
@@ -154,7 +135,7 @@ fn render_library_export_modal(
         area.width.max(1)
     };
     let height = area.height.clamp(1, 10);
-    let popup = centered_rect(width, height, area);
+    let popup = util::centered_rect(width, height, area);
     frame.render_widget(Clear, popup);
     let inner = util::render_modal_block(frame, popup, "Export Triggers", theme);
 
@@ -254,7 +235,7 @@ fn render_library_import_modal(
     } else {
         area.width.max(1)
     };
-    let popup = centered_rect(width, area.height.clamp(1, 11), area);
+    let popup = util::centered_rect(width, area.height.clamp(1, 11), area);
     frame.render_widget(Clear, popup);
     let inner = util::render_modal_block(frame, popup, "Import Triggers", theme);
 
@@ -372,7 +353,7 @@ fn render_library_import_run_variables_modal(
     } else {
         area.width.max(1)
     };
-    let popup = centered_rect(width, 9.min(area.height.max(1)), area);
+    let popup = util::centered_rect(width, 9.min(area.height.max(1)), area);
     frame.render_widget(Clear, popup);
     let inner = util::render_modal_block(frame, popup, "Run Variables Warning", theme);
 
@@ -427,7 +408,7 @@ fn render_library_import_result_modal(
     } else {
         area.width.max(1)
     };
-    let popup = centered_rect(
+    let popup = util::centered_rect(
         width,
         (state.lines().len() as u16 + 4).min(area.height.max(1)),
         area,
@@ -465,7 +446,7 @@ fn render_library_export_result_modal(
     } else {
         area.width.max(1)
     };
-    let popup = centered_rect(width, 5.min(area.height.max(1)), area);
+    let popup = util::centered_rect(width, 5.min(area.height.max(1)), area);
     frame.render_widget(Clear, popup);
     let inner = util::render_modal_block(frame, popup, EXPORT_RESULT_MODAL_TITLE, theme);
 
@@ -481,77 +462,41 @@ fn render_library_select_modal(
     theme: &Theme,
     state: &LibrarySelectState,
 ) {
-    let width = if area.width > 24 {
-        area.width.saturating_sub(4).min(44)
-    } else {
-        area.width.max(1)
-    };
-    let body_height = state.options.len().min(8) as u16;
-    let desired_height = body_height + 4;
-    let height = if area.height >= 6 {
-        desired_height.min(area.height.saturating_sub(2).max(6))
-    } else {
-        area.height.max(1)
-    };
-    let popup = centered_rect(width, height, area);
-    frame.render_widget(Clear, popup);
-    let inner = util::render_modal_block(frame, popup, state.title(), theme);
-
-    let items: Vec<ListItem> = state
+    let entries: Vec<util::OverlayEntry> = state
         .options
         .iter()
-        .map(|option| ListItem::new(option.as_str()))
+        .map(|option| util::OverlayEntry {
+            label: option.clone(),
+            detail: String::new(),
+        })
         .collect();
-    let mut list_state = ListState::default();
-    list_state.select(Some(state.selected));
-
-    let list = List::new(items).highlight_symbol("").highlight_style(
-        Style::default()
-            .bg(theme.surface)
-            .fg(theme.text)
-            .add_modifier(Modifier::BOLD),
-    );
-    frame.render_stateful_widget(list, inner, &mut list_state);
+    util::render_overlay_select(frame, area, theme, state.title(), &entries, state.selected);
 }
 
 /// Centered option menu for the detail header buttons (trigger type,
-/// script language, run behavior). Same overlay pattern as the other
-/// library modals: cleared area, bordered block, highlighted cursor.
+/// script language, run behavior), rendered through the shared
+/// overlay component.
 fn render_library_header_menu_modal(
     frame: &mut Frame,
     area: Rect,
     theme: &Theme,
     state: &LibraryHeaderMenuState,
 ) {
-    let width = if area.width > 24 {
-        area.width.saturating_sub(4).min(44)
-    } else {
-        area.width.max(1)
-    };
-    let body_height = state.options().len().min(8) as u16;
-    let desired_height = body_height + 4;
-    let height = if area.height >= 6 {
-        desired_height.min(area.height.saturating_sub(2).max(6))
-    } else {
-        area.height.max(1)
-    };
-    let popup = centered_rect(width, height, area);
-    frame.render_widget(Clear, popup);
-    let inner = util::render_modal_block(frame, popup, state.kind().title(), theme);
-
-    let items: Vec<ListItem> = state
+    let entries: Vec<util::OverlayEntry> = state
         .options()
         .iter()
-        .map(|option| ListItem::new(option.as_str()))
+        .zip(state.details())
+        .map(|(option, detail)| util::OverlayEntry {
+            label: option.clone(),
+            detail: detail.clone(),
+        })
         .collect();
-    let mut list_state = ListState::default();
-    list_state.select(Some(state.selected()));
-
-    let list = List::new(items).highlight_symbol("").highlight_style(
-        Style::default()
-            .bg(theme.surface)
-            .fg(theme.text)
-            .add_modifier(Modifier::BOLD),
+    util::render_overlay_select(
+        frame,
+        area,
+        theme,
+        state.kind().title(),
+        &entries,
+        state.selected(),
     );
-    frame.render_stateful_widget(list, inner, &mut list_state);
 }

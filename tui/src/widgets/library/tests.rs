@@ -1852,6 +1852,14 @@ fn open_menu(state: &mut LibraryPageState, kind: HeaderMenuKind) -> LibraryHeade
 }
 
 #[test]
+fn header_menu_options_carry_descriptions() {
+    let mut state = sample_state();
+    let menu = open_menu(&mut state, HeaderMenuKind::InvocationType);
+    assert_eq!(menu.options().len(), menu.details().len());
+    assert!(menu.details().iter().all(|detail| !detail.is_empty()));
+}
+
+#[test]
 fn header_menu_type_parks_on_current_value() {
     let mut state = sample_state();
     let menu = open_menu(&mut state, HeaderMenuKind::InvocationType);
