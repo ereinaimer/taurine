@@ -2097,6 +2097,44 @@ fn header_menu_button_hit_targets_rendered_buttons() {
 }
 
 #[test]
+fn auto_case_hit_targets_value_row() {
+    let state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let content = props::props_content(area, state.split_ratio(), state.detail_ratio());
+    assert_eq!(
+        props::hit_test(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            content.x,
+            content.y.saturating_add(2)
+        ),
+        Some(props::PropsHit::AutoCase)
+    );
+    assert_eq!(
+        props::hit_test(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            content.x,
+            content.y.saturating_add(3)
+        ),
+        None
+    );
+}
+
+#[test]
+fn auto_case_toggle_flips_value() {
+    let state = sample_state();
+    let interaction = state.toggle_selected_auto_case();
+    let pending = interaction.pending_edit().expect("pending autocase");
+    assert_eq!(pending.trigger_id, "id-alt+r");
+    assert_eq!(pending.field, EditedField::AutoCase(true));
+}
+
+#[test]
 fn right_pane_clicks_hit_nothing() {
     let state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);

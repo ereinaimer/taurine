@@ -522,19 +522,27 @@ fn handle_tui_mouse_event(
                                 }
                                 None => {}
                             }
-                            let usage_hit = {
-                                let page = app.library_page();
-                                library::props::hit_test(
-                                    full,
-                                    page.split_ratio(),
-                                    page.detail_ratio(),
-                                    page,
-                                    mouse.column,
-                                    mouse.row,
-                                )
-                            };
-                            if usage_hit == Some(library::props::PropsHit::UsageToggle) {
-                                app.library_page_mut().toggle_usage();
+                            match library::props::hit_test(
+                                full,
+                                app.library_page().split_ratio(),
+                                app.library_page().detail_ratio(),
+                                app.library_page(),
+                                mouse.column,
+                                mouse.row,
+                            ) {
+                                // honey: flipping auto-case commits any
+                                // open edit first, like the enable toggle.
+                                Some(library::props::PropsHit::AutoCase) => {
+                                    let flush = app.library_page_mut().commit_edit();
+                                    apply_library_interaction(app, flush);
+                                    let interaction =
+                                        app.library_page_mut().toggle_selected_auto_case();
+                                    apply_library_interaction(app, interaction);
+                                }
+                                Some(library::props::PropsHit::UsageToggle) => {
+                                    app.library_page_mut().toggle_usage();
+                                }
+                                None => {}
                             }
                         }
                     }
@@ -706,7 +714,8 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
             // confirm has nothing to restore.
             library::EditedField::InvocationType(_)
             | library::EditedField::Interpreter(_)
-            | library::EditedField::Behavior(_) => None,
+            | library::EditedField::Behavior(_)
+            | library::EditedField::AutoCase(_) => None,
         };
         match pending_edit.apply() {
             Ok(()) => {

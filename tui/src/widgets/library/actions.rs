@@ -88,6 +88,7 @@ pub(crate) enum EditedField {
     InvocationType(InvocationType),
     Interpreter(ScriptInterpreter),
     Behavior(ScriptBehavior),
+    AutoCase(bool),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -139,6 +140,10 @@ impl PendingLibraryEdit {
             }
             EditedField::Behavior(behavior) => {
                 taurine_core::db::crud::set_script_behavior(&conn, &self.trigger_id, *behavior)?;
+                taurine_core::rpc::notify_daemon_reload();
+            }
+            EditedField::AutoCase(auto_case) => {
+                taurine_core::db::crud::set_trigger_auto_case(&conn, &self.trigger_id, *auto_case)?;
                 taurine_core::rpc::notify_daemon_reload();
             }
         }

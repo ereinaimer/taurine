@@ -342,6 +342,23 @@ impl LibraryPageState {
         })
     }
 
+    /// Auto-case toggle for the selected trigger. Returns a persist
+    /// interaction; the caller refreshes the list on success.
+    pub(crate) fn toggle_selected_auto_case(&self) -> LibraryInteraction {
+        let Some(selected) = self.selected_index() else {
+            return LibraryInteraction::handled();
+        };
+        let Some(item) = self.item_at_filtered(selected) else {
+            return LibraryInteraction::handled();
+        };
+        LibraryInteraction::edit(PendingLibraryEdit {
+            trigger_id: item.id().to_string(),
+            trigger: item.trigger().to_string(),
+            field: EditedField::AutoCase(!item.auto_case()),
+            restore_index: selected,
+        })
+    }
+
     /// Current option label for a header menu on the selected row.
     fn header_menu_current(&self, kind: HeaderMenuKind) -> Option<String> {
         let selected = self.selected_index()?;

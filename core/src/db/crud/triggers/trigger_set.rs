@@ -1426,6 +1426,23 @@ pub fn set_trigger_content(conn: &Connection, id: &str, content: &str) -> Result
     Ok(changed > 0)
 }
 
+/// Flips the per-trigger auto-case flag. Bumps version and marks the
+/// row unsynced like other mutations. Returns false when the id is
+/// unknown or already deleted.
+pub fn set_trigger_auto_case(conn: &Connection, id: &str, auto_case: bool) -> Result<bool> {
+    let changed = conn.execute(
+        "UPDATE triggers
+         SET auto_case = ?1, version = version + 1, updated_at = ?2, is_synced = 0
+         WHERE id = ?3 AND is_deleted = 0",
+        rusqlite::params![
+            if auto_case { 1 } else { 0 },
+            crate::db::now_unix_secs(),
+            id
+        ],
+    )?;
+    Ok(changed > 0)
+}
+
 /// Flips the per-trigger enable flag. Disabled triggers stay in the DB but
 /// are excluded from expansion and listing queries. Bumps version and marks
 /// the row unsynced like other mutations. Returns false when the id is

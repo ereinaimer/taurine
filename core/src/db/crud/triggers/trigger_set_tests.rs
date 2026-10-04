@@ -1875,6 +1875,38 @@ fn test_set_alias_invocation_type_retypes_row_and_bumps() {
 }
 
 #[test]
+fn test_set_trigger_auto_case_flips_flag_and_bumps() {
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let (_dir, conn) = crate::testing::open_test_db();
+
+    let id = create_entry(&conn, word_entry_fixture("autocase_me", "text"))
+        .expect("create entry")
+        .0;
+    assert!(set_trigger_auto_case(&conn, &id, true).unwrap());
+    let (flag, version, synced): (bool, i64, bool) = conn
+        .query_row(
+            "SELECT auto_case, version, is_synced FROM triggers WHERE id = ?1",
+            [&id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    assert!(flag);
+    assert_eq!(version, 2);
+    assert!(!synced);
+
+    assert!(set_trigger_auto_case(&conn, &id, false).unwrap());
+    let flag: bool = conn
+        .query_row("SELECT auto_case FROM triggers WHERE id = ?1", [&id], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert!(!flag);
+    assert!(!set_trigger_auto_case(&conn, "ghost", true).unwrap());
+}
+
+#[test]
 fn test_set_alias_invocation_type_rejects_scope_conflict() {
     let _guard = crate::testing::TEST_LOCK
         .lock()

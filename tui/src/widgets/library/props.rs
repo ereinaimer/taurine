@@ -218,10 +218,12 @@ pub(crate) fn usage_toggle_offset(item: &LibraryTrigger) -> u16 {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PropsHit {
+    AutoCase,
     UsageToggle,
 }
 
-/// Click on the usage toggle row. Nothing else in the pane is interactive.
+/// Click on the auto-case row or the usage toggle row. The auto-case
+/// row is located by label so a reorder never misfires.
 pub(crate) fn hit_test(
     area: Rect,
     list_ratio: f32,
@@ -234,17 +236,30 @@ pub(crate) fn hit_test(
     if content.width == 0 || content.height == 0 {
         return None;
     }
+    if column < content.x || column >= content.x.saturating_add(content.width) {
+        return None;
+    }
     let selected = state.selected_index()?;
     let item = state.item_at_filtered(selected)?;
+    let auto_case = content.y.saturating_add(auto_case_offset(item));
+    if row == auto_case && row < content.y.saturating_add(content.height) {
+        return Some(PropsHit::AutoCase);
+    }
     let toggle = content.y.saturating_add(usage_toggle_offset(item));
-    if row == toggle
-        && row < content.y.saturating_add(content.height)
-        && column >= content.x
-        && column < content.x.saturating_add(content.width)
-    {
+    if row == toggle && row < content.y.saturating_add(content.height) {
         return Some(PropsHit::UsageToggle);
     }
     None
+}
+
+/// Row offset of the auto-case property, shared by rendering and
+/// hit-testing so clicks land on the value they see.
+fn auto_case_offset(item: &LibraryTrigger) -> u16 {
+    info_rows(item)
+        .iter()
+        .position(|(label, _)| *label == "Auto case")
+        .map(|position| (position as u16).saturating_mul(2).saturating_add(2))
+        .unwrap_or(2)
 }
 
 /// Pane rows: base properties plus the raw usage history (totals only,
