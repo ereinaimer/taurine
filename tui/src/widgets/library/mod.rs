@@ -112,22 +112,39 @@ pub(crate) fn split_panes(area: Rect, list_ratio: f32, props_ratio: f32) -> Pane
             .saturating_sub(right_capped)
             .saturating_sub(overflow),
     );
+    // honey: a lone pane absorbs its dead gutter so the surviving
+    // divider sits exactly on the terminal edge instead of leaving
+    // a background cell after it.
+    let left_parked = center_width == 0 && right_width == 0 && left_width > 0;
+    let right_parked = left_width == 0 && center_width == 0 && right_width > 0;
+    if left_parked {
+        left_width = area.width.saturating_sub(1);
+    }
     let list = Rect {
         x: area.x,
         y: area.y,
         width: left_width,
         height: area.height,
     };
+    let center_x = if right_parked {
+        area.x
+    } else {
+        list.x.saturating_add(list.width).saturating_add(1)
+    };
     let center = Rect {
-        x: area.x.saturating_add(left_width).saturating_add(1),
+        x: center_x,
         y: area.y,
         width: center_width,
         height: area.height,
     };
     let props = Rect {
-        x: center.x.saturating_add(center_width).saturating_add(1),
+        x: center.x.saturating_add(center.width).saturating_add(1),
         y: area.y,
-        width: right_width,
+        width: if right_parked {
+            area.width.saturating_sub(1)
+        } else {
+            right_width
+        },
         height: area.height,
     };
     let dividers = vec![

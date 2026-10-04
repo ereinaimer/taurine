@@ -2237,12 +2237,13 @@ fn drag_range_parks_panes_at_either_edge() {
         Some(DividerSide::List)
     );
     let split = split_panes(area, split_ratio_for_column(area, 79), DEFAULT_DETAIL_RATIO);
-    // Exact edge ratio bypasses the shared maximum: fully parked open.
-    assert_eq!(split.list.width, 78);
+    // Exact edge ratio parks fully open with the lone pane absorbing
+    // its dead gutter: divider on the last column, nothing after it.
+    assert_eq!(split.list.width, 79);
     assert_eq!(split.center.width, 0);
     assert_eq!(
         divider_columns(area, split_ratio_for_column(area, 79), DEFAULT_DETAIL_RATIO),
-        vec![78, 79]
+        vec![79, 80]
     );
 }
 
@@ -2290,11 +2291,11 @@ fn split_extreme_ratios_park_without_resurrection() {
     let parked = split_panes(area, DEFAULT_SPLIT_RATIO, 2.0);
     assert_eq!(parked.list.width, 0);
     assert_eq!(parked.center.width, 0);
-    assert_eq!(parked.props.width, 98);
+    assert_eq!(parked.props.width, 99);
 
     // List side parks fully open with no survivors.
     let parked = split_panes(area, 1.0, DEFAULT_DETAIL_RATIO);
-    assert_eq!(parked.list.width, 98);
+    assert_eq!(parked.list.width, 99);
     assert_eq!(parked.center.width, 0);
     assert_eq!(parked.props.width, 0);
 }
@@ -2302,15 +2303,17 @@ fn split_extreme_ratios_park_without_resurrection() {
 #[test]
 fn visible_dividers_hide_parked_nothing_dividers() {
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
-    // List parked full screen: only its own divider paints.
+    // List parked full screen: only its own divider paints, on the
+    // last column with nothing after it.
     assert_eq!(
         visible_divider_columns(area, 1.0, DEFAULT_DETAIL_RATIO),
-        vec![(DividerSide::List, 98)]
+        vec![(DividerSide::List, 99)]
     );
-    // Props parked full screen: only its own divider paints.
+    // Props parked full screen: only its own divider paints, on the
+    // first column.
     assert_eq!(
         visible_divider_columns(area, DEFAULT_SPLIT_RATIO, 2.0),
-        vec![(DividerSide::Props, 1)]
+        vec![(DividerSide::Props, 0)]
     );
     // Ordinary split paints both, tagged in order.
     let split = split_panes(area, DEFAULT_SPLIT_RATIO, DEFAULT_DETAIL_RATIO);
