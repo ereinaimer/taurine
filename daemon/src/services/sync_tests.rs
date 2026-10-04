@@ -611,3 +611,179 @@ async fn test_sync_worker_flushes_quota_to_db() {
         taurine_core::db::crud::quota::get_or_init_quota_ledger(&conn, &key, now_epoch).unwrap();
     assert!((row.remaining_percentage - 99.70).abs() < 1e-6);
 }
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn test_sync_worker_proactive_token_refresh() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    crate::hook::tests::mock_keystore::use_mock_keystore();
+
+    let now_epoch = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+
+    let initial_tokens = taurine_core::cloud::AuthTokens {
+        access_token: "expired-access-token".to_string(),
+        refresh_token: "valid-refresh-token".to_string(),
+        user_id: "user-refresh-1".to_string(),
+        expires_at: Some(now_epoch - 100),
+    };
+    taurine_core::cloud::store_tokens(&initial_tokens).unwrap();
+
+    let conn = Connection::open_in_memory().unwrap();
+    run_migrations(&conn).unwrap();
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let server_handle = std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        for _ in 0..2 {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 4096];
+            let n = stream.read(&mut buf).unwrap();
+            let req = String::from_utf8_lossy(&buf[..n]);
+
+            if req.starts_with("POST /auth/v1/token?grant_type=refresh_token") {
+                assert!(req.contains("valid-refresh-token"));
+                let body = serde_json::json!({
+                    "access_token": "fresh-access-proactive",
+                    "refresh_token": "next-refresh-proactive",
+                    "expires_at": now_epoch + 3600,
+                    "user": {
+                        "id": "user-refresh-1"
+                    }
+                })
+                .to_string();
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                stream.write_all(resp.as_bytes()).unwrap();
+            } else if req.starts_with("GET /rest/v1/snippets") {
+                assert!(req.contains("Bearer fresh-access-proactive"));
+                let resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+                stream.write_all(resp.as_bytes()).unwrap();
+            }
+        }
+    });
+
+    let config = CloudConfig {
+        supabase_url: format!("http://127.0.0.1:{port}"),
+        anon_key: "test-anon-key".to_string(),
+    };
+    let client = CloudClient::new(config);
+
+    let status = SyncWorker::run_sync_cycle(&conn, Some(&client)).await;
+    assert_eq!(
+        status,
+        SyncStatus::Success {
+            pulled_snippets: 0,
+            pushed_snippets: 0,
+        }
+    );
+
+    let saved_tokens = taurine_core::cloud::get_tokens().unwrap().unwrap();
+    assert_eq!(saved_tokens.access_token, "fresh-access-proactive");
+    assert_eq!(saved_tokens.refresh_token, "next-refresh-proactive");
+
+    server_handle.join().unwrap();
+    taurine_core::cloud::clear_tokens().unwrap();
+}
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn test_sync_worker_reactive_refresh_on_401() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    crate::hook::tests::mock_keystore::use_mock_keystore();
+
+    let now_epoch = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+
+    let initial_tokens = taurine_core::cloud::AuthTokens {
+        access_token: "invalid-or-revoked-token".to_string(),
+        refresh_token: "valid-reactive-refresh".to_string(),
+        user_id: "user-reactive-1".to_string(),
+        expires_at: Some(now_epoch + 3600),
+    };
+    taurine_core::cloud::store_tokens(&initial_tokens).unwrap();
+
+    let conn = Connection::open_in_memory().unwrap();
+    run_migrations(&conn).unwrap();
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let server_handle = std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        for _ in 0..3 {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 4096];
+            let n = stream.read(&mut buf).unwrap();
+            let req = String::from_utf8_lossy(&buf[..n]);
+
+            if req.starts_with("GET /rest/v1/snippets") && req.contains("invalid-or-revoked-token")
+            {
+                let err_body = r#"{"code":"PGRST303","message":"JWT expired"}"#;
+                let resp = format!(
+                    "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    err_body.len(),
+                    err_body
+                );
+                stream.write_all(resp.as_bytes()).unwrap();
+            } else if req.starts_with("POST /auth/v1/token?grant_type=refresh_token") {
+                assert!(req.contains("valid-reactive-refresh"));
+                let body = serde_json::json!({
+                    "access_token": "fresh-access-reactive",
+                    "refresh_token": "next-refresh-reactive",
+                    "expires_at": now_epoch + 3600,
+                    "user": {
+                        "id": "user-reactive-1"
+                    }
+                })
+                .to_string();
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                stream.write_all(resp.as_bytes()).unwrap();
+            } else if req.starts_with("GET /rest/v1/snippets")
+                && req.contains("fresh-access-reactive")
+            {
+                let resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+                stream.write_all(resp.as_bytes()).unwrap();
+            }
+        }
+    });
+
+    let config = CloudConfig {
+        supabase_url: format!("http://127.0.0.1:{port}"),
+        anon_key: "test-anon-key".to_string(),
+    };
+    let client = CloudClient::new(config);
+
+    let status = SyncWorker::run_sync_cycle(&conn, Some(&client)).await;
+    assert_eq!(
+        status,
+        SyncStatus::Success {
+            pulled_snippets: 0,
+            pushed_snippets: 0,
+        }
+    );
+
+    let saved_tokens = taurine_core::cloud::get_tokens().unwrap().unwrap();
+    assert_eq!(saved_tokens.access_token, "fresh-access-reactive");
+    assert_eq!(saved_tokens.refresh_token, "next-refresh-reactive");
+
+    server_handle.join().unwrap();
+    taurine_core::cloud::clear_tokens().unwrap();
+}

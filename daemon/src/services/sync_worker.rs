@@ -58,13 +58,68 @@ impl SyncWorker {
                     let client = CloudClient::default_or_from_env();
                     loop {
                         ticker.tick().await;
-                        if let Ok(conn) = conn_provider() {
-                            let _ = Self::run_sync_cycle(&conn, Some(&client)).await;
+                        match conn_provider() {
+                            Ok(conn) => {
+                                let status = Self::run_sync_cycle(&conn, Some(&client)).await;
+                                match status {
+                                    SyncStatus::Success {
+                                        pulled_snippets,
+                                        pushed_snippets,
+                                    } => {
+                                        if pulled_snippets > 0 || pushed_snippets > 0 {
+                                            tracing::info!(
+                                                pulled = pulled_snippets,
+                                                pushed = pushed_snippets,
+                                                "Cloud sync cycle succeeded"
+                                            );
+                                        } else {
+                                            tracing::debug!(
+                                                "Cloud sync cycle succeeded (no changes)"
+                                            );
+                                        }
+                                    }
+                                    SyncStatus::Error(err) => {
+                                        tracing::warn!("Cloud sync cycle failed: {err}");
+                                    }
+                                    SyncStatus::NotAuthenticated => {
+                                        tracing::debug!(
+                                            "Cloud sync skipped: user not authenticated"
+                                        );
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!("Sync worker failed to acquire db connection: {e}");
+                            }
                         }
                     }
                 });
             })
             .expect("spawn tau-sync thread")
+    }
+
+    async fn refresh_session_tokens(
+        client: &CloudClient,
+        tokens: &mut taurine_core::cloud::AuthTokens,
+    ) -> Result<(), String> {
+        let prev_user_id = tokens.user_id.clone();
+        match client.refresh_session(&tokens.refresh_token).await {
+            Ok(mut new_tokens) => {
+                if new_tokens.user_id.is_empty() {
+                    new_tokens.user_id = prev_user_id;
+                }
+                if let Err(e) = taurine_core::cloud::store_cloud_tokens(&new_tokens) {
+                    tracing::warn!("Failed to store refreshed cloud tokens in keyring: {e}");
+                }
+                *tokens = new_tokens;
+                tracing::debug!("Successfully refreshed cloud auth tokens");
+                Ok(())
+            }
+            Err(e) => {
+                tracing::warn!("Failed to refresh cloud auth tokens: {e}");
+                Err(format!("Session refresh failed: {e}"))
+            }
+        }
     }
 
     /// Executes a single bidirectional sync cycle:
@@ -87,11 +142,26 @@ impl SyncWorker {
             None => return SyncStatus::NotAuthenticated,
         };
 
-        let tokens = match taurine_core::cloud::get_cloud_tokens() {
+        let mut tokens = match taurine_core::cloud::get_cloud_tokens() {
             Ok(Some(t)) => t,
             Ok(None) => return SyncStatus::NotAuthenticated,
             Err(e) => return SyncStatus::Error(format!("Keystore error: {e}")),
         };
+
+        // Proactively refresh auth session if token is expired or expiring within 60s
+        let now_epoch = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+
+        if tokens.expires_at.is_some_and(|exp| exp <= now_epoch + 60) {
+            tracing::debug!(
+                "Auth token is expired or expiring within 60s; proactively refreshing..."
+            );
+            if let Err(e) = Self::refresh_session_tokens(client, &mut tokens).await {
+                return SyncStatus::Error(e);
+            }
+        }
 
         // 30-day tombstone GC
         if let Err(e) = purge_deleted_tombstones(conn, 30 * 86400) {
@@ -136,7 +206,7 @@ impl SyncWorker {
                 "updated_at": quota.updated_at,
             });
 
-            if let Ok(res) = http_client
+            let mut quota_res = http_client
                 .post(&quota_url)
                 .header("apikey", &client.config().anon_key)
                 .header("Authorization", format!("Bearer {}", tokens.access_token))
@@ -144,8 +214,30 @@ impl SyncWorker {
                 .header("Prefer", "resolution=merge-duplicates")
                 .json(&payload)
                 .send()
-                .await
-                && res.status().is_success()
+                .await;
+
+            if let Ok(ref r) = quota_res
+                && r.status() == reqwest::StatusCode::UNAUTHORIZED
+            {
+                tracing::debug!("Received 401 pushing quota ledger; refreshing session...");
+                if Self::refresh_session_tokens(client, &mut tokens)
+                    .await
+                    .is_ok()
+                {
+                    quota_res = http_client
+                        .post(&quota_url)
+                        .header("apikey", &client.config().anon_key)
+                        .header("Authorization", format!("Bearer {}", tokens.access_token))
+                        .header("Content-Type", "application/json")
+                        .header("Prefer", "resolution=merge-duplicates")
+                        .json(&payload)
+                        .send()
+                        .await;
+                }
+            }
+
+            if let Ok(r) = quota_res
+                && r.status().is_success()
             {
                 let _ = conn.execute(
                     "UPDATE quota_ledger SET is_synced = 1 WHERE week_start_epoch = ?1",
@@ -160,13 +252,31 @@ impl SyncWorker {
             client.config().supabase_url.trim_end_matches('/')
         );
 
-        let pull_res = http_client
+        let mut pull_res = http_client
             .get(&snippets_url)
             .header("apikey", &client.config().anon_key)
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .header("Accept", "application/json")
             .send()
             .await;
+
+        if let Ok(ref r) = pull_res
+            && r.status() == reqwest::StatusCode::UNAUTHORIZED
+        {
+            tracing::debug!("Received 401 pulling snippets; refreshing session...");
+            if Self::refresh_session_tokens(client, &mut tokens)
+                .await
+                .is_ok()
+            {
+                pull_res = http_client
+                    .get(&snippets_url)
+                    .header("apikey", &client.config().anon_key)
+                    .header("Authorization", format!("Bearer {}", tokens.access_token))
+                    .header("Accept", "application/json")
+                    .send()
+                    .await;
+            }
+        }
 
         let mut pulled_snippets = 0;
         match pull_res {
@@ -233,7 +343,7 @@ impl SyncWorker {
                 client.config().supabase_url.trim_end_matches('/')
             );
 
-            let push_res = http_client
+            let mut push_res = http_client
                 .post(&push_url)
                 .header("apikey", &client.config().anon_key)
                 .header("Authorization", format!("Bearer {}", tokens.access_token))
@@ -242,6 +352,26 @@ impl SyncWorker {
                 .json(&payloads)
                 .send()
                 .await;
+
+            if let Ok(ref r) = push_res
+                && r.status() == reqwest::StatusCode::UNAUTHORIZED
+            {
+                tracing::debug!("Received 401 pushing snippets; refreshing session...");
+                if Self::refresh_session_tokens(client, &mut tokens)
+                    .await
+                    .is_ok()
+                {
+                    push_res = http_client
+                        .post(&push_url)
+                        .header("apikey", &client.config().anon_key)
+                        .header("Authorization", format!("Bearer {}", tokens.access_token))
+                        .header("Content-Type", "application/json")
+                        .header("Prefer", "resolution=merge-duplicates")
+                        .json(&payloads)
+                        .send()
+                        .await;
+                }
+            }
 
             match push_res {
                 Ok(res) => {
