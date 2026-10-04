@@ -2383,6 +2383,45 @@ fn tags_row_hit_opens_position() {
 }
 
 #[test]
+fn tags_menu_remove_drops_checked_row() {
+    let menu = tags_menu(&["work", "home"], &["work", "home"]);
+    let pending = menu.remove_at(1).expect("pending remove");
+    assert_eq!(pending.field, EditedField::Tags(vec!["work".to_string()]));
+    assert!(tags_menu(&[], &["work"]).remove_at(0).is_none());
+}
+
+#[test]
+fn click_tags_menu_icon_removes_and_body_toggles() {
+    let mut state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    // Popup 56x14 centered: first option row 11, icon column 76.
+    state.modal = Some(LibraryModal::Tags(tags_menu(&["work"], &["work", "home"])));
+    let interaction = state.click_tags_menu(area, 76, 11);
+    let pending = interaction.pending_edit().expect("pending remove");
+    assert_eq!(pending.field, EditedField::Tags(Vec::new()));
+    assert!(state.modal().is_some());
+
+    state.modal = Some(LibraryModal::Tags(tags_menu(&["work"], &["work", "home"])));
+    let interaction = state.click_tags_menu(area, 30, 12);
+    let pending = interaction.pending_edit().expect("pending toggle");
+    assert_eq!(
+        pending.field,
+        EditedField::Tags(vec!["work".to_string(), "home".to_string()])
+    );
+    assert!(state.modal().is_some());
+}
+
+#[test]
+fn click_tags_menu_outside_closes() {
+    let mut state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    state.modal = Some(LibraryModal::Tags(tags_menu(&["work"], &["work"])));
+    let interaction = state.click_tags_menu(area, 0, 0);
+    assert!(interaction.pending_edit().is_none());
+    assert!(state.modal().is_none());
+}
+
+#[test]
 fn right_pane_clicks_hit_nothing() {
     let state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);

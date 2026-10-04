@@ -398,6 +398,44 @@ impl LibraryPageState {
         matches!(self.modal, Some(LibraryModal::HeaderMenu(_)))
     }
 
+    pub(crate) fn tags_menu_open(&self) -> bool {
+        matches!(self.modal, Some(LibraryModal::Tags(_)))
+    }
+
+    /// Clicks on an open tags menu: the delete icon removes that row,
+    /// anywhere else on a row toggles it, outside closes the menu.
+    /// The menu stays open across live toggles.
+    pub(crate) fn click_tags_menu(
+        &mut self,
+        area: ratatui::layout::Rect,
+        column: u16,
+        row: u16,
+    ) -> LibraryInteraction {
+        let Some(LibraryModal::Tags(mut menu)) = self.modal.take() else {
+            return LibraryInteraction::handled();
+        };
+        let line_counts = vec![1u16; menu.visible().len()];
+        // honey: an outside click closes by leaving the taken modal
+        // dropped; picks keep the menu open across live toggles.
+        match crate::widgets::util::overlay_option_hit(area, &line_counts, column, row) {
+            Some(index) => {
+                let interaction = if column >= crate::widgets::util::overlay_icon_column(area) {
+                    menu.remove_at(index)
+                        .map(LibraryInteraction::edit)
+                        .unwrap_or_else(LibraryInteraction::handled)
+                } else {
+                    menu.move_cursor(index as i32 - menu.cursor() as i32);
+                    menu.toggle_selected()
+                        .map(LibraryInteraction::edit)
+                        .unwrap_or_else(LibraryInteraction::handled)
+                };
+                self.modal = Some(LibraryModal::Tags(menu));
+                interaction
+            }
+            None => LibraryInteraction::handled(),
+        }
+    }
+
     /// Opens the tags builder for the selected trigger, seeded with
     /// its current tags and every known tag.
     pub(crate) fn open_tags_modal(&mut self, all_tags: Vec<String>) {

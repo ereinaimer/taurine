@@ -120,6 +120,13 @@ pub(crate) fn overlay_popup(area: Rect) -> Rect {
     centered_rect(56, 14, area)
 }
 
+/// Column of the row action icon: one cell of margin from the edge,
+/// mirroring the render path.
+pub(crate) fn overlay_icon_column(area: Rect) -> u16 {
+    let popup = overlay_popup(area);
+    popup.x.saturating_add(popup.width).saturating_sub(2)
+}
+
 /// Option index under the cell inside an overlay popup. `line_counts`
 /// carries each option's rendered row height (1 or 2), mirroring the
 /// render path; title, blank, and padding cells never select.

@@ -418,6 +418,15 @@ fn handle_tui_mouse_event(
                 apply_library_interaction(app, interaction);
                 return;
             }
+            if app.active_page() == Page::Library && app.library_page().tags_menu_open() {
+                let layout = terminal::mouse::frame_layout(area);
+                let full = terminal::mouse::library_full_area(layout.page);
+                let interaction =
+                    app.library_page_mut()
+                        .click_tags_menu(full, mouse.column, mouse.row);
+                apply_library_interaction(app, interaction);
+                return;
+            }
             if modal_open {
                 return;
             }

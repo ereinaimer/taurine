@@ -136,6 +136,22 @@ impl LibraryTagsModalState {
         Some(self.pending(tags))
     }
 
+    /// Remove one visible row by index, returning the full new tag
+    /// list. Rows already absent resolve to no persist.
+    pub(crate) fn remove_at(&self, index: usize) -> Option<PendingLibraryEdit> {
+        let tag = self.visible().get(index)?.to_string();
+        if !self.is_checked(&tag) {
+            return None;
+        }
+        let tags: Vec<String> = self
+            .checked
+            .iter()
+            .filter(|checked| *checked != &tag)
+            .cloned()
+            .collect();
+        Some(self.pending(tags))
+    }
+
     fn pending(&self, tags: Vec<String>) -> PendingLibraryEdit {
         PendingLibraryEdit {
             trigger_id: self.trigger_id.clone(),
