@@ -148,20 +148,23 @@ pub fn run() -> taurine_core::Result<()> {
     Ok(())
 }
 
-/// Scales every rendered background toward black so an open modal
-/// sits on a dimmed backdrop. Only RGB cells scale; named/reset
-/// cells keep their color.
+/// Scales every rendered cell toward black so an open modal sits on
+/// a dimmed backdrop. RGB channels scale by the scrim factor; a
+/// non-RGB foreground (no RGB base to scale) takes the DIM modifier
+/// instead.
 fn dim_frame(frame: &mut ratatui::Frame) {
-    use ratatui::style::Color;
+    use ratatui::style::{Color, Modifier};
 
-    const DIM: f32 = 0.45;
+    const DIM: f32 = 0.5;
+    let scale = |channel: u8| (channel as f32 * DIM) as u8;
     for cell in frame.buffer_mut().content.iter_mut() {
         if let Color::Rgb(red, green, blue) = cell.bg {
-            cell.set_bg(Color::Rgb(
-                (red as f32 * DIM) as u8,
-                (green as f32 * DIM) as u8,
-                (blue as f32 * DIM) as u8,
-            ));
+            cell.set_bg(Color::Rgb(scale(red), scale(green), scale(blue)));
+        }
+        if let Color::Rgb(red, green, blue) = cell.fg {
+            cell.set_fg(Color::Rgb(scale(red), scale(green), scale(blue)));
+        } else {
+            cell.modifier.insert(Modifier::DIM);
         }
     }
 }
@@ -921,6 +924,32 @@ fn restore_terminal() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn dim_frame_halves_rgb_and_marks_non_rgb() {
+        use ratatui::{
+            Terminal,
+            backend::TestBackend,
+            style::{Color, Modifier},
+        };
+
+        let backend = TestBackend::new(2, 1);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal
+            .draw(|frame| {
+                frame.buffer_mut().content[0].set_fg(Color::Rgb(100, 100, 100));
+                frame.buffer_mut().content[0].set_bg(Color::Rgb(200, 200, 200));
+                frame.buffer_mut().content[1].set_fg(Color::Reset);
+                super::dim_frame(frame);
+                let dimmed = &frame.buffer_mut().content[1];
+                assert_eq!(dimmed.fg, Color::Reset);
+                assert!(dimmed.modifier.contains(Modifier::DIM));
+            })
+            .expect("test draw");
+        let buffer = terminal.backend().buffer().clone();
+        assert_eq!(buffer.content[0].fg, Color::Rgb(50, 50, 50));
+        assert_eq!(buffer.content[0].bg, Color::Rgb(100, 100, 100));
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn test_signal_handler_restores_terminal() {
