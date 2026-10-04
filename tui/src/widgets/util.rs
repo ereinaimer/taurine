@@ -94,11 +94,11 @@ pub(crate) fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
         .split(vertical[1])[1]
 }
 
-/// Shared centered option overlay: highlight-surface fill, one cell of
-/// padding inside the border, cursor list. Each option renders like a
-/// library list item: blank line, white value, dimmed detail, blank
-/// line. Every plain option menu renders through here so future
-/// overlays reuse it instead of copying it.
+/// Shared centered option overlay: flat #141414 fill, no borders, one
+/// cell of padding, cursor list. Each option renders like a library
+/// list item: blank line, white value, dimmed detail, blank line.
+/// Every plain option menu renders through here so future overlays
+/// reuse it instead of copying it.
 pub(crate) struct OverlayEntry {
     pub(crate) label: String,
     pub(crate) detail: String,
@@ -112,6 +112,8 @@ pub(crate) fn render_overlay_select(
     entries: &[OverlayEntry],
     selected: usize,
 ) {
+    use ratatui::style::Color::Rgb;
+
     let content_width = entries
         .iter()
         .flat_map(|entry| [entry.label.chars().count(), entry.detail.chars().count()])
@@ -119,22 +121,48 @@ pub(crate) fn render_overlay_select(
         .unwrap_or(0) as u16;
     // honey: big landscape overlay with a wide floor; centered_rect
     // clamps to the terminal.
-    let width = content_width.saturating_add(6).max(56).max(1);
+    let width = content_width
+        .max(title.chars().count() as u16)
+        .saturating_add(6)
+        .max(56)
+        .max(1);
     let rows: u16 = entries
         .iter()
         .map(|entry| if entry.detail.is_empty() { 1 } else { 4 })
         .sum();
-    let height = rows.saturating_add(4).max(1);
+    // honey: title row plus one cell of padding top and bottom.
+    let height = rows.saturating_add(3).max(1);
     let popup = centered_rect(width, height, area);
     frame.render_widget(Clear, popup);
-    // honey: the whole overlay sits on the highlight fill.
+    // honey: flat borderless fill; the cursor keeps the lighter
+    // highlight band so it stays visible on the dark fill.
     frame.render_widget(
-        Block::default().style(Style::default().bg(theme.surface)),
+        Block::default().style(Style::default().bg(Rgb(0x14, 0x14, 0x14))),
         popup,
     );
-    let inner = render_modal_block(frame, popup, title, theme);
-    let body = inner.inner(Margin::new(1, 1));
+    let body = popup.inner(Margin::new(1, 1));
     if body.width == 0 || body.height == 0 {
+        return;
+    }
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            title.to_string(),
+            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+        ))),
+        Rect {
+            x: body.x,
+            y: body.y,
+            width: body.width,
+            height: 1,
+        },
+    );
+    let list_area = Rect {
+        x: body.x,
+        y: body.y.saturating_add(1),
+        width: body.width,
+        height: body.height.saturating_sub(1),
+    };
+    if list_area.height == 0 {
         return;
     }
 
@@ -145,7 +173,7 @@ pub(crate) fn render_overlay_select(
                 ListItem::new(Line::from(entry.label.as_str()))
             } else {
                 // honey: unselected values stay regular so the bold
-                // highlight patch marks the cursor on the surface fill.
+                // highlight patch marks the cursor on the dark fill.
                 ListItem::new(vec![
                     Line::from(""),
                     Line::from(Span::styled(
@@ -170,7 +198,7 @@ pub(crate) fn render_overlay_select(
             .fg(theme.text)
             .add_modifier(Modifier::BOLD),
     );
-    frame.render_stateful_widget(list, body, &mut list_state);
+    frame.render_stateful_widget(list, list_area, &mut list_state);
 }
 
 pub(crate) fn render_action_buttons(
