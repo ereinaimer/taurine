@@ -6,12 +6,12 @@ pub const DARK_THEME: Theme = Theme {
     dark: true,
     primary: Color::Rgb(0x1E, 0x90, 0xFF),
     secondary: Color::Rgb(0x80, 0x80, 0x80),
-    border: Color::Rgb(0x22, 0x22, 0x22),
+    border: Color::Rgb(0x1A, 0x1A, 0x1A),
     background: Color::Rgb(0x0A, 0x0A, 0x0A),
     surface: Color::Rgb(0x1E, 0x1E, 0x1E),
     // honey: off-white body text; pure white on near-black blows out,
     // especially under bold, so the dark theme never uses it.
-    text: Color::Rgb(0xD8, 0xD8, 0xD8),
+    text: Color::Rgb(0xCF, 0xCF, 0xCF),
     text_muted: Color::Rgb(0x80, 0x80, 0x80),
     description: Color::Rgb(0x73, 0x73, 0x73),
     accent: Color::Rgb(0x1E, 0x90, 0xFF),
@@ -20,12 +20,12 @@ pub const DARK_THEME: Theme = Theme {
     success: Color::Green,
     header: HeaderTheme {
         bg: Color::Rgb(0x1E, 0x1E, 0x1E),
-        text: Color::Rgb(0xD8, 0xD8, 0xD8),
+        text: Color::Rgb(0xCF, 0xCF, 0xCF),
     },
     button: ButtonTheme {
         active_bg: Color::Rgb(0x3A, 0x3A, 0x3A),
         inactive_bg: Color::Rgb(0x1E, 0x1E, 0x1E),
-        text: Color::Rgb(0xD8, 0xD8, 0xD8),
+        text: Color::Rgb(0xCF, 0xCF, 0xCF),
     },
 };
 
@@ -34,7 +34,7 @@ pub const LIGHT_THEME: Theme = Theme {
     dark: false,
     primary: Color::Rgb(0x1E, 0x90, 0xFF),
     secondary: Color::Rgb(0x66, 0x66, 0x66),
-    border: Color::Rgb(0x22, 0x22, 0x22),
+    border: Color::Rgb(0x1A, 0x1A, 0x1A),
     background: Color::Rgb(0xF5, 0xF5, 0xF5),
     surface: Color::Rgb(0xFF, 0xFF, 0xFF),
     text: Color::Rgb(0x1A, 0x1A, 0x1A),

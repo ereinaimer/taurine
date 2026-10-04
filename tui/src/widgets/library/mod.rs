@@ -24,9 +24,9 @@ pub(crate) const MAX_SPLIT_RATIO: f32 = 1.0;
 pub(crate) const MIN_DETAIL_RATIO: f32 = 0.0;
 pub(crate) const MAX_DETAIL_RATIO: f32 = 1.0;
 /// Divider highlight on hover and while dragging: one small step above the
-/// `#222222` border so the affordance stays subtle.
+/// `#1a1a1a` border so the affordance stays subtle.
 pub(crate) const DIVIDER_HOVER_COLOR: ratatui::style::Color =
-    ratatui::style::Color::Rgb(0x2E, 0x2E, 0x2E);
+    ratatui::style::Color::Rgb(0x24, 0x24, 0x24);
 
 /// Panes have no minimum widths: dragging a divider to an edge parks
 /// the pane at zero, and the divider line stays rendered on that edge
