@@ -96,6 +96,7 @@ pub(crate) struct LibraryPageState {
     last_edit_at: Option<u64>,
     content_width: u16,
     last_divider_click: Option<(super::DividerSide, u64)>,
+    last_content_click: Option<(u64, String, usize, usize)>,
 }
 
 /// Double-click window for divider reset, mirroring the overlay.
@@ -133,6 +134,7 @@ impl Default for LibraryPageState {
             last_edit_at: None,
             content_width: 0,
             last_divider_click: None,
+            last_content_click: None,
         }
     }
 }

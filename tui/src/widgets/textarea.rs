@@ -532,6 +532,54 @@ impl TextArea {
         self.col = col.min(self.lines[self.row].chars().count());
         self.collapse();
     }
+
+    /// Anchor a mouse drag: caret and selection origin together, so a
+    /// bare press shows no selection until the pointer moves.
+    pub(crate) fn begin_select(&mut self, row: usize, col: usize) {
+        self.row = row.min(self.lines.len().saturating_sub(1));
+        self.clamp_col();
+        self.col = col.min(self.lines[self.row].chars().count());
+        self.anchor = Some((self.row, self.col));
+    }
+
+    /// Stretch a drag selection to the pointer, keeping the origin.
+    /// A missing origin (no press seen) falls back to the old caret,
+    /// mirroring the keyboard extend path.
+    pub(crate) fn extend_select(&mut self, row: usize, col: usize) {
+        let caret = (self.row, self.col);
+        self.anchor.get_or_insert(caret);
+        self.row = row.min(self.lines.len().saturating_sub(1));
+        self.clamp_col();
+        self.col = col.min(self.lines[self.row].chars().count());
+    }
+
+    /// Select the word under (row, col), e.g. on double-click. A probe
+    /// on a separator collapses instead of grabbing neighbors.
+    pub(crate) fn select_word_at(&mut self, row: usize, col: usize) {
+        self.row = row.min(self.lines.len().saturating_sub(1));
+        self.clamp_col();
+        self.col = col.min(self.lines[self.row].chars().count());
+        let chars: Vec<char> = self.lines[self.row].chars().collect();
+        let probe = if self.col < chars.len() {
+            self.col
+        } else {
+            self.col.saturating_sub(1)
+        };
+        if chars.get(probe).is_none_or(|ch| !Self::is_word_char(*ch)) {
+            self.collapse();
+            return;
+        }
+        let mut start = probe;
+        while start > 0 && Self::is_word_char(chars[start - 1]) {
+            start -= 1;
+        }
+        let mut end = probe.saturating_add(1);
+        while end < chars.len() && Self::is_word_char(chars[end]) {
+            end += 1;
+        }
+        self.anchor = Some((self.row, start));
+        self.col = end;
+    }
 }
 
 fn byte_index(value: &str, char_index: usize) -> usize {
@@ -744,5 +792,34 @@ mod tests {
         assert_eq!(area.text(), "abX\nYZ");
         assert!(area.undo());
         assert_eq!(area.text(), "ab");
+    }
+
+    #[test]
+    fn drag_selects_from_anchor_to_pointer() {
+        let mut area = TextArea::new("abc\ndef");
+        area.begin_select(0, 1);
+        assert!(!area.has_selection());
+        area.extend_select(1, 2);
+        assert_eq!(area.selected_text().as_deref(), Some("bc\nde"));
+        assert_eq!(area.cursor(), (1, 2));
+    }
+
+    #[test]
+    fn extend_without_anchor_starts_from_caret() {
+        let mut area = TextArea::new("abcdef");
+        area.place(0, 2);
+        area.extend_select(0, 5);
+        assert_eq!(area.selected_text().as_deref(), Some("cde"));
+    }
+
+    #[test]
+    fn double_click_selects_word_only() {
+        let mut area = TextArea::new("foo bar baz");
+        area.select_word_at(0, 5);
+        assert_eq!(area.selected_text().as_deref(), Some("bar"));
+        area.select_word_at(0, 3);
+        assert!(!area.has_selection());
+        area.select_word_at(0, 11);
+        assert_eq!(area.selected_text().as_deref(), Some("baz"));
     }
 }

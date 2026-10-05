@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Snippet Editor Shortcuts**: The content editor now selects with Shift+arrows and Ctrl+A, jumps by word, deletes whole words, indents with Tab, pastes from the clipboard, and undoes per keystroke. Ctrl+C copies a selection, otherwise it still quits.
 - **Word Wrap in Snippet Preview**: Long snippet text now breaks between whole words instead of cutting them mid-word.
 - **Taurine Tab Title**: The terminal tab reads Taurine while the TUI or its dialogs run, restoring your previous title on exit.
+- **Mouse Text Selection**: Drag across the snippet body to select text, or double-click a word to select only it, ready for Ctrl+X/C/V.
 - **Voice Confirmation Toggle**: Click the Confirm row in properties to turn voice confirmation on or off, just like the Auto case switch.
 
 ### Removed

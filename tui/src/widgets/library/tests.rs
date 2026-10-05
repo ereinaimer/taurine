@@ -1515,6 +1515,88 @@ fn content_edit_hit_maps_wrapped_rows_to_source() {
 }
 
 #[test]
+fn content_click_anchors_and_double_click_selects_word() {
+    let mut state = sample_state();
+    // "Good Morning" body on the gm row.
+    assert!(state.select_by_id("id-gm"));
+    let id = state
+        .item_at_filtered(state.selected_index().expect("selection"))
+        .expect("item")
+        .id()
+        .to_string();
+    // Single press opens the edit with no selection.
+    let interaction = state.click_content_cell(&id, 0, 2, 1000);
+    assert!(interaction.pending_edit().is_none());
+    assert!(state.edit().is_some());
+    assert!(!state.has_content_selection());
+    // Slow second press re-anchors instead of selecting.
+    let interaction = state.click_content_cell(&id, 0, 7, 5000);
+    assert!(interaction.pending_edit().is_none());
+    assert!(!state.has_content_selection());
+    assert_eq!(state.edit().expect("editing").body().cursor(), (0, 7));
+    // Fast second press on the same cell selects the word.
+    let interaction = state.click_content_cell(&id, 0, 7, 5200);
+    assert!(interaction.pending_edit().is_none());
+    assert_eq!(
+        state
+            .edit()
+            .expect("editing")
+            .body()
+            .selected_text()
+            .as_deref(),
+        Some("Morning")
+    );
+}
+
+#[test]
+fn content_drag_stretches_selection_to_pointer() {
+    let mut state = sample_state();
+    assert!(state.select_by_id("id-gm"));
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let id = state
+        .item_at_filtered(state.selected_index().expect("selection"))
+        .expect("item")
+        .id()
+        .to_string();
+    // Drags with no live edit never open one.
+    state.drag_content_select(area, state.split_ratio(), state.detail_ratio(), 40, 12);
+    assert!(state.edit().is_none());
+    // Anchor at source origin, then drag to a later text cell found
+    // through the real hit path.
+    state.click_content_cell(&id, 0, 0, 1000);
+    let mut target = None;
+    for row in 0..30 {
+        for column in 0..100 {
+            if let Some(detail::DetailHit::ContentEditAt { row: 0, col }) = detail::hit_test(
+                area,
+                state.split_ratio(),
+                state.detail_ratio(),
+                &state,
+                column,
+                row,
+            ) && col >= 4
+            {
+                target = Some((column, row));
+                break;
+            }
+        }
+        if target.is_some() {
+            break;
+        }
+    }
+    let (column, row) = target.expect("text cell");
+    state.drag_content_select(area, state.split_ratio(), state.detail_ratio(), column, row);
+    assert!(state.has_content_selection());
+    // Drags outside the center column leave the selection alone.
+    let before = state.edit().expect("editing").body().selected_text();
+    state.drag_content_select(area, state.split_ratio(), state.detail_ratio(), 0, row);
+    assert_eq!(
+        state.edit().expect("editing").body().selected_text(),
+        before
+    );
+}
+
+#[test]
 fn content_source_cell_folds_wrapped_chunks() {
     let item = LibraryTrigger::single(list_item(
         "id-long",

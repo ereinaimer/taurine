@@ -438,6 +438,21 @@ fn handle_tui_mouse_event(
                 let full = terminal::mouse::library_full_area(layout.page);
                 drag_divider_to(app, full, mouse.column);
             }
+            // honey: content-box drags stretch the body selection;
+            // divider drags never reach here as text.
+            if app.active_page() == Page::Library && app.library_page().divider_drag().is_none() {
+                let layout = terminal::mouse::frame_layout(area);
+                let full = terminal::mouse::library_full_area(layout.page);
+                let page = app.library_page();
+                let (list_ratio, props_ratio) = (page.split_ratio(), page.detail_ratio());
+                app.library_page_mut().drag_content_select(
+                    full,
+                    list_ratio,
+                    props_ratio,
+                    mouse.column,
+                    mouse.row,
+                );
+            }
         }
         MouseEventKind::Up(_) => {
             if app.active_page() == Page::Library {
@@ -568,8 +583,17 @@ fn handle_tui_mouse_event(
                                                         scroll + row,
                                                         col,
                                                     );
-                                                app.library_page_mut()
-                                                    .start_content_edit_at(srow, scol)
+                                                // honey: second fast press on
+                                                // the cell selects the word,
+                                                // otherwise the press anchors
+                                                // a drag selection.
+                                                let now = library::now_millis();
+                                                app.library_page_mut().click_content_cell(
+                                                    item.id(),
+                                                    srow,
+                                                    scol,
+                                                    now,
+                                                )
                                             }
                                             None => library::LibraryInteraction::handled(),
                                         }

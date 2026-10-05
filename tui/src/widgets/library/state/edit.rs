@@ -4,6 +4,9 @@ use crate::widgets::field::TextField;
 use crate::widgets::library::actions::LibraryInteraction;
 use crate::widgets::textarea::TextArea;
 
+/// Double-click window for word selection in the content box.
+pub(crate) const CONTENT_DOUBLE_CLICK_MS: u64 = 500;
+
 /// Which trigger part an edit session targets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EditTarget {
@@ -167,6 +170,100 @@ impl super::LibraryPageState {
             edit.body.place(row, col);
         }
         flush
+    }
+
+    /// Content-box press anchors a drag selection: same caret landing
+    /// as a plain click, plus a selection origin so motion selects.
+    pub(crate) fn start_content_select_at(&mut self, row: usize, col: usize) -> LibraryInteraction {
+        let interaction = self.start_content_edit_at(row, col);
+        if let Some(edit) = self
+            .edit
+            .as_mut()
+            .filter(|edit| edit.target == EditTarget::Content)
+        {
+            edit.body.begin_select(row, col);
+        }
+        interaction
+    }
+
+    /// Stretch a live drag selection to new source coords. No-ops
+    /// outside a body edit, so stray motion never opens a session.
+    pub(crate) fn extend_content_select_to(&mut self, row: usize, col: usize) {
+        self.move_content_caret(|body| body.extend_select(row, col));
+    }
+
+    /// Double-click selects the word under the press, opening a body
+    /// edit first when the box is still preview.
+    pub(crate) fn select_content_word_at(&mut self, row: usize, col: usize) -> LibraryInteraction {
+        let interaction = self.start_content_edit_at(row, col);
+        self.move_content_caret(|body| body.select_word_at(row, col));
+        interaction
+    }
+
+    /// Content-box press routing: a second fast press on the same cell
+    /// of the same trigger selects the word, anything else anchors a
+    /// fresh drag. Source coords keep the window stable across scroll.
+    pub(crate) fn click_content_cell(
+        &mut self,
+        trigger_id: &str,
+        row: usize,
+        col: usize,
+        now: u64,
+    ) -> LibraryInteraction {
+        let double = matches!(&self.last_content_click, Some((at, id, r, c))
+            if id.as_str() == trigger_id
+                && *r == row
+                && *c == col
+                && now.saturating_sub(*at) <= CONTENT_DOUBLE_CLICK_MS);
+        self.last_content_click = if double {
+            None
+        } else {
+            Some((now, trigger_id.to_string(), row, col))
+        };
+        if double {
+            self.select_content_word_at(row, col)
+        } else {
+            self.start_content_select_at(row, col)
+        }
+    }
+
+    /// Mouse drag over the center pane stretches the live content
+    /// selection to the pointer (edge-clamped); no-ops outside a body
+    /// edit so divider drags never select.
+    pub(crate) fn drag_content_select(
+        &mut self,
+        area: ratatui::layout::Rect,
+        list_ratio: f32,
+        props_ratio: f32,
+        column: u16,
+        row: u16,
+    ) {
+        if self
+            .edit
+            .as_ref()
+            .is_none_or(|edit| edit.target != EditTarget::Content)
+        {
+            return;
+        }
+        let Some(selected) = self.selected_index() else {
+            return;
+        };
+        let Some(item) = self.item_at_filtered(selected).cloned() else {
+            return;
+        };
+        let scroll = self.detail_scroll;
+        let Some((srow, scol)) = crate::widgets::library::detail::content_clamped_cell(
+            area,
+            list_ratio,
+            props_ratio,
+            &item,
+            scroll,
+            column,
+            row,
+        ) else {
+            return;
+        };
+        self.extend_content_select_to(srow, scol);
     }
 
     fn selected_item_text(&self, target: EditTarget) -> Option<String> {

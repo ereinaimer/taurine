@@ -156,6 +156,34 @@ pub(crate) fn hit_test(
     None
 }
 
+/// Pointer mapped onto source coords with edge clamping, so drags
+/// past the box stretch the selection to the nearest edge instead of
+/// dying. None when the pane is degenerate or the pointer sits
+/// outside the center column, so dividers and side panes never select.
+pub(crate) fn content_clamped_cell(
+    area: Rect,
+    list_ratio: f32,
+    props_ratio: f32,
+    item: &LibraryTrigger,
+    scroll: usize,
+    column: u16,
+    row: u16,
+) -> Option<(usize, usize)> {
+    let content = center_content(area, list_ratio, props_ratio);
+    if content.width < 5 || content.height == 0 {
+        return None;
+    }
+    if column < content.x || column >= content.x.saturating_add(content.width) {
+        return None;
+    }
+    let width = content_text_width(content.width);
+    let text_top = content.y.saturating_add(CONTENT_BOX_TOP).saturating_add(1);
+    let rel = (row.saturating_sub(text_top) as usize).min(CONTENT_INNER_HEIGHT.saturating_sub(1));
+    let text_x = content.x.saturating_add(2);
+    let col = (column.saturating_sub(text_x) as usize).min(width as usize);
+    Some(content_source_cell(item, width, scroll + rel, col))
+}
+
 /// True when the cell sits inside the center-pane content area.
 pub(crate) fn detail_contains(
     area: Rect,
