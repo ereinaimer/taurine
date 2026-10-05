@@ -1472,6 +1472,7 @@ fn test_record_expansion_usage_updates_trigger_and_stats() {
     crate::db::crud::record_trigger_stat_with_conn(
         &mut conn,
         &crate::db::crud::TriggerStatEvent {
+            trigger_id: None,
             trigger: Some("m".to_string()),
             trigger_chars: 1,
             success: true,

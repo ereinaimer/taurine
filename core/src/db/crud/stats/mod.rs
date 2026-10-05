@@ -14,7 +14,7 @@ pub use app_stats::{
 };
 pub use recorder::{
     TriggerStatEvent, record_trigger_stat, record_trigger_stat_with_conn,
-    record_voice_dictation_usage, record_voice_trigger_usage,
+    record_voice_dictation_usage, record_voice_trigger_usage, resolve_trigger_id,
 };
 pub use stat_delete::delete_stat;
 pub use stat_get::{get_stat, get_stat_counters};
@@ -35,6 +35,7 @@ pub fn record_calculation_usage(output_len: usize, delete_count: usize, left_arr
         .saturating_sub(left_arrow_count)
         .saturating_sub(2);
     record_trigger_stat(TriggerStatEvent {
+        trigger_id: None,
         trigger: None,
         trigger_chars,
         success: output_len > 0,
@@ -224,6 +225,7 @@ mod tests {
         record_trigger_stat_with_conn(
             &mut conn,
             &TriggerStatEvent {
+                trigger_id: None,
                 trigger: None,
                 trigger_chars: 0,
                 success: true,
@@ -268,6 +270,7 @@ mod tests {
         record_trigger_stat_with_conn(
             &mut conn,
             &TriggerStatEvent {
+                trigger_id: None,
                 trigger: Some("gm".to_string()),
                 trigger_chars: 2,
                 success: true,
@@ -302,6 +305,7 @@ mod tests {
         record_trigger_stat_with_conn(
             &mut conn,
             &TriggerStatEvent {
+                trigger_id: None,
                 trigger: None,
                 trigger_chars: 0,
                 success: true,
@@ -317,6 +321,7 @@ mod tests {
         record_trigger_stat_with_conn(
             &mut conn,
             &TriggerStatEvent {
+                trigger_id: None,
                 trigger: None,
                 trigger_chars: 0,
                 success: true,
@@ -346,6 +351,7 @@ mod tests {
         record_trigger_stat_with_conn(
             &mut conn,
             &TriggerStatEvent {
+                trigger_id: None,
                 trigger: None,
                 trigger_chars: 2,
                 success: true,
@@ -375,6 +381,7 @@ mod tests {
         record_trigger_stat_with_conn(
             &mut conn,
             &TriggerStatEvent {
+                trigger_id: None,
                 trigger: Some("launch notes".to_string()),
                 trigger_chars: 12,
                 success: true,
@@ -391,6 +398,7 @@ mod tests {
         record_trigger_stat_with_conn(
             &mut conn,
             &TriggerStatEvent {
+                trigger_id: None,
                 trigger: None,
                 trigger_chars: 0,
                 success: true,

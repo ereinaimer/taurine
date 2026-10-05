@@ -678,6 +678,7 @@ fn record_inline_ai_completion(output_chars: usize) {
 
     let app = crate::platform::capture_active_app();
     taurine_core::db::crud::record_trigger_stat(taurine_core::db::crud::TriggerStatEvent {
+        trigger_id: None,
         trigger: None,
         trigger_chars: 0,
         success: true,

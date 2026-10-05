@@ -202,6 +202,7 @@ pub(crate) fn dispatch_expansion_with<I, L>(
     if track_usage && stat_kind != taurine_core::db::crud::TriggerStatKind::InlineAi {
         let app = crate::platform::capture_active_app();
         taurine_core::db::crud::record_trigger_stat(taurine_core::db::crud::TriggerStatEvent {
+            trigger_id: None,
             trigger: Some(trigger.clone()),
             trigger_chars: trigger.chars().count(),
             success: injection.completed,

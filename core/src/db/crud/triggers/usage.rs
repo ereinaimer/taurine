@@ -20,6 +20,7 @@ pub fn record_expansion_usage(
     _left_arrow_count: usize,
 ) {
     crate::db::crud::record_trigger_stat(crate::db::crud::TriggerStatEvent {
+        trigger_id: None,
         trigger: Some(trigger.to_string()),
         trigger_chars: trigger.chars().count(),
         success: output_len > 0,
