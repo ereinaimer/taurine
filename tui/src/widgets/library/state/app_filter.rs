@@ -13,8 +13,16 @@ pub(crate) const APP_FILTER_MAX_H: u16 = 18;
 /// Line budget for measuring content; the fitted popup converges on it.
 pub(crate) const APP_FILTER_MAX_LINES: u16 = 11;
 
+/// Reserved body lines: title, blank, gap, search.
+pub(crate) const APP_FILTER_RESERVED_LINES: u16 = 4;
+
+/// Rows start below the title and one blank line.
+pub(crate) const APP_FILTER_ROWS_TOP: u16 = 2;
+
 pub(crate) fn app_filter_popup(area: Rect, content_lines: u16) -> Rect {
-    let height = content_lines.saturating_add(7).min(APP_FILTER_MAX_H);
+    // honey: title + blank + rows + gap + search + two margin rows;
+    // the row budget below converges on this exactly, so no dead space.
+    let height = content_lines.saturating_add(6).min(APP_FILTER_MAX_H);
     crate::widgets::util::centered_rect(APP_FILTER_POPUP_W, height, area)
 }
 
@@ -24,18 +32,21 @@ pub(crate) fn app_filter_body(popup: Rect) -> Rect {
     popup.inner(Margin::new(1, 1))
 }
 
+/// Shared overlay geometry: fitted popup, body, and row-line budget.
+/// Render, click, and hover all run off this so rows land as drawn.
+pub(crate) fn app_filter_geometry(area: Rect, menu: &LibraryAppFilterState) -> (Rect, Rect, u16) {
+    let popup = app_filter_popup(area, menu.content_lines());
+    let body = app_filter_body(popup);
+    let max_lines = body.height.saturating_sub(APP_FILTER_RESERVED_LINES);
+    (popup, body, max_lines)
+}
+
 /// Foreground cap: Z-order truncation is free most-recent-first,
 /// and stored filters always show regardless of the cap.
 pub(crate) const MAX_FOREGROUND_APPS: usize = 8;
 
-/// Reserved body lines: title, blank, pad, gap, search (pinned bottom).
-pub(crate) const APP_FILTER_RESERVED_LINES: u16 = 5;
-
-/// Rows start below the title, blank, and pad lines.
-pub(crate) const APP_FILTER_ROWS_TOP: u16 = 3;
-
-/// Left-pane content padding on every side: one cell in from the
-/// body edge, the divider, the top, and the search gap.
+/// Left-pane content padding: one cell in from the body edge and
+/// the divider; rows and search share it.
 pub(crate) const APP_FILTER_PAD: u16 = 1;
 
 /// Pane split in body columns: left width, divider column, right

@@ -478,8 +478,7 @@ impl LibraryPageState {
         let Some(LibraryModal::AppFilter(mut menu)) = self.modal.take() else {
             return LibraryInteraction::handled();
         };
-        let popup = app_filter_popup(area, menu.content_lines());
-        let body = app_filter_body(popup);
+        let (_, body, max_lines) = app_filter_geometry(area, &menu);
         // honey: an outside click closes by leaving the taken modal
         // dropped; picks keep the menu open across live writes.
         if body.width == 0
@@ -489,7 +488,6 @@ impl LibraryPageState {
         {
             return LibraryInteraction::handled();
         }
-        let max_lines = body.height.saturating_sub(APP_FILTER_RESERVED_LINES);
         menu.set_view_lines(body.height);
         // honey: the search box sits exactly one blank line below the
         // visible rows; a click there places the caret, exactly like
@@ -506,8 +504,9 @@ impl LibraryPageState {
             self.modal = Some(LibraryModal::AppFilter(menu));
             return LibraryInteraction::handled();
         }
-        // honey: the blank line under the title is dead; saturating
-        // math would otherwise fold it onto the first row.
+        // honey: rows start below the title blank; the outside
+        // guard above already closes title-row clicks, and the blank
+        // line stays dead so saturating math never folds it onto row 0.
         if row < body.y.saturating_add(APP_FILTER_ROWS_TOP) {
             self.modal = Some(LibraryModal::AppFilter(menu));
             return LibraryInteraction::handled();
@@ -551,8 +550,7 @@ impl LibraryPageState {
         let Some(LibraryModal::AppFilter(menu)) = self.modal.as_mut() else {
             return;
         };
-        let popup = app_filter_popup(area, menu.content_lines());
-        let body = app_filter_body(popup);
+        let (_, body, max_lines) = app_filter_geometry(area, menu);
         if body.width == 0
             || column < body.x
             || column >= body.x.saturating_add(body.width)
@@ -560,7 +558,6 @@ impl LibraryPageState {
         {
             return;
         }
-        let max_lines = body.height.saturating_sub(APP_FILTER_RESERVED_LINES);
         let rel = row.saturating_sub(body.y.saturating_add(APP_FILTER_ROWS_TOP));
         if let Some(hit) = menu.row_at(max_lines, rel) {
             menu.set_cursor(hit);
