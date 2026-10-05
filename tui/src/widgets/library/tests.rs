@@ -2286,56 +2286,133 @@ fn platform_menu_confirm_persists_db_value() {
     assert!(state.modal().is_none());
 }
 
-fn tags_menu(trigger_tags: &[&str], all_tags: &[&str]) -> LibraryTagsModalState {
+fn tags_menu(trigger_tags: &[&str]) -> LibraryTagsModalState {
     LibraryTagsModalState::new(
         "id-tags".to_string(),
         0,
         trigger_tags.iter().map(|tag| tag.to_string()).collect(),
-        all_tags.iter().map(|tag| tag.to_string()).collect(),
     )
 }
 
 #[test]
-fn tags_menu_filters_unchecked_by_substring() {
-    let mut menu = tags_menu(&["work"], &["work", "home", "play"]);
-    assert_eq!(menu.visible(), vec!["home", "play"]);
-    menu.push_filter('o');
-    assert_eq!(menu.visible(), vec!["home"]);
-    menu.push_filter('r');
-    assert!(menu.visible().is_empty());
+fn tags_menu_confirm_saves_typed_tag() {
+    let mut menu = tags_menu(&["work"]);
+    menu.start_input();
+    for ch in "dev".chars() {
+        menu.push_input(ch);
+    }
+    let InputConfirm::Save(pending) = menu.confirm_input() else {
+        panic!("typed tag saves");
+    };
+    assert_eq!(
+        pending.field,
+        EditedField::Tags(vec!["work".to_string(), "dev".to_string()])
+    );
 }
 
 #[test]
-fn tags_menu_add_selected_appends() {
-    let mut menu = tags_menu(&["work"], &["work", "home"]);
-    menu.push_filter('h');
-    let pending = menu.add_selected().expect("pending add");
+fn tags_menu_confirm_validates_input() {
+    let mut empty = tags_menu(&[]);
+    empty.start_input();
+    assert_eq!(empty.confirm_input(), InputConfirm::Cancel);
+    assert!(!empty.input_active());
+
+    let mut dup = tags_menu(&["work"]);
+    dup.start_input();
+    for ch in "WORK".chars() {
+        dup.push_input(ch);
+    }
+    assert!(matches!(dup.confirm_input(), InputConfirm::Invalid(_)));
+    assert!(dup.input_active());
+    assert!(dup.error().is_some());
+
+    let mut long = tags_menu(&[]);
+    long.start_input();
+    for _ in 0..51 {
+        long.push_input('a');
+    }
+    assert!(matches!(long.confirm_input(), InputConfirm::Invalid(_)));
+    assert!(long.input_active());
+}
+
+#[test]
+fn tags_menu_char_opens_input_and_types() {
+    let mut state = sample_state();
+    state.modal = Some(LibraryModal::Tags(tags_menu(&["work"])));
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+    assert!(interaction.pending_edit().is_none());
+    let Some(LibraryModal::Tags(menu)) = state.modal() else {
+        panic!("tags menu open");
+    };
+    assert!(menu.input_active());
+    assert_eq!(menu.input().text(), "d");
+}
+
+#[test]
+fn tags_menu_empty_state_reports_none() {
+    assert!(tags_menu(&[]).is_empty());
+    assert!(!tags_menu(&["work"]).is_empty());
+    assert_eq!(TAGS_EMPTY_LINE, "No tags available");
+}
+
+#[test]
+fn tags_menu_chip_colors_match_props_row() {
+    use crate::theme::builtin::DARK_THEME;
+    use crate::widgets::library::props::tag_color;
+
+    // honey: overlay chips reuse the Properties pane color by tag
+    // position, text only with no background.
+    for index in 0..7 {
+        let style = tag_style(&DARK_THEME, index);
+        assert_eq!(style.fg, Some(tag_color(&DARK_THEME, index)));
+        assert_eq!(style.bg, None);
+    }
     assert_eq!(
-        pending.field,
-        EditedField::Tags(vec!["work".to_string(), "home".to_string()])
+        tag_style(&DARK_THEME, 0),
+        tag_style(&DARK_THEME, 5),
+        "palette cycles every five tags like the props row"
     );
-    // Cursor row already checked resolves to no persist.
-    let menu = tags_menu(&["work", "home"], &["work", "home"]);
-    assert!(menu.add_selected().is_none());
 }
 
 #[test]
 fn tags_menu_chip_layout_wraps() {
-    let menu = tags_menu(&["work", "home"], &["work", "home"]);
+    let menu = tags_menu(&["work", "home"]);
     let cells = menu.chip_cells(50);
     assert_eq!(cells.len(), 2);
     assert_eq!(cells[0].x, 0);
     assert_eq!(cells[0].width, 5);
-    assert_eq!(menu.add_row_y(50), 1);
+    assert_eq!(menu.plus_row_y(50), 0);
     let narrow = menu.chip_cells(8);
     assert_eq!(narrow[0].y, 0);
     assert_eq!(narrow[1].y, 1);
-    assert_eq!(menu.add_row_y(8), 2);
+    assert_eq!(menu.plus_row_y(8), 1);
+}
+
+#[test]
+fn tags_menu_chip_hit_matches_cell_not_row() {
+    let menu = tags_menu(&["work", "home"]);
+    // Width 50: `work` at x0 w5, `home` at x7 w5.
+    let hit = menu.chip_at(50, 8, 0, 8).expect("home cell");
+    assert_eq!(hit.index, 1);
+    assert!(menu.chip_at(50, 8, 0, 5).is_none());
+    assert!(menu.chip_at(50, 8, 1, 0).is_none());
+    // The `+` row reads no chip.
+    let (plus_x, plus_y) = menu.plus_cell(50);
+    assert!(menu.chip_at(50, 8, plus_y, plus_x).is_none());
+}
+
+#[test]
+fn tags_menu_hover_clamps_to_chips() {
+    let mut menu = tags_menu(&["work"]);
+    menu.set_hover(Some(0));
+    assert_eq!(menu.hover(), Some(0));
+    menu.set_hover(Some(9));
+    assert_eq!(menu.hover(), None);
 }
 
 #[test]
 fn tags_menu_focus_walks_chips_and_add_row() {
-    let mut menu = tags_menu(&["work", "home"], &["work", "home"]);
+    let mut menu = tags_menu(&["work", "home"]);
     menu.move_focus(50, 1, 0);
     assert_eq!(menu.focus(), 1);
     menu.move_focus(50, 1, 0);
@@ -2350,51 +2427,21 @@ fn tags_menu_focus_walks_chips_and_add_row() {
 }
 
 #[test]
-fn tags_menu_create_validates_filter() {
-    let mut menu = tags_menu(&["work"], &["work", "home"]);
-    for ch in "newtag".chars() {
-        menu.push_filter(ch);
-    }
-    assert!(menu.visible().is_empty());
-    let pending = menu.create_from_filter().expect("pending create");
-    assert_eq!(
-        pending.field,
-        EditedField::Tags(vec!["work".to_string(), "newtag".to_string()])
-    );
-
-    let mut blank = tags_menu(&[], &["work"]);
-    blank.push_filter(' ');
-    assert!(blank.create_from_filter().is_none());
-
-    let mut dup = tags_menu(&["work"], &["work"]);
-    for ch in "WORK".chars() {
-        dup.push_filter(ch);
-    }
-    assert!(dup.create_from_filter().is_none());
-
-    let mut long = tags_menu(&[], &[]);
-    for _ in 0..51 {
-        long.push_filter('a');
-    }
-    assert!(long.create_from_filter().is_none());
-}
-
-#[test]
-fn tags_menu_esc_closes_enter_enters_add() {
+fn tags_menu_esc_closes_enter_opens_input() {
     let mut state = sample_state();
-    state.modal = Some(LibraryModal::Tags(tags_menu(&["work"], &["work"])));
+    state.modal = Some(LibraryModal::Tags(tags_menu(&["work"])));
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert!(interaction.pending_edit().is_none());
     assert!(state.modal().is_none());
 
     // Enter on a chip is a no-op; the menu lives on.
-    state.modal = Some(LibraryModal::Tags(tags_menu(&["work"], &["work"])));
+    state.modal = Some(LibraryModal::Tags(tags_menu(&["work"])));
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert!(interaction.pending_edit().is_none());
     assert!(state.modal().is_some());
 
-    // Enter on the `+` row opens the add step; Esc steps back.
-    let mut menu = tags_menu(&["work"], &["work"]);
+    // Enter on the `+` row opens the inline input; Esc closes it.
+    let mut menu = tags_menu(&["work"]);
     menu.set_focus(1);
     state.modal = Some(LibraryModal::Tags(menu));
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
@@ -2402,23 +2449,39 @@ fn tags_menu_esc_closes_enter_enters_add() {
     let Some(LibraryModal::Tags(menu)) = state.modal() else {
         panic!("tags menu open");
     };
-    assert_eq!(menu.view(), TagsView::Add);
+    assert!(menu.input_active());
     state.modal = Some(LibraryModal::Tags(menu.clone()));
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert!(interaction.pending_edit().is_none());
     let Some(LibraryModal::Tags(menu)) = state.modal() else {
         panic!("tags menu open");
     };
-    assert_eq!(menu.view(), TagsView::Chips);
+    assert!(!menu.input_active());
+}
+
+#[test]
+fn tags_menu_enter_saves_typed_input() {
+    let mut state = sample_state();
+    let mut menu = tags_menu(&["work"]);
+    menu.set_focus(1);
+    menu.start_input();
+    for ch in "dev".chars() {
+        menu.push_input(ch);
+    }
+    state.modal = Some(LibraryModal::Tags(menu));
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let pending = interaction.pending_edit().expect("pending save");
+    assert_eq!(
+        pending.field,
+        EditedField::Tags(vec!["work".to_string(), "dev".to_string()])
+    );
+    assert!(state.modal().is_some());
 }
 
 #[test]
 fn tags_menu_delete_removes_focused_chip() {
     let mut state = sample_state();
-    state.modal = Some(LibraryModal::Tags(tags_menu(
-        &["work", "home"],
-        &["work", "home"],
-    )));
+    state.modal = Some(LibraryModal::Tags(tags_menu(&["work", "home"])));
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE));
     let pending = interaction.pending_edit().expect("pending remove");
     assert_eq!(pending.field, EditedField::Tags(vec!["home".to_string()]));
@@ -2451,21 +2514,22 @@ fn tags_row_hit_opens_position() {
 
 #[test]
 fn tags_menu_remove_drops_checked_row() {
-    let menu = tags_menu(&["work", "home"], &["work", "home"]);
+    let menu = tags_menu(&["work", "home"]);
     let pending = menu.remove_at(1).expect("pending remove");
     assert_eq!(pending.field, EditedField::Tags(vec!["work".to_string()]));
-    assert!(tags_menu(&[], &["work"]).remove_at(0).is_none());
+    assert!(tags_menu(&[]).remove_at(0).is_none());
 }
 
 #[test]
-fn click_tags_menu_first_cell_removes_only_when_focused() {
+fn click_tags_menu_first_cell_removes_at_once() {
     let mut state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
     // Popup 56x14 centered with 3-cell body padding and one blank
-    // row: first chip row 11, its first cell 25; `+` row 12.
-    // Body click focuses without persisting; the close cell removes
-    // only once focused.
-    state.modal = Some(LibraryModal::Tags(tags_menu(&["work"], &["work", "home"])));
+    // row: first chip row 11, its first cell 25; `+` trails the
+    // chip on row 11.
+    // Body click parks focus without persisting; the close cell
+    // removes with a single click.
+    state.modal = Some(LibraryModal::Tags(tags_menu(&["work"])));
     let interaction = state.click_tags_menu(area, 26, 11);
     assert!(interaction.pending_edit().is_none());
     let Some(LibraryModal::Tags(menu)) = state.modal() else {
@@ -2478,20 +2542,77 @@ fn click_tags_menu_first_cell_removes_only_when_focused() {
     assert_eq!(pending.field, EditedField::Tags(Vec::new()));
     assert!(state.modal().is_some());
 
-    state.modal = Some(LibraryModal::Tags(tags_menu(&["work"], &["work", "home"])));
-    let interaction = state.click_tags_menu(area, 30, 12);
+    // Clicking the trailing `+` opens the inline input.
+    let mut menu = tags_menu(&["work"]);
+    menu.set_cloud_width(50);
+    let (plus_x, plus_y) = menu.plus_cell(50);
+    state.modal = Some(LibraryModal::Tags(menu));
+    let popup = crate::widgets::util::overlay_popup(area);
+    let body = crate::widgets::util::overlay_body(popup);
+    let interaction = state.click_tags_menu(
+        area,
+        body.x.saturating_add(plus_x),
+        body.y.saturating_add(2).saturating_add(plus_y),
+    );
     assert!(interaction.pending_edit().is_none());
     let Some(LibraryModal::Tags(menu)) = state.modal() else {
         panic!("tags menu open");
     };
-    assert_eq!(menu.view(), TagsView::Add);
+    assert!(menu.input_active());
+}
+
+#[test]
+fn click_tags_menu_empty_plus_opens_input() {
+    let mut state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    // Empty cloud: `No tags available  + ` with the button padded
+    // one cell each side; chip-row clicks do nothing.
+    state.modal = Some(LibraryModal::Tags(tags_menu(&[])));
+    let interaction = state.click_tags_menu(area, 25, 11);
+    assert!(interaction.pending_edit().is_none());
+    let Some(LibraryModal::Tags(menu)) = state.modal() else {
+        panic!("tags menu open");
+    };
+    assert!(!menu.input_active());
+    let popup = crate::widgets::util::overlay_popup(area);
+    let body = crate::widgets::util::overlay_body(popup);
+    let plus_x = menu.plus_hit_x(body.width);
+    state.modal = Some(LibraryModal::Tags(menu.clone()));
+    let interaction = state.click_tags_menu(
+        area,
+        body.x.saturating_add(plus_x),
+        body.y.saturating_add(2),
+    );
+    assert!(interaction.pending_edit().is_none());
+    let Some(LibraryModal::Tags(menu)) = state.modal() else {
+        panic!("tags menu open");
+    };
+    assert!(menu.input_active());
+}
+
+#[test]
+fn hover_tags_menu_tracks_chip_then_clears() {
+    let mut state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    state.modal = Some(LibraryModal::Tags(tags_menu(&["work"])));
+    state.hover_tags_menu(area, 26, 11);
+    let Some(LibraryModal::Tags(menu)) = state.modal() else {
+        panic!("tags menu open");
+    };
+    assert_eq!(menu.hover(), Some(0));
+    state.modal = Some(LibraryModal::Tags(menu.clone()));
+    state.hover_tags_menu(area, 10, 10);
+    let Some(LibraryModal::Tags(menu)) = state.modal() else {
+        panic!("tags menu open");
+    };
+    assert_eq!(menu.hover(), None);
 }
 
 #[test]
 fn click_tags_menu_outside_closes() {
     let mut state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
-    state.modal = Some(LibraryModal::Tags(tags_menu(&["work"], &["work"])));
+    state.modal = Some(LibraryModal::Tags(tags_menu(&["work"])));
     let interaction = state.click_tags_menu(area, 0, 0);
     assert!(interaction.pending_edit().is_none());
     assert!(state.modal().is_none());

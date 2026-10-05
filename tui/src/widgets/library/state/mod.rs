@@ -427,50 +427,87 @@ impl LibraryPageState {
             return LibraryInteraction::handled();
         }
         let max_rows = body.height.saturating_sub(3);
-        let (painted, add) = menu.paint_layout(body.width, max_rows);
-        let rel = row.saturating_sub(body.y.saturating_add(2)) as usize;
-        if Some(rel as u16) == add {
-            menu.enter_add();
+        let (_, add) = menu.paint_layout(body.width, max_rows);
+        let rel = row.saturating_sub(body.y.saturating_add(2));
+        let x = column.saturating_sub(body.x);
+        // honey: chips win over the `+` row; the trailing `+`
+        // shares its row with the last chip.
+        if let Some(cell) = menu.chip_at(body.width, max_rows, rel, x) {
+            if menu.input_active() {
+                // honey: clicking a chip while typing cancels the
+                // draft, then the click focuses as usual.
+                menu.cancel_input();
+            }
+            // honey: the close X lives in the chip's first cell on
+            // the hovered chip; one click removes it, no select
+            // step. Anywhere else on the chip parks focus.
+            let x_cell = body.x.saturating_add(cell.x);
+            menu.set_hover(Some(cell.index));
+            let interaction = if column == x_cell {
+                menu.remove_at(cell.index)
+                    .map(LibraryInteraction::edit)
+                    .unwrap_or_else(LibraryInteraction::handled)
+            } else {
+                menu.set_focus(cell.index);
+                LibraryInteraction::handled()
+            };
+            self.modal = Some(LibraryModal::Tags(menu));
+            return interaction;
+        }
+        if Some(rel) == add && (menu.input_active() || x == menu.plus_hit_x(body.width)) {
+            if menu.input_active() {
+                // honey: a click on the live input row places the
+                // caret; the `+` it replaced starts at plus_cell.
+                let (plus_x, _) = menu.plus_cell(body.width);
+                let column = column.saturating_sub(body.x.saturating_add(plus_x).saturating_add(1));
+                menu.place_input(column as usize);
+            } else {
+                menu.start_input();
+            }
             self.modal = Some(LibraryModal::Tags(menu));
             return LibraryInteraction::handled();
         }
-        let Some((cell, _)) = painted
-            .into_iter()
-            .find(|(_entry, rel_y)| *rel_y as usize == rel)
-        else {
-            self.modal = Some(LibraryModal::Tags(menu));
-            return LibraryInteraction::handled();
-        };
-        // honey: the close X lives in the chip's first cell, but only
-        // on the focused chip; anywhere else focuses first.
-        let x_cell = body.x.saturating_add(cell.x);
-        let interaction = if column == x_cell && menu.focus() == cell.index {
-            menu.remove_at(cell.index)
-                .map(LibraryInteraction::edit)
-                .unwrap_or_else(LibraryInteraction::handled)
-        } else {
-            menu.set_focus(cell.index);
-            LibraryInteraction::handled()
-        };
+        menu.set_hover(None);
         self.modal = Some(LibraryModal::Tags(menu));
-        interaction
+        LibraryInteraction::handled()
+    }
+
+    /// Mouse moves over an open tags menu reveal the close icon on
+    /// the hovered chip only; leaving the cloud hides it again.
+    pub(crate) fn hover_tags_menu(&mut self, area: ratatui::layout::Rect, column: u16, row: u16) {
+        let Some(LibraryModal::Tags(menu)) = self.modal.as_mut() else {
+            return;
+        };
+        let popup = crate::widgets::util::overlay_popup(area);
+        let body = crate::widgets::util::overlay_body(popup);
+        if body.width == 0
+            || column < body.x
+            || column >= body.x.saturating_add(body.width)
+            || row < body.y.saturating_add(2)
+        {
+            menu.set_hover(None);
+            return;
+        }
+        let max_rows = body.height.saturating_sub(3);
+        let rel = row.saturating_sub(body.y.saturating_add(2));
+        let x = column.saturating_sub(body.x);
+        menu.set_hover(
+            menu.chip_at(body.width, max_rows, rel, x)
+                .map(|cell| cell.index),
+        );
     }
 
     /// Opens the tags builder for the selected trigger, seeded with
-    /// its current tags and every known tag.
-    pub(crate) fn open_tags_modal(&mut self, all_tags: Vec<String>, cloud_width: u16) {
+    /// its current tags.
+    pub(crate) fn open_tags_modal(&mut self, cloud_width: u16) {
         let Some(selected) = self.selected_index() else {
             return;
         };
         let Some(item) = self.item_at_filtered(selected) else {
             return;
         };
-        let mut menu = LibraryTagsModalState::new(
-            item.id().to_string(),
-            selected,
-            item.tags().to_vec(),
-            all_tags,
-        );
+        let mut menu =
+            LibraryTagsModalState::new(item.id().to_string(), selected, item.tags().to_vec());
         menu.set_cloud_width(cloud_width);
         self.modal = Some(LibraryModal::Tags(menu));
     }
@@ -1070,8 +1107,8 @@ impl LibraryPageState {
             // `+` row. The add view owns the filter keystrokes.
             LibraryModal::Tags(mut state) => match (key.code, key.modifiers) {
                 (KeyCode::Esc, KeyModifiers::NONE) => {
-                    if state.view() == TagsView::Add {
-                        state.back_to_chips();
+                    if state.input_active() {
+                        state.cancel_input();
                         self.modal = Some(LibraryModal::Tags(state));
                     } else {
                         self.modal = None;
@@ -1079,64 +1116,55 @@ impl LibraryPageState {
                     LibraryInteraction::handled()
                 }
                 (KeyCode::Up, KeyModifiers::NONE) => {
-                    if state.view() == TagsView::Chips {
+                    if !state.input_active() {
                         let width = state.cloud_width();
                         state.move_focus(width, 0, -1);
-                    } else {
-                        state.move_cursor(-1);
                     }
                     self.modal = Some(LibraryModal::Tags(state));
                     LibraryInteraction::handled()
                 }
                 (KeyCode::Down, KeyModifiers::NONE) => {
-                    if state.view() == TagsView::Chips {
+                    if !state.input_active() {
                         let width = state.cloud_width();
                         state.move_focus(width, 0, 1);
-                    } else {
-                        state.move_cursor(1);
                     }
                     self.modal = Some(LibraryModal::Tags(state));
                     LibraryInteraction::handled()
                 }
                 (KeyCode::Left, KeyModifiers::NONE) => {
-                    if state.view() == TagsView::Chips {
+                    if state.input_active() {
+                        state.input_mut().move_left();
+                    } else {
                         let width = state.cloud_width();
                         state.move_focus(width, -1, 0);
-                        self.modal = Some(LibraryModal::Tags(state));
-                    } else {
-                        state.filter_mut().move_left();
-                        self.modal = Some(LibraryModal::Tags(state));
                     }
+                    self.modal = Some(LibraryModal::Tags(state));
                     LibraryInteraction::handled()
                 }
                 (KeyCode::Right, KeyModifiers::NONE) => {
-                    if state.view() == TagsView::Chips {
+                    if state.input_active() {
+                        state.input_mut().move_right();
+                    } else {
                         let width = state.cloud_width();
                         state.move_focus(width, 1, 0);
-                        self.modal = Some(LibraryModal::Tags(state));
-                    } else {
-                        state.filter_mut().move_right();
-                        self.modal = Some(LibraryModal::Tags(state));
                     }
+                    self.modal = Some(LibraryModal::Tags(state));
                     LibraryInteraction::handled()
                 }
                 (KeyCode::Enter, KeyModifiers::NONE) => {
-                    if state.view() == TagsView::Add {
-                        let interaction = if state.visible().is_empty() {
-                            state
-                                .create_from_filter()
-                                .map(LibraryInteraction::edit)
-                                .unwrap_or_else(LibraryInteraction::handled)
-                        } else {
-                            state
-                                .add_selected()
-                                .map(LibraryInteraction::edit)
-                                .unwrap_or_else(LibraryInteraction::handled)
-                        };
-                        self.modal = Some(LibraryModal::Tags(state));
-                        interaction
+                    if state.input_active() {
+                        match state.confirm_input() {
+                            crate::widgets::library::state::InputConfirm::Save(pending) => {
+                                self.modal = Some(LibraryModal::Tags(state));
+                                LibraryInteraction::edit(pending)
+                            }
+                            _ => {
+                                self.modal = Some(LibraryModal::Tags(state));
+                                LibraryInteraction::handled()
+                            }
+                        }
                     } else if state.focus_is_add_row() {
-                        state.enter_add();
+                        state.start_input();
                         self.modal = Some(LibraryModal::Tags(state));
                         LibraryInteraction::handled()
                     } else {
@@ -1144,35 +1172,37 @@ impl LibraryPageState {
                         LibraryInteraction::handled()
                     }
                 }
-                (KeyCode::Delete, KeyModifiers::NONE)
-                | (KeyCode::Backspace, KeyModifiers::NONE) => {
-                    if state.view() == TagsView::Chips {
+                (KeyCode::Delete, KeyModifiers::NONE) => {
+                    if state.input_active() {
+                        state.delete_input_at();
+                        self.modal = Some(LibraryModal::Tags(state));
+                        LibraryInteraction::handled()
+                    } else {
                         let interaction = state
                             .remove_focused()
                             .map(LibraryInteraction::edit)
                             .unwrap_or_else(LibraryInteraction::handled);
                         self.modal = Some(LibraryModal::Tags(state));
                         interaction
-                    } else if key.code == KeyCode::Backspace {
-                        state.backspace_filter();
-                        self.modal = Some(LibraryModal::Tags(state));
-                        LibraryInteraction::handled()
-                    } else {
-                        state.delete_filter_at();
-                        self.modal = Some(LibraryModal::Tags(state));
-                        LibraryInteraction::handled()
                     }
                 }
+                (KeyCode::Backspace, KeyModifiers::NONE) => {
+                    if state.input_active() {
+                        state.backspace_input();
+                    }
+                    self.modal = Some(LibraryModal::Tags(state));
+                    LibraryInteraction::handled()
+                }
                 (KeyCode::Home, KeyModifiers::NONE) => {
-                    if state.view() == TagsView::Add {
-                        state.filter_mut().move_home();
+                    if state.input_active() {
+                        state.input_mut().move_home();
                     }
                     self.modal = Some(LibraryModal::Tags(state));
                     LibraryInteraction::handled()
                 }
                 (KeyCode::End, KeyModifiers::NONE) => {
-                    if state.view() == TagsView::Add {
-                        state.filter_mut().move_end();
+                    if state.input_active() {
+                        state.input_mut().move_end();
                     }
                     self.modal = Some(LibraryModal::Tags(state));
                     LibraryInteraction::handled()
@@ -1180,9 +1210,10 @@ impl LibraryPageState {
                 (KeyCode::Char(ch), modifiers)
                     if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
                 {
-                    if state.view() == TagsView::Add {
-                        state.push_filter(ch);
+                    if !state.input_active() {
+                        state.start_input();
                     }
+                    state.push_input(ch);
                     self.modal = Some(LibraryModal::Tags(state));
                     LibraryInteraction::handled()
                 }

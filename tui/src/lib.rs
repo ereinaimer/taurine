@@ -374,6 +374,13 @@ fn handle_tui_mouse_event(
             handle_tui_key_event(app, scroll_key(mouse.kind == MouseEventKind::ScrollDown));
         }
         MouseEventKind::Moved => {
+            if app.active_page() == Page::Library && app.library_page().tags_menu_open() {
+                let layout = terminal::mouse::frame_layout(area);
+                let full = terminal::mouse::library_full_area(layout.page);
+                app.library_page_mut()
+                    .hover_tags_menu(full, mouse.column, mouse.row);
+                return;
+            }
             if modal_open || app.active_page() != Page::Library {
                 return;
             }
@@ -560,18 +567,9 @@ fn handle_tui_mouse_event(
                                 Some(library::props::PropsHit::Tags) => {
                                     let flush = app.library_page_mut().commit_edit();
                                     apply_library_interaction(app, flush);
-                                    match taurine_core::db::init::setup().and_then(|conn| {
-                                        taurine_core::db::crud::list_distinct_tags(&conn)
-                                            .map_err(Into::into)
-                                    }) {
-                                        Ok(all_tags) => {
-                                            app.library_page_mut().open_tags_modal(all_tags);
-                                        }
-                                        Err(error) => {
-                                            app.library_page_mut()
-                                                .set_save_error(error.to_string());
-                                        }
-                                    }
+                                    let popup = crate::widgets::util::overlay_popup(full);
+                                    let body = crate::widgets::util::overlay_body(popup);
+                                    app.library_page_mut().open_tags_modal(body.width);
                                 }
                                 None => {}
                             }

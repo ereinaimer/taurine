@@ -11,7 +11,7 @@ use crate::widgets::library::state::{
     LibraryDeleteModalState, LibraryExportModalField, LibraryExportModalState,
     LibraryExportResultModalState, LibraryHeaderMenuState, LibraryImportModalField,
     LibraryImportModalState, LibraryImportResultModalState, LibraryImportRunVariablesModalState,
-    LibraryModal, LibrarySelectState, LibraryTagsModalState, TagsView,
+    LibraryModal, LibrarySelectState, LibraryTagsModalState,
 };
 use crate::widgets::util::{self};
 
@@ -506,10 +506,10 @@ fn render_library_header_menu_modal(
     );
 }
 
-/// Tags builder overlay on the shared popup geometry: chips view
-/// shows the trigger's tags as a wrapping cloud with a `+ Add tag`
-/// row, the add view a fuzzy filter with matches. Same overlay
-/// language as the option menus (dark fill, title row).
+/// Tags builder overlay on the shared popup geometry: the
+/// trigger's tags as a wrapping cloud of colored chips with a `+`
+/// button trailing it; the `+` swaps for an inline `#` input while
+/// typing. Empty triggers show `No tags available. +`.
 fn render_library_tags_modal(
     frame: &mut Frame,
     area: Rect,
@@ -529,11 +529,7 @@ fn render_library_tags_modal(
     if body.width == 0 || body.height == 0 {
         return;
     }
-    if state.view() == TagsView::Chips {
-        render_tags_chips(frame, body, theme, state);
-    } else {
-        render_tags_add(frame, popup, body, theme, state);
-    }
+    render_tags_chips(frame, body, theme, state);
     // honey: no hint footer; errors alone take the bottom row so a
     // failed write stays visible inside the menu.
     if let Some(error) = state.error() {
@@ -554,18 +550,48 @@ fn render_library_tags_modal(
     }
 }
 
-/// Chips cloud: title row, wrapped `#tag <icon>` chips with the
-/// focused chip banded, `+ Add tag` action row below.
+/// Chips cloud: title row, one blank line, then wrapped `#tag`
+/// chips in the Properties pane colors (text only, no
+/// background), the `+` button trailing the cloud (or the live
+/// `#` input while typing). Only the hovered chip swaps its `#`
+/// for the close icon, in the same cell; keyboard focus
+/// underlines instead, keeping the color.
 fn render_tags_chips(frame: &mut Frame, body: Rect, theme: &Theme, state: &LibraryTagsModalState) {
+    use crate::widgets::library::state::{TAGS_EMPTY_LINE, tag_style};
+
     util::render_overlay_title(frame, body, theme, "Tags");
     // honey: one blank line separates the title from the cloud.
     let max_rows = body.height.saturating_sub(3);
-    let (painted, add) = state.paint_layout(body.width, max_rows);
     let origin_y = body.y.saturating_add(2);
+    if state.is_empty() && !state.input_active() {
+        let empty = format!("{TAGS_EMPTY_LINE} ");
+        let plus_focused = state.focus_is_add_row();
+        let plus_style = if plus_focused {
+            Style::default()
+                .fg(theme.text)
+                .bg(theme.surface)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme.text_muted)
+        };
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled(empty, Style::default().fg(theme.text_muted)),
+                Span::styled(" + ".to_string(), plus_style),
+            ])),
+            Rect {
+                x: body.x,
+                y: origin_y,
+                width: body.width,
+                height: 1,
+            },
+        );
+        return;
+    }
+    let (painted, add) = state.paint_layout(body.width, max_rows);
     // honey: bucket painted chips by relative row for one Paragraph
-    // per row; the focused chip swaps its `#` for the close X and
-    // carries the highlight band.
-    let mut rows: Vec<Vec<(u16, String, bool)>> = Vec::new();
+    // per row; every chip keeps its Properties pane text color.
+    let mut rows: Vec<Vec<(u16, String, Style)>> = Vec::new();
     for (cell, rel_y) in &painted {
         while rows.len() <= *rel_y as usize {
             rows.push(Vec::new());
@@ -575,35 +601,27 @@ fn render_tags_chips(frame: &mut Frame, body: Rect, theme: &Theme, state: &Libra
             .get(cell.index)
             .map(String::as_str)
             .unwrap_or_default();
-        // honey: the focused chip swaps its `#` for the close icon
-        // in the same cell, so nothing shifts.
-        let focused = state.focus() == cell.index;
-        let raw = if focused {
+        // honey: only the hovered chip swaps its `#` for the close
+        // icon, in the same cell so nothing shifts.
+        let hovered = state.hover() == Some(cell.index);
+        let raw = if hovered {
             format!("{}{tag}", crate::widgets::library::icons::CLOSE_ICON)
         } else {
             format!("#{tag}")
         };
         let avail = body.width.saturating_sub(cell.x).max(1);
         let shown = util::truncate_to_width(&raw, avail);
-        rows[*rel_y as usize].push((cell.x, shown, state.focus() == cell.index));
+        rows[*rel_y as usize].push((cell.x, shown, tag_style(theme, cell.index)));
     }
     for (offset, chips) in rows.iter().enumerate() {
         let mut spans = Vec::new();
         let mut cursor = 0u16;
-        for (x, text, focused) in chips {
+        for (x, text, style) in chips {
             if *x > cursor {
                 spans.push(Span::raw(" ".repeat(x.saturating_sub(cursor) as usize)));
                 cursor = *x;
             }
-            let style = if *focused {
-                Style::default()
-                    .fg(theme.text)
-                    .bg(theme.surface)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(theme.text)
-            };
-            spans.push(Span::styled(text.clone(), style));
+            spans.push(Span::styled(text.clone(), *style));
             cursor = cursor.saturating_add(text.chars().count() as u16);
         }
         let rest = (body.width as usize).saturating_sub(cursor as usize);
@@ -619,92 +637,51 @@ fn render_tags_chips(frame: &mut Frame, body: Rect, theme: &Theme, state: &Libra
         );
     }
     if let Some(add_rel) = add {
-        let focused = state.focus_is_add_row();
-        let style = if focused {
-            Style::default()
-                .fg(theme.text)
-                .bg(theme.surface)
-                .add_modifier(Modifier::BOLD)
+        let (plus_x, _) = state.plus_cell(body.width);
+        let row_y = origin_y.saturating_add(add_rel);
+        if state.input_active() {
+            // honey: the live `#` input replaces the `+` in place;
+            // the caret sits right after the `#`.
+            let avail = body.width.saturating_sub(plus_x).saturating_sub(1).max(1);
+            let (visible, caret) = state.input().window(avail);
+            frame.render_widget(
+                Paragraph::new(Line::from(vec![
+                    Span::styled("#".to_string(), Style::default().fg(theme.text)),
+                    Span::styled(visible.to_string(), Style::default().fg(theme.text)),
+                ])),
+                Rect {
+                    x: body.x.saturating_add(plus_x),
+                    y: row_y,
+                    width: body.width.saturating_sub(plus_x),
+                    height: 1,
+                },
+            );
+            let (caret_x, caret_y) = util::caret_position(
+                body.x.saturating_add(plus_x).saturating_add(1),
+                row_y,
+                caret,
+                avail,
+            );
+            frame.set_cursor_position((caret_x, caret_y));
         } else {
-            Style::default().fg(theme.text_muted)
-        };
-        frame.render_widget(
-            Paragraph::new(Line::from(Span::styled("+ Add tag".to_string(), style))),
-            Rect {
-                x: body.x,
-                y: origin_y.saturating_add(add_rel),
-                width: body.width,
-                height: 1,
-            },
-        );
+            let focused = state.focus_is_add_row();
+            let style = if focused {
+                Style::default()
+                    .fg(theme.text)
+                    .bg(theme.surface)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(theme.text_muted)
+            };
+            frame.render_widget(
+                Paragraph::new(Line::from(Span::styled("+".to_string(), style))),
+                Rect {
+                    x: body.x.saturating_add(plus_x),
+                    y: row_y,
+                    width: 1,
+                    height: 1,
+                },
+            );
+        }
     }
-}
-
-/// Add step: fuzzy filter with a real caret over single-line match
-/// rows, cursor band on the selection.
-fn render_tags_add(
-    frame: &mut Frame,
-    popup: Rect,
-    body: Rect,
-    theme: &Theme,
-    state: &LibraryTagsModalState,
-) {
-    use ratatui::widgets::{List, ListItem, ListState};
-
-    // honey: filter line with a real caret, mirroring the search box.
-    let filter_y = body.y.saturating_add(1);
-    if body.height > 2 {
-        let (visible, caret) = state.filter().window(body.width);
-        let gap = body.width.saturating_sub(visible.chars().count() as u16);
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled(visible.to_string(), Style::default().fg(theme.text)),
-                Span::raw(" ".repeat(gap as usize)),
-            ])),
-            Rect {
-                x: body.x,
-                y: filter_y,
-                width: body.width,
-                height: 1,
-            },
-        );
-        let (caret_x, caret_y) = util::caret_position(body.x, filter_y, caret, body.width);
-        frame.set_cursor_position((caret_x, caret_y));
-    }
-
-    let list_y = body.y.saturating_add(2);
-    let list_height = body.height.saturating_sub(3).clamp(1, 8) as usize;
-    let visible = state.visible();
-    let (start, end) = util::visible_range(visible.len(), state.cursor(), list_height.max(1));
-    let items: Vec<ListItem> = visible[start..end]
-        .iter()
-        .map(|tag| {
-            // honey: every match here is an add candidate, so rows
-            // read plain white with no adornments.
-            let name = util::truncate_to_width(tag, popup.width.saturating_sub(8).max(1));
-            ListItem::new(Line::from(Span::styled(
-                format!("   {name}"),
-                Style::default().fg(theme.text),
-            )))
-        })
-        .collect();
-    let mut list_state = ListState::default();
-    if !visible.is_empty() {
-        list_state.select(Some(state.cursor().saturating_sub(start)));
-    }
-    let list = List::new(items).highlight_symbol("").highlight_style(
-        Style::default()
-            .bg(theme.surface)
-            .add_modifier(Modifier::BOLD),
-    );
-    frame.render_stateful_widget(
-        list,
-        Rect {
-            x: popup.x,
-            y: list_y,
-            width: popup.width,
-            height: list_height.min(body.height.saturating_sub(2) as usize) as u16,
-        },
-        &mut list_state,
-    );
 }

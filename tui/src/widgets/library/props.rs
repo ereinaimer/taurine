@@ -101,7 +101,7 @@ pub(crate) fn render_props(
     }
 }
 
-fn tag_color(theme: &Theme, index: usize) -> ratatui::style::Color {
+pub(crate) fn tag_color(theme: &Theme, index: usize) -> ratatui::style::Color {
     match index % 5 {
         0 => theme.accent,
         1 => theme.success,
