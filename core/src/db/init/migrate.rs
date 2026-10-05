@@ -64,6 +64,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                     key        TEXT    PRIMARY KEY,
                     value      JSON    NOT NULL,
                     version    INTEGER DEFAULT 1,
+                    is_synced  BOOLEAN NOT NULL DEFAULT 0,
                     updated_at INTEGER NOT NULL
                 );
 
@@ -121,6 +122,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                     keystrokes_saved INTEGER DEFAULT 0,
                     time_saved_ms    INTEGER DEFAULT 0,
                     version          INTEGER DEFAULT 1,
+                    is_synced        BOOLEAN NOT NULL DEFAULT 0,
                     updated_at       INTEGER NOT NULL
                 );
 
@@ -189,9 +191,29 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
                     keystrokes_saved INTEGER NOT NULL DEFAULT 0,
                     time_saved_ms    INTEGER NOT NULL DEFAULT 0,
                     version          INTEGER NOT NULL DEFAULT 1,
+                    is_synced        BOOLEAN NOT NULL DEFAULT 0,
                     updated_at       INTEGER NOT NULL DEFAULT (unixepoch()),
                     PRIMARY KEY (app_key, date)
                 );
+
+                CREATE TABLE IF NOT EXISTS trigger_daily_stats (
+                    trigger_id       TEXT    NOT NULL REFERENCES triggers(id) ON DELETE CASCADE,
+                    date             TEXT    NOT NULL,
+                    app_key          TEXT    NOT NULL DEFAULT '',
+                    executions       INTEGER NOT NULL DEFAULT 0,
+                    keystrokes_saved INTEGER NOT NULL DEFAULT 0,
+                    time_saved_ms    INTEGER NOT NULL DEFAULT 0,
+                    version          INTEGER NOT NULL DEFAULT 1,
+                    is_synced        BOOLEAN NOT NULL DEFAULT 0,
+                    updated_at       INTEGER NOT NULL DEFAULT (unixepoch()),
+                    PRIMARY KEY (trigger_id, date, app_key)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_trigger_daily_stats_date
+                    ON trigger_daily_stats(date);
+
+                CREATE INDEX IF NOT EXISTS idx_trigger_daily_stats_sync
+                    ON trigger_daily_stats(version, updated_at, is_synced);
 
                 PRAGMA user_version = 1;",
                     )
@@ -270,5 +292,70 @@ mod tests {
             .unwrap();
         assert!(!cols.contains(&"trigger".to_string()));
         assert!(!cols.contains(&"trigger_type".to_string()));
+    }
+
+    #[test]
+    fn test_trigger_daily_stats_and_sync_columns_exist() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+
+        let trigger_daily_stats_exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='trigger_daily_stats')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(
+            trigger_daily_stats_exists,
+            "trigger_daily_stats table must be created"
+        );
+
+        // Verify trigger_daily_stats columns
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('trigger_daily_stats') WHERE name IN ('trigger_id', 'date', 'app_key', 'executions', 'keystrokes_saved', 'time_saved_ms', 'version', 'is_synced', 'updated_at')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            count, 9,
+            "trigger_daily_stats must contain all 9 expected columns"
+        );
+
+        // Verify is_synced column in settings, stats, and app_stats
+        let settings_has_sync: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('settings') WHERE name='is_synced')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(
+            settings_has_sync,
+            "settings table must have is_synced column"
+        );
+
+        let stats_has_sync: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('stats') WHERE name='is_synced')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(stats_has_sync, "stats table must have is_synced column");
+
+        let app_stats_has_sync: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('app_stats') WHERE name='is_synced')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(
+            app_stats_has_sync,
+            "app_stats table must have is_synced column"
+        );
     }
 }
