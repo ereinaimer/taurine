@@ -5,13 +5,17 @@ use crate::widgets::library::actions::{EditedField, PendingLibraryEdit};
 use taurine_core::db::crud::AppFilterPrefix;
 use taurine_core::system::foreground_apps::ForegroundApp;
 
-/// Explicit popup size for this overlay only; the shared overlay
-/// component keeps its own defaults.
+/// Explicit popup width for this overlay only; the height fits the
+/// content (capped). The shared overlay component keeps its defaults.
 pub(crate) const APP_FILTER_POPUP_W: u16 = 88;
-pub(crate) const APP_FILTER_POPUP_H: u16 = 18;
+pub(crate) const APP_FILTER_MAX_H: u16 = 18;
 
-pub(crate) fn app_filter_popup(area: Rect) -> Rect {
-    crate::widgets::util::centered_rect(APP_FILTER_POPUP_W, APP_FILTER_POPUP_H, area)
+/// Line budget for measuring content; the fitted popup converges on it.
+pub(crate) const APP_FILTER_MAX_LINES: u16 = 11;
+
+pub(crate) fn app_filter_popup(area: Rect, content_lines: u16) -> Rect {
+    let height = content_lines.saturating_add(7).min(APP_FILTER_MAX_H);
+    crate::widgets::util::centered_rect(APP_FILTER_POPUP_W, height, area)
 }
 
 /// Uniform one-cell body padding on all sides; the shared overlay
@@ -258,6 +262,18 @@ impl LibraryAppFilterState {
             .max()
             .unwrap_or(0);
         used.saturating_add(1).min(max_lines.saturating_add(1))
+    }
+
+    /// Used content lines under the current filter: laid-out rows
+    /// end, at least one (the empty message owns a row). Sizing the
+    /// popup off this leaves no dead space under the search box.
+    pub(crate) fn content_lines(&self) -> u16 {
+        self.layout(APP_FILTER_MAX_LINES)
+            .into_iter()
+            .map(|(row, y)| y.saturating_add(row.height()))
+            .max()
+            .unwrap_or(0)
+            .max(1)
     }
 
     /// Row under a window-relative line, if any.

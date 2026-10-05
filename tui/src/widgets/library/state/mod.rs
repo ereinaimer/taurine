@@ -478,7 +478,7 @@ impl LibraryPageState {
         let Some(LibraryModal::AppFilter(mut menu)) = self.modal.take() else {
             return LibraryInteraction::handled();
         };
-        let popup = app_filter_popup(area);
+        let popup = app_filter_popup(area, menu.content_lines());
         let body = app_filter_body(popup);
         // honey: an outside click closes by leaving the taken modal
         // dropped; picks keep the menu open across live writes.
@@ -551,7 +551,7 @@ impl LibraryPageState {
         let Some(LibraryModal::AppFilter(menu)) = self.modal.as_mut() else {
             return;
         };
-        let popup = app_filter_popup(area);
+        let popup = app_filter_popup(area, menu.content_lines());
         let body = app_filter_body(popup);
         if body.width == 0
             || column < body.x

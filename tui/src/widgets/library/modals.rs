@@ -709,7 +709,7 @@ fn render_library_app_filter_modal(
         app_filter_panes, app_filter_popup,
     };
 
-    let popup = app_filter_popup(area);
+    let popup = app_filter_popup(area, state.content_lines());
     frame.render_widget(Clear, popup);
     frame.render_widget(
         Block::default().style(Style::default().bg(Rgb(0x14, 0x14, 0x14))),
@@ -764,7 +764,7 @@ fn render_library_app_filter_modal(
     // honey: content sits one padded cell in with one blank cell left
     // before the divider; the divider runs the full popup edge to edge.
     let content_x = body.x.saturating_add(APP_FILTER_PAD);
-    let content_w = left_w.saturating_sub(APP_FILTER_PAD);
+    let content_w = left_w.saturating_sub(APP_FILTER_PAD.saturating_mul(2));
     let divider_abs_x = body.x.saturating_add(divider_x);
     for y in popup.y..popup.y.saturating_add(popup.height) {
         frame.render_widget(
