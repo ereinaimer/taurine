@@ -1610,6 +1610,59 @@ fn wrap_keeps_blank_lines_and_tabs() {
 }
 
 #[test]
+fn wrap_moves_whole_words_to_next_row() {
+    let text = "even though AGENTS.md prevents you from making commits";
+    let rows = detail::wrap_content_lines(text, 20);
+    assert!(rows.iter().all(|row| row.chars().count() <= 20));
+    // honey: rejoining with the consumed break spaces restores the input.
+    assert_eq!(rows.join(" "), text);
+    assert_eq!(
+        rows,
+        vec![
+            "even though".to_string(),
+            "AGENTS.md prevents".to_string(),
+            "you from making".to_string(),
+            "commits".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn wrap_hard_breaks_only_overlong_words() {
+    let path = "C:\\Projects\\rmod\\target\\debug\\build\\output";
+    let rows = detail::wrap_content_lines(path, 10);
+    assert!(rows.iter().all(|row| row.chars().count() <= 10));
+    assert_eq!(rows.concat(), path);
+}
+
+#[test]
+fn wrap_cursor_round_trips_word_rows() {
+    let lines = vec!["ab cd ef".to_string()];
+    // Spans at width 5: `ab` 0..2, `cd ef` 3..8.
+    assert_eq!(detail::content_visual_cursor(&lines, 0, 4, 5), (1, 1));
+    assert_eq!(detail::content_visual_cursor(&lines, 0, 2, 5), (1, 0));
+    assert_eq!(
+        detail::content_source_cell(
+            &LibraryTrigger::single(list_item(
+                "id-wrap",
+                None,
+                TriggerType::Word,
+                "wrap",
+                "ab cd ef",
+                "text",
+                "all",
+                0,
+                None
+            )),
+            5,
+            1,
+            1
+        ),
+        (0, 4)
+    );
+}
+
+#[test]
 fn multi_alias_entry_expands_to_one_row_per_alias() {
     let rows = LibraryTrigger::expand(multi_alias_list_item());
 

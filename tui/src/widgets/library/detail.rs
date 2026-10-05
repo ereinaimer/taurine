@@ -171,22 +171,58 @@ pub(crate) fn detail_contains(
         && row < content.y.saturating_add(content.height)
 }
 
+/// Wrap one source line to the pane width: greedy whole words, one
+/// visual row per entry, each with its source char range. Words move
+/// whole to the next row; only a lone word longer than the width
+/// hard-breaks (paths, URLs). The consumed break space is dropped so
+/// continuation rows start clean; interior spacing is preserved.
+/// Blank lines stay blank; tabs flatten.
+pub(crate) fn wrap_content_spans(line: &str, width: u16) -> Vec<(String, std::ops::Range<usize>)> {
+    let width = (width.max(1)) as usize;
+    let flat = line.replace('\t', "  ");
+    let trimmed = flat.trim_end();
+    if trimmed.is_empty() {
+        return vec![(String::new(), 0..0)];
+    }
+    let chars: Vec<char> = trimmed.chars().collect();
+    let mut rows = Vec::new();
+    let mut start = 0usize;
+    while start < chars.len() {
+        if chars.len() - start <= width {
+            rows.push((chars[start..].iter().collect(), start..chars.len()));
+            break;
+        }
+        let end = start + width;
+        match chars[start..end].iter().rposition(|ch| *ch == ' ') {
+            Some(gap) => {
+                rows.push((
+                    chars[start..start + gap].iter().collect(),
+                    start..start + gap,
+                ));
+                start += gap + 1;
+            }
+            None => {
+                // honey: overlong word hard-breaks; the only cut this
+                // wrapper ever makes.
+                rows.push((chars[start..end].iter().collect(), start..end));
+                start = end;
+                while start < chars.len() && chars[start] == ' ' {
+                    start += 1;
+                }
+            }
+        }
+    }
+    rows
+}
+
 /// Wrap source lines to the pane width, one visual row per chunk.
 /// Blank lines stay blank; tabs flatten; trailing space trimmed so it
 /// never forces an extra row. No ellipsis, nothing clipped.
 pub(crate) fn wrap_content_lines(content: &str, width: u16) -> Vec<String> {
-    let width = (width.max(1)) as usize;
     let mut rows = Vec::new();
     for line in content.lines() {
-        let flat = line.replace('\t', "  ");
-        let trimmed = flat.trim_end();
-        if trimmed.is_empty() {
-            rows.push(String::new());
-            continue;
-        }
-        let chars: Vec<char> = trimmed.chars().collect();
-        for chunk in chars.chunks(width) {
-            rows.push(chunk.iter().collect());
+        for (text, _) in wrap_content_spans(line, width) {
+            rows.push(text);
         }
     }
     rows
@@ -210,22 +246,30 @@ pub(crate) fn content_text_width(box_width: u16) -> u16 {
 }
 
 /// Map a source caret (row, column) onto wrapped visual (row, column)
-/// at `width`, using the same chunking as the render path.
+/// at `width`, using the same word wrap as the render path. A caret
+/// exactly on a break lands on the next row, column 0.
 pub(crate) fn content_visual_cursor(
     lines: &[String],
     row: usize,
     col: usize,
     width: u16,
 ) -> (usize, usize) {
-    let width = (width.max(1)) as usize;
     let mut visual = 0usize;
     for (index, line) in lines.iter().enumerate() {
-        let chunks = wrap_content_lines(line, width as u16);
-        let count = chunks.len().max(1);
+        let spans = wrap_content_spans(line, width);
+        let count = spans.len().max(1);
         if index == row.min(lines.len().saturating_sub(1)) && !lines.is_empty() {
             let clamped = col.min(line.chars().count());
-            let chunk = clamped / width;
-            return (visual + chunk.min(count - 1), clamped - chunk * width);
+            for (offset, (text, range)) in spans.iter().enumerate() {
+                if clamped < range.end || offset + 1 == spans.len() {
+                    // honey: the break space itself belongs to no row;
+                    // it renders as the next row's start.
+                    let cell = clamped
+                        .saturating_sub(range.start)
+                        .min(text.chars().count());
+                    return (visual + offset, cell);
+                }
+            }
         }
         visual += count;
     }
@@ -234,22 +278,21 @@ pub(crate) fn content_visual_cursor(
 
 /// Map a wrapped visual row + column onto the source (row, column).
 /// Edit mode shows lines unwrapped, so clicks land on the source row
-/// with an approximate column; placement clamps into the line.
+/// with an approximate column; placement clamps into the visual row.
 pub(crate) fn content_source_cell(
     item: &LibraryTrigger,
     width: u16,
     visual_row: usize,
     visual_col: usize,
 ) -> (usize, usize) {
-    let width = (width.max(1)) as usize;
     let mut acc = 0usize;
     let mut last = (0usize, 0usize);
     for (srow, line) in item.content().lines().enumerate() {
-        let chunks = wrap_content_lines(line, width as u16);
-        let n = chunks.len().max(1);
+        let spans = wrap_content_spans(line, width);
+        let n = spans.len().max(1);
         if visual_row < acc + n {
-            let col = (visual_row - acc) * width + visual_col;
-            return (srow, col);
+            let (text, range) = &spans[(visual_row - acc).min(spans.len().saturating_sub(1))];
+            return (srow, range.start + visual_col.min(text.chars().count()));
         }
         acc += n;
         last = (srow, line.chars().count());

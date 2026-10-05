@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Header Dropdowns**: The type, language, and behavior buttons above the snippet now open a centered dialog. Pick a new trigger type, script language, or run mode with the arrow keys and Enter.
 - **Target Platform Picker**: Click the Platform row in properties to choose the operating system from a centered dialog with icons.
 - **Tags Builder**: Click the Tags row to see the trigger's tags as colored chips with a `+` button. Click `+` and type the name to add a tag, hover a chip for its close icon to remove it.
+- **Word Wrap in Snippet Preview**: Long snippet text now breaks between whole words instead of cutting them mid-word.
 
 ### Removed
 - **Trigger Editor Popup**: The overlay editor is gone pending a revamped editor; use the CLI to add or edit triggers for now.
