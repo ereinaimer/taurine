@@ -2821,15 +2821,15 @@ fn filter_menu_caps_foreground_at_eight() {
 fn click_app_filter_search_places_caret() {
     let mut state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
-    // Body at x21 y7, 58x16: rows from row 9, search box pinned
+    // Body at x7 y7, 86x16: rows from row 10, search box pinned
     // to row 22. With `calc` typed the list shrinks: one checked
-    // row, one two-line match, the Add row.
+    // row, one two-line match.
     let mut menu = filter_menu(AppFilterSide::Allow);
     for ch in "calc".chars() {
         menu.search_mut().insert(ch);
     }
     state.modal = Some(LibraryModal::AppFilter(menu));
-    let interaction = state.click_app_filter_menu(area, 17, 22);
+    let interaction = state.click_app_filter_menu(area, 10, 22);
     assert!(interaction.pending_edit().is_none());
     let Some(LibraryModal::AppFilter(menu)) = state.modal() else {
         panic!("filter menu open");
@@ -2842,16 +2842,16 @@ fn click_app_filter_search_places_caret() {
 fn hover_app_filter_menu_follows_rows_skips_gray() {
     let mut state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
-    // Rows from row 9: checked(0), gray notepad(10-11), calc(12-13).
+    // Rows from row 10: checked(0), gray notepad(11-12), calc(13-14).
     state.modal = Some(LibraryModal::AppFilter(filter_menu(AppFilterSide::Allow)));
-    state.hover_app_filter_menu(area, 25, 12);
+    state.hover_app_filter_menu(area, 25, 13);
     let Some(LibraryModal::AppFilter(menu)) = state.modal() else {
         panic!("filter menu open");
     };
     assert_eq!(menu.cursor(), 2);
     // Gray rows refuse the hover.
     state.modal = Some(LibraryModal::AppFilter(menu.clone()));
-    state.hover_app_filter_menu(area, 25, 10);
+    state.hover_app_filter_menu(area, 25, 11);
     let Some(LibraryModal::AppFilter(menu)) = state.modal() else {
         panic!("filter menu open");
     };
@@ -2892,17 +2892,18 @@ fn click_app_filter_right_pane_is_dead() {
 fn click_app_filter_menu_toggles_and_grays() {
     let mut state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
-    // Popup 64x18 centered, body at x21 y9: rows start at row 9.
-    // Checked(0) row 9, gray notepad rows 10-11, calc rows 12-13.
+    // Popup 88x18 centered, body at x7 y7, 86x16: rows start at
+    // row 10. Checked(0) row 10, gray notepad rows 11-12, calc rows
+    // 13-14.
     state.modal = Some(LibraryModal::AppFilter(filter_menu(AppFilterSide::Allow)));
-    let interaction = state.click_app_filter_menu(area, 26, 9);
+    let interaction = state.click_app_filter_menu(area, 26, 10);
     let pending = interaction.pending_edit().expect("pending remove");
     assert_eq!(pending.field, EditedField::OnlyApps(Vec::new()));
     assert!(state.modal().is_some());
 
     // Gray rows refuse with an error and no write.
     state.modal = Some(LibraryModal::AppFilter(filter_menu(AppFilterSide::Allow)));
-    let interaction = state.click_app_filter_menu(area, 25, 10);
+    let interaction = state.click_app_filter_menu(area, 25, 11);
     assert!(interaction.pending_edit().is_none());
     let Some(LibraryModal::AppFilter(menu)) = state.modal() else {
         panic!("filter menu open");
@@ -2911,7 +2912,7 @@ fn click_app_filter_menu_toggles_and_grays() {
 
     // Foreground calc adds.
     state.modal = Some(LibraryModal::AppFilter(filter_menu(AppFilterSide::Allow)));
-    let interaction = state.click_app_filter_menu(area, 25, 12);
+    let interaction = state.click_app_filter_menu(area, 25, 13);
     let pending = interaction.pending_edit().expect("pending add");
     assert_eq!(
         pending.field,

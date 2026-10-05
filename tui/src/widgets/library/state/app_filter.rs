@@ -7,7 +7,7 @@ use taurine_core::system::foreground_apps::ForegroundApp;
 
 /// Explicit popup size for this overlay only; the shared overlay
 /// component keeps its own defaults.
-pub(crate) const APP_FILTER_POPUP_W: u16 = 72;
+pub(crate) const APP_FILTER_POPUP_W: u16 = 88;
 pub(crate) const APP_FILTER_POPUP_H: u16 = 18;
 
 pub(crate) fn app_filter_popup(area: Rect) -> Rect {
@@ -24,11 +24,15 @@ pub(crate) fn app_filter_body(popup: Rect) -> Rect {
 /// and stored filters always show regardless of the cap.
 pub(crate) const MAX_FOREGROUND_APPS: usize = 8;
 
-/// Reserved body lines: title, blank, gap, search (pinned bottom).
-pub(crate) const APP_FILTER_RESERVED_LINES: u16 = 4;
+/// Reserved body lines: title, blank, pad, gap, search (pinned bottom).
+pub(crate) const APP_FILTER_RESERVED_LINES: u16 = 5;
 
-/// Rows start below the title and one blank line.
-pub(crate) const APP_FILTER_ROWS_TOP: u16 = 2;
+/// Rows start below the title, blank, and pad lines.
+pub(crate) const APP_FILTER_ROWS_TOP: u16 = 3;
+
+/// Left-pane content padding on every side: one cell in from the
+/// body edge, the divider, the top, and the search gap.
+pub(crate) const APP_FILTER_PAD: u16 = 1;
 
 /// Pane split in body columns: left width, divider column, right
 /// start, right width. Left always wins the extra cells.
@@ -134,7 +138,7 @@ impl LibraryAppFilterState {
             search: TextField::new(""),
             cursor: 0,
             scroll: 0,
-            view_lines: 12,
+            view_lines: 11,
             error: None,
         }
     }
