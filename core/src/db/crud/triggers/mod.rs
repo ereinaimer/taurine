@@ -13,7 +13,8 @@ mod validate;
 pub use aliases::{
     InvocationType, ResolvedInvocation, TriggerAliasRow, add_alias, count_aliases, delete_alias,
     find_parent_by_invocation, increment_usage_count_by_id, list_aliases, normalize_voice_phrase,
-    set_alias_invocation_type, threshold_for_phrase, tombstone_entry, validate_voice_phrase,
+    set_alias_invocation_type, set_alias_require_confirmation, threshold_for_phrase,
+    tombstone_entry, validate_voice_phrase,
 };
 pub use app_filter::AppFilterPrefix;
 

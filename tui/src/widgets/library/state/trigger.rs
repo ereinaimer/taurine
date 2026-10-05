@@ -175,6 +175,14 @@ impl LibraryTrigger {
         invocation: InvocationType,
     ) -> Self {
         let search_text = build_search_text(item, kind.label(), target_os, &trigger);
+        // honey: confirmation lives per alias row, mirroring the voice
+        // gate; sibling rows keep their own flags.
+        let require_confirmation = item
+            .invocations
+            .iter()
+            .find(|alias| alias.invocation == trigger && alias.invocation_type == invocation)
+            .map(|alias| alias.require_confirmation)
+            .unwrap_or(false);
         Self {
             id: item.id.clone(),
             name: item.name.clone(),
@@ -195,7 +203,7 @@ impl LibraryTrigger {
             except_apps: item.except_apps.clone(),
             auto_case: item.auto_case,
             is_enabled: item.is_enabled,
-            require_confirmation: item.invocations.iter().any(|a| a.require_confirmation),
+            require_confirmation,
             usage_count: item.usage_count,
             last_used_at: item.last_used_at,
             created_at: item.created_at,

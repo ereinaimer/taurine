@@ -350,20 +350,42 @@ impl LibraryPageState {
         })
     }
 
-    /// Auto-case toggle for the selected trigger. Returns a persist
-    /// interaction; the caller refreshes the list on success.
-    pub(crate) fn toggle_selected_auto_case(&self) -> LibraryInteraction {
+    /// Shared bool-toggle builder for the properties pane: picks the
+    /// flipped field from the selected row, or nothing when the row
+    /// carries no such switch. The caller refreshes on success.
+    fn toggle_selected_field(
+        &self,
+        pick: impl FnOnce(&LibraryTrigger) -> Option<EditedField>,
+    ) -> LibraryInteraction {
         let Some(selected) = self.selected_index() else {
             return LibraryInteraction::handled();
         };
         let Some(item) = self.item_at_filtered(selected) else {
             return LibraryInteraction::handled();
         };
+        let Some(field) = pick(item) else {
+            return LibraryInteraction::handled();
+        };
         LibraryInteraction::edit(PendingLibraryEdit {
             trigger_id: item.id().to_string(),
             trigger: item.trigger().to_string(),
-            field: EditedField::AutoCase(!item.auto_case()),
+            field,
             restore_index: selected,
+        })
+    }
+
+    /// Auto-case toggle for the selected trigger. Returns a persist
+    /// interaction; the caller refreshes the list on success.
+    pub(crate) fn toggle_selected_auto_case(&self) -> LibraryInteraction {
+        self.toggle_selected_field(|item| Some(EditedField::AutoCase(!item.auto_case())))
+    }
+
+    /// Confirmation toggle for the selected voice trigger. Non-voice
+    /// rows carry no switch and stay handled.
+    pub(crate) fn toggle_selected_require_confirmation(&self) -> LibraryInteraction {
+        self.toggle_selected_field(|item| {
+            item.is_voice()
+                .then(|| EditedField::RequireConfirmation(!item.require_confirmation()))
         })
     }
 

@@ -238,6 +238,47 @@ pub fn set_alias_invocation_type(
     })
 }
 
+/// Flips one alias row's confirmation flag, bumping the parent version
+/// and marking it unsynced like other mutations. Returns false when the
+/// trigger is unknown/deleted or the invocation row is gone.
+pub fn set_alias_require_confirmation(
+    conn: &Connection,
+    trigger_id: &str,
+    invocation: &str,
+    require_confirmation: bool,
+) -> Result<bool> {
+    let live: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM triggers WHERE id = ?1 AND is_deleted = 0)",
+        [trigger_id],
+        |row| row.get(0),
+    )?;
+    if !live {
+        return Ok(false);
+    }
+    with_transaction(conn, || {
+        let changed = conn.execute(
+            "UPDATE trigger_aliases
+              SET require_confirmation = ?1
+              WHERE trigger_id = ?2 AND invocation = ?3",
+            rusqlite::params![
+                if require_confirmation { 1 } else { 0 },
+                trigger_id,
+                invocation
+            ],
+        )?;
+        if changed == 0 {
+            return Ok(false);
+        }
+        conn.execute(
+            "UPDATE triggers
+              SET version = version + 1, updated_at = ?1, is_synced = 0
+              WHERE id = ?2 AND is_deleted = 0",
+            rusqlite::params![crate::db::now_unix_secs(), trigger_id],
+        )?;
+        Ok(true)
+    })
+}
+
 /// Scope-aware duplicate check for one normalized invocation (§0.5/§0.14).
 /// Same type+invocation on the SAME parent is always a conflict; on ANOTHER
 /// live parent it conflicts only when scopes overlap (`target_os` +

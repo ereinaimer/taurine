@@ -601,6 +601,16 @@ fn handle_tui_mouse_event(
                                         app.library_page_mut().toggle_selected_auto_case();
                                     apply_library_interaction(app, interaction);
                                 }
+                                // honey: confirmation flips the same way,
+                                // scoped to the selected voice alias row.
+                                Some(library::props::PropsHit::Confirm) => {
+                                    let flush = app.library_page_mut().commit_edit();
+                                    apply_library_interaction(app, flush);
+                                    let interaction = app
+                                        .library_page_mut()
+                                        .toggle_selected_require_confirmation();
+                                    apply_library_interaction(app, interaction);
+                                }
                                 Some(library::props::PropsHit::Platform) => {
                                     let flush = app.library_page_mut().commit_edit();
                                     apply_library_interaction(app, flush);
@@ -803,6 +813,7 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
             | library::EditedField::Interpreter(_)
             | library::EditedField::Behavior(_)
             | library::EditedField::AutoCase(_)
+            | library::EditedField::RequireConfirmation(_)
             | library::EditedField::TargetOs(_)
             | library::EditedField::Tags(_)
             | library::EditedField::OnlyApps(_)

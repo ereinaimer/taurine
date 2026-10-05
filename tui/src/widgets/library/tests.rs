@@ -2321,6 +2321,117 @@ fn auto_case_toggle_flips_value() {
     assert_eq!(pending.field, EditedField::AutoCase(true));
 }
 
+fn voice_list_item(id: &str, phrase: &str, confirm: bool) -> TriggerListItem {
+    TriggerListItem {
+        id: id.to_string(),
+        name: String::new(),
+        description: None,
+        invocations: vec![alias_fixture(id, phrase, InvocationType::Voice, confirm)],
+        display: phrase.to_string(),
+        output: "output".to_string(),
+        action_type: "text".to_string(),
+        target_os: "all".to_string(),
+        only_apps: None,
+        except_apps: None,
+        auto_case: false,
+        is_enabled: true,
+        usage_count: 0,
+        last_used_at: None,
+        created_at: 0,
+        tags: "[]".to_string(),
+        script_content: None,
+        interpreter: None,
+        behavior: None,
+    }
+}
+
+fn voice_state(id: &str, phrase: &str, confirm: bool) -> LibraryPageState {
+    let mut state = LibraryPageState::default();
+    state.replace_items(vec![LibraryTrigger::single(voice_list_item(
+        id, phrase, confirm,
+    ))]);
+    state
+}
+
+#[test]
+fn confirm_toggle_flips_value_off_to_on() {
+    let state = voice_state("id-voice", "my email", false);
+    let interaction = state.toggle_selected_require_confirmation();
+    let pending = interaction.pending_edit().expect("pending confirm");
+    assert_eq!(pending.trigger_id, "id-voice");
+    assert_eq!(pending.trigger, "my email");
+    assert_eq!(pending.field, EditedField::RequireConfirmation(true));
+}
+
+#[test]
+fn confirm_toggle_flips_value_on_to_off() {
+    let state = voice_state("id-voice", "my email", true);
+    let interaction = state.toggle_selected_require_confirmation();
+    let pending = interaction.pending_edit().expect("pending confirm");
+    assert_eq!(pending.field, EditedField::RequireConfirmation(false));
+}
+
+#[test]
+fn confirm_toggle_ignored_for_non_voice() {
+    let state = sample_state();
+    let interaction = state.toggle_selected_require_confirmation();
+    assert!(interaction.pending_edit().is_none());
+}
+
+#[test]
+fn confirm_hit_targets_value_row() {
+    let state = voice_state("id-voice", "my email", false);
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let content = props::props_content(area, state.split_ratio(), state.detail_ratio());
+    // honey: Auto 2, Allow 4, Block 6, Alias 8, Platform 10, Confirm 12.
+    assert_eq!(
+        props::hit_test(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            content.x,
+            content.y.saturating_add(12)
+        ),
+        Some(props::PropsHit::Confirm)
+    );
+}
+
+#[test]
+fn non_voice_row_has_no_confirm_hit() {
+    let state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let content = props::props_content(area, state.split_ratio(), state.detail_ratio());
+    for offset in 0..20 {
+        assert_ne!(
+            props::hit_test(
+                area,
+                state.split_ratio(),
+                state.detail_ratio(),
+                &state,
+                content.x,
+                content.y.saturating_add(offset)
+            ),
+            Some(props::PropsHit::Confirm)
+        );
+    }
+}
+
+#[test]
+fn expanded_rows_carry_per_alias_confirmation() {
+    let item = TriggerListItem {
+        invocations: vec![
+            alias_fixture("id-v", "first phrase", InvocationType::Voice, false),
+            alias_fixture("id-v", "second phrase", InvocationType::Voice, true),
+        ],
+        ..voice_list_item("id-v", "first phrase", false)
+    };
+    let rows = LibraryTrigger::expand(item);
+    assert_eq!(rows.len(), 2);
+    assert!(!rows[0].require_confirmation());
+    assert!(rows[1].require_confirmation());
+}
+
 #[test]
 fn alias_text_lines_show_one_per_line() {
     let rows = LibraryTrigger::expand(multi_alias_list_item());

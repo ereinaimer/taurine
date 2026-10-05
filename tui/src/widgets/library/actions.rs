@@ -89,6 +89,7 @@ pub(crate) enum EditedField {
     Interpreter(ScriptInterpreter),
     Behavior(ScriptBehavior),
     AutoCase(bool),
+    RequireConfirmation(bool),
     TargetOs(String),
     Tags(Vec<String>),
     OnlyApps(Vec<String>),
@@ -195,6 +196,17 @@ impl PendingLibraryEdit {
             }
             EditedField::AutoCase(auto_case) => {
                 taurine_core::db::crud::set_trigger_auto_case(&conn, &self.trigger_id, *auto_case)?;
+                taurine_core::rpc::notify_daemon_reload();
+            }
+            // honey: confirmation gates voice expansion like auto-case
+            // gates text, so the daemon reloads too.
+            EditedField::RequireConfirmation(confirm) => {
+                taurine_core::db::crud::set_alias_require_confirmation(
+                    &conn,
+                    &self.trigger_id,
+                    &self.trigger,
+                    *confirm,
+                )?;
                 taurine_core::rpc::notify_daemon_reload();
             }
             EditedField::TargetOs(target_os) => {

@@ -281,6 +281,7 @@ pub(crate) fn usage_toggle_offset(item: &LibraryTrigger) -> u16 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PropsHit {
     AutoCase,
+    Confirm,
     Allow,
     Block,
     Platform,
@@ -288,8 +289,8 @@ pub(crate) enum PropsHit {
     UsageToggle,
 }
 
-/// Click on the auto-case row or the usage toggle row. The auto-case
-/// row is located by label so a reorder never misfires.
+/// Click on a bool-toggle row (`Auto case`, `Confirm`) or the usage
+/// toggle row. Rows locate by label so a reorder never misfires.
 pub(crate) fn hit_test(
     area: Rect,
     list_ratio: f32,
@@ -308,9 +309,16 @@ pub(crate) fn hit_test(
     let selected = state.selected_index()?;
     let item = state.item_at_filtered(selected)?;
     let extra = alias_extra_lines(item, content.width);
-    let auto_case = content.y.saturating_add(auto_case_offset(item));
-    if row == auto_case && row < content.y.saturating_add(content.height) {
-        return Some(PropsHit::AutoCase);
+    for (label, hit) in [
+        ("Auto case", PropsHit::AutoCase),
+        ("Confirm", PropsHit::Confirm),
+    ] {
+        if let Some(offset) = label_offset(item, content.width, label) {
+            let offset = content.y.saturating_add(offset);
+            if row == offset && row < content.y.saturating_add(content.height) {
+                return Some(hit);
+            }
+        }
     }
     if let Some(platform) = platform_offset(item, content.width) {
         let platform = content.y.saturating_add(platform);
@@ -353,8 +361,9 @@ fn platform_offset(item: &LibraryTrigger, width: u16) -> Option<u16> {
     label_offset(item, width, "Platform")
 }
 
-/// Row offset of a labeled property (`Allow on`, `Block on`), if
-/// present: label position plus wrapped alias lines above it.
+/// Row offset of a labeled property (`Auto case`, `Confirm`,
+/// `Allow on`, `Block on`), if present: label position plus wrapped
+/// alias lines above it.
 fn label_offset(item: &LibraryTrigger, width: u16, label: &str) -> Option<u16> {
     let rows = info_rows(item);
     let position = rows.iter().position(|(row, _)| *row == label)? as u16;
@@ -364,16 +373,6 @@ fn label_offset(item: &LibraryTrigger, width: u16, label: &str) -> Option<u16> {
         offset = offset.saturating_add(alias_extra_lines(item, width));
     }
     Some(offset)
-}
-
-/// Row offset of the auto-case property, shared by rendering and
-/// hit-testing so clicks land on the value they see.
-fn auto_case_offset(item: &LibraryTrigger) -> u16 {
-    info_rows(item)
-        .iter()
-        .position(|(label, _)| *label == "Auto case")
-        .map(|position| (position as u16).saturating_mul(2).saturating_add(2))
-        .unwrap_or(2)
 }
 
 /// Position of the Alias row within `info_rows`, if present.

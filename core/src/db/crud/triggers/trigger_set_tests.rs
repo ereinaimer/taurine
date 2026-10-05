@@ -2020,6 +2020,49 @@ fn test_set_trigger_auto_case_flips_flag_and_bumps() {
 }
 
 #[test]
+fn test_set_alias_require_confirmation_flips_flag_and_bumps() {
+    use crate::db::crud::set_alias_require_confirmation;
+
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let (_dir, conn) = crate::testing::open_test_db();
+
+    let mut entry = word_entry_fixture("confirm me", "text");
+    entry.invocations = vec![(
+        crate::db::crud::InvocationType::Voice,
+        "confirm me".to_string(),
+        false,
+    )];
+    let id = create_entry(&conn, entry).expect("create entry").0;
+    assert!(set_alias_require_confirmation(&conn, &id, "confirm me", true).unwrap());
+    let (flag, version, synced): (bool, i64, bool) = conn
+        .query_row(
+            "SELECT ta.require_confirmation, t.version, t.is_synced
+               FROM trigger_aliases ta JOIN triggers t ON t.id = ta.trigger_id
+              WHERE ta.trigger_id = ?1",
+            [&id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    assert!(flag);
+    assert_eq!(version, 2);
+    assert!(!synced);
+
+    assert!(set_alias_require_confirmation(&conn, &id, "confirm me", false).unwrap());
+    let flag: bool = conn
+        .query_row(
+            "SELECT require_confirmation FROM trigger_aliases WHERE trigger_id = ?1",
+            [&id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(!flag);
+    assert!(!set_alias_require_confirmation(&conn, &id, "missing", true).unwrap());
+    assert!(!set_alias_require_confirmation(&conn, "ghost", "confirm me", true).unwrap());
+}
+
+#[test]
 fn test_set_alias_invocation_type_rejects_scope_conflict() {
     let _guard = crate::testing::TEST_LOCK
         .lock()
