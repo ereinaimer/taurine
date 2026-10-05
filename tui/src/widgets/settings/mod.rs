@@ -171,10 +171,10 @@ pub(crate) fn hit_test(
     None
 }
 
-/// Settings overlay geometry: popup at 90% of the terminal, shared by
+/// Settings overlay geometry: popup at 80% of the terminal, shared by
 /// rendering and hit-testing so clicks land as drawn.
 pub(crate) fn overlay_popup(area: Rect) -> Rect {
-    crate::widgets::util::centered_rect(area.width / 10 * 9, area.height / 10 * 9, area)
+    crate::widgets::util::centered_rect(area.width / 5 * 4, area.height / 5 * 4, area)
 }
 
 /// Content rect inside the popup, shared by overlay renders and

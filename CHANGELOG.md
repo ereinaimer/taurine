@@ -44,7 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Word Wrap in Snippet Preview**: Long snippet text now breaks between whole words instead of cutting them mid-word.
 - **Taurine Tab Title**: The terminal tab reads Taurine while the TUI or its dialogs run, restoring your previous title on exit.
 - **Mouse Text Selection**: Drag across the snippet body to select text, or double-click a word to select only it, ready for Ctrl+X/C/V.
-- **Settings Overlay**: Settings now open as an overlay over the library via Ctrl+, instead of a separate page, with the same rows and search at 90% of the terminal. Esc or an outside click closes it.
+- **Settings Overlay**: Settings now open as an overlay over the library via Ctrl+, instead of a separate page, with the same rows and search at 80% of the terminal. Esc or an outside click closes it.
 - **Voice Confirmation Toggle**: Click the Confirm row in properties to turn voice confirmation on or off, just like the Auto case switch.
 
 ### Removed
