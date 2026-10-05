@@ -478,11 +478,10 @@ impl LibraryPageState {
         let Some(LibraryModal::AppFilter(mut menu)) = self.modal.take() else {
             return LibraryInteraction::handled();
         };
-        let popup = crate::widgets::util::overlay_popup(area);
+        let popup = app_filter_popup(area);
         let body = crate::widgets::util::overlay_body(popup);
         // honey: an outside click closes by leaving the taken modal
         // dropped; picks keep the menu open across live writes.
-        // The search box owns row 2, so the top guard sits at +1.
         if body.width == 0
             || column < body.x
             || column >= body.x.saturating_add(body.width)
@@ -490,17 +489,11 @@ impl LibraryPageState {
         {
             return LibraryInteraction::handled();
         }
-        // honey: the search box sits one blank line below the visible
-        // rows; a click there places the caret, exactly like the
-        // library search bar.
         let max_lines = body.height.saturating_sub(APP_FILTER_RESERVED_LINES);
         menu.set_view_lines(body.height);
-        if row
-            == body
-                .y
-                .saturating_add(APP_FILTER_ROWS_TOP)
-                .saturating_add(menu.search_rel(max_lines))
-        {
+        // honey: the search box pins the absolute bottom row; a click
+        // there places the caret, exactly like the library search bar.
+        if row == body.y.saturating_add(body.height).saturating_sub(1) {
             if menu.input_active() {
                 menu.cancel_input();
             }
@@ -516,7 +509,22 @@ impl LibraryPageState {
             self.modal = Some(LibraryModal::AppFilter(menu));
             return LibraryInteraction::handled();
         }
+        let (_, _, right_x, _) = app_filter_panes(body.width);
         let rel = row.saturating_sub(body.y.saturating_add(APP_FILTER_ROWS_TOP));
+        // honey: the right pane mirrors the stored values; a click on
+        // one removes it straight away. The header row stays dead.
+        if column >= body.x.saturating_add(right_x) {
+            if rel == 0 {
+                self.modal = Some(LibraryModal::AppFilter(menu));
+                return LibraryInteraction::handled();
+            }
+            let interaction = menu
+                .remove_at(rel.saturating_sub(1) as usize)
+                .map(LibraryInteraction::edit)
+                .unwrap_or_else(LibraryInteraction::handled);
+            self.modal = Some(LibraryModal::AppFilter(menu));
+            return interaction;
+        }
         let Some(hit) = menu.row_at(max_lines, rel) else {
             self.modal = Some(LibraryModal::AppFilter(menu));
             return LibraryInteraction::handled();
@@ -565,7 +573,7 @@ impl LibraryPageState {
         let Some(LibraryModal::AppFilter(menu)) = self.modal.as_mut() else {
             return;
         };
-        let popup = crate::widgets::util::overlay_popup(area);
+        let popup = app_filter_popup(area);
         let body = crate::widgets::util::overlay_body(popup);
         if body.width == 0
             || column < body.x

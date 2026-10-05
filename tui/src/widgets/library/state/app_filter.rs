@@ -1,18 +1,39 @@
+use ratatui::layout::Rect;
+
 use crate::widgets::field::TextField;
 use crate::widgets::library::actions::{EditedField, PendingLibraryEdit};
 use crate::widgets::library::state::InputConfirm;
 use taurine_core::db::crud::AppFilterPrefix;
 use taurine_core::system::foreground_apps::ForegroundApp;
 
+/// Explicit popup size for this overlay only; the shared overlay
+/// component keeps its own defaults.
+pub(crate) const APP_FILTER_POPUP_W: u16 = 64;
+pub(crate) const APP_FILTER_POPUP_H: u16 = 18;
+
+pub(crate) fn app_filter_popup(area: Rect) -> Rect {
+    crate::widgets::util::centered_rect(APP_FILTER_POPUP_W, APP_FILTER_POPUP_H, area)
+}
+
 /// Foreground cap: Z-order truncation is free most-recent-first,
 /// and stored filters always show regardless of the cap.
 pub(crate) const MAX_FOREGROUND_APPS: usize = 8;
 
-/// Reserved body lines: title, blank, blank, search, footer error.
-pub(crate) const APP_FILTER_RESERVED_LINES: u16 = 5;
+/// Reserved body lines: title, blank, search (pinned bottom).
+pub(crate) const APP_FILTER_RESERVED_LINES: u16 = 3;
 
 /// Rows start below the title and one blank line.
 pub(crate) const APP_FILTER_ROWS_TOP: u16 = 2;
+
+/// Pane split in body columns: left width, divider column, right
+/// start, right width. Left always wins the extra cells.
+pub(crate) fn app_filter_panes(body_width: u16) -> (u16, u16, u16, u16) {
+    let left = body_width.saturating_sub(1).saturating_mul(3) / 5;
+    let divider = left;
+    let right_x = divider.saturating_add(1);
+    let right_w = body_width.saturating_sub(right_x);
+    (left, divider, right_x, right_w)
+}
 
 /// Which props row opened the picker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,7 +133,7 @@ impl LibraryAppFilterState {
             search: TextField::new(""),
             cursor: 0,
             scroll: 0,
-            view_lines: 7,
+            view_lines: 13,
             input_active: false,
             input: TextField::new(""),
             error: None,
@@ -232,19 +253,6 @@ impl LibraryAppFilterState {
             .map(|(row, _)| row)
     }
 
-    /// Window-relative line of the search box: exactly one blank line
-    /// below the visible rows, pinned above the footer when the list
-    /// fills the window. Rendering and hit-testing share this.
-    pub(crate) fn search_rel(&self, max_lines: u16) -> u16 {
-        let used = self
-            .layout(max_lines)
-            .into_iter()
-            .map(|(row, y)| y.saturating_add(row.height()))
-            .max()
-            .unwrap_or(0);
-        used.saturating_add(1).min(max_lines.saturating_add(1))
-    }
-
     fn ensure_visible(&mut self, max_lines: u16) {
         let rows = self.rows();
         if rows.is_empty() {
@@ -312,13 +320,25 @@ impl LibraryAppFilterState {
     /// Delete removes the focused checked row, if any.
     pub(crate) fn remove_focused(&self) -> Option<PendingLibraryEdit> {
         match self.rows().get(self.cursor)? {
-            FilterRow::Checked(index) => {
-                let mut apps = self.checked.clone();
-                apps.remove(*index);
-                Some(self.pending(apps))
-            }
+            FilterRow::Checked(index) => self.remove_at(*index),
             _ => None,
         }
+    }
+
+    /// Remove one stored filter by index, returning the full new list.
+    pub(crate) fn remove_at(&self, index: usize) -> Option<PendingLibraryEdit> {
+        if index >= self.checked.len() {
+            return None;
+        }
+        let mut apps = self.checked.clone();
+        apps.remove(index);
+        Some(self.pending(apps))
+    }
+
+    /// Visible selected rows for a `max_lines` body: header excluded,
+    /// one line each, mirroring the render path.
+    pub(crate) fn selected_layout(&self, max_lines: u16) -> usize {
+        self.checked.len().min(max_lines.saturating_sub(1) as usize)
     }
 
     /// Focus a row directly; gray rows refuse.
