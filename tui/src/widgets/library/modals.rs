@@ -718,10 +718,11 @@ fn render_library_app_filter_modal(
         return;
     }
     util::render_overlay_title(frame, body, theme, state.side().title());
-    // honey: the search box owns row 1; typing always filters, never
-    // types the manual input. The caret shows while it is focused.
-    let search_y = body.y.saturating_add(1);
-    if body.height > 2 {
+    // honey: blank line under the title, then the search box with a
+    // full-width background; typing always filters, never types the
+    // manual input. The caret shows while it is focused.
+    let search_y = body.y.saturating_add(2);
+    if body.height > 3 {
         let (visible, caret) = state.search().window(body.width);
         let searching = !state.input_active();
         let (text, style) = if state.search().is_empty() {
@@ -733,7 +734,8 @@ fn render_library_app_filter_modal(
             (visible.to_string(), Style::default().fg(theme.text))
         };
         frame.render_widget(
-            Paragraph::new(Line::from(Span::styled(text, style))),
+            Paragraph::new(Line::from(Span::styled(text, style)))
+                .style(Style::default().bg(theme.surface)),
             Rect {
                 x: body.x,
                 y: search_y,
@@ -815,9 +817,9 @@ fn render_library_app_filter_modal(
                     },
                 );
                 let detail = if gray {
-                    format!("  {} · {}", app.title, state.side().opposite_hint())
+                    format!("{} · {}", app.title, state.side().opposite_hint())
                 } else {
-                    format!("  {} · {}", app.title, app.class)
+                    app.title.clone()
                 };
                 let detail = util::truncate_to_width(&detail, body.width.max(1));
                 frame.render_widget(

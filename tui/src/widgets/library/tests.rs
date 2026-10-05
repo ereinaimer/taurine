@@ -2862,19 +2862,31 @@ fn filter_menu_caps_foreground_at_eight() {
 fn click_app_filter_search_places_caret() {
     let mut state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
-    // Body at x25 y9: the search box owns row 10.
+    // Body at x25 y9: blank line under the title, then the search
+    // box on row 11.
     let mut menu = filter_menu(AppFilterSide::Allow);
     for ch in "calc".chars() {
         menu.search_mut().insert(ch);
     }
     state.modal = Some(LibraryModal::AppFilter(menu));
-    let interaction = state.click_app_filter_menu(area, 27, 10);
+    let interaction = state.click_app_filter_menu(area, 27, 11);
     assert!(interaction.pending_edit().is_none());
     let Some(LibraryModal::AppFilter(menu)) = state.modal() else {
         panic!("filter menu open");
     };
     assert_eq!(menu.search().cursor(), 2);
     assert_eq!(menu.matching_indices(), vec![1]);
+}
+
+#[test]
+fn click_app_filter_blank_line_is_dead() {
+    let mut state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    // Row 10 is the blank line under the title: no write, no close.
+    state.modal = Some(LibraryModal::AppFilter(filter_menu(AppFilterSide::Allow)));
+    let interaction = state.click_app_filter_menu(area, 25, 10);
+    assert!(interaction.pending_edit().is_none());
+    assert!(state.modal().is_some());
 }
 
 #[test]

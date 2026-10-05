@@ -482,7 +482,7 @@ impl LibraryPageState {
         let body = crate::widgets::util::overlay_body(popup);
         // honey: an outside click closes by leaving the taken modal
         // dropped; picks keep the menu open across live writes.
-        // The search box owns row 1, so the top guard sits at +1.
+        // The search box owns row 2, so the top guard sits at +1.
         if body.width == 0
             || column < body.x
             || column >= body.x.saturating_add(body.width)
@@ -490,15 +490,22 @@ impl LibraryPageState {
         {
             return LibraryInteraction::handled();
         }
-        // honey: the search box owns row 1; a click there places the
-        // caret, exactly like the library search bar.
-        if row == body.y.saturating_add(1) {
+        // honey: the search box owns row 2 (blank line under the
+        // title); a click there places the caret, exactly like the
+        // library search bar.
+        if row == body.y.saturating_add(2) {
             if menu.input_active() {
                 menu.cancel_input();
             }
             let field = menu.search_mut();
             field.place(field.index_at(column.saturating_sub(body.x) as usize));
             menu.refilter();
+            self.modal = Some(LibraryModal::AppFilter(menu));
+            return LibraryInteraction::handled();
+        }
+        // honey: the blank line under the title is dead; saturating
+        // math would otherwise fold it onto the first row.
+        if row < body.y.saturating_add(APP_FILTER_ROWS_TOP) {
             self.modal = Some(LibraryModal::AppFilter(menu));
             return LibraryInteraction::handled();
         }
