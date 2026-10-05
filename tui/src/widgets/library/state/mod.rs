@@ -1,3 +1,4 @@
+mod app_filter;
 mod delete;
 mod edit;
 mod export;
@@ -6,6 +7,7 @@ mod import;
 mod tags;
 mod trigger;
 
+pub(crate) use app_filter::*;
 pub(crate) use delete::*;
 pub(crate) use edit::*;
 pub(crate) use export::*;
@@ -52,6 +54,7 @@ pub(crate) enum LibraryModal {
     ConfirmDelete(LibraryDeleteModalState),
     HeaderMenu(LibraryHeaderMenuState),
     Tags(LibraryTagsModalState),
+    AppFilter(LibraryAppFilterState),
 }
 
 impl LibraryModal {
@@ -67,6 +70,7 @@ impl LibraryModal {
             // failed pick only surfaces through the status line.
             Self::HeaderMenu(_) => {}
             Self::Tags(state) => state.set_error(error),
+            Self::AppFilter(state) => state.set_error(error),
         }
     }
 }
@@ -400,6 +404,129 @@ impl LibraryPageState {
 
     pub(crate) fn tags_menu_open(&self) -> bool {
         matches!(self.modal, Some(LibraryModal::Tags(_)))
+    }
+
+    pub(crate) fn app_filter_menu_open(&self) -> bool {
+        matches!(self.modal, Some(LibraryModal::AppFilter(_)))
+    }
+
+    /// Opens the allow/block picker for the selected trigger, seeded
+    /// with its stored filters plus the live Alt-Tab list.
+    pub(crate) fn open_app_filter_modal(&mut self, side: AppFilterSide) {
+        let Some(selected) = self.selected_index() else {
+            return;
+        };
+        let Some(item) = self.item_at_filtered(selected) else {
+            return;
+        };
+        let (stored, other) = match side {
+            AppFilterSide::Allow => (item.only_apps(), item.except_apps()),
+            AppFilterSide::Block => (item.except_apps(), item.only_apps()),
+        };
+        let split = |value: Option<&str>| {
+            value
+                .map(taurine_core::db::crud::split_app_filters)
+                .unwrap_or_default()
+        };
+        let menu = LibraryAppFilterState::new(
+            item.id().to_string(),
+            selected,
+            side,
+            split(stored),
+            split(other),
+            taurine_core::system::foreground_apps::list_foreground_apps(),
+        );
+        self.modal = Some(LibraryModal::AppFilter(menu));
+    }
+
+    /// Re-seeds an open app-filter menu from refreshed rows after a
+    /// live write. A vanished trigger closes the menu with it.
+    pub(crate) fn sync_app_filter_modal(&mut self, trigger_id: &str) {
+        let found = self
+            .items
+            .iter()
+            .find(|item| item.id() == trigger_id)
+            .map(|item| (item.only_apps(), item.except_apps()));
+        match (self.modal.take(), found) {
+            (Some(LibraryModal::AppFilter(mut state)), Some((only, except))) => {
+                let split = |value: Option<&str>| {
+                    value
+                        .map(taurine_core::db::crud::split_app_filters)
+                        .unwrap_or_default()
+                };
+                let (stored, other) = match state.side() {
+                    AppFilterSide::Allow => (split(only), split(except)),
+                    AppFilterSide::Block => (split(except), split(only)),
+                };
+                state.reseed(stored, other);
+                self.modal = Some(LibraryModal::AppFilter(state));
+            }
+            (modal, _) => {
+                self.modal = modal;
+            }
+        }
+    }
+
+    /// Clicks on an open app-filter menu: rows toggle live, the add
+    /// row opens the manual input, outside closes the menu.
+    pub(crate) fn click_app_filter_menu(
+        &mut self,
+        area: ratatui::layout::Rect,
+        column: u16,
+        row: u16,
+    ) -> LibraryInteraction {
+        let Some(LibraryModal::AppFilter(mut menu)) = self.modal.take() else {
+            return LibraryInteraction::handled();
+        };
+        let popup = crate::widgets::util::overlay_popup(area);
+        let body = crate::widgets::util::overlay_body(popup);
+        // honey: an outside click closes by leaving the taken modal
+        // dropped; picks keep the menu open across live writes.
+        if body.width == 0
+            || column < body.x
+            || column >= body.x.saturating_add(body.width)
+            || row < body.y.saturating_add(2)
+        {
+            return LibraryInteraction::handled();
+        }
+        let max_lines = body.height.saturating_sub(3);
+        menu.set_view_lines(body.height);
+        let rel = row.saturating_sub(body.y.saturating_add(2));
+        let Some(hit) = menu.row_at(max_lines, rel) else {
+            self.modal = Some(LibraryModal::AppFilter(menu));
+            return LibraryInteraction::handled();
+        };
+        match hit {
+            FilterRow::Add => {
+                if menu.input_active() {
+                    menu.place_input(column.saturating_sub(body.x) as usize);
+                } else {
+                    menu.start_input();
+                }
+                self.modal = Some(LibraryModal::AppFilter(menu));
+                LibraryInteraction::handled()
+            }
+            FilterRow::Checked(_) | FilterRow::Foreground(_) => {
+                if menu.input_active() {
+                    menu.cancel_input();
+                }
+                if matches!(hit, FilterRow::Foreground(index) if menu.is_gray(index)) {
+                    menu.set_error(format!(
+                        "That app is already {} for this trigger.",
+                        menu.side().opposite_hint()
+                    ));
+                    self.modal = Some(LibraryModal::AppFilter(menu));
+                    return LibraryInteraction::handled();
+                }
+                menu.set_cursor(hit);
+                let interaction = menu
+                    .toggle_focused()
+                    .map(LibraryInteraction::edit)
+                    .unwrap_or_else(LibraryInteraction::handled);
+                self.modal = Some(LibraryModal::AppFilter(menu));
+                interaction
+            }
+        }
     }
 
     /// Clicks on an open tags menu: the delete icon removes that
@@ -1219,6 +1346,121 @@ impl LibraryPageState {
                 }
                 _ => {
                     self.modal = Some(LibraryModal::Tags(state));
+                    LibraryInteraction::handled()
+                }
+            },
+            // honey: the app-filter picker toggles live; gray rows
+            // are skipped by the cursor and refuse clicks.
+            LibraryModal::AppFilter(mut state) => match (key.code, key.modifiers) {
+                (KeyCode::Esc, KeyModifiers::NONE) => {
+                    if state.input_active() {
+                        state.cancel_input();
+                        self.modal = Some(LibraryModal::AppFilter(state));
+                    } else {
+                        self.modal = None;
+                    }
+                    LibraryInteraction::handled()
+                }
+                (KeyCode::Up, KeyModifiers::NONE) => {
+                    if !state.input_active() {
+                        state.move_cursor(-1);
+                    }
+                    self.modal = Some(LibraryModal::AppFilter(state));
+                    LibraryInteraction::handled()
+                }
+                (KeyCode::Down, KeyModifiers::NONE) => {
+                    if !state.input_active() {
+                        state.move_cursor(1);
+                    }
+                    self.modal = Some(LibraryModal::AppFilter(state));
+                    LibraryInteraction::handled()
+                }
+                (KeyCode::Left, KeyModifiers::NONE) => {
+                    if state.input_active() {
+                        state.input_mut().move_left();
+                    }
+                    self.modal = Some(LibraryModal::AppFilter(state));
+                    LibraryInteraction::handled()
+                }
+                (KeyCode::Right, KeyModifiers::NONE) => {
+                    if state.input_active() {
+                        state.input_mut().move_right();
+                    }
+                    self.modal = Some(LibraryModal::AppFilter(state));
+                    LibraryInteraction::handled()
+                }
+                (KeyCode::Enter, KeyModifiers::NONE) => {
+                    if state.input_active() {
+                        match state.confirm_input() {
+                            crate::widgets::library::state::InputConfirm::Save(pending) => {
+                                self.modal = Some(LibraryModal::AppFilter(state));
+                                LibraryInteraction::edit(pending)
+                            }
+                            _ => {
+                                self.modal = Some(LibraryModal::AppFilter(state));
+                                LibraryInteraction::handled()
+                            }
+                        }
+                    } else if matches!(state.rows().get(state.cursor()), Some(FilterRow::Add)) {
+                        state.start_input();
+                        self.modal = Some(LibraryModal::AppFilter(state));
+                        LibraryInteraction::handled()
+                    } else {
+                        let interaction = state
+                            .toggle_focused()
+                            .map(LibraryInteraction::edit)
+                            .unwrap_or_else(LibraryInteraction::handled);
+                        self.modal = Some(LibraryModal::AppFilter(state));
+                        interaction
+                    }
+                }
+                (KeyCode::Delete, KeyModifiers::NONE) => {
+                    if state.input_active() {
+                        state.delete_input_at();
+                        self.modal = Some(LibraryModal::AppFilter(state));
+                        LibraryInteraction::handled()
+                    } else {
+                        let interaction = state
+                            .remove_focused()
+                            .map(LibraryInteraction::edit)
+                            .unwrap_or_else(LibraryInteraction::handled);
+                        self.modal = Some(LibraryModal::AppFilter(state));
+                        interaction
+                    }
+                }
+                (KeyCode::Backspace, KeyModifiers::NONE) => {
+                    if state.input_active() {
+                        state.backspace_input();
+                    }
+                    self.modal = Some(LibraryModal::AppFilter(state));
+                    LibraryInteraction::handled()
+                }
+                (KeyCode::Home, KeyModifiers::NONE) => {
+                    if state.input_active() {
+                        state.input_mut().move_home();
+                    }
+                    self.modal = Some(LibraryModal::AppFilter(state));
+                    LibraryInteraction::handled()
+                }
+                (KeyCode::End, KeyModifiers::NONE) => {
+                    if state.input_active() {
+                        state.input_mut().move_end();
+                    }
+                    self.modal = Some(LibraryModal::AppFilter(state));
+                    LibraryInteraction::handled()
+                }
+                (KeyCode::Char(ch), modifiers)
+                    if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+                {
+                    if !state.input_active() {
+                        state.start_input();
+                    }
+                    state.push_input(ch);
+                    self.modal = Some(LibraryModal::AppFilter(state));
+                    LibraryInteraction::handled()
+                }
+                _ => {
+                    self.modal = Some(LibraryModal::AppFilter(state));
                     LibraryInteraction::handled()
                 }
             },

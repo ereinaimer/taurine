@@ -8,10 +8,10 @@ use ratatui::{
 
 use crate::theme::Theme;
 use crate::widgets::library::state::{
-    LibraryDeleteModalState, LibraryExportModalField, LibraryExportModalState,
-    LibraryExportResultModalState, LibraryHeaderMenuState, LibraryImportModalField,
-    LibraryImportModalState, LibraryImportResultModalState, LibraryImportRunVariablesModalState,
-    LibraryModal, LibrarySelectState, LibraryTagsModalState,
+    LibraryAppFilterState, LibraryDeleteModalState, LibraryExportModalField,
+    LibraryExportModalState, LibraryExportResultModalState, LibraryHeaderMenuState,
+    LibraryImportModalField, LibraryImportModalState, LibraryImportResultModalState,
+    LibraryImportRunVariablesModalState, LibraryModal, LibrarySelectState, LibraryTagsModalState,
 };
 use crate::widgets::util::{self};
 
@@ -42,6 +42,9 @@ pub fn render_library_modal(frame: &mut Frame, area: Rect, theme: &Theme, modal:
             render_library_header_menu_modal(frame, area, theme, state)
         }
         LibraryModal::Tags(state) => render_library_tags_modal(frame, area, theme, state),
+        LibraryModal::AppFilter(state) => {
+            render_library_app_filter_modal(frame, area, theme, state)
+        }
     }
 }
 
@@ -683,5 +686,176 @@ fn render_tags_chips(frame: &mut Frame, body: Rect, theme: &Theme, state: &Libra
                 },
             );
         }
+    }
+}
+
+/// App-filter picker overlay on the shared popup geometry: stored
+/// filters first (toggle off), the Alt-Tab foreground list as
+/// two-line `exe` plus `title · class` rows, then the manual add
+/// row / live input. Opposite-list rows render dimmed with their
+/// reason and never take focus.
+fn render_library_app_filter_modal(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    state: &LibraryAppFilterState,
+) {
+    use ratatui::style::Color::Rgb;
+    use ratatui::widgets::Block;
+
+    use crate::widgets::library::state::FilterRow;
+
+    let popup = util::overlay_popup(area);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(
+        Block::default().style(Style::default().bg(Rgb(0x14, 0x14, 0x14))),
+        popup,
+    );
+    let body = util::overlay_body(popup);
+    if body.width == 0 || body.height == 0 {
+        return;
+    }
+    util::render_overlay_title(frame, body, theme, state.side().title());
+    let max_lines = body.height.saturating_sub(3);
+    let origin_y = body.y.saturating_add(2);
+    let focused = state.rows().get(state.cursor()).copied();
+    if state.checked().is_empty() && state.foreground().is_empty() && !state.input_active() {
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                "No foreground apps.".to_string(),
+                Style::default().fg(theme.text_muted),
+            ))),
+            Rect {
+                x: body.x,
+                y: origin_y,
+                width: body.width,
+                height: 1,
+            },
+        );
+    }
+    // honey: full-bleed highlight band for the focused row, no fg
+    // override — the overlay option-menu language.
+    let band = || {
+        Style::default()
+            .bg(theme.surface)
+            .add_modifier(Modifier::BOLD)
+    };
+    for (row, rel) in state.layout(max_lines) {
+        let row_y = origin_y.saturating_add(rel);
+        let is_focused = Some(row) == focused;
+        match row {
+            FilterRow::Checked(index) => {
+                let value = state.checked().get(index).map(String::as_str).unwrap_or("");
+                let text = util::truncate_to_width(&format!("× {value}"), body.width.max(1));
+                let style = if is_focused {
+                    band().fg(theme.text)
+                } else {
+                    Style::default().fg(theme.text)
+                };
+                frame.render_widget(
+                    Paragraph::new(Line::from(Span::styled(text, style))),
+                    Rect {
+                        x: body.x,
+                        y: row_y,
+                        width: body.width,
+                        height: 1,
+                    },
+                );
+            }
+            FilterRow::Foreground(index) => {
+                let Some(app) = state.foreground().get(index) else {
+                    continue;
+                };
+                let gray = state.is_gray(index);
+                let exe = util::truncate_to_width(&app.exe, body.width.max(1));
+                let exe_style = if gray {
+                    Style::default().fg(theme.text_muted)
+                } else if is_focused {
+                    band().fg(theme.text)
+                } else {
+                    Style::default().fg(theme.text)
+                };
+                frame.render_widget(
+                    Paragraph::new(Line::from(Span::styled(exe, exe_style))),
+                    Rect {
+                        x: body.x,
+                        y: row_y,
+                        width: body.width,
+                        height: 1,
+                    },
+                );
+                let detail = if gray {
+                    format!("  {} · {}", app.title, state.side().opposite_hint())
+                } else {
+                    format!("  {} · {}", app.title, app.class)
+                };
+                let detail = util::truncate_to_width(&detail, body.width.max(1));
+                frame.render_widget(
+                    Paragraph::new(Line::from(Span::styled(
+                        detail,
+                        Style::default().fg(theme.text_muted),
+                    ))),
+                    Rect {
+                        x: body.x,
+                        y: row_y.saturating_add(1),
+                        width: body.width,
+                        height: 1,
+                    },
+                );
+            }
+            FilterRow::Add => {
+                if state.input_active() {
+                    let avail = body.width.max(1);
+                    let (visible, caret) = state.input().window(avail);
+                    frame.render_widget(
+                        Paragraph::new(Line::from(Span::styled(
+                            visible.to_string(),
+                            Style::default().fg(theme.text),
+                        ))),
+                        Rect {
+                            x: body.x,
+                            y: row_y,
+                            width: body.width,
+                            height: 1,
+                        },
+                    );
+                    let (caret_x, caret_y) = util::caret_position(body.x, row_y, caret, avail);
+                    frame.set_cursor_position((caret_x, caret_y));
+                } else {
+                    let style = if is_focused {
+                        band().fg(theme.text)
+                    } else {
+                        Style::default().fg(theme.text_muted)
+                    };
+                    frame.render_widget(
+                        Paragraph::new(Line::from(Span::styled("+ Add".to_string(), style))),
+                        Rect {
+                            x: body.x,
+                            y: row_y,
+                            width: body.width,
+                            height: 1,
+                        },
+                    );
+                }
+            }
+        }
+    }
+    // honey: no hint footer; errors alone take the bottom row so a
+    // failed write stays visible inside the menu.
+    if let Some(error) = state.error() {
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                util::truncate_to_width(error, body.width),
+                Style::default()
+                    .fg(theme.error)
+                    .add_modifier(Modifier::BOLD),
+            ))),
+            Rect {
+                x: body.x,
+                y: body.y.saturating_add(body.height).saturating_sub(1),
+                width: body.width,
+                height: 1,
+            },
+        );
     }
 }

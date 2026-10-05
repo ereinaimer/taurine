@@ -237,6 +237,8 @@ pub(crate) fn usage_toggle_offset(item: &LibraryTrigger) -> u16 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PropsHit {
     AutoCase,
+    Allow,
+    Block,
     Platform,
     Tags,
     UsageToggle,
@@ -272,6 +274,14 @@ pub(crate) fn hit_test(
             return Some(PropsHit::Platform);
         }
     }
+    for (label, hit) in [("Allow on", PropsHit::Allow), ("Block on", PropsHit::Block)] {
+        if let Some(offset) = label_offset(item, content.width, label) {
+            let offset = content.y.saturating_add(offset);
+            if row == offset && row < content.y.saturating_add(content.height) {
+                return Some(hit);
+            }
+        }
+    }
     let tags = content
         .y
         .saturating_add(usage_toggle_offset(item))
@@ -294,8 +304,14 @@ pub(crate) fn hit_test(
 /// plus wrapped alias lines above it, shared by rendering and
 /// hit-testing.
 fn platform_offset(item: &LibraryTrigger, width: u16) -> Option<u16> {
+    label_offset(item, width, "Platform")
+}
+
+/// Row offset of a labeled property (`Allow on`, `Block on`), if
+/// present: label position plus wrapped alias lines above it.
+fn label_offset(item: &LibraryTrigger, width: u16, label: &str) -> Option<u16> {
     let rows = info_rows(item);
-    let position = rows.iter().position(|(label, _)| *label == "Platform")? as u16;
+    let position = rows.iter().position(|(row, _)| *row == label)? as u16;
     let alias_at = alias_position(&rows);
     let mut offset = position.saturating_mul(2).saturating_add(2);
     if alias_at.is_some_and(|at| position > at) {

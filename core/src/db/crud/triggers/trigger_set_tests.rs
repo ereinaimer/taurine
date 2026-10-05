@@ -1907,6 +1907,36 @@ fn test_set_trigger_tags_normalizes_and_bumps() {
 }
 
 #[test]
+fn test_set_trigger_app_filters_rewrite_and_bump() {
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let (_dir, conn) = crate::testing::open_test_db();
+
+    let id = create_entry(&conn, word_entry_fixture("scoped_me", "text"))
+        .expect("create entry")
+        .0;
+    assert!(set_trigger_only_apps(&conn, &id, Some("exe:code, class:Chrome_WidgetWin_1")).unwrap());
+    assert!(set_trigger_except_apps(&conn, &id, Some("title:Gmail")).unwrap());
+    let (only, except, version, synced): (Option<String>, Option<String>, i64, bool) = conn
+        .query_row(
+            "SELECT only_apps, except_apps, version, is_synced FROM triggers WHERE id = ?1",
+            [&id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .unwrap();
+    assert_eq!(only.as_deref(), Some("exe:code,class:Chrome_WidgetWin_1"));
+    assert_eq!(except.as_deref(), Some("title:Gmail"));
+    assert_eq!(version, 3);
+    assert!(!synced);
+    // Clearing writes NULL; unknown ids report false; bad prefixes error.
+    assert!(set_trigger_only_apps(&conn, &id, None).unwrap());
+    assert!(set_trigger_except_apps(&conn, &id, Some("")).unwrap());
+    assert!(set_trigger_only_apps(&conn, &id, Some("bogus:code")).is_err());
+    assert!(!set_trigger_only_apps(&conn, "ghost", Some("exe:code")).unwrap());
+}
+
+#[test]
 fn test_list_distinct_tags_skips_deleted() {
     let _guard = crate::testing::TEST_LOCK
         .lock()

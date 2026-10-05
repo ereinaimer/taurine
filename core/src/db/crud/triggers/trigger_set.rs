@@ -1346,6 +1346,38 @@ pub fn update_trigger_app_filters(
     Ok(())
 }
 
+/// Rewrites the allow-list of one trigger. Values validate like the
+/// CLI flags (comma-separated, `exe:`/`class:`/`title:` prefixes).
+/// Bumps version and marks the row unsynced like other mutations.
+/// Returns false when the id is unknown or already deleted.
+pub fn set_trigger_only_apps(conn: &Connection, id: &str, only_apps: Option<&str>) -> Result<bool> {
+    let cleaned = clean_app_filter_value(only_apps)?;
+    let changed = conn.execute(
+        "UPDATE triggers
+         SET only_apps = ?1, version = version + 1, updated_at = ?2, is_synced = 0
+         WHERE id = ?3 AND is_deleted = 0",
+        rusqlite::params![cleaned, crate::db::now_unix_secs(), id],
+    )?;
+    Ok(changed > 0)
+}
+
+/// Rewrites the block-list of one trigger. Same validation and
+/// version bump as the allow-list setter.
+pub fn set_trigger_except_apps(
+    conn: &Connection,
+    id: &str,
+    except_apps: Option<&str>,
+) -> Result<bool> {
+    let cleaned = clean_app_filter_value(except_apps)?;
+    let changed = conn.execute(
+        "UPDATE triggers
+         SET except_apps = ?1, version = version + 1, updated_at = ?2, is_synced = 0
+         WHERE id = ?3 AND is_deleted = 0",
+        rusqlite::params![cleaned, crate::db::now_unix_secs(), id],
+    )?;
+    Ok(changed > 0)
+}
+
 /// Renames the display label of one trigger. Names are display-only, so
 /// no alias or conflict checks apply; duplicates only warn like the
 /// full update path. Bumps version and marks the row unsynced.

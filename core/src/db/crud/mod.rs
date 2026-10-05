@@ -21,10 +21,11 @@ pub use triggers::{
     list_distinct_tags, normalize_tags, normalize_voice_phrase, prepare_trigger,
     prepare_trigger_with_type, record_expansion_usage, search_triggers, set_alias_invocation_type,
     set_script_behavior, set_script_interpreter, set_trigger_auto_case, set_trigger_content,
-    set_trigger_description, set_trigger_enabled, set_trigger_name, set_trigger_tags,
-    set_trigger_target_os, target_os_values_overlap, threshold_for_phrase, tombstone_entry,
-    update_existing_trigger, update_trigger_app_filters, upsert_entry_full, upsert_script,
-    upsert_trigger, upsert_trigger_with_type, upsert_trigger_with_type_and_case,
+    set_trigger_description, set_trigger_enabled, set_trigger_except_apps, set_trigger_name,
+    set_trigger_only_apps, set_trigger_tags, set_trigger_target_os, split_app_filters,
+    target_os_values_overlap, threshold_for_phrase, tombstone_entry, update_existing_trigger,
+    update_trigger_app_filters, upsert_entry_full, upsert_script, upsert_trigger,
+    upsert_trigger_with_type, upsert_trigger_with_type_and_case,
     validate_trigger_target_os_conflict, validate_voice_phrase,
 };
 

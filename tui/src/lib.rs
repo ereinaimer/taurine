@@ -434,6 +434,15 @@ fn handle_tui_mouse_event(
                 apply_library_interaction(app, interaction);
                 return;
             }
+            if app.active_page() == Page::Library && app.library_page().app_filter_menu_open() {
+                let layout = terminal::mouse::frame_layout(area);
+                let full = terminal::mouse::library_full_area(layout.page);
+                let interaction =
+                    app.library_page_mut()
+                        .click_app_filter_menu(full, mouse.column, mouse.row);
+                apply_library_interaction(app, interaction);
+                return;
+            }
             if modal_open {
                 return;
             }
@@ -570,6 +579,18 @@ fn handle_tui_mouse_event(
                                     let popup = crate::widgets::util::overlay_popup(full);
                                     let body = crate::widgets::util::overlay_body(popup);
                                     app.library_page_mut().open_tags_modal(body.width);
+                                }
+                                Some(library::props::PropsHit::Allow) => {
+                                    let flush = app.library_page_mut().commit_edit();
+                                    apply_library_interaction(app, flush);
+                                    app.library_page_mut()
+                                        .open_app_filter_modal(library::AppFilterSide::Allow);
+                                }
+                                Some(library::props::PropsHit::Block) => {
+                                    let flush = app.library_page_mut().commit_edit();
+                                    apply_library_interaction(app, flush);
+                                    app.library_page_mut()
+                                        .open_app_filter_modal(library::AppFilterSide::Block);
                                 }
                                 None => {}
                             }
@@ -746,11 +767,17 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
             | library::EditedField::Behavior(_)
             | library::EditedField::AutoCase(_)
             | library::EditedField::TargetOs(_)
-            | library::EditedField::Tags(_) => None,
+            | library::EditedField::Tags(_)
+            | library::EditedField::OnlyApps(_)
+            | library::EditedField::ExceptApps(_) => None,
         };
         // honey: the tags builder lives on across live toggles; the
         // menu reopens from refreshed rows after each write.
         let reopen_tags = matches!(pending_edit.field, library::EditedField::Tags(_));
+        let reopen_apps = matches!(
+            pending_edit.field,
+            library::EditedField::OnlyApps(_) | library::EditedField::ExceptApps(_)
+        );
         match pending_edit.apply() {
             Ok(()) => {
                 refresh_library_page(app);
@@ -760,6 +787,8 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
                     app.library_page_mut().select_after_delete(restore_index);
                 } else if reopen_tags {
                     app.library_page_mut().sync_tags_modal(&trigger_id);
+                } else if reopen_apps {
+                    app.library_page_mut().sync_app_filter_modal(&trigger_id);
                 }
             }
             // honey: typed text is never lost; the edit reopens on the

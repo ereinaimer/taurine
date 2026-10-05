@@ -91,6 +91,8 @@ pub(crate) enum EditedField {
     AutoCase(bool),
     TargetOs(String),
     Tags(Vec<String>),
+    OnlyApps(Vec<String>),
+    ExceptApps(Vec<String>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,6 +101,16 @@ pub(crate) struct PendingLibraryEdit {
     pub(crate) trigger: String,
     pub(crate) field: EditedField,
     pub(crate) restore_index: usize,
+}
+
+/// Join stored filter items for the database, escaping literal
+/// commas the same way the CLI split understands them.
+pub(crate) fn join_app_filters(items: &[String]) -> String {
+    items
+        .iter()
+        .map(|item| item.replace(',', "\\,"))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 impl PendingLibraryEdit {
@@ -155,6 +167,25 @@ impl PendingLibraryEdit {
             // honey: tags never reach the expander, so no daemon reload.
             EditedField::Tags(tags) => {
                 taurine_core::db::crud::set_trigger_tags(&conn, &self.trigger_id, tags)?;
+            }
+            // honey: app filters gate expansion, so the daemon reloads.
+            EditedField::OnlyApps(apps) => {
+                let value = (!apps.is_empty()).then(|| join_app_filters(apps));
+                taurine_core::db::crud::set_trigger_only_apps(
+                    &conn,
+                    &self.trigger_id,
+                    value.as_deref(),
+                )?;
+                taurine_core::rpc::notify_daemon_reload();
+            }
+            EditedField::ExceptApps(apps) => {
+                let value = (!apps.is_empty()).then(|| join_app_filters(apps));
+                taurine_core::db::crud::set_trigger_except_apps(
+                    &conn,
+                    &self.trigger_id,
+                    value.as_deref(),
+                )?;
+                taurine_core::rpc::notify_daemon_reload();
             }
         }
         Ok(())

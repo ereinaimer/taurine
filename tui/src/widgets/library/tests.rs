@@ -2661,6 +2661,250 @@ fn hover_tags_menu_tracks_chip_then_clears() {
     assert_eq!(menu.hover(), None);
 }
 
+fn fg_app(
+    exe: &str,
+    title: &str,
+    class: &str,
+) -> taurine_core::system::foreground_apps::ForegroundApp {
+    taurine_core::system::foreground_apps::ForegroundApp {
+        exe: exe.to_string(),
+        path: format!("C:\\bin\\{exe}"),
+        class: class.to_string(),
+        title: title.to_string(),
+    }
+}
+
+fn filter_menu(side: AppFilterSide) -> LibraryAppFilterState {
+    LibraryAppFilterState::new(
+        "id-apps".to_string(),
+        0,
+        side,
+        vec!["exe:code".to_string()],
+        vec!["exe:notepad".to_string()],
+        vec![
+            fg_app("notepad.exe", "notes", "Notepad"),
+            fg_app("calc.exe", "Calculator", "CalcClass"),
+        ],
+    )
+}
+
+#[test]
+fn gray_key_collides_across_forms() {
+    assert_eq!(gray_key("exe:code"), gray_key("CODE"));
+    assert_eq!(gray_key("exe:code"), gray_key("code.exe"));
+    assert_eq!(gray_key("exe:code"), gray_key("Exe:CODE.EXE"));
+    assert_ne!(gray_key("exe:code"), gray_key("exe:notepad"));
+    assert_eq!(gray_key("class:Chrome_WidgetWin_1"), "chrome_widgetwin_1");
+}
+
+#[test]
+fn filter_menu_grays_opposite_list() {
+    let menu = filter_menu(AppFilterSide::Allow);
+    assert!(menu.is_gray(0));
+    assert!(!menu.is_gray(1));
+    assert_eq!(menu.candidate(0).as_deref(), Some("exe:notepad.exe"));
+    // Block side mirrors: code is the gray one there.
+    let blocked = LibraryAppFilterState::new(
+        "id-apps".to_string(),
+        0,
+        AppFilterSide::Block,
+        vec!["exe:notepad".to_string()],
+        vec!["exe:code".to_string()],
+        vec![fg_app("code.exe", "VS Code", "Chrome_WidgetWin_1")],
+    );
+    assert!(blocked.is_gray(0));
+}
+
+#[test]
+fn filter_menu_cursor_skips_gray() {
+    let mut menu = filter_menu(AppFilterSide::Allow);
+    // Rows: checked(0), gray notepad(1), calc(2), add(3).
+    menu.move_cursor(1);
+    assert_eq!(menu.cursor(), 2);
+    menu.move_cursor(1);
+    assert_eq!(menu.cursor(), 3);
+    menu.move_cursor(1);
+    assert_eq!(menu.cursor(), 0);
+}
+
+#[test]
+fn filter_menu_toggle_adds_and_removes() {
+    let menu = filter_menu(AppFilterSide::Allow);
+    // Enter on the checked row removes it.
+    let pending = menu.toggle_focused().expect("pending remove");
+    assert_eq!(pending.field, EditedField::OnlyApps(Vec::new()));
+    // Foreground calc adds an `exe:` candidate.
+    let mut menu = filter_menu(AppFilterSide::Allow);
+    menu.set_cursor(FilterRow::Foreground(1));
+    let pending = menu.toggle_focused().expect("pending add");
+    assert_eq!(
+        pending.field,
+        EditedField::OnlyApps(vec!["exe:code".to_string(), "exe:calc.exe".to_string()])
+    );
+    // Gray rows never toggle.
+    let menu = filter_menu(AppFilterSide::Allow);
+    assert!(menu.toggle_focused().is_some());
+    // Block side persists the other field.
+    let blocked = LibraryAppFilterState::new(
+        "id-apps".to_string(),
+        0,
+        AppFilterSide::Block,
+        Vec::new(),
+        Vec::new(),
+        vec![fg_app("calc.exe", "Calculator", "CalcClass")],
+    );
+    let pending = blocked.toggle_focused().expect("pending add");
+    assert_eq!(
+        pending.field,
+        EditedField::ExceptApps(vec!["exe:calc.exe".to_string()])
+    );
+}
+
+#[test]
+fn filter_menu_confirm_validates_input() {
+    let mut menu = filter_menu(AppFilterSide::Allow);
+    menu.start_input();
+    assert_eq!(menu.confirm_input(), InputConfirm::Cancel);
+    assert!(!menu.input_active());
+
+    menu.start_input();
+    for ch in "bogus:code".chars() {
+        menu.push_input(ch);
+    }
+    assert!(matches!(menu.confirm_input(), InputConfirm::Invalid(_)));
+    assert!(menu.input_active());
+    assert!(menu.error().is_some());
+
+    menu.start_input();
+    for ch in "CODE".chars() {
+        menu.push_input(ch);
+    }
+    assert!(matches!(menu.confirm_input(), InputConfirm::Invalid(_)));
+
+    menu.start_input();
+    for ch in "exe:notepad".chars() {
+        menu.push_input(ch);
+    }
+    assert!(matches!(menu.confirm_input(), InputConfirm::Invalid(_)));
+
+    menu.start_input();
+    for ch in "title:Gmail".chars() {
+        menu.push_input(ch);
+    }
+    let InputConfirm::Save(pending) = menu.confirm_input() else {
+        panic!("valid input saves");
+    };
+    assert_eq!(
+        pending.field,
+        EditedField::OnlyApps(vec!["exe:code".to_string(), "title:Gmail".to_string()])
+    );
+}
+
+#[test]
+fn filter_menu_keys_toggle_and_type() {
+    let mut state = sample_state();
+    state.modal = Some(LibraryModal::AppFilter(filter_menu(AppFilterSide::Allow)));
+    // Down skips the gray row onto calc; Enter adds it live.
+    state.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let pending = interaction.pending_edit().expect("pending add");
+    assert_eq!(
+        pending.field,
+        EditedField::OnlyApps(vec!["exe:code".to_string(), "exe:calc.exe".to_string()])
+    );
+    assert!(state.modal().is_some());
+
+    // Typing opens the manual input.
+    state.modal = Some(LibraryModal::AppFilter(filter_menu(AppFilterSide::Allow)));
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+    assert!(interaction.pending_edit().is_none());
+    let Some(LibraryModal::AppFilter(menu)) = state.modal() else {
+        panic!("filter menu open");
+    };
+    assert!(menu.input_active());
+    assert_eq!(menu.input().text(), "t");
+}
+
+#[test]
+fn click_app_filter_menu_toggles_and_grays() {
+    let mut state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    // Popup 56x14 centered, body at x25 y9: rows start at row 11.
+    // Checked(0) row 11, gray notepad rows 12-13, calc rows 14-15.
+    state.modal = Some(LibraryModal::AppFilter(filter_menu(AppFilterSide::Allow)));
+    let interaction = state.click_app_filter_menu(area, 26, 11);
+    let pending = interaction.pending_edit().expect("pending remove");
+    assert_eq!(pending.field, EditedField::OnlyApps(Vec::new()));
+    assert!(state.modal().is_some());
+
+    // Gray rows refuse with an error and no write.
+    state.modal = Some(LibraryModal::AppFilter(filter_menu(AppFilterSide::Allow)));
+    let interaction = state.click_app_filter_menu(area, 25, 12);
+    assert!(interaction.pending_edit().is_none());
+    let Some(LibraryModal::AppFilter(menu)) = state.modal() else {
+        panic!("filter menu open");
+    };
+    assert!(menu.error().is_some());
+
+    // Foreground calc adds.
+    state.modal = Some(LibraryModal::AppFilter(filter_menu(AppFilterSide::Allow)));
+    let interaction = state.click_app_filter_menu(area, 25, 14);
+    let pending = interaction.pending_edit().expect("pending add");
+    assert_eq!(
+        pending.field,
+        EditedField::OnlyApps(vec!["exe:code".to_string(), "exe:calc.exe".to_string()])
+    );
+}
+
+#[test]
+fn click_app_filter_menu_outside_closes() {
+    let mut state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    state.modal = Some(LibraryModal::AppFilter(filter_menu(AppFilterSide::Allow)));
+    let interaction = state.click_app_filter_menu(area, 0, 0);
+    assert!(interaction.pending_edit().is_none());
+    assert!(state.modal().is_none());
+}
+
+#[test]
+fn allow_block_rows_hit_open_positions() {
+    let state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let content = props::props_content(area, state.split_ratio(), state.detail_ratio());
+    // Allow on sits at label position 1, Block on at 2: offset *2+2.
+    assert_eq!(
+        props::hit_test(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            content.x,
+            content.y + 4
+        ),
+        Some(props::PropsHit::Allow)
+    );
+    assert_eq!(
+        props::hit_test(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            content.x,
+            content.y + 6
+        ),
+        Some(props::PropsHit::Block)
+    );
+}
+
+#[test]
+fn join_app_filters_escapes_commas() {
+    assert_eq!(
+        join_app_filters(&["exe:code".to_string(), "title:Hello, World".to_string()]),
+        "exe:code,title:Hello\\, World"
+    );
+    assert_eq!(join_app_filters(&[]), String::new());
+}
+
 #[test]
 fn click_tags_menu_outside_closes() {
     let mut state = sample_state();
