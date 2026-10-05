@@ -873,10 +873,10 @@ fn render_library_app_filter_modal(
     }
     // honey: the right pane stays empty for now; the divider still
     // splits the overlay with padding on both sides.
-    // honey: the search box pins the absolute bottom row at the left
-    // pane width with a blank line above the list; typing always
-    // filters. The caret always shows.
-    let search_y = body.y.saturating_add(body.height).saturating_sub(1);
+    // honey: the search box sits exactly one blank line below the
+    // visible rows at the left pane width; typing always filters.
+    // The caret always shows.
+    let search_y = origin_y.saturating_add(state.search_rel(max_lines));
     let search_w = content_w.max(1);
     let (visible, caret) = state.search().window(search_w);
     let (text, style) = if state.search().is_empty() {

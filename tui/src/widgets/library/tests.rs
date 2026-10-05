@@ -2821,15 +2821,15 @@ fn filter_menu_caps_foreground_at_eight() {
 fn click_app_filter_search_places_caret() {
     let mut state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
-    // Body at x7 y7, 86x16: rows from row 10, search box pinned
-    // to row 22. With `calc` typed the list shrinks: one checked
-    // row, one two-line match.
+    // Body at x7 y7, 86x16: rows from row 10. With `calc` typed
+    // the list shrinks to one checked row plus one two-line match,
+    // so the search docks at row 14: exactly one blank below.
     let mut menu = filter_menu(AppFilterSide::Allow);
     for ch in "calc".chars() {
         menu.search_mut().insert(ch);
     }
     state.modal = Some(LibraryModal::AppFilter(menu));
-    let interaction = state.click_app_filter_menu(area, 10, 22);
+    let interaction = state.click_app_filter_menu(area, 10, 14);
     assert!(interaction.pending_edit().is_none());
     let Some(LibraryModal::AppFilter(menu)) = state.modal() else {
         panic!("filter menu open");

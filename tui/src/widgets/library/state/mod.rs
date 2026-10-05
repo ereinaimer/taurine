@@ -491,9 +491,14 @@ impl LibraryPageState {
         }
         let max_lines = body.height.saturating_sub(APP_FILTER_RESERVED_LINES);
         menu.set_view_lines(body.height);
-        // honey: the search box pins the absolute bottom row; a click
-        // there places the caret, exactly like the library search bar.
-        if row == body.y.saturating_add(body.height).saturating_sub(1) {
+        // honey: the search box sits exactly one blank line below the
+        // visible rows; a click there places the caret, exactly like
+        // the library search bar.
+        let search_row = body
+            .y
+            .saturating_add(APP_FILTER_ROWS_TOP)
+            .saturating_add(menu.search_rel(max_lines));
+        if row == search_row {
             let field = menu.search_mut();
             let column = column.saturating_sub(body.x).saturating_sub(APP_FILTER_PAD) as usize;
             field.place(field.index_at(column));

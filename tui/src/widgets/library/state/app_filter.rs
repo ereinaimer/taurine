@@ -247,6 +247,19 @@ impl LibraryAppFilterState {
         laid
     }
 
+    /// Window-relative line of the search box: exactly one blank
+    /// line below the visible rows, landing on the bottom row when
+    /// the list fills the window. Rendering and hit-testing share this.
+    pub(crate) fn search_rel(&self, max_lines: u16) -> u16 {
+        let used = self
+            .layout(max_lines)
+            .into_iter()
+            .map(|(row, y)| y.saturating_add(row.height()))
+            .max()
+            .unwrap_or(0);
+        used.saturating_add(1).min(max_lines.saturating_add(1))
+    }
+
     /// Row under a window-relative line, if any.
     pub(crate) fn row_at(&self, max_lines: u16, rel_y: u16) -> Option<FilterRow> {
         self.layout(max_lines)
