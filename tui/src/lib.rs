@@ -1367,7 +1367,7 @@ mod tests {
         let mut app = App::default();
         app.open_settings_overlay();
 
-        handle_tui_mouse_event(&mut app, left_click(5, 5), TEST_AREA);
+        handle_tui_mouse_event(&mut app, left_click(2, 15), TEST_AREA);
 
         assert!(!app.is_settings_overlay_open());
     }
@@ -1376,7 +1376,7 @@ mod tests {
     fn settings_overlay_hugs_rows_without_top_gap() {
         let app = App::default();
         let popup = settings::overlay_popup(TEST_AREA, app.settings_page());
-        assert_eq!(popup, ratatui::layout::Rect::new(10, 4, 80, 21));
+        assert_eq!(popup, ratatui::layout::Rect::new(5, 2, 90, 25));
         let body = settings::overlay_body(popup);
         let content = settings::overlay_content(body);
         // honey: the popup height already accounts for the window, so
@@ -1396,7 +1396,7 @@ mod tests {
                 break;
             }
         }
-        assert_eq!(first, Some(8));
+        assert_eq!(first, Some(6));
     }
 
     #[test]
@@ -1428,7 +1428,7 @@ mod tests {
         app.open_settings_overlay();
         assert!(!app.settings_page().is_search_active());
 
-        handle_tui_mouse_event(&mut app, left_click(30, 22), TEST_AREA);
+        handle_tui_mouse_event(&mut app, left_click(30, 24), TEST_AREA);
 
         assert!(app.settings_page().is_search_active());
         assert_eq!(app.settings_page().search_query(), "");

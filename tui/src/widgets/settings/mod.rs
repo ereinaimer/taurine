@@ -184,9 +184,9 @@ pub(crate) fn hit_test(
 /// a top gap; capped at 80% with scrolling beyond that. Shared by
 /// rendering and hit-testing so clicks land as drawn.
 pub(crate) fn overlay_popup(area: Rect, state: &SettingsPageState) -> Rect {
-    let width = area.width / 5 * 4;
+    let width = area.width / 10 * 9;
     let max_list =
-        (area.height / 5 * 4).saturating_sub(popup_chrome(state.status_message().is_some()));
+        (area.height / 10 * 9).saturating_sub(popup_chrome(state.status_message().is_some()));
     let (_, heights, _) = row_shapes(popup_list_width(area), state);
     let (start, end) = window_for(
         &heights,
@@ -215,7 +215,7 @@ fn popup_chrome(has_status: bool) -> u16 {
 
 /// List width inside the popup, mirroring the render insets.
 fn popup_list_width(area: Rect) -> u16 {
-    (area.width / 5 * 4).saturating_sub(6 + 2)
+    (area.width / 10 * 9).saturating_sub(6 + 2)
 }
 
 /// Content rect inside the popup, shared by overlay renders and
