@@ -81,10 +81,19 @@ pub(crate) fn render_props(
     let tags_at = usage_toggle_offset(item)
         .saturating_add(alias_extra)
         .saturating_sub(2);
+    let tag_text = tag_text_lines(
+        item,
+        edge_value_width("Tags", content.width) as usize,
+        content.width as usize,
+    );
+    // honey: wrapped tag lines push the usage toggle down, mirroring aliases.
+    let tag_extra = tag_text.len().saturating_sub(1) as u16;
     if tags_at < content.height {
-        render_tags_row(frame, content, theme, item, tags_at);
+        render_tag_block(frame, content, theme, item, &tag_text, tags_at);
     }
-    let toggle_at = usage_toggle_offset(item).saturating_add(alias_extra);
+    let toggle_at = usage_toggle_offset(item)
+        .saturating_add(alias_extra)
+        .saturating_add(tag_extra);
     if toggle_at < content.height {
         render_toggle(frame, content, theme, toggle_at, state.usage_expanded());
     }
@@ -111,78 +120,113 @@ pub(crate) fn tag_color(theme: &Theme, index: usize) -> ratatui::style::Color {
     }
 }
 
-/// Chip strings that fit `available` cells, space-separated downstream.
-/// Conservative by one cell; matches the old strip behavior.
-pub(crate) fn pack_tag_chips(tags: &[String], available: usize) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut used = 0usize;
-    for tag in tags {
-        let chip = format!("#{tag}");
-        let width = chip.chars().count().saturating_add(1);
-        if used.saturating_add(width) > available {
-            break;
-        }
-        used = used.saturating_add(width);
-        out.push(chip);
+/// Tag text: up to three tags as `#tag` chips, one per line.
+/// Overlong chips truncate in place; a marker trails when tags remain
+/// past three; empty stays the border token. Mirrors the alias block.
+pub(crate) fn tag_text_lines(
+    item: &LibraryTrigger,
+    first_budget: usize,
+    cont_budget: usize,
+) -> Vec<String> {
+    const MAX_SHOWN_TAGS: usize = 3;
+    if first_budget == 0 && cont_budget == 0 {
+        return vec![String::new()];
     }
-    out
+    if item.tags().is_empty() {
+        return vec![EMPTY_TOKEN.to_string()];
+    }
+    let mut lines: Vec<String> = Vec::new();
+    for (index, tag) in item.tags().iter().take(MAX_SHOWN_TAGS).enumerate() {
+        let budget = if index == 0 {
+            first_budget
+        } else {
+            cont_budget
+        };
+        lines.push(util::truncate_to_width(&format!("#{tag}"), budget as u16));
+    }
+    if item.tags().len() > MAX_SHOWN_TAGS {
+        let budget = if lines.len() == 1 {
+            first_budget
+        } else {
+            cont_budget
+        };
+        let last = lines.last().map(String::as_str).unwrap_or("");
+        if last.chars().count().saturating_add(2) <= budget {
+            lines.last_mut().expect("tag line").push_str(" …");
+        } else {
+            lines.push("…".to_string());
+        }
+    }
+    lines
 }
 
-/// Tags property row: dim label left, packed color chips (or the add
-/// button when empty) right-aligned like every other row.
-fn render_tags_row(
+/// Extra rows the wrapped tag block adds below its first line,
+/// shared by rendering and hit-testing.
+pub(crate) fn tag_extra_lines(item: &LibraryTrigger, width: u16) -> u16 {
+    tag_text_lines(
+        item,
+        edge_value_width("Tags", width) as usize,
+        width as usize,
+    )
+    .len()
+    .saturating_sub(1) as u16
+}
+
+/// Tag block: first line shares the row with the dim label like
+/// every other row; continuations run full width in tag colors.
+/// Mirrors the alias block.
+fn render_tag_block(
     frame: &mut Frame,
     content: Rect,
     theme: &Theme,
     item: &LibraryTrigger,
+    lines: &[String],
     offset: u16,
 ) {
-    use crate::widgets::library::icons::ADD_ICON;
-
-    let row = Rect {
-        x: content.x,
-        y: content.y.saturating_add(offset),
-        width: content.width,
-        height: 1,
-    };
-    let label = "Tags";
-    let available = edge_value_width(label, row.width);
-    let (spans, width) = if item.tags().is_empty() {
-        (
-            vec![Span::styled(
-                format!(" {ADD_ICON} "),
-                Style::default()
-                    .fg(theme.button.text)
-                    .bg(theme.button.inactive_bg),
-            )],
-            3usize,
-        )
-    } else {
-        let packed = pack_tag_chips(item.tags(), available as usize);
-        let mut spans: Vec<Span<'static>> = Vec::new();
-        let mut used = 0usize;
-        for (index, chip) in packed.into_iter().enumerate() {
-            if index > 0 {
-                spans.push(Span::raw(" ".to_string()));
-                used = used.saturating_add(1);
-            }
-            let width = chip.chars().count();
-            spans.push(Span::styled(
-                chip,
-                Style::default().fg(tag_color(theme, index)),
-            ));
-            used = used.saturating_add(width);
+    // honey: color follows the tag's position, matching the tags
+    // overlay; the empty token and the overflow marker stay neutral.
+    let shown = item.tags().len().min(lines.len());
+    for (index, line) in lines.iter().enumerate() {
+        let row_offset = offset.saturating_add(index as u16);
+        if row_offset >= content.height {
+            break;
         }
-        let width = used;
-        (spans, width)
-    };
-    if spans.is_empty() {
-        return;
+        let row = Rect {
+            x: content.x,
+            y: content.y.saturating_add(row_offset),
+            width: content.width,
+            height: 1,
+        };
+        // honey: color follows the tag's position, matching the tags
+        // overlay; the empty token and the overflow marker stay neutral.
+        let color = if item.tags().is_empty() || index >= shown {
+            theme.text
+        } else {
+            tag_color(theme, index)
+        };
+        if index == 0 {
+            let width = line.chars().count();
+            frame.render_widget(
+                Paragraph::new(edge_line(
+                    "Tags",
+                    vec![Span::styled(line.clone(), Style::default().fg(color))],
+                    width,
+                    row.width,
+                    theme,
+                )),
+                row,
+            );
+        } else {
+            // honey: continuations right-align under the first line,
+            // mirroring the alias block.
+            let pad = content.width.saturating_sub(line.chars().count() as u16) as usize;
+            frame.render_widget(
+                Paragraph::new(Line::from(format!("{}{}", " ".repeat(pad), line)))
+                    .style(Style::default().fg(color)),
+                row,
+            );
+        }
     }
-    frame.render_widget(
-        Paragraph::new(edge_line(label, spans, width, row.width, theme)),
-        row,
-    );
 }
 
 fn render_toggle(frame: &mut Frame, content: Rect, theme: &Theme, offset: u16, expanded: bool) {
@@ -282,18 +326,20 @@ pub(crate) fn hit_test(
             }
         }
     }
-    let tags = content
+    let tags_base = content
         .y
         .saturating_add(usage_toggle_offset(item))
         .saturating_add(alias_extra_lines(item, content.width))
         .saturating_sub(2);
-    if row == tags && row < content.y.saturating_add(content.height) {
+    let tags_end = tags_base.saturating_add(tag_extra_lines(item, content.width));
+    if row >= tags_base && row <= tags_end && row < content.y.saturating_add(content.height) {
         return Some(PropsHit::Tags);
     }
     let toggle = content
         .y
         .saturating_add(usage_toggle_offset(item))
-        .saturating_add(extra);
+        .saturating_add(extra)
+        .saturating_add(tag_extra_lines(item, content.width));
     if row == toggle && row < content.y.saturating_add(content.height) {
         return Some(PropsHit::UsageToggle);
     }

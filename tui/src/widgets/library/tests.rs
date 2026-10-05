@@ -1185,16 +1185,105 @@ fn info_rows_carry_properties_and_raw_usage() {
     assert!(rows.iter().all(|(key, _)| *key != "Time saved"));
 }
 
+fn tagged_list_item(id: &str, tags_json: &str) -> TriggerListItem {
+    TriggerListItem {
+        id: id.to_string(),
+        name: String::new(),
+        description: None,
+        invocations: vec![alias_fixture(id, "tagged", InvocationType::Word, false)],
+        display: "tagged".to_string(),
+        output: "output".to_string(),
+        action_type: "text".to_string(),
+        target_os: "all".to_string(),
+        only_apps: None,
+        except_apps: None,
+        auto_case: false,
+        is_enabled: true,
+        usage_count: 0,
+        last_used_at: None,
+        created_at: 0,
+        tags: tags_json.to_string(),
+        script_content: None,
+        interpreter: None,
+        behavior: None,
+    }
+}
+
 #[test]
-fn pack_tag_chips_fits_and_breaks() {
-    let tags = vec!["work".to_string(), "powershell".to_string()];
+fn tag_text_lines_show_one_per_line() {
+    let item = LibraryTrigger::single(tagged_list_item("id-tags", "[\"dev\",\"prompt\"]"));
     assert_eq!(
-        props::pack_tag_chips(&tags, 30),
-        vec!["#work".to_string(), "#powershell".to_string()]
+        props::tag_text_lines(&item, 30, 40),
+        vec!["#dev".to_string(), "#prompt".to_string()]
     );
-    assert_eq!(props::pack_tag_chips(&tags, 6), vec!["#work".to_string()]);
-    assert!(props::pack_tag_chips(&tags, 2).is_empty());
-    assert!(props::pack_tag_chips(&[], 30).is_empty());
+    assert_eq!(
+        props::tag_text_lines(&item, 3, 40),
+        vec!["#d…".to_string(), "#prompt".to_string()]
+    );
+}
+
+#[test]
+fn tag_text_lines_mark_tags_past_three() {
+    let item = LibraryTrigger::single(tagged_list_item(
+        "id-tags",
+        "[\"dev\",\"prompt\",\"test\",\"extra\"]",
+    ));
+    assert_eq!(
+        props::tag_text_lines(&item, 40, 40),
+        vec![
+            "#dev".to_string(),
+            "#prompt".to_string(),
+            "#test …".to_string()
+        ]
+    );
+}
+
+#[test]
+fn tag_text_lines_empty_stays_border_token() {
+    let item = LibraryTrigger::single(tagged_list_item("id-tags", "[]"));
+    assert_eq!(
+        props::tag_text_lines(&item, 30, 40),
+        vec![detail::EMPTY_TOKEN.to_string()]
+    );
+}
+
+#[test]
+fn wrapped_tag_block_shifts_usage_toggle_down() {
+    let rows = LibraryTrigger::expand(tagged_list_item("id-tags", "[\"dev\",\"prompt\",\"test\"]"));
+    let item = rows[0].clone();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let mut state = LibraryPageState::default();
+    state.replace_items(rows);
+    let content = props::props_content(area, state.split_ratio(), state.detail_ratio());
+    let base = props::usage_toggle_offset(&item);
+    let extra = props::tag_extra_lines(&item, content.width);
+    assert_eq!(extra, 2);
+    assert_eq!(
+        props::hit_test(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            content.x,
+            content.y.saturating_add(base).saturating_add(extra)
+        ),
+        Some(props::PropsHit::UsageToggle)
+    );
+    // Every tag row opens the builder.
+    let tags_at = content.y.saturating_add(base).saturating_sub(2);
+    for offset in 0..=extra {
+        assert_eq!(
+            props::hit_test(
+                area,
+                state.split_ratio(),
+                state.detail_ratio(),
+                &state,
+                content.x,
+                tags_at.saturating_add(offset)
+            ),
+            Some(props::PropsHit::Tags)
+        );
+    }
 }
 
 #[test]

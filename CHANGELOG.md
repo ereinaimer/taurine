@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Target Platform Picker**: Click the Platform row in properties to choose the operating system from a centered dialog with icons.
 - **Tags Builder**: Click the Tags row to see the trigger's tags as colored chips with a `+` button. Click `+` and type the name to add a tag, hover a chip for its close icon to remove it.
 - **App Allow/Block Pickers**: Click the Allow on or Block on rows to choose from running Alt-Tab applications or type app filters manually, with opposite-list entries dimmed and unclickable. The list caps at the eight most recent apps with a search box to narrow it.
+- **One Tag Per Line**: The Tags row in properties now lists one tag per line (up to three) exactly like aliases.
 - **Word Wrap in Snippet Preview**: Long snippet text now breaks between whole words instead of cutting them mid-word.
 
 ### Removed
