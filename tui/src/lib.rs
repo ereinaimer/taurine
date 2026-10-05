@@ -25,7 +25,7 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::CrosstermBackend, style::Style, widgets::Block};
-use terminal::app::{App, Page};
+use terminal::app::App;
 use terminal::event::{Event, EventHandler};
 use tracing::error;
 use widgets::notification;
@@ -60,7 +60,7 @@ pub fn run() -> taurine_core::Result<()> {
 
             render_page_content(frame, layout.page, &app, theme);
 
-            if app.active_page() == Page::Library && area.height > 0 {
+            if area.height > 0 {
                 use ratatui::text::Line;
 
                 // honey: only the hovered or dragged divider lifts; the
@@ -97,29 +97,24 @@ pub fn run() -> taurine_core::Result<()> {
                 notification::render_notification(frame, area, theme, msg);
             }
 
-            // honey: scrim pass darkens everything behind an open modal;
-            // the modal paints afterward onto the dimmed backdrop.
-            let any_modal = match app.active_page() {
-                Page::Library => app.library_page().is_modal_open(),
-                Page::Settings => app.settings_page().is_modal_open(),
-            };
+            // honey: scrim pass darkens everything behind an open modal
+            // or the settings overlay; popups paint afterward onto the
+            // dimmed backdrop.
+            let any_modal = app.library_page().is_modal_open() || app.is_settings_overlay_open();
             if any_modal {
                 dim_frame(frame);
             }
 
             // honey: modals render last so they sit above panes,
             // dividers, and toasts.
-            match app.active_page() {
-                Page::Library => {
-                    let full = terminal::mouse::library_full_area(layout.page);
-                    if let Some(modal) = app.library_page().modal() {
-                        library::modals::render_library_modal(frame, full, theme, modal);
-                    }
-                }
-                Page::Settings => {
-                    if let Some(modal) = app.settings_page().modal() {
-                        settings::modals::render_settings_modal(frame, layout.page, theme, modal);
-                    }
+            let full = terminal::mouse::library_full_area(layout.page);
+            if let Some(modal) = app.library_page().modal() {
+                library::modals::render_library_modal(frame, full, theme, modal);
+            }
+            if app.is_settings_overlay_open() {
+                settings::render_settings_overlay(frame, area, theme, app.settings_page());
+                if let Some(modal) = app.settings_page().modal() {
+                    settings::modals::render_settings_modal(frame, area, theme, modal);
                 }
             }
         })?;
@@ -132,10 +127,8 @@ pub fn run() -> taurine_core::Result<()> {
             }
             Event::Mouse(mouse) => handle_tui_mouse_event(&mut app, mouse, last_area),
             Event::Tick => {
-                if app.active_page() == Page::Library {
-                    let interaction = app.library_page_mut().autosave_tick();
-                    apply_library_interaction(&mut app, interaction);
-                }
+                let interaction = app.library_page_mut().autosave_tick();
+                apply_library_interaction(&mut app, interaction);
             }
         }
 
@@ -174,27 +167,9 @@ fn render_page_content(
     app: &App,
     theme: &Theme,
 ) {
-    use ratatui::{
-        symbols::border,
-        widgets::{Block, Borders},
-    };
-    match app.active_page() {
-        Page::Library => {
-            // honey: library splits edge to edge; settings keeps the page.
-            let full = terminal::mouse::library_full_area(area);
-            library::render_library_content(frame, full, theme, app.library_page());
-        }
-        Page::Settings => {
-            let content_block = Block::default()
-                .borders(Borders::ALL)
-                .border_set(border::ROUNDED)
-                .border_style(ratatui::style::Style::default().fg(theme.border));
-            let inner = content_block.inner(area);
-            frame.render_widget(content_block, area);
-
-            settings::render_settings_content(frame, inner, theme, app.settings_page());
-        }
-    }
+    // honey: single page now; settings lives as an overlay.
+    let full = terminal::mouse::library_full_area(area);
+    library::render_library_content(frame, full, theme, app.library_page());
 }
 
 fn handle_tui_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
@@ -209,33 +184,52 @@ fn handle_tui_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
             .modifiers
             .contains(crossterm::event::KeyModifiers::CONTROL)
     {
-        if app.active_page() == Page::Library
-            && !app.library_page().is_modal_open()
+        if !app.library_page().is_modal_open()
+            && !app.is_settings_overlay_open()
             && app.library_page().has_content_selection()
         {
             let interaction = app.library_page_mut().handle_key(key);
             apply_library_interaction(app, interaction);
             return;
         }
-        if app.active_page() == Page::Library {
-            let interaction = app.library_page_mut().commit_edit();
-            apply_library_interaction(app, interaction);
-        }
+        let interaction = app.library_page_mut().commit_edit();
+        apply_library_interaction(app, interaction);
         app.request_quit();
         return;
     }
 
-    if app.active_page() == Page::Settings
-        && (app.settings_page().is_modal_open() || app.settings_page().is_search_active())
+    // honey: Ctrl+, toggles the settings overlay; a library modal owns
+    // the screen while open, so the toggle waits for it to close.
+    if key.code == crossterm::event::KeyCode::Char(',')
+        && key.modifiers == crossterm::event::KeyModifiers::CONTROL
     {
+        if app.is_settings_overlay_open() {
+            app.close_settings_overlay();
+        } else if !app.library_page().is_modal_open() {
+            let flush = app.library_page_mut().commit_edit();
+            apply_library_interaction(app, flush);
+            app.open_settings_overlay();
+        }
+        return;
+    }
+
+    if app.is_settings_overlay_open() {
+        // honey: Esc exits search, then editor modals, then the overlay
+        // itself; settings handle_key owns the first two layers.
+        if key.code == crossterm::event::KeyCode::Esc
+            && key.modifiers == crossterm::event::KeyModifiers::NONE
+            && !app.settings_page().is_modal_open()
+            && !app.settings_page().is_search_active()
+        {
+            app.close_settings_overlay();
+            return;
+        }
         let interaction = app.settings_page_mut().handle_key(key);
         apply_settings_interaction(app, interaction);
         return;
     }
 
-    if app.active_page() == Page::Library
-        && (app.library_page().is_modal_open() || app.library_page().is_search_active())
-    {
+    if app.library_page().is_modal_open() || app.library_page().is_search_active() {
         let interaction = app.library_page_mut().handle_key(key);
         apply_library_interaction(app, interaction);
         if let Some(library::LibraryModal::Import(state)) = app.library_page().modal()
@@ -246,31 +240,16 @@ fn handle_tui_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
         return;
     }
 
-    let previous_page = app.active_page();
+    // honey: app-level keys (theme toggle) run first; page states
+    // ignore Ctrl combos, so nothing double-handles.
     app.handle_key_event(key);
-    if app.active_page() != previous_page {
-        // honey: the navigation key itself must not leak into the fresh page.
-        return;
-    }
-
-    if app.active_page() == Page::Library {
-        let interaction = app.library_page_mut().handle_key(key);
-        apply_library_interaction(app, interaction);
-        return;
-    }
-
-    if app.active_page() == Page::Settings {
-        let interaction = app.settings_page_mut().handle_key(key);
-        apply_settings_interaction(app, interaction);
-    }
+    let interaction = app.library_page_mut().handle_key(key);
+    apply_library_interaction(app, interaction);
 }
 
 /// Tracks the content text width for caret math. Width mirrors the
 /// render path (border plus padding); zero falls back to unwrapped math.
 fn track_content_width(app: &mut App, page: ratatui::layout::Rect) {
-    if app.active_page() != Page::Library {
-        return;
-    }
     let ratios = (
         app.library_page().split_ratio(),
         app.library_page().detail_ratio(),
@@ -296,10 +275,7 @@ fn handle_tui_mouse_event(
 
     app.clear_notification();
 
-    let modal_open = match app.active_page() {
-        Page::Library => app.library_page().is_modal_open(),
-        Page::Settings => app.settings_page().is_modal_open(),
-    };
+    let modal_open = app.library_page().is_modal_open() || app.is_settings_overlay_open();
 
     // honey: grabbing a divider starts a drag; pointer motion after that
     // moves the split freely without re-hitting the gutter column.
@@ -341,69 +317,72 @@ fn handle_tui_mouse_event(
 
     match mouse.kind {
         MouseEventKind::ScrollDown | MouseEventKind::ScrollUp => {
-            if app.active_page() == Page::Library && app.library_page().header_menu_open() {
+            if app.library_page().header_menu_open() {
                 let down = mouse.kind == MouseEventKind::ScrollDown;
                 app.library_page_mut().move_header_menu_cursor(down);
                 return;
             }
-            if app.active_page() == Page::Library && app.library_page().app_filter_menu_open() {
+            if app.library_page().app_filter_menu_open() {
                 let down = mouse.kind == MouseEventKind::ScrollDown;
                 app.library_page_mut().move_app_filter_cursor(down);
+                return;
+            }
+            // honey: wheel over the settings overlay scrolls its list;
+            // wheel outside the popup never leaks into the library.
+            if app.is_settings_overlay_open() {
+                let popup = settings::overlay_popup(area);
+                if terminal::mouse::contains(popup, mouse.column, mouse.row) {
+                    handle_tui_key_event(app, scroll_key(mouse.kind == MouseEventKind::ScrollDown));
+                }
                 return;
             }
             if modal_open {
                 return;
             }
-            if app.active_page() == Page::Library {
-                let layout = terminal::mouse::frame_layout(area);
-                let full = terminal::mouse::library_full_area(layout.page);
-                track_content_width(app, full);
-                let page = app.library_page();
-                if library::detail::detail_contains(
-                    full,
-                    page.split_ratio(),
-                    page.detail_ratio(),
-                    mouse.column,
-                    mouse.row,
-                ) {
-                    let down = mouse.kind == MouseEventKind::ScrollDown;
-                    let content = library::detail::center_content(
-                        full,
-                        page.split_ratio(),
-                        page.detail_ratio(),
-                    );
-                    let item = match page
-                        .selected_index()
-                        .and_then(|index| page.item_at_filtered(index))
-                    {
-                        Some(item) => item.clone(),
-                        None => return,
-                    };
-                    let max =
-                        library::detail::content_scroll_max(content.height, content.width, &item);
-                    app.library_page_mut()
-                        .scroll_detail(if down { 1 } else { -1 }, max);
-                    return;
-                }
+            let layout = terminal::mouse::frame_layout(area);
+            let full = terminal::mouse::library_full_area(layout.page);
+            track_content_width(app, full);
+            let page = app.library_page();
+            if library::detail::detail_contains(
+                full,
+                page.split_ratio(),
+                page.detail_ratio(),
+                mouse.column,
+                mouse.row,
+            ) {
+                let down = mouse.kind == MouseEventKind::ScrollDown;
+                let content =
+                    library::detail::center_content(full, page.split_ratio(), page.detail_ratio());
+                let item = match page
+                    .selected_index()
+                    .and_then(|index| page.item_at_filtered(index))
+                {
+                    Some(item) => item.clone(),
+                    None => return,
+                };
+                let max = library::detail::content_scroll_max(content.height, content.width, &item);
+                app.library_page_mut()
+                    .scroll_detail(if down { 1 } else { -1 }, max);
+                return;
             }
             handle_tui_key_event(app, scroll_key(mouse.kind == MouseEventKind::ScrollDown));
         }
         MouseEventKind::Moved => {
-            if app.active_page() == Page::Library && app.library_page().tags_menu_open() {
+            if app.library_page().tags_menu_open() {
                 let layout = terminal::mouse::frame_layout(area);
                 let full = terminal::mouse::library_full_area(layout.page);
                 app.library_page_mut()
                     .hover_tags_menu(full, mouse.column, mouse.row);
                 return;
             }
-            if app.active_page() == Page::Library && app.library_page().app_filter_menu_open() {
+            if app.library_page().app_filter_menu_open() {
                 let layout = terminal::mouse::frame_layout(area);
                 let full = terminal::mouse::library_full_area(layout.page);
                 app.library_page_mut()
                     .hover_app_filter_menu(full, mouse.column, mouse.row);
                 return;
             }
-            if modal_open || app.active_page() != Page::Library {
+            if modal_open {
                 return;
             }
             let layout = terminal::mouse::frame_layout(area);
@@ -423,14 +402,14 @@ fn handle_tui_mouse_event(
             }
         }
         MouseEventKind::Drag(MouseButton::Left) => {
-            if app.active_page() == Page::Library && app.library_page().app_filter_menu_open() {
+            if app.library_page().app_filter_menu_open() {
                 let layout = terminal::mouse::frame_layout(area);
                 let full = terminal::mouse::library_full_area(layout.page);
                 app.library_page_mut()
                     .drag_app_filter_divider(full, mouse.column);
                 return;
             }
-            if modal_open || app.active_page() != Page::Library {
+            if modal_open {
                 return;
             }
             if app.library_page().divider_drag().is_some() {
@@ -440,7 +419,7 @@ fn handle_tui_mouse_event(
             }
             // honey: content-box drags stretch the body selection;
             // divider drags never reach here as text.
-            if app.active_page() == Page::Library && app.library_page().divider_drag().is_none() {
+            if app.library_page().divider_drag().is_none() {
                 let layout = terminal::mouse::frame_layout(area);
                 let full = terminal::mouse::library_full_area(layout.page);
                 let page = app.library_page();
@@ -455,13 +434,11 @@ fn handle_tui_mouse_event(
             }
         }
         MouseEventKind::Up(_) => {
-            if app.active_page() == Page::Library {
-                app.library_page_mut().set_divider_drag(None);
-                app.library_page_mut().release_app_filter_divider();
-            }
+            app.library_page_mut().set_divider_drag(None);
+            app.library_page_mut().release_app_filter_divider();
         }
         MouseEventKind::Down(MouseButton::Left) => {
-            if app.active_page() == Page::Library && app.library_page().header_menu_open() {
+            if app.library_page().header_menu_open() {
                 let layout = terminal::mouse::frame_layout(area);
                 let full = terminal::mouse::library_full_area(layout.page);
                 let interaction =
@@ -470,7 +447,7 @@ fn handle_tui_mouse_event(
                 apply_library_interaction(app, interaction);
                 return;
             }
-            if app.active_page() == Page::Library && app.library_page().tags_menu_open() {
+            if app.library_page().tags_menu_open() {
                 let layout = terminal::mouse::frame_layout(area);
                 let full = terminal::mouse::library_full_area(layout.page);
                 let interaction =
@@ -479,7 +456,7 @@ fn handle_tui_mouse_event(
                 apply_library_interaction(app, interaction);
                 return;
             }
-            if app.active_page() == Page::Library && app.library_page().app_filter_menu_open() {
+            if app.library_page().app_filter_menu_open() {
                 let layout = terminal::mouse::frame_layout(area);
                 let full = terminal::mouse::library_full_area(layout.page);
                 // honey: grabbing the picker divider starts a resize;
@@ -496,189 +473,184 @@ fn handle_tui_mouse_event(
                 apply_library_interaction(app, interaction);
                 return;
             }
+            // honey: clicks outside the settings popup close it; row
+            // and search clicks reuse the page hit path on the body.
+            if app.is_settings_overlay_open() {
+                let popup = settings::overlay_popup(area);
+                if !terminal::mouse::contains(popup, mouse.column, mouse.row) {
+                    app.close_settings_overlay();
+                    return;
+                }
+                let content = settings::overlay_content(settings::overlay_body(popup));
+                match settings::hit_test(content, app.settings_page(), mouse.column, mouse.row) {
+                    Some(settings::SettingsHit::Row(key)) => {
+                        let anchor = settings::visible_window_start(content, app.settings_page());
+                        let interaction = app.settings_page_mut().click_setting(key, anchor);
+                        apply_settings_interaction(app, interaction);
+                    }
+                    Some(settings::SettingsHit::SearchAt(cursor)) => {
+                        app.settings_page_mut().activate_search_at(cursor);
+                    }
+                    None => {}
+                }
+                return;
+            }
             if modal_open {
                 return;
             }
             let layout = terminal::mouse::frame_layout(area);
             let full = terminal::mouse::library_full_area(layout.page);
             track_content_width(app, full);
-            if app.active_page() == Page::Library
-                && grab_divider(app, full, mouse.column, mouse.row)
-            {
+            if grab_divider(app, full, mouse.column, mouse.row) {
                 return;
             }
-            match app.active_page() {
-                Page::Library => {
-                    match library::list::hit_test(full, app.library_page(), mouse.column, mouse.row)
-                    {
-                        Some(library::list::LibraryHit::Item(position)) => {
-                            let anchor = library::list::window_start(full, app.library_page());
-                            let interaction = app.library_page_mut().click_item(position, anchor);
-                            apply_library_interaction(app, interaction);
-                        }
-                        Some(library::list::LibraryHit::SearchAt(cursor)) => {
+            match library::list::hit_test(full, app.library_page(), mouse.column, mouse.row) {
+                Some(library::list::LibraryHit::Item(position)) => {
+                    let anchor = library::list::window_start(full, app.library_page());
+                    let interaction = app.library_page_mut().click_item(position, anchor);
+                    apply_library_interaction(app, interaction);
+                }
+                Some(library::list::LibraryHit::SearchAt(cursor)) => {
+                    let flush = app.library_page_mut().commit_edit();
+                    apply_library_interaction(app, flush);
+                    app.library_page_mut().activate_search_at(cursor);
+                }
+                // honey: toggle flips enable (committing any edit
+                // first); name, description, and content clicks
+                // start editing; everything else is read-only.
+                None => {
+                    let hit = {
+                        let page = app.library_page();
+                        library::detail::hit_test(
+                            full,
+                            page.split_ratio(),
+                            page.detail_ratio(),
+                            page,
+                            mouse.column,
+                            mouse.row,
+                        )
+                    };
+                    match hit {
+                        Some(library::detail::DetailHit::Button(index)) => {
                             let flush = app.library_page_mut().commit_edit();
                             apply_library_interaction(app, flush);
-                            app.library_page_mut().activate_search_at(cursor);
+                            app.library_page_mut()
+                                .open_header_menu(library::detail::dropdown_kind_for_button(index));
                         }
-                        // honey: toggle flips enable (committing any edit
-                        // first); name, description, and content clicks
-                        // start editing; everything else is read-only.
-                        None => {
-                            let hit = {
+                        Some(library::detail::DetailHit::NameEditAt(cursor)) => {
+                            let interaction = app.library_page_mut().start_name_edit_at(cursor);
+                            apply_library_interaction(app, interaction);
+                        }
+                        Some(library::detail::DetailHit::DescriptionEdit) => {
+                            let interaction = app.library_page_mut().start_description_edit();
+                            apply_library_interaction(app, interaction);
+                        }
+                        Some(library::detail::DetailHit::ContentEditAt { row, col }) => {
+                            let interaction = {
                                 let page = app.library_page();
-                                library::detail::hit_test(
-                                    full,
-                                    page.split_ratio(),
-                                    page.detail_ratio(),
-                                    page,
-                                    mouse.column,
-                                    mouse.row,
-                                )
+                                match page.selected_index().and_then(|index| {
+                                    page.item_at_filtered(index).cloned().map(|item| {
+                                        (
+                                            item,
+                                            page.detail_scroll(),
+                                            page.split_ratio(),
+                                            page.detail_ratio(),
+                                        )
+                                    })
+                                }) {
+                                    Some((item, scroll, list_ratio, props_ratio)) => {
+                                        let width = library::detail::content_text_width(
+                                            library::detail::center_content(
+                                                full,
+                                                list_ratio,
+                                                props_ratio,
+                                            )
+                                            .width,
+                                        );
+                                        let (srow, scol) = library::detail::content_source_cell(
+                                            &item,
+                                            width,
+                                            scroll + row,
+                                            col,
+                                        );
+                                        // honey: second fast press on
+                                        // the cell selects the word,
+                                        // otherwise the press anchors
+                                        // a drag selection.
+                                        let now = library::now_millis();
+                                        app.library_page_mut().click_content_cell(
+                                            item.id(),
+                                            srow,
+                                            scol,
+                                            now,
+                                        )
+                                    }
+                                    None => library::LibraryInteraction::handled(),
+                                }
                             };
-                            match hit {
-                                Some(library::detail::DetailHit::Button(index)) => {
-                                    let flush = app.library_page_mut().commit_edit();
-                                    apply_library_interaction(app, flush);
-                                    app.library_page_mut().open_header_menu(
-                                        library::detail::dropdown_kind_for_button(index),
-                                    );
-                                }
-                                Some(library::detail::DetailHit::NameEditAt(cursor)) => {
-                                    let interaction =
-                                        app.library_page_mut().start_name_edit_at(cursor);
-                                    apply_library_interaction(app, interaction);
-                                }
-                                Some(library::detail::DetailHit::DescriptionEdit) => {
-                                    let interaction =
-                                        app.library_page_mut().start_description_edit();
-                                    apply_library_interaction(app, interaction);
-                                }
-                                Some(library::detail::DetailHit::ContentEditAt { row, col }) => {
-                                    let interaction = {
-                                        let page = app.library_page();
-                                        match page.selected_index().and_then(|index| {
-                                            page.item_at_filtered(index).cloned().map(|item| {
-                                                (
-                                                    item,
-                                                    page.detail_scroll(),
-                                                    page.split_ratio(),
-                                                    page.detail_ratio(),
-                                                )
-                                            })
-                                        }) {
-                                            Some((item, scroll, list_ratio, props_ratio)) => {
-                                                let width = library::detail::content_text_width(
-                                                    library::detail::center_content(
-                                                        full,
-                                                        list_ratio,
-                                                        props_ratio,
-                                                    )
-                                                    .width,
-                                                );
-                                                let (srow, scol) =
-                                                    library::detail::content_source_cell(
-                                                        &item,
-                                                        width,
-                                                        scroll + row,
-                                                        col,
-                                                    );
-                                                // honey: second fast press on
-                                                // the cell selects the word,
-                                                // otherwise the press anchors
-                                                // a drag selection.
-                                                let now = library::now_millis();
-                                                app.library_page_mut().click_content_cell(
-                                                    item.id(),
-                                                    srow,
-                                                    scol,
-                                                    now,
-                                                )
-                                            }
-                                            None => library::LibraryInteraction::handled(),
-                                        }
-                                    };
-                                    apply_library_interaction(app, interaction);
-                                }
-                                Some(library::detail::DetailHit::EnableToggle) => {
-                                    let flush = app.library_page_mut().commit_edit();
-                                    apply_library_interaction(app, flush);
-                                    let interaction =
-                                        app.library_page_mut().toggle_selected_enabled();
-                                    apply_library_interaction(app, interaction);
-                                }
-                                None => {}
-                            }
-                            match library::props::hit_test(
-                                full,
-                                app.library_page().split_ratio(),
-                                app.library_page().detail_ratio(),
-                                app.library_page(),
-                                mouse.column,
-                                mouse.row,
-                            ) {
-                                // honey: flipping auto-case commits any
-                                // open edit first, like the enable toggle.
-                                Some(library::props::PropsHit::AutoCase) => {
-                                    let flush = app.library_page_mut().commit_edit();
-                                    apply_library_interaction(app, flush);
-                                    let interaction =
-                                        app.library_page_mut().toggle_selected_auto_case();
-                                    apply_library_interaction(app, interaction);
-                                }
-                                // honey: confirmation flips the same way,
-                                // scoped to the selected voice alias row.
-                                Some(library::props::PropsHit::Confirm) => {
-                                    let flush = app.library_page_mut().commit_edit();
-                                    apply_library_interaction(app, flush);
-                                    let interaction = app
-                                        .library_page_mut()
-                                        .toggle_selected_require_confirmation();
-                                    apply_library_interaction(app, interaction);
-                                }
-                                Some(library::props::PropsHit::Platform) => {
-                                    let flush = app.library_page_mut().commit_edit();
-                                    apply_library_interaction(app, flush);
-                                    app.library_page_mut()
-                                        .open_header_menu(library::HeaderMenuKind::Platform);
-                                }
-                                Some(library::props::PropsHit::UsageToggle) => {
-                                    app.library_page_mut().toggle_usage();
-                                }
-                                Some(library::props::PropsHit::Tags) => {
-                                    let flush = app.library_page_mut().commit_edit();
-                                    apply_library_interaction(app, flush);
-                                    let popup = crate::widgets::util::overlay_popup(full);
-                                    let body = crate::widgets::util::overlay_body(popup);
-                                    app.library_page_mut().open_tags_modal(body.width);
-                                }
-                                Some(library::props::PropsHit::Allow) => {
-                                    let flush = app.library_page_mut().commit_edit();
-                                    apply_library_interaction(app, flush);
-                                    app.library_page_mut()
-                                        .open_app_filter_modal(library::AppFilterSide::Allow);
-                                }
-                                Some(library::props::PropsHit::Block) => {
-                                    let flush = app.library_page_mut().commit_edit();
-                                    apply_library_interaction(app, flush);
-                                    app.library_page_mut()
-                                        .open_app_filter_modal(library::AppFilterSide::Block);
-                                }
-                                None => {}
-                            }
+                            apply_library_interaction(app, interaction);
                         }
+                        Some(library::detail::DetailHit::EnableToggle) => {
+                            let flush = app.library_page_mut().commit_edit();
+                            apply_library_interaction(app, flush);
+                            let interaction = app.library_page_mut().toggle_selected_enabled();
+                            apply_library_interaction(app, interaction);
+                        }
+                        None => {}
                     }
-                }
-                Page::Settings => {
-                    let inner = terminal::mouse::page_inner(layout.page);
-                    match settings::hit_test(inner, app.settings_page(), mouse.column, mouse.row) {
-                        Some(settings::SettingsHit::Row(key)) => {
-                            let anchor = settings::visible_window_start(inner, app.settings_page());
-                            let interaction = app.settings_page_mut().click_setting(key, anchor);
-                            apply_settings_interaction(app, interaction);
+                    match library::props::hit_test(
+                        full,
+                        app.library_page().split_ratio(),
+                        app.library_page().detail_ratio(),
+                        app.library_page(),
+                        mouse.column,
+                        mouse.row,
+                    ) {
+                        // honey: flipping auto-case commits any
+                        // open edit first, like the enable toggle.
+                        Some(library::props::PropsHit::AutoCase) => {
+                            let flush = app.library_page_mut().commit_edit();
+                            apply_library_interaction(app, flush);
+                            let interaction = app.library_page_mut().toggle_selected_auto_case();
+                            apply_library_interaction(app, interaction);
                         }
-                        Some(settings::SettingsHit::SearchAt(cursor)) => {
-                            app.settings_page_mut().activate_search_at(cursor);
+                        // honey: confirmation flips the same way,
+                        // scoped to the selected voice alias row.
+                        Some(library::props::PropsHit::Confirm) => {
+                            let flush = app.library_page_mut().commit_edit();
+                            apply_library_interaction(app, flush);
+                            let interaction = app
+                                .library_page_mut()
+                                .toggle_selected_require_confirmation();
+                            apply_library_interaction(app, interaction);
+                        }
+                        Some(library::props::PropsHit::Platform) => {
+                            let flush = app.library_page_mut().commit_edit();
+                            apply_library_interaction(app, flush);
+                            app.library_page_mut()
+                                .open_header_menu(library::HeaderMenuKind::Platform);
+                        }
+                        Some(library::props::PropsHit::UsageToggle) => {
+                            app.library_page_mut().toggle_usage();
+                        }
+                        Some(library::props::PropsHit::Tags) => {
+                            let flush = app.library_page_mut().commit_edit();
+                            apply_library_interaction(app, flush);
+                            let popup = crate::widgets::util::overlay_popup(full);
+                            let body = crate::widgets::util::overlay_body(popup);
+                            app.library_page_mut().open_tags_modal(body.width);
+                        }
+                        Some(library::props::PropsHit::Allow) => {
+                            let flush = app.library_page_mut().commit_edit();
+                            apply_library_interaction(app, flush);
+                            app.library_page_mut()
+                                .open_app_filter_modal(library::AppFilterSide::Allow);
+                        }
+                        Some(library::props::PropsHit::Block) => {
+                            let flush = app.library_page_mut().commit_edit();
+                            apply_library_interaction(app, flush);
+                            app.library_page_mut()
+                                .open_app_filter_modal(library::AppFilterSide::Block);
                         }
                         None => {}
                     }
@@ -1193,7 +1165,6 @@ mod tests {
     #[test]
     fn typing_q_while_library_search_is_active_does_not_quit() {
         let mut app = App::default();
-        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
 
         handle_tui_key_event(&mut app, plain_key('/'));
         handle_tui_key_event(&mut app, plain_key('q'));
@@ -1203,41 +1174,39 @@ mod tests {
     }
 
     #[test]
-    fn navigating_to_library_leaves_search_inactive() {
+    fn pressing_one_leaves_library_search_inactive() {
         let mut app = App::default();
         handle_tui_key_event(&mut app, plain_key('1'));
 
-        assert_eq!(app.active_page(), Page::Library);
+        assert!(!app.is_settings_overlay_open());
         assert!(!app.library_page().is_search_active());
         assert_eq!(app.library_page().search_query(), "");
     }
 
     #[test]
-    fn navigating_to_settings_leaves_search_inactive() {
+    fn pressing_two_does_not_open_settings() {
         let mut app = App::default();
         handle_tui_key_event(&mut app, plain_key('2'));
 
-        assert_eq!(app.active_page(), Page::Settings);
+        assert!(!app.is_settings_overlay_open());
         assert!(!app.settings_page().is_search_active());
         assert_eq!(app.settings_page().search_query(), "");
     }
 
     #[test]
-    fn typing_one_while_library_search_is_active_does_not_change_page() {
+    fn typing_one_while_library_search_is_active_types_into_search() {
         let mut app = App::default();
-        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
 
         handle_tui_key_event(&mut app, plain_key('/'));
         handle_tui_key_event(&mut app, plain_key('1'));
 
-        assert_eq!(app.active_page(), Page::Library);
+        assert!(!app.is_settings_overlay_open());
         assert_eq!(app.library_page().search_query(), "1");
     }
 
     #[test]
     fn typing_q_while_library_modal_is_open_does_not_quit() {
         let mut app = App::default();
-        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
         seed_single_library_item(&mut app);
         app.library_page_mut().open_delete_modal_for_selected();
 
@@ -1250,7 +1219,6 @@ mod tests {
     #[test]
     fn slash_goes_to_modal_while_library_modal_is_open() {
         let mut app = App::default();
-        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
         seed_single_library_item(&mut app);
         app.library_page_mut().open_delete_modal_for_selected();
 
@@ -1263,7 +1231,6 @@ mod tests {
     #[test]
     fn typing_q_while_library_delete_confirmation_is_open_does_not_quit() {
         let mut app = App::default();
-        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
         app.library_page_mut()
             .replace_items(vec![LibraryTrigger::single(TriggerListItem {
                 id: "test".to_string(),
@@ -1298,7 +1265,6 @@ mod tests {
     #[test]
     fn slash_does_not_activate_search_while_library_delete_confirmation_is_open() {
         let mut app = App::default();
-        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
         app.library_page_mut()
             .replace_items(vec![LibraryTrigger::single(TriggerListItem {
                 id: "test".to_string(),
@@ -1331,15 +1297,13 @@ mod tests {
     }
 
     #[test]
-    fn escape_closes_library_modal_without_changing_page() {
+    fn escape_closes_library_modal() {
         let mut app = App::default();
-        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
         seed_single_library_item(&mut app);
         app.library_page_mut().open_delete_modal_for_selected();
 
         handle_tui_key_event(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
 
-        assert_eq!(app.active_page(), Page::Library);
         assert!(!app.library_page().is_modal_open());
     }
 
@@ -1356,15 +1320,119 @@ mod tests {
         mouse_at(column, row, MouseEventKind::Down(MouseButton::Left))
     }
 
+    fn ctrl_comma() -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(','), KeyModifiers::CONTROL)
+    }
+
     const TEST_AREA: ratatui::layout::Rect = ratatui::layout::Rect::new(0, 0, 100, 30);
+
+    #[test]
+    fn ctrl_comma_toggles_settings_overlay() {
+        let mut app = App::default();
+        assert!(!app.is_settings_overlay_open());
+
+        handle_tui_key_event(&mut app, ctrl_comma());
+        assert!(app.is_settings_overlay_open());
+
+        handle_tui_key_event(&mut app, ctrl_comma());
+        assert!(!app.is_settings_overlay_open());
+    }
+
+    #[test]
+    fn ctrl_comma_while_library_modal_is_open_waits() {
+        let mut app = App::default();
+        seed_single_library_item(&mut app);
+        app.library_page_mut().open_delete_modal_for_selected();
+
+        handle_tui_key_event(&mut app, ctrl_comma());
+
+        assert!(!app.is_settings_overlay_open());
+        assert!(app.library_page().is_modal_open());
+    }
+
+    #[test]
+    fn esc_closes_settings_overlay_after_search() {
+        let mut app = App::default();
+        app.open_settings_overlay();
+        handle_tui_key_event(&mut app, plain_key('/'));
+        assert!(app.settings_page().is_search_active());
+
+        handle_tui_key_event(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(app.is_settings_overlay_open());
+        assert!(!app.settings_page().is_search_active());
+
+        handle_tui_key_event(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(!app.is_settings_overlay_open());
+    }
+
+    #[test]
+    fn clicking_outside_settings_overlay_closes() {
+        let mut app = App::default();
+        app.open_settings_overlay();
+
+        handle_tui_mouse_event(&mut app, left_click(5, 5), TEST_AREA);
+
+        assert!(!app.is_settings_overlay_open());
+    }
+
+    #[test]
+    fn settings_overlay_geometry_is_80_percent() {
+        let popup = settings::overlay_popup(TEST_AREA);
+        assert_eq!(popup, ratatui::layout::Rect::new(10, 3, 80, 24));
+        let body = settings::overlay_body(popup);
+        assert_eq!(body, ratatui::layout::Rect::new(13, 4, 74, 22));
+        let content = settings::overlay_content(body);
+        assert_eq!(content, ratatui::layout::Rect::new(13, 6, 74, 20));
+        // honey: the shared geometry must surface a real row hit.
+        let app = App::default();
+        let mut found = false;
+        for row in 0..TEST_AREA.height {
+            for column in 0..TEST_AREA.width {
+                if matches!(
+                    settings::hit_test(content, app.settings_page(), column, row),
+                    Some(settings::SettingsHit::Row(_))
+                ) {
+                    found = true;
+                    break;
+                }
+            }
+            if found {
+                break;
+            }
+        }
+        assert!(found);
+    }
+
+    #[test]
+    fn settings_editor_modal_opens_inside_overlay() {
+        use crate::widgets::settings::state::{EditorKind, SettingKeyMeta};
+
+        let mut app = App::default();
+        app.open_settings_overlay();
+        let position = app
+            .settings_page()
+            .visible_keys()
+            .iter()
+            .position(|key| key.editor_kind() != EditorKind::Toggle)
+            .expect("editor key");
+        app.settings_page_mut().selected = position;
+
+        handle_tui_key_event(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(app.is_settings_overlay_open());
+        assert!(app.settings_page().is_modal_open());
+
+        handle_tui_key_event(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(app.is_settings_overlay_open());
+        assert!(!app.settings_page().is_modal_open());
+    }
 
     #[test]
     fn clicking_settings_search_bar_focuses_search() {
         let mut app = App::default();
-        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
+        app.open_settings_overlay();
         assert!(!app.settings_page().is_search_active());
 
-        handle_tui_mouse_event(&mut app, left_click(30, 26), TEST_AREA);
+        handle_tui_mouse_event(&mut app, left_click(30, 24), TEST_AREA);
 
         assert!(app.settings_page().is_search_active());
         assert_eq!(app.settings_page().search_query(), "");
@@ -1373,19 +1441,47 @@ mod tests {
     #[test]
     fn clicking_settings_row_selects_without_activating() {
         let mut app = App::default();
-        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
-        app.settings_page_mut().selected = 1;
+        app.open_settings_overlay();
+        // honey: park selection elsewhere so the scanned row takes the
+        // first-click select path instead of the toggle path.
+        let last = app.settings_page().visible_keys().len().saturating_sub(1);
+        app.settings_page_mut().selected = last;
+        // honey: scan the real hit path for the first row instead of
+        // hard-coding a cell that row heights could shift.
+        let popup = settings::overlay_popup(TEST_AREA);
+        let content = settings::overlay_content(settings::overlay_body(popup));
+        let mut target = None;
+        for row in 0..TEST_AREA.height {
+            for column in 0..TEST_AREA.width {
+                if let Some(settings::SettingsHit::Row(key)) =
+                    settings::hit_test(content, app.settings_page(), column, row)
+                {
+                    target = Some((key, column, row));
+                    break;
+                }
+            }
+            if target.is_some() {
+                break;
+            }
+        }
+        let (key, column, row) = target.expect("settings row");
+        let position = app
+            .settings_page()
+            .visible_keys()
+            .iter()
+            .position(|k| *k == key)
+            .expect("visible key");
 
-        handle_tui_mouse_event(&mut app, left_click(30, 5), TEST_AREA);
+        handle_tui_mouse_event(&mut app, left_click(column, row), TEST_AREA);
 
-        assert_eq!(app.settings_page().selected_index(), 0);
+        assert_eq!(app.settings_page().selected_index(), position);
         assert!(app.settings_page().modal().is_none());
+        assert!(app.is_settings_overlay_open());
     }
 
     #[test]
     fn clicking_library_row_selects_without_opening() {
         let mut app = App::default();
-        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
         app.library_page_mut().replace_items(vec![
             LibraryTrigger::single(TriggerListItem {
                 id: "mouse-aaa".to_string(),
@@ -1440,7 +1536,6 @@ mod tests {
     #[test]
     fn pressing_divider_starts_drag_without_selecting() {
         let mut app = App::default();
-        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
 
         handle_tui_mouse_event(&mut app, left_click(28, 10), TEST_AREA);
 
@@ -1455,7 +1550,6 @@ mod tests {
     #[test]
     fn dragging_divider_moves_split_and_release_ends_it() {
         let mut app = App::default();
-        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
         handle_tui_mouse_event(&mut app, left_click(28, 10), TEST_AREA);
 
         handle_tui_mouse_event(
@@ -1481,7 +1575,6 @@ mod tests {
     #[test]
     fn hovering_divider_sets_hover_and_leaving_clears() {
         let mut app = App::default();
-        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
 
         handle_tui_mouse_event(&mut app, mouse_at(28, 10, MouseEventKind::Moved), TEST_AREA);
         assert!(app.library_page().divider_hover().is_some());
@@ -1493,7 +1586,7 @@ mod tests {
     #[test]
     fn wheel_scroll_moves_settings_selection() {
         let mut app = App::default();
-        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
+        app.open_settings_overlay();
 
         handle_tui_mouse_event(
             &mut app,
@@ -1507,7 +1600,7 @@ mod tests {
     #[test]
     fn wheel_scroll_moves_selection_while_search_focused() {
         let mut app = App::default();
-        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
+        app.open_settings_overlay();
         handle_tui_key_event(&mut app, plain_key('/'));
         assert!(app.settings_page().is_search_active());
 
@@ -1524,7 +1617,6 @@ mod tests {
     #[test]
     fn clicks_are_ignored_while_library_modal_is_open() {
         let mut app = App::default();
-        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
         seed_single_library_item(&mut app);
         app.library_page_mut().open_delete_modal_for_selected();
         let selected_before = app.library_page().selected_index();
@@ -1536,23 +1628,20 @@ mod tests {
     }
 
     #[test]
-    fn pressing_ctrl_c_quits_without_changing_page() {
+    fn pressing_ctrl_c_quits_from_library() {
         let mut app = App::default();
-        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
 
         handle_tui_key_event(
             &mut app,
             KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
         );
 
-        assert_eq!(app.active_page(), Page::Library);
         assert!(app.should_quit());
     }
 
     #[test]
     fn pressing_ctrl_c_quits_while_search_is_active() {
         let mut app = App::default();
-        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
         handle_tui_key_event(&mut app, plain_key('/'));
 
         handle_tui_key_event(
@@ -1566,7 +1655,6 @@ mod tests {
     #[test]
     fn pressing_ctrl_c_quits_while_modal_is_open() {
         let mut app = App::default();
-        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
         seed_single_library_item(&mut app);
         app.library_page_mut().open_delete_modal_for_selected();
         assert!(app.library_page().is_modal_open());
@@ -1580,14 +1668,12 @@ mod tests {
     }
 
     #[test]
-    fn pressing_n_on_library_stays_on_page_without_modal() {
+    fn pressing_n_on_library_types_into_search_without_modal() {
         let mut app = App::default();
-        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
 
         handle_tui_key_event(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         handle_tui_key_event(&mut app, plain_key('n'));
 
-        assert_eq!(app.active_page(), Page::Library);
         assert!(!app.library_page().is_modal_open());
         assert!(app.library_page().is_search_active());
         assert_eq!(app.library_page().search_query(), "n");

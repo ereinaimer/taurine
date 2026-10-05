@@ -5,9 +5,9 @@ pub(crate) use state::*;
 
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, Layout, Margin, Rect},
     style::{Modifier, Style},
-    widgets::Paragraph,
+    widgets::{Block, Clear, Paragraph},
 };
 
 use crate::terminal::mouse;
@@ -169,6 +169,57 @@ pub(crate) fn hit_test(
         row_y = row_y.saturating_add(height);
     }
     None
+}
+
+/// Settings overlay geometry: popup at 80% of the terminal, shared by
+/// rendering and hit-testing so clicks land as drawn.
+pub(crate) fn overlay_popup(area: Rect) -> Rect {
+    crate::widgets::util::centered_rect(area.width / 5 * 4, area.height / 5 * 4, area)
+}
+
+/// Content rect inside the popup, shared by overlay renders and
+/// hit-testing so both agree on padding.
+pub(crate) fn overlay_body(popup: Rect) -> Rect {
+    popup.inner(Margin::new(3, 1))
+}
+
+/// List rect below the title row, shared by rendering and hit-testing
+/// so both hand the same area to the page layout code.
+pub(crate) fn overlay_content(body: Rect) -> Rect {
+    Rect {
+        x: body.x,
+        y: body.y.saturating_add(2),
+        width: body.width,
+        height: body.height.saturating_sub(2),
+    }
+}
+
+/// Settings as a near-fullscreen overlay: title row plus the exact page
+/// list, search, and rows inside the popup body.
+pub fn render_settings_overlay(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    state: &SettingsPageState,
+) {
+    use ratatui::style::Color::Rgb;
+
+    let popup = overlay_popup(area);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(
+        Block::default().style(Style::default().bg(Rgb(0x14, 0x14, 0x14))),
+        popup,
+    );
+    let body = overlay_body(popup);
+    if body.width == 0 || body.height == 0 {
+        return;
+    }
+    crate::widgets::util::render_overlay_title(frame, body, theme, "Settings");
+    let content = overlay_content(body);
+    if content.width == 0 || content.height == 0 {
+        return;
+    }
+    render_settings_content(frame, content, theme, state);
 }
 
 pub fn render_settings_content(

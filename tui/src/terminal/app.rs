@@ -5,18 +5,11 @@ use crate::theme::builtin::{DARK_THEME, LIGHT_THEME};
 use crate::widgets::library::LibraryPageState;
 use crate::widgets::settings::state::SettingsPageState;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) enum Page {
-    #[default]
-    Library,
-    Settings,
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct App {
-    active_page: Page,
     library_page: LibraryPageState,
     settings_page: SettingsPageState,
+    settings_overlay_open: bool,
     should_quit: bool,
     notification: Option<String>,
     current_theme: &'static Theme,
@@ -25,9 +18,9 @@ pub(crate) struct App {
 impl Default for App {
     fn default() -> Self {
         Self {
-            active_page: Page::Library,
             library_page: LibraryPageState::default(),
             settings_page: SettingsPageState::default(),
+            settings_overlay_open: false,
             should_quit: false,
             notification: None,
             current_theme: &DARK_THEME,
@@ -51,16 +44,27 @@ impl App {
         };
     }
 
-    pub(crate) const fn active_page(&self) -> Page {
-        self.active_page
-    }
-
     pub(crate) const fn library_page(&self) -> &LibraryPageState {
         &self.library_page
     }
 
     pub(crate) fn library_page_mut(&mut self) -> &mut LibraryPageState {
         &mut self.library_page
+    }
+
+    /// Settings lives as an overlay over the library now; the flag is
+    /// the only page state left.
+    pub(crate) const fn is_settings_overlay_open(&self) -> bool {
+        self.settings_overlay_open
+    }
+
+    pub(crate) fn open_settings_overlay(&mut self) {
+        self.settings_overlay_open = true;
+    }
+
+    pub(crate) fn close_settings_overlay(&mut self) {
+        self.settings_overlay_open = false;
+        self.settings_page.clear_modal();
     }
 
     pub(crate) const fn settings_page(&self) -> &SettingsPageState {
@@ -96,13 +100,10 @@ impl App {
     }
 
     pub(crate) fn handle_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
-        match (code, modifiers) {
-            (KeyCode::Char('1'), _) => self.active_page = Page::Library,
-            (KeyCode::Char('2'), _) => self.active_page = Page::Settings,
-            (KeyCode::Char('t'), KeyModifiers::CONTROL) => self.toggle_theme(),
-            // honey: q never quits; Ctrl+C is handled globally in lib.rs so
-            // it exits cleanly from any page, modal, or search state.
-            _ => {}
+        // honey: q never quits; Ctrl+C is handled globally in lib.rs so
+        // it exits cleanly from any page, modal, or search state.
+        if (code, modifiers) == (KeyCode::Char('t'), KeyModifiers::CONTROL) {
+            self.toggle_theme();
         }
     }
 }
@@ -112,26 +113,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_to_library_page() {
+    fn defaults_to_closed_settings_overlay() {
         let app = App::default();
-        assert_eq!(app.active_page(), Page::Library);
+        assert!(!app.is_settings_overlay_open());
     }
 
     #[test]
-    fn pressing_one_selects_library() {
-        let mut app = App {
-            active_page: Page::Settings,
-            ..App::default()
-        };
-        app.handle_key(KeyCode::Char('1'), KeyModifiers::NONE);
-        assert_eq!(app.active_page(), Page::Library);
-    }
-
-    #[test]
-    fn pressing_two_selects_settings() {
+    fn overlay_open_close_round_trip() {
         let mut app = App::default();
-        app.handle_key(KeyCode::Char('2'), KeyModifiers::NONE);
-        assert_eq!(app.active_page(), Page::Settings);
+        app.open_settings_overlay();
+        assert!(app.is_settings_overlay_open());
+        app.close_settings_overlay();
+        assert!(!app.is_settings_overlay_open());
     }
 
     #[test]
