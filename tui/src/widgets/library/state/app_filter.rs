@@ -7,7 +7,7 @@ use taurine_core::system::foreground_apps::ForegroundApp;
 
 /// Explicit popup width for this overlay only; the height fits the
 /// content (capped). The shared overlay component keeps its defaults.
-pub(crate) const APP_FILTER_POPUP_W: u16 = 80;
+pub(crate) const APP_FILTER_POPUP_W: u16 = 79;
 pub(crate) const APP_FILTER_MAX_H: u16 = 18;
 
 /// Line budget for measuring content; the fitted popup converges on it.
@@ -49,8 +49,9 @@ pub(crate) const MAX_FOREGROUND_APPS: usize = 8;
 /// the divider; rows and search share it.
 pub(crate) const APP_FILTER_PAD: u16 = 1;
 
-/// Default left fraction; dragging rewrites it per menu.
-pub(crate) const APP_FILTER_DEFAULT_SPLIT: f32 = 0.6;
+/// Default split: exactly half, so both panes share the width and
+/// padding evenly; dragging rewrites it per menu.
+pub(crate) const APP_FILTER_DEFAULT_SPLIT: f32 = 0.5;
 
 /// Pane split in body columns: left width, divider column, right
 /// start, right width. Left always wins the extra cells.

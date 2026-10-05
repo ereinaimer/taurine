@@ -2886,28 +2886,33 @@ fn click_app_filter_title_closes() {
 fn app_filter_divider_drags_and_releases() {
     let mut state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
-    // Fitted popup: body x11, divider at column 57, rows 12-16.
+    // Fitted popup: body x11 w77, divider at column 49, rows 12-18.
+    // Equal halves: 38 / 38 with even padding.
     state.modal = Some(LibraryModal::AppFilter(filter_menu(AppFilterSide::Allow)));
-    assert!(state.grab_app_filter_divider(area, 57, 14));
+    let Some(LibraryModal::AppFilter(menu)) = state.modal() else {
+        panic!("filter menu open");
+    };
+    assert_eq!(menu.panes(77), (38, 38, 39, 38));
+    // Off-divider presses never grab.
+    assert!(!state.grab_app_filter_divider(area, 20, 14));
+    // Grab + drag widens the left pane.
+    assert!(state.grab_app_filter_divider(area, 49, 14));
     state.drag_app_filter_divider(area, 65);
     let Some(LibraryModal::AppFilter(menu)) = state.modal() else {
         panic!("filter menu open");
     };
-    let (left, _, _, _) = menu.panes(78);
-    assert!(left > 46);
-    // Off-divider presses never grab.
-    state.modal = Some(LibraryModal::AppFilter(filter_menu(AppFilterSide::Allow)));
-    assert!(!state.grab_app_filter_divider(area, 20, 14));
+    let (left, _, _, _) = menu.panes(77);
+    assert!(left > 38);
     // Release ends the drag; further motion holds the split.
     state.modal = Some(LibraryModal::AppFilter(filter_menu(AppFilterSide::Allow)));
-    assert!(state.grab_app_filter_divider(area, 57, 14));
+    assert!(state.grab_app_filter_divider(area, 49, 14));
     state.release_app_filter_divider();
     state.drag_app_filter_divider(area, 70);
     let Some(LibraryModal::AppFilter(menu)) = state.modal() else {
         panic!("filter menu open");
     };
-    let (left, _, _, _) = menu.panes(78);
-    assert_eq!(left, 46);
+    let (left, _, _, _) = menu.panes(77);
+    assert_eq!(left, 38);
 }
 
 #[test]
