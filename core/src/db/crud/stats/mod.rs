@@ -4,6 +4,7 @@ mod stat_delete;
 mod stat_get;
 mod stat_set;
 mod stat_types;
+pub mod trigger_daily_stats;
 
 use crate::stats::TriggerStatKind;
 
@@ -19,6 +20,12 @@ pub use stat_delete::delete_stat;
 pub use stat_get::{get_stat, get_stat_counters};
 pub use stat_set::increment_stat;
 pub use stat_types::{StatDeltas, StatRow};
+pub use trigger_daily_stats::{
+    TopTriggerDailyStat, TriggerDailyStatRow, get_top_triggers_daily_with_conn,
+    get_trigger_daily_stats_by_date, get_trigger_daily_stats_by_trigger,
+    get_unsynced_trigger_daily_stats, mark_trigger_daily_stats_synced,
+    upsert_trigger_daily_stat_with_conn,
+};
 
 /// High-level function to record stats for a mathematical calculation.
 ///
