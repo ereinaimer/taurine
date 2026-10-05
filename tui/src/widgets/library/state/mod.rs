@@ -495,7 +495,8 @@ impl LibraryPageState {
         // there places the caret, exactly like the library search bar.
         if row == body.y.saturating_add(body.height).saturating_sub(1) {
             let field = menu.search_mut();
-            field.place(field.index_at(column.saturating_sub(body.x) as usize));
+            let column = column.saturating_sub(body.x).saturating_sub(APP_FILTER_PAD) as usize;
+            field.place(field.index_at(column));
             menu.refilter();
             self.modal = Some(LibraryModal::AppFilter(menu));
             return LibraryInteraction::handled();

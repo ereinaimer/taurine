@@ -2829,7 +2829,7 @@ fn click_app_filter_search_places_caret() {
         menu.search_mut().insert(ch);
     }
     state.modal = Some(LibraryModal::AppFilter(menu));
-    let interaction = state.click_app_filter_menu(area, 19, 22);
+    let interaction = state.click_app_filter_menu(area, 20, 22);
     assert!(interaction.pending_edit().is_none());
     let Some(LibraryModal::AppFilter(menu)) = state.modal() else {
         panic!("filter menu open");

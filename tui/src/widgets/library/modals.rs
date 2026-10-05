@@ -705,8 +705,8 @@ fn render_library_app_filter_modal(
     use ratatui::widgets::Block;
 
     use crate::widgets::library::state::{
-        APP_FILTER_RESERVED_LINES, APP_FILTER_ROWS_TOP, FilterRow, app_filter_panes,
-        app_filter_popup,
+        APP_FILTER_PAD, APP_FILTER_RESERVED_LINES, APP_FILTER_ROWS_TOP, FilterRow,
+        app_filter_panes, app_filter_popup,
     };
 
     let popup = app_filter_popup(area);
@@ -762,8 +762,11 @@ fn render_library_app_filter_modal(
     let origin_y = body.y.saturating_add(APP_FILTER_ROWS_TOP);
     let search_y = body.y.saturating_add(body.height).saturating_sub(1);
     let (left_w, divider_x, _, _) = app_filter_panes(body.width);
-    // honey: the divider runs the rows area only, title to search.
-    for y in origin_y..search_y {
+    // honey: content sits one padded cell in; the divider runs top
+    // to bottom, title row excluded so Esc stays clean.
+    let content_x = body.x.saturating_add(APP_FILTER_PAD);
+    let content_w = left_w.saturating_sub(APP_FILTER_PAD);
+    for y in body.y.saturating_add(1)..=search_y {
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 "│".to_string(),
@@ -805,7 +808,7 @@ fn render_library_app_filter_modal(
         match row {
             FilterRow::Checked(index) => {
                 let value = state.checked().get(index).map(String::as_str).unwrap_or("");
-                let text = util::truncate_to_width(&format!("× {value}"), left_w.max(1));
+                let text = util::truncate_to_width(&format!("× {value}"), content_w.max(1));
                 let style = if is_focused {
                     band().fg(theme.text)
                 } else {
@@ -814,9 +817,9 @@ fn render_library_app_filter_modal(
                 frame.render_widget(
                     Paragraph::new(Line::from(Span::styled(text, style))),
                     Rect {
-                        x: body.x,
+                        x: content_x,
                         y: row_y,
-                        width: left_w,
+                        width: content_w,
                         height: 1,
                     },
                 );
@@ -826,7 +829,7 @@ fn render_library_app_filter_modal(
                     continue;
                 };
                 let gray = state.is_gray(index);
-                let exe = util::truncate_to_width(&app.exe, left_w.max(1));
+                let exe = util::truncate_to_width(&app.exe, content_w.max(1));
                 let exe_style = if gray {
                     Style::default().fg(theme.text_muted)
                 } else if is_focused {
@@ -837,9 +840,9 @@ fn render_library_app_filter_modal(
                 frame.render_widget(
                     Paragraph::new(Line::from(Span::styled(exe, exe_style))),
                     Rect {
-                        x: body.x,
+                        x: content_x,
                         y: row_y,
-                        width: left_w,
+                        width: content_w,
                         height: 1,
                     },
                 );
@@ -848,7 +851,7 @@ fn render_library_app_filter_modal(
                 } else {
                     app.title.clone()
                 };
-                let detail = util::truncate_to_width(&detail, left_w.max(1));
+                let detail = util::truncate_to_width(&detail, content_w.max(1));
                 // honey: the focused row bands across both lines; the
                 // description keeps its dimmed tone on the band.
                 let detail_style = if is_focused && !gray {
@@ -859,9 +862,9 @@ fn render_library_app_filter_modal(
                 frame.render_widget(
                     Paragraph::new(Line::from(Span::styled(detail, detail_style))),
                     Rect {
-                        x: body.x,
+                        x: content_x,
                         y: row_y.saturating_add(1),
-                        width: left_w,
+                        width: content_w,
                         height: 1,
                     },
                 );
@@ -874,7 +877,7 @@ fn render_library_app_filter_modal(
     // pane width with a blank line above the list; typing always
     // filters. The caret always shows.
     let search_y = body.y.saturating_add(body.height).saturating_sub(1);
-    let search_w = left_w.max(1);
+    let search_w = content_w.max(1);
     let (visible, caret) = state.search().window(search_w);
     let (text, style) = if state.search().is_empty() {
         (
@@ -888,12 +891,12 @@ fn render_library_app_filter_modal(
         Paragraph::new(Line::from(Span::styled(text, style)))
             .style(Style::default().bg(theme.surface)),
         Rect {
-            x: body.x,
+            x: content_x,
             y: search_y,
             width: search_w,
             height: 1,
         },
     );
-    let (caret_x, caret_y) = util::caret_position(body.x, search_y, caret, search_w);
+    let (caret_x, caret_y) = util::caret_position(content_x, search_y, caret, search_w);
     frame.set_cursor_position((caret_x, caret_y));
 }

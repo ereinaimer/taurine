@@ -24,6 +24,10 @@ pub(crate) const APP_FILTER_RESERVED_LINES: u16 = 4;
 /// Rows start below the title and one blank line.
 pub(crate) const APP_FILTER_ROWS_TOP: u16 = 2;
 
+/// Inner content padding: rows and the search box sit one cell in
+/// from the body edges on both sides.
+pub(crate) const APP_FILTER_PAD: u16 = 1;
+
 /// Pane split in body columns: left width, divider column, right
 /// start, right width. Left always wins the extra cells.
 pub(crate) fn app_filter_panes(body_width: u16) -> (u16, u16, u16, u16) {
