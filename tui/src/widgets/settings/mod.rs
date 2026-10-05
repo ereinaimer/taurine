@@ -21,15 +21,6 @@ pub(crate) enum SettingsHit {
     SearchAt(usize),
 }
 
-fn page_area(area: Rect) -> Rect {
-    Rect {
-        x: area.x.saturating_add(1),
-        y: area.y.saturating_add(1),
-        width: area.width.saturating_sub(2),
-        height: area.height.saturating_sub(1),
-    }
-}
-
 fn content_sections(area: Rect, has_status: bool) -> (Rect, Rect) {
     let sections = if has_status {
         Layout::default()
@@ -103,7 +94,6 @@ fn row_shapes(width: u16, state: &SettingsPageState) -> (Vec<Vec<String>>, Vec<u
 /// Window start for the current state, used to anchor the view when a
 /// visible row is clicked so the list does not jump.
 pub(crate) fn visible_window_start(area: Rect, state: &SettingsPageState) -> usize {
-    let area = page_area(area);
     if area.width == 0 || area.height == 0 {
         return 0;
     }
@@ -144,7 +134,6 @@ pub(crate) fn hit_test(
     column: u16,
     row: u16,
 ) -> Option<SettingsHit> {
-    let area = page_area(area);
     if area.width == 0 || area.height == 0 {
         return None;
     }
@@ -207,15 +196,15 @@ pub(crate) fn overlay_popup(area: Rect, state: &SettingsPageState) -> Rect {
 }
 
 /// Chrome around the rows inside the popup: overlay margins, title plus
-/// blank, page inset, optional status line, search gap and search box.
+/// blank, optional status line, search gap and search box.
 /// Must match the render splits below row for row.
 fn popup_chrome(has_status: bool) -> u16 {
-    2 + 2 + 1 + u16::from(has_status) + 1 + 3
+    2 + 2 + u16::from(has_status) + 1 + 3
 }
 
 /// List width inside the popup, mirroring the render insets.
 fn popup_list_width(area: Rect) -> u16 {
-    (area.width / 10 * 9).saturating_sub(6 + 2)
+    (area.width / 10 * 9).saturating_sub(6)
 }
 
 /// Content rect inside the popup, shared by overlay renders and
@@ -269,7 +258,6 @@ pub fn render_settings_content(
     theme: &Theme,
     state: &SettingsPageState,
 ) {
-    let area = page_area(area);
     if area.width == 0 || area.height == 0 {
         return;
     }
@@ -451,7 +439,7 @@ mod tests {
         let state = SettingsPageState::default();
 
         assert_eq!(
-            hit_test(area, &state, 30, 6),
+            hit_test(area, &state, 30, 3),
             Some(SettingsHit::Row(SettingKey::PauseHotkey))
         );
         assert_eq!(
@@ -471,10 +459,10 @@ mod tests {
 
         let area = ratatui::layout::Rect::new(26, 2, 71, 24);
         assert_eq!(hit_test(area, &state, 30, 3), None);
-        // Line text starts two cells in: column 30 is the second character.
+        // Line text starts two cells in: column 30 is the third character.
         assert_eq!(
             hit_test(area, &state, 30, 24),
-            Some(SettingsHit::SearchAt(1))
+            Some(SettingsHit::SearchAt(2))
         );
     }
 

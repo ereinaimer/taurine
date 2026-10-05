@@ -1376,7 +1376,7 @@ mod tests {
     fn settings_overlay_hugs_rows_without_top_gap() {
         let app = App::default();
         let popup = settings::overlay_popup(TEST_AREA, app.settings_page());
-        assert_eq!(popup, ratatui::layout::Rect::new(5, 2, 90, 25));
+        assert_eq!(popup, ratatui::layout::Rect::new(5, 3, 90, 24));
         let body = settings::overlay_body(popup);
         let content = settings::overlay_content(body);
         // honey: the popup height already accounts for the window, so
