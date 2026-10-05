@@ -3,6 +3,7 @@
 
 mod overlay;
 pub mod terminal;
+mod terminal_title;
 mod theme;
 pub use crate::widgets::library::actions::{LibraryImportConflictMode, RememberedConflictChoice};
 pub use overlay::{
@@ -939,6 +940,9 @@ impl TerminalGuard {
 
         apply_saved_cursor_style();
 
+        // honey: tab reads Taurine for the session; Drop restores it.
+        crate::terminal_title::acquire();
+
         Ok(Self { terminal })
     }
 }
@@ -1042,6 +1046,7 @@ fn restore_terminal() {
         DisableMouseCapture,
         Show
     );
+    crate::terminal_title::release();
 }
 
 #[cfg(test)]
