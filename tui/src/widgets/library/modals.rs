@@ -689,11 +689,11 @@ fn render_tags_chips(frame: &mut Frame, body: Rect, theme: &Theme, state: &Libra
     }
 }
 
-/// App-filter picker overlay on the shared popup geometry: stored
-/// filters first (toggle off), the Alt-Tab foreground list as
-/// two-line `exe` plus `title · class` rows, then the manual add
-/// row / live input. Opposite-list rows render dimmed with their
-/// reason and never take focus.
+/// App-filter picker overlay on the shared popup geometry: search
+/// box, stored filters first (toggle off), up to eight foreground
+/// apps as two-line `exe` plus `title · class` rows narrowed by the
+/// search, then the manual add row / live input. Opposite-list rows
+/// render dimmed with their reason and never take focus.
 fn render_library_app_filter_modal(
     frame: &mut Frame,
     area: Rect,
@@ -703,7 +703,9 @@ fn render_library_app_filter_modal(
     use ratatui::style::Color::Rgb;
     use ratatui::widgets::Block;
 
-    use crate::widgets::library::state::FilterRow;
+    use crate::widgets::library::state::{
+        APP_FILTER_RESERVED_LINES, APP_FILTER_ROWS_TOP, FilterRow,
+    };
 
     let popup = util::overlay_popup(area);
     frame.render_widget(Clear, popup);
@@ -716,10 +718,38 @@ fn render_library_app_filter_modal(
         return;
     }
     util::render_overlay_title(frame, body, theme, state.side().title());
-    let max_lines = body.height.saturating_sub(3);
-    let origin_y = body.y.saturating_add(2);
+    // honey: the search box owns row 1; typing always filters, never
+    // types the manual input. The caret shows while it is focused.
+    let search_y = body.y.saturating_add(1);
+    if body.height > 2 {
+        let (visible, caret) = state.search().window(body.width);
+        let searching = !state.input_active();
+        let (text, style) = if state.search().is_empty() {
+            (
+                "Search apps".to_string(),
+                Style::default().fg(theme.text_muted),
+            )
+        } else {
+            (visible.to_string(), Style::default().fg(theme.text))
+        };
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(text, style))),
+            Rect {
+                x: body.x,
+                y: search_y,
+                width: body.width,
+                height: 1,
+            },
+        );
+        if searching {
+            let (caret_x, caret_y) = util::caret_position(body.x, search_y, caret, body.width);
+            frame.set_cursor_position((caret_x, caret_y));
+        }
+    }
+    let max_lines = body.height.saturating_sub(APP_FILTER_RESERVED_LINES);
+    let origin_y = body.y.saturating_add(APP_FILTER_ROWS_TOP);
     let focused = state.rows().get(state.cursor()).copied();
-    if state.checked().is_empty() && state.foreground().is_empty() && !state.input_active() {
+    if state.checked().is_empty() && state.matching_indices().is_empty() && !state.input_active() {
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 "No foreground apps.".to_string(),

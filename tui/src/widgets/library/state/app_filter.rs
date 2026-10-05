@@ -4,6 +4,16 @@ use crate::widgets::library::state::InputConfirm;
 use taurine_core::db::crud::AppFilterPrefix;
 use taurine_core::system::foreground_apps::ForegroundApp;
 
+/// Foreground cap: Z-order truncation is free most-recent-first,
+/// and stored filters always show regardless of the cap.
+pub(crate) const MAX_FOREGROUND_APPS: usize = 8;
+
+/// Reserved body lines: title, search box, blank, footer error.
+pub(crate) const APP_FILTER_RESERVED_LINES: u16 = 4;
+
+/// Rows start below the title, search box, and one blank line.
+pub(crate) const APP_FILTER_ROWS_TOP: u16 = 3;
+
 /// Which props row opened the picker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AppFilterSide {
@@ -62,9 +72,10 @@ impl FilterRow {
     }
 }
 
-/// App-filter picker: stored filters first (toggle off), then the
-/// Alt-Tab foreground list (`exe:` picks with title/class context),
-/// then the manual add row. Every write hits the database live.
+/// App-filter picker: stored filters first (toggle off), then up
+/// to eight foreground apps (`exe:` picks with title/class context)
+/// narrowed by the search box, then the manual add row. Every write
+/// hits the database live.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LibraryAppFilterState {
     trigger_id: String,
@@ -73,6 +84,7 @@ pub(crate) struct LibraryAppFilterState {
     checked: Vec<String>,
     opposite_keys: Vec<String>,
     foreground: Vec<ForegroundApp>,
+    search: TextField,
     cursor: usize,
     scroll: usize,
     view_lines: u16,
@@ -96,10 +108,11 @@ impl LibraryAppFilterState {
             side,
             checked,
             opposite_keys: opposite.iter().map(|item| gray_key(item)).collect(),
-            foreground,
+            foreground: foreground.into_iter().take(MAX_FOREGROUND_APPS).collect(),
+            search: TextField::new(""),
             cursor: 0,
             scroll: 0,
-            view_lines: 9,
+            view_lines: 8,
             input_active: false,
             input: TextField::new(""),
             error: None,
@@ -133,16 +146,45 @@ impl LibraryAppFilterState {
     /// Render/hit line budget refresh. Keyboard moves fall back to
     /// this when no fresher geometry has arrived.
     pub(crate) fn set_view_lines(&mut self, body_height: u16) {
-        self.view_lines = body_height.saturating_sub(3).max(1);
+        self.view_lines = body_height.saturating_sub(APP_FILTER_RESERVED_LINES).max(1);
     }
 
-    /// Flat pickable rows: stored filters, foreground apps, add row.
+    pub(crate) fn search(&self) -> &TextField {
+        &self.search
+    }
+
+    pub(crate) fn search_mut(&mut self) -> &mut TextField {
+        &mut self.search
+    }
+
+    /// Foreground indices passing the search query (exe, title, or
+    /// class, case-insensitive); empty query passes everything.
+    pub(crate) fn matching_indices(&self) -> Vec<usize> {
+        let query = self.search.text().trim().to_lowercase();
+        if query.is_empty() {
+            return (0..self.foreground.len()).collect();
+        }
+        self.foreground
+            .iter()
+            .enumerate()
+            .filter(|(_, app)| {
+                app.exe.to_lowercase().contains(&query)
+                    || app.title.to_lowercase().contains(&query)
+                    || app.class.to_lowercase().contains(&query)
+            })
+            .map(|(index, _)| index)
+            .collect()
+    }
+
+    /// Flat pickable rows: stored filters, matching foreground apps,
+    /// add row. Foreground rows carry full-list indices.
     pub(crate) fn rows(&self) -> Vec<FilterRow> {
-        let mut rows = Vec::with_capacity(self.checked.len() + self.foreground.len() + 1);
+        let matching = self.matching_indices();
+        let mut rows = Vec::with_capacity(self.checked.len() + matching.len() + 1);
         for index in 0..self.checked.len() {
             rows.push(FilterRow::Checked(index));
         }
-        for index in 0..self.foreground.len() {
+        for index in matching {
             rows.push(FilterRow::Foreground(index));
         }
         rows.push(FilterRow::Add);
@@ -363,11 +405,19 @@ impl LibraryAppFilterState {
         }
     }
 
+    /// Re-filter after a search keystroke: restart at the top.
+    pub(crate) fn refilter(&mut self) {
+        self.scroll = 0;
+        self.cursor = self.cursor.min(self.rows().len().saturating_sub(1));
+        self.error = None;
+    }
+
     /// Re-seed from refreshed rows after a live write. A saved input
     /// resets to a closed box; the cursor clamps into range.
     pub(crate) fn reseed(&mut self, checked: Vec<String>, opposite: Vec<String>) {
         self.checked = checked;
         self.opposite_keys = opposite.iter().map(|item| gray_key(item)).collect();
+        self.scroll = 0;
         self.cursor = self.cursor.min(self.rows().len().saturating_sub(1));
         self.cancel_input();
     }

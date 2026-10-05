@@ -482,16 +482,29 @@ impl LibraryPageState {
         let body = crate::widgets::util::overlay_body(popup);
         // honey: an outside click closes by leaving the taken modal
         // dropped; picks keep the menu open across live writes.
+        // The search box owns row 1, so the top guard sits at +1.
         if body.width == 0
             || column < body.x
             || column >= body.x.saturating_add(body.width)
-            || row < body.y.saturating_add(2)
+            || row < body.y.saturating_add(1)
         {
             return LibraryInteraction::handled();
         }
-        let max_lines = body.height.saturating_sub(3);
+        // honey: the search box owns row 1; a click there places the
+        // caret, exactly like the library search bar.
+        if row == body.y.saturating_add(1) {
+            if menu.input_active() {
+                menu.cancel_input();
+            }
+            let field = menu.search_mut();
+            field.place(field.index_at(column.saturating_sub(body.x) as usize));
+            menu.refilter();
+            self.modal = Some(LibraryModal::AppFilter(menu));
+            return LibraryInteraction::handled();
+        }
+        let max_lines = body.height.saturating_sub(APP_FILTER_RESERVED_LINES);
         menu.set_view_lines(body.height);
-        let rel = row.saturating_sub(body.y.saturating_add(2));
+        let rel = row.saturating_sub(body.y.saturating_add(APP_FILTER_ROWS_TOP));
         let Some(hit) = menu.row_at(max_lines, rel) else {
             self.modal = Some(LibraryModal::AppFilter(menu));
             return LibraryInteraction::handled();
@@ -1378,6 +1391,8 @@ impl LibraryPageState {
                 (KeyCode::Left, KeyModifiers::NONE) => {
                     if state.input_active() {
                         state.input_mut().move_left();
+                    } else {
+                        state.search_mut().move_left();
                     }
                     self.modal = Some(LibraryModal::AppFilter(state));
                     LibraryInteraction::handled()
@@ -1385,6 +1400,8 @@ impl LibraryPageState {
                 (KeyCode::Right, KeyModifiers::NONE) => {
                     if state.input_active() {
                         state.input_mut().move_right();
+                    } else {
+                        state.search_mut().move_right();
                     }
                     self.modal = Some(LibraryModal::AppFilter(state));
                     LibraryInteraction::handled()
@@ -1417,20 +1434,30 @@ impl LibraryPageState {
                 (KeyCode::Delete, KeyModifiers::NONE) => {
                     if state.input_active() {
                         state.delete_input_at();
+                    } else if state.search().cursor() < state.search().len_chars() {
+                        // honey: caret inside the query deletes there;
+                        // at the end it removes the focused row.
+                        state.search_mut().delete_at();
+                        state.refilter();
                         self.modal = Some(LibraryModal::AppFilter(state));
-                        LibraryInteraction::handled()
+                        return LibraryInteraction::handled();
                     } else {
                         let interaction = state
                             .remove_focused()
                             .map(LibraryInteraction::edit)
                             .unwrap_or_else(LibraryInteraction::handled);
                         self.modal = Some(LibraryModal::AppFilter(state));
-                        interaction
+                        return interaction;
                     }
+                    self.modal = Some(LibraryModal::AppFilter(state));
+                    LibraryInteraction::handled()
                 }
                 (KeyCode::Backspace, KeyModifiers::NONE) => {
                     if state.input_active() {
                         state.backspace_input();
+                    } else {
+                        state.search_mut().backspace();
+                        state.refilter();
                     }
                     self.modal = Some(LibraryModal::AppFilter(state));
                     LibraryInteraction::handled()
@@ -1438,6 +1465,8 @@ impl LibraryPageState {
                 (KeyCode::Home, KeyModifiers::NONE) => {
                     if state.input_active() {
                         state.input_mut().move_home();
+                    } else {
+                        state.search_mut().move_home();
                     }
                     self.modal = Some(LibraryModal::AppFilter(state));
                     LibraryInteraction::handled()
@@ -1445,6 +1474,8 @@ impl LibraryPageState {
                 (KeyCode::End, KeyModifiers::NONE) => {
                     if state.input_active() {
                         state.input_mut().move_end();
+                    } else {
+                        state.search_mut().move_end();
                     }
                     self.modal = Some(LibraryModal::AppFilter(state));
                     LibraryInteraction::handled()
@@ -1452,10 +1483,14 @@ impl LibraryPageState {
                 (KeyCode::Char(ch), modifiers)
                     if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
                 {
-                    if !state.input_active() {
-                        state.start_input();
+                    // honey: typing always filters; the manual
+                    // `prefix:value` input opens from the Add row.
+                    if state.input_active() {
+                        state.push_input(ch);
+                    } else {
+                        state.search_mut().insert(ch);
+                        state.refilter();
                     }
-                    state.push_input(ch);
                     self.modal = Some(LibraryModal::AppFilter(state));
                     LibraryInteraction::handled()
                 }
