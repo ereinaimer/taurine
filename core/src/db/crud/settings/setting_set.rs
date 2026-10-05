@@ -18,12 +18,13 @@ pub fn upsert_setting(conn: &Connection, key: &str, value_json: &str) -> Result<
     let now = now_unix_secs();
 
     conn.execute(
-        "INSERT INTO settings (key, value, version, updated_at)
-         VALUES (?1, ?2, 1, ?3)
+        "INSERT INTO settings (key, value, version, updated_at, is_synced)
+         VALUES (?1, ?2, 1, ?3, 0)
          ON CONFLICT(key) DO UPDATE SET
              value      = excluded.value,
              version    = version + 1,
-             updated_at = excluded.updated_at",
+             updated_at = excluded.updated_at,
+             is_synced  = 0",
         (key, value_json, now),
     )?;
 

@@ -56,7 +56,7 @@ pub fn settings_version() -> u64 {
     SETTINGS_VERSION.load(Ordering::Relaxed)
 }
 
-fn bump_settings_version() {
+pub(crate) fn bump_settings_version() {
     SETTINGS_VERSION.fetch_add(1, Ordering::Relaxed);
 }
 

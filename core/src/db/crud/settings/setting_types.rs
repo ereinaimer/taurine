@@ -9,4 +9,6 @@ pub struct SettingRow {
     pub version: i64,
     /// Unix timestamp (seconds) of the last write.
     pub updated_at: i64,
+    /// Whether this setting has been synchronized to cloud storage.
+    pub is_synced: bool,
 }

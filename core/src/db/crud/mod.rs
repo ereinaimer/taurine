@@ -45,7 +45,9 @@ pub use workspaces::{
 
 pub use crate::stats::TriggerStatKind;
 pub use settings::{
-    SettingRow, delete_setting, get_all_settings, get_setting, get_setting_value, upsert_setting,
+    CloudSettingPayload, SYNCABLE_SETTINGS, SettingReconcileOutcome, SettingRow, delete_setting,
+    get_all_settings, get_setting, get_setting_value, get_unsynced_settings, is_setting_syncable,
+    mark_settings_synced, reconcile_cloud_setting, upsert_setting,
 };
 pub use stats::{
     AppStatRow, AppStatsSortBy, StatDeltas, StatRow, TopAppStat, TopTriggerDailyStat,
