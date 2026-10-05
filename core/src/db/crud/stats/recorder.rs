@@ -224,7 +224,9 @@ pub fn record_trigger_stat_with_conn(
 
     let resolved_id = resolve_trigger_id(&tx, event)?;
     if let Some(id) = &resolved_id {
-        let _ = crate::db::crud::increment_usage_count_by_id(&tx, id);
+        if let Err(err) = crate::db::crud::increment_usage_count_by_id(&tx, id) {
+            tracing::warn!(error = %err, id, "Failed to increment trigger usage count");
+        }
         let trigger_executions = match event.kind {
             TriggerStatKind::InlineAi => 1,
             TriggerStatKind::VoiceTrigger | TriggerStatKind::VoiceDictation => {
