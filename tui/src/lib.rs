@@ -327,7 +327,7 @@ fn handle_tui_mouse_event(
             // honey: wheel over the settings overlay scrolls its list;
             // wheel outside the popup never leaks into the library.
             if app.is_settings_overlay_open() {
-                let popup = settings::overlay_popup(area);
+                let popup = settings::overlay_popup(area, app.settings_page());
                 if terminal::mouse::contains(popup, mouse.column, mouse.row) {
                     handle_tui_key_event(app, scroll_key(mouse.kind == MouseEventKind::ScrollDown));
                 }
@@ -473,7 +473,7 @@ fn handle_tui_mouse_event(
             // honey: clicks outside the settings popup close it; row
             // and search clicks reuse the page hit path on the body.
             if app.is_settings_overlay_open() {
-                let popup = settings::overlay_popup(area);
+                let popup = settings::overlay_popup(area, app.settings_page());
                 if !terminal::mouse::contains(popup, mouse.column, mouse.row) {
                     app.close_settings_overlay();
                     return;
@@ -1373,31 +1373,30 @@ mod tests {
     }
 
     #[test]
-    fn settings_overlay_geometry_is_80_percent() {
-        let popup = settings::overlay_popup(TEST_AREA);
-        assert_eq!(popup, ratatui::layout::Rect::new(10, 3, 80, 24));
-        let body = settings::overlay_body(popup);
-        assert_eq!(body, ratatui::layout::Rect::new(13, 4, 74, 22));
-        let content = settings::overlay_content(body);
-        assert_eq!(content, ratatui::layout::Rect::new(13, 6, 74, 20));
-        // honey: the shared geometry must surface a real row hit.
+    fn settings_overlay_hugs_rows_without_top_gap() {
         let app = App::default();
-        let mut found = false;
+        let popup = settings::overlay_popup(TEST_AREA, app.settings_page());
+        assert_eq!(popup, ratatui::layout::Rect::new(10, 4, 80, 21));
+        let body = settings::overlay_body(popup);
+        let content = settings::overlay_content(body);
+        // honey: the popup height already accounts for the window, so
+        // the first row starts at the very top of the list.
+        let mut first = None;
         for row in 0..TEST_AREA.height {
             for column in 0..TEST_AREA.width {
                 if matches!(
                     settings::hit_test(content, app.settings_page(), column, row),
                     Some(settings::SettingsHit::Row(_))
                 ) {
-                    found = true;
+                    first = Some(row);
                     break;
                 }
             }
-            if found {
+            if first.is_some() {
                 break;
             }
         }
-        assert!(found);
+        assert_eq!(first, Some(8));
     }
 
     #[test]
@@ -1429,7 +1428,7 @@ mod tests {
         app.open_settings_overlay();
         assert!(!app.settings_page().is_search_active());
 
-        handle_tui_mouse_event(&mut app, left_click(30, 24), TEST_AREA);
+        handle_tui_mouse_event(&mut app, left_click(30, 22), TEST_AREA);
 
         assert!(app.settings_page().is_search_active());
         assert_eq!(app.settings_page().search_query(), "");
@@ -1445,7 +1444,7 @@ mod tests {
         app.settings_page_mut().selected = last;
         // honey: scan the real hit path for the first row instead of
         // hard-coding a cell that row heights could shift.
-        let popup = settings::overlay_popup(TEST_AREA);
+        let popup = settings::overlay_popup(TEST_AREA, app.settings_page());
         let content = settings::overlay_content(settings::overlay_body(popup));
         let mut target = None;
         for row in 0..TEST_AREA.height {

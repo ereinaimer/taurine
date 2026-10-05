@@ -66,17 +66,7 @@ struct SettingsRows {
 }
 
 fn compute_rows(list_area: Rect, state: &SettingsPageState) -> SettingsRows {
-    let all_keys = state.visible_keys();
-    let control_width = control_column_width(state.settings(), list_area.width);
-    let descriptions: Vec<Vec<String>> = all_keys
-        .iter()
-        .map(|key| wrap_description_lines(key.description(), list_area.width.saturating_sub(2)))
-        .collect();
-    // honey: each row is 1 pad + title + descriptions + 1 pad.
-    let heights: Vec<u16> = descriptions
-        .iter()
-        .map(|lines| 3 + lines.len() as u16)
-        .collect();
+    let (descriptions, heights, control_width) = row_shapes(list_area.width, state);
     let (start, end) = window_for(
         &heights,
         state.selected_index(),
@@ -90,6 +80,24 @@ fn compute_rows(list_area: Rect, state: &SettingsPageState) -> SettingsRows {
         start,
         end,
     }
+}
+
+/// Row shapes at a list width, shared by rendering and popup sizing so
+/// both agree on heights: wrapped descriptions, per-row heights, and
+/// the control column width.
+fn row_shapes(width: u16, state: &SettingsPageState) -> (Vec<Vec<String>>, Vec<u16>, u16) {
+    let all_keys = state.visible_keys();
+    let control_width = control_column_width(state.settings(), width);
+    let descriptions: Vec<Vec<String>> = all_keys
+        .iter()
+        .map(|key| wrap_description_lines(key.description(), width.saturating_sub(2)))
+        .collect();
+    // honey: each row is 1 pad + title + descriptions + 1 pad.
+    let heights: Vec<u16> = descriptions
+        .iter()
+        .map(|lines| 3 + lines.len() as u16)
+        .collect();
+    (descriptions, heights, control_width)
 }
 
 /// Window start for the current state, used to anchor the view when a
@@ -171,10 +179,43 @@ pub(crate) fn hit_test(
     None
 }
 
-/// Settings overlay geometry: popup at 80% of the terminal, shared by
+/// Settings overlay geometry: popup at 80% of the terminal width,
+/// height hugging the windowed rows so bottom-anchored rows never leave
+/// a top gap; capped at 80% with scrolling beyond that. Shared by
 /// rendering and hit-testing so clicks land as drawn.
-pub(crate) fn overlay_popup(area: Rect) -> Rect {
-    crate::widgets::util::centered_rect(area.width / 5 * 4, area.height / 5 * 4, area)
+pub(crate) fn overlay_popup(area: Rect, state: &SettingsPageState) -> Rect {
+    let width = area.width / 5 * 4;
+    let max_list =
+        (area.height / 5 * 4).saturating_sub(popup_chrome(state.status_message().is_some()));
+    let (_, heights, _) = row_shapes(popup_list_width(area), state);
+    let (start, end) = window_for(
+        &heights,
+        state.selected_index(),
+        max_list,
+        state.window_anchor,
+    );
+    let mut used: u16 = heights[start..end].iter().sum();
+    if heights.is_empty() {
+        // honey: the empty-list message still needs one row.
+        used = 1;
+    }
+    crate::widgets::util::centered_rect(
+        width,
+        popup_chrome(state.status_message().is_some()).saturating_add(used),
+        area,
+    )
+}
+
+/// Chrome around the rows inside the popup: overlay margins, title plus
+/// blank, page inset, optional status line, search gap and search box.
+/// Must match the render splits below row for row.
+fn popup_chrome(has_status: bool) -> u16 {
+    2 + 2 + 1 + u16::from(has_status) + 1 + 3
+}
+
+/// List width inside the popup, mirroring the render insets.
+fn popup_list_width(area: Rect) -> u16 {
+    (area.width / 5 * 4).saturating_sub(6 + 2)
 }
 
 /// Content rect inside the popup, shared by overlay renders and
@@ -204,7 +245,7 @@ pub fn render_settings_overlay(
 ) {
     use ratatui::style::Color::Rgb;
 
-    let popup = overlay_popup(area);
+    let popup = overlay_popup(area, state);
     frame.render_widget(Clear, popup);
     frame.render_widget(
         Block::default().style(Style::default().bg(Rgb(0x14, 0x14, 0x14))),
