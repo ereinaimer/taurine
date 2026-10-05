@@ -4,6 +4,7 @@ mod stat_delete;
 mod stat_get;
 mod stat_set;
 mod stat_types;
+pub mod sync_helpers;
 pub mod trigger_daily_stats;
 
 use crate::stats::TriggerStatKind;
@@ -20,6 +21,10 @@ pub use stat_delete::delete_stat;
 pub use stat_get::{get_stat, get_stat_counters};
 pub use stat_set::increment_stat;
 pub use stat_types::{StatDeltas, StatRow};
+pub use sync_helpers::{
+    CloudTriggerDailyStatPayload, CloudUserAppStatPayload, CloudUserStatPayload,
+    get_unsynced_app_stats, get_unsynced_stats, mark_app_stats_synced, mark_stats_synced,
+};
 pub use trigger_daily_stats::{
     TopTriggerDailyStat, TriggerDailyStatRow, get_top_triggers_daily_with_conn,
     get_trigger_daily_stats_by_date, get_trigger_daily_stats_by_trigger,

@@ -101,13 +101,15 @@ pub fn upsert_app_stat_with_conn(
     let now = crate::db::now_unix_secs();
     conn.execute(
         "INSERT INTO app_stats (
-            app_key, date, executions, keystrokes_saved, time_saved_ms, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?)
+            app_key, date, executions, keystrokes_saved, time_saved_ms, version, is_synced, updated_at
+        ) VALUES (?, ?, ?, ?, ?, 1, 0, ?)
         ON CONFLICT(app_key, date) DO UPDATE SET
-            executions = app_stats.executions + excluded.executions,
+            executions       = app_stats.executions + excluded.executions,
             keystrokes_saved = app_stats.keystrokes_saved + excluded.keystrokes_saved,
-            time_saved_ms = app_stats.time_saved_ms + excluded.time_saved_ms,
-            updated_at = excluded.updated_at",
+            time_saved_ms    = app_stats.time_saved_ms + excluded.time_saved_ms,
+            version          = app_stats.version + 1,
+            is_synced        = 0,
+            updated_at       = excluded.updated_at",
         params![
             app_key,
             date,
