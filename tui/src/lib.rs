@@ -202,11 +202,20 @@ fn handle_tui_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
     // honey: Ctrl+C quits cleanly from anywhere, including modals and
     // search, since raw mode delivers it as a key event, not a signal.
     // Pending edits flush first so nothing typed is lost to timing.
+    // The one exception: an active content selection copies instead.
     if key.code == crossterm::event::KeyCode::Char('c')
         && key
             .modifiers
             .contains(crossterm::event::KeyModifiers::CONTROL)
     {
+        if app.active_page() == Page::Library
+            && !app.library_page().is_modal_open()
+            && app.library_page().has_content_selection()
+        {
+            let interaction = app.library_page_mut().handle_key(key);
+            apply_library_interaction(app, interaction);
+            return;
+        }
         if app.active_page() == Page::Library {
             let interaction = app.library_page_mut().commit_edit();
             apply_library_interaction(app, interaction);

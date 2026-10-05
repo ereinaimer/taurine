@@ -272,6 +272,14 @@ impl super::LibraryPageState {
         true
     }
 
+    /// True while the content body holds an active selection, so
+    /// Ctrl+C copies instead of quitting the app.
+    pub(crate) fn has_content_selection(&self) -> bool {
+        self.edit
+            .as_ref()
+            .is_some_and(|edit| edit.target == EditTarget::Content && edit.body.has_selection())
+    }
+
     /// Move the body caret, keeping it inside the scrolled window.
     /// Scroll math runs in wrapped visual rows at the tracked width;
     /// unknown width (zero) skips adjustment.

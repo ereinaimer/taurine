@@ -78,6 +78,62 @@ impl TextField {
         self.cursor = self.len_chars();
     }
 
+    fn is_word_char(ch: char) -> bool {
+        ch.is_alphanumeric() || ch == '_'
+    }
+
+    /// Jump back over the previous word (spaces, then word chars).
+    pub(crate) fn move_word_left(&mut self) {
+        let chars: Vec<char> = self.text.chars().collect();
+        let mut index = self.cursor;
+        while index > 0 && !Self::is_word_char(chars[index - 1]) {
+            index -= 1;
+        }
+        while index > 0 && Self::is_word_char(chars[index - 1]) {
+            index -= 1;
+        }
+        self.cursor = index;
+    }
+
+    /// Jump forward over the next word.
+    pub(crate) fn move_word_right(&mut self) {
+        let chars: Vec<char> = self.text.chars().collect();
+        let len = chars.len();
+        let mut index = self.cursor;
+        while index < len && !Self::is_word_char(chars[index]) {
+            index += 1;
+        }
+        while index < len && Self::is_word_char(chars[index]) {
+            index += 1;
+        }
+        self.cursor = index;
+    }
+
+    /// Delete back over the previous word. False when already at the start.
+    pub(crate) fn delete_word_before(&mut self) -> bool {
+        if self.cursor == 0 {
+            return false;
+        }
+        let target = self.cursor;
+        self.move_word_left();
+        self.text
+            .drain(byte_index(&self.text, self.cursor)..byte_index(&self.text, target));
+        true
+    }
+
+    /// Delete forward over the next word. False when already at the end.
+    pub(crate) fn delete_word_after(&mut self) -> bool {
+        if self.cursor >= self.len_chars() {
+            return false;
+        }
+        let target = self.cursor;
+        self.move_word_right();
+        self.text
+            .drain(byte_index(&self.text, target)..byte_index(&self.text, self.cursor));
+        self.cursor = target;
+        true
+    }
+
     /// Caret placement, e.g. from a click column. Clamps past the end.
     pub(crate) fn place(&mut self, index: usize) {
         self.cursor = index.min(self.len_chars());
@@ -219,5 +275,37 @@ mod tests {
         assert_eq!(field.text(), "héXllo");
         assert!(field.backspace());
         assert_eq!(field.text(), "héllo");
+    }
+
+    #[test]
+    fn word_jumps_stop_at_boundaries() {
+        let mut field = TextField::new("foo bar-baz");
+        field.move_word_left();
+        assert_eq!(field.cursor(), 8);
+        field.move_word_left();
+        assert_eq!(field.cursor(), 4);
+        field.move_home();
+        field.move_word_right();
+        assert_eq!(field.cursor(), 3);
+        field.move_word_right();
+        assert_eq!(field.cursor(), 7);
+    }
+
+    #[test]
+    fn word_deletes_eat_whole_words() {
+        let mut field = TextField::new("foo bar");
+        assert!(field.delete_word_before());
+        assert_eq!(field.text(), "foo ");
+        assert!(field.delete_word_before());
+        assert_eq!(field.text(), "");
+        assert!(!field.delete_word_before());
+
+        let mut field = TextField::new("foo bar");
+        field.move_home();
+        assert!(field.delete_word_after());
+        assert_eq!(field.text(), " bar");
+        assert!(field.delete_word_after());
+        assert_eq!(field.text(), "");
+        assert!(!field.delete_word_after());
     }
 }

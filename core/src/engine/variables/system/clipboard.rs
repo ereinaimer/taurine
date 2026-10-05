@@ -197,6 +197,28 @@ pub fn set_mock_clip(text: Option<String>) {
     set_mock_clip_history(text.into_iter().collect::<Vec<_>>());
 }
 
+/// Store text on the system clipboard. Tests land in the mock when
+/// one is set; prod goes through arboard like the daemon listener.
+pub fn store(text: &str) {
+    let mocked = MOCK_CLIP.with(|m| {
+        if m.borrow().is_some() {
+            *m.borrow_mut() = Some(VecDeque::from([text.to_string()]));
+            true
+        } else {
+            false
+        }
+    });
+    if mocked {
+        return;
+    }
+    #[cfg(not(test))]
+    {
+        if let Ok(mut clip) = arboard::Clipboard::new() {
+            let _ = clip.set_text(text.to_string());
+        }
+    }
+}
+
 /// Sets a mock clip history for the current thread.
 /// Used only for testing.
 #[cfg(test)]
@@ -220,6 +242,14 @@ mod tests {
         assert_eq!(resolve("0"), Some("a".to_string()));
         assert_eq!(resolve("1"), Some("b".to_string()));
         assert_eq!(resolve("abc"), None);
+        set_mock_clip(None);
+    }
+
+    #[test]
+    fn store_lands_in_mock() {
+        set_mock_clip(Some("old".to_string()));
+        store("new");
+        assert_eq!(resolve(""), Some("new".to_string()));
         set_mock_clip(None);
     }
 

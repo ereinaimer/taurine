@@ -740,38 +740,79 @@ fn render_content_editor(
 ) {
     // honey: identical wrapping to read mode; the caret paints on the
     // wrapped visual row, so long paragraphs stay editable in place.
+    // Selected ranges render reversed so the selection is visible.
     let body = edit.body();
     let (caret_row, caret_col) = body.cursor();
     let (caret_visual, caret_cell) =
         content_visual_cursor(body.lines(), caret_row, caret_col, text.width);
-    let wrapped = wrap_content_lines(&body.text(), text.width);
-    for (index, line) in wrapped.into_iter().enumerate().skip(scroll) {
-        let visual = index.saturating_sub(scroll);
-        if visual >= text.height as usize {
-            break;
-        }
-        let row = Rect {
-            x: text.x,
-            y: text.y.saturating_add(visual as u16),
-            width: text.width,
-            height: 1,
-        };
-        if index == caret_visual {
-            // honey: no backgrounds while editing; the real caret alone
-            // marks the position.
-            let gap = text.width.saturating_sub(line.chars().count() as u16);
-            let rendered = Line::from(vec![
-                Span::styled(line.clone(), Style::default().fg(theme.text)),
-                Span::raw(" ".repeat(gap as usize)),
-            ]);
-            frame.render_widget(Paragraph::new(rendered), row);
-            let (cx, cy) = util::caret_position(row.x, row.y, caret_cell, text.width);
-            frame.set_cursor_position((cx, cy));
-        } else {
-            frame.render_widget(
-                Paragraph::new(Line::from(line)).style(Style::default().fg(theme.text)),
-                row,
-            );
+    let selection = body.selection_range();
+    let mut visual = 0usize;
+    'rows: for (source_row, line) in body.lines().iter().enumerate() {
+        for (chunk, range) in wrap_content_spans(line, text.width) {
+            if visual < scroll {
+                visual = visual.saturating_add(1);
+                continue;
+            }
+            let shown = visual.saturating_sub(scroll);
+            if shown >= text.height as usize {
+                break 'rows;
+            }
+            let row = Rect {
+                x: text.x,
+                y: text.y.saturating_add(shown as u16),
+                width: text.width,
+                height: 1,
+            };
+            let paragraph =
+                if let Some(((sel_start_row, sel_start_col), (sel_end_row, sel_end_col))) =
+                    selection
+                    && source_row >= sel_start_row
+                    && source_row <= sel_end_row
+                {
+                    let lo = if source_row == sel_start_row {
+                        sel_start_col
+                    } else {
+                        range.start
+                    }
+                    .max(range.start);
+                    let hi = if source_row == sel_end_row {
+                        sel_end_col
+                    } else {
+                        range.end
+                    }
+                    .min(range.end);
+                    let chars: Vec<char> = chunk.chars().collect();
+                    let base = Style::default().fg(theme.text);
+                    if lo < hi {
+                        let from = lo.saturating_sub(range.start).min(chars.len());
+                        let to = hi.saturating_sub(range.start).min(chars.len());
+                        let selected: String = chars[from..to].iter().collect();
+                        let head: String = chars[..from].iter().collect();
+                        let tail: String = chars[to..].iter().collect();
+                        let lit = Style::default()
+                            .fg(theme.text)
+                            .add_modifier(Modifier::REVERSED);
+                        Paragraph::new(Line::from(vec![
+                            Span::styled(head, base),
+                            Span::styled(selected, lit),
+                            Span::styled(tail, base),
+                        ]))
+                    } else {
+                        Paragraph::new(Line::from(Span::styled(chunk.clone(), base)))
+                    }
+                } else {
+                    Paragraph::new(
+                        Line::from(chunk.as_str()).style(Style::default().fg(theme.text)),
+                    )
+                };
+            frame.render_widget(paragraph, row);
+            if visual == caret_visual {
+                // honey: no backgrounds while editing; the real caret alone
+                // marks the position.
+                let (cx, cy) = util::caret_position(row.x, row.y, caret_cell, text.width);
+                frame.set_cursor_position((cx, cy));
+            }
+            visual = visual.saturating_add(1);
         }
     }
 }

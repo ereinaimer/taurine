@@ -1397,7 +1397,7 @@ fn description_edit_blank_clears_to_none() {
 }
 
 #[test]
-fn content_edit_typing_newline_arrows_and_tab_commit() {
+fn content_edit_typing_newline_arrows_and_tab_indent() {
     let mut state = sample_state();
     let interaction = state.start_content_edit_at(0, 0);
     assert!(interaction.pending_edit().is_none());
@@ -1414,22 +1414,74 @@ fn content_edit_typing_newline_arrows_and_tab_commit() {
     // Selection never moves on arrows inside the body editor.
     assert_eq!(state.selected_index(), Some(0));
 
-    let interaction = state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    let pending = interaction.pending_edit().expect("pending edit");
-    assert!(matches!(
-        &pending.field,
-        crate::widgets::library::actions::EditedField::Content(_)
-    ));
+    // honey: Tab indents the line now; autosave owns persistence.
+    state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert!(state.edit().is_some());
+}
+
+#[test]
+fn content_edit_esc_commits_and_exits() {
+    let mut state = sample_state();
+    state.start_content_edit_at(0, 0);
+    state.handle_key(KeyEvent::new(KeyCode::Char('X'), KeyModifiers::NONE));
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(interaction.pending_edit().is_some());
     assert!(state.edit().is_none());
 }
 
 #[test]
-fn content_edit_esc_discards() {
+fn content_edit_select_all_copies_and_pastes() {
+    use crate::widgets::library::actions::{read_clipboard, set_mock_clipboard};
+
+    set_mock_clipboard(None);
+    let mut state = sample_state();
+    state.start_content_edit_at(0, 0);
+    // Ctrl+A selects the whole body.
+    state.handle_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
+    let selected = state
+        .edit()
+        .expect("editing")
+        .body()
+        .selected_text()
+        .expect("selection");
+    assert!(!selected.is_empty());
+    // Ctrl+C copies without quitting or persisting.
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+    assert!(interaction.pending_edit().is_none());
+    assert!(state.edit().is_some());
+    assert_eq!(read_clipboard().as_deref(), Some(selected.as_str()));
+    // Ctrl+V pastes the copy into a fresh edit.
+    state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    state.start_content_edit_at(0, 0);
+    state.handle_key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL));
+    let body = state.edit().expect("editing").body();
+    assert!(body.text().contains(&selected));
+    set_mock_clipboard(None);
+}
+
+#[test]
+fn content_edit_ctrl_backspace_deletes_word() {
+    let mut state = sample_state();
+    state.start_content_edit_at(0, 0);
+    let before = state.edit().expect("editing").body().text();
+    for ch in "hello ".chars() {
+        state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    state.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL));
+    let body = state.edit().expect("editing").body();
+    assert_eq!(body.text(), before);
+}
+
+#[test]
+fn content_edit_undo_redoes_keystrokes() {
     let mut state = sample_state();
     state.start_content_edit_at(0, 0);
     state.handle_key(KeyEvent::new(KeyCode::Char('X'), KeyModifiers::NONE));
-    state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-    assert!(state.edit().is_none());
+    let before = state.edit().expect("editing").body().text();
+    state.handle_key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::CONTROL));
+    assert_ne!(state.edit().expect("editing").body().text(), before);
+    state.handle_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::CONTROL));
+    assert_eq!(state.edit().expect("editing").body().text(), before);
 }
 
 #[test]

@@ -113,6 +113,43 @@ pub(crate) fn join_app_filters(items: &[String]) -> String {
         .join(",")
 }
 
+#[cfg(test)]
+thread_local! {
+    static MOCK_CLIPBOARD: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Test-only clipboard stand-in; the default suite never touches the host.
+#[cfg(test)]
+pub(crate) fn set_mock_clipboard(text: Option<String>) {
+    MOCK_CLIPBOARD.with(|slot| *slot.borrow_mut() = text);
+}
+
+/// Read the system clipboard. Unit tests read the mock above, so
+/// copy/paste wiring stays hermetic; prod reads the host clipboard
+/// through core like the daemon listener.
+#[cfg(test)]
+pub(crate) fn read_clipboard() -> Option<String> {
+    MOCK_CLIPBOARD.with(|slot| slot.borrow().clone())
+}
+
+/// Read the system clipboard through core like the daemon listener.
+#[cfg(not(test))]
+pub(crate) fn read_clipboard() -> Option<String> {
+    taurine_core::engine::variables::system::clipboard::resolve("")
+}
+
+/// Write the system clipboard (mocked in unit tests, see above).
+#[cfg(test)]
+pub(crate) fn write_clipboard(text: &str) {
+    MOCK_CLIPBOARD.with(|slot| *slot.borrow_mut() = Some(text.to_string()));
+}
+
+/// Write the system clipboard through core like the daemon listener.
+#[cfg(not(test))]
+pub(crate) fn write_clipboard(text: &str) {
+    taurine_core::engine::variables::system::clipboard::store(text);
+}
+
 impl PendingLibraryEdit {
     /// Display names and descriptions never reach the expander, so no
     /// daemon reload. Content changes reload so expansion picks them up.

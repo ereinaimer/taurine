@@ -1083,11 +1083,37 @@ impl LibraryPageState {
                 self.stamp_edit();
                 LibraryInteraction::handled()
             }
+            (KeyCode::Backspace, KeyModifiers::CONTROL) => {
+                if let Some(edit) = self.edit.as_mut() {
+                    edit.line_mut().delete_word_before();
+                }
+                self.stamp_edit();
+                LibraryInteraction::handled()
+            }
             (KeyCode::Delete, KeyModifiers::NONE) => {
                 if let Some(edit) = self.edit.as_mut() {
                     edit.line_mut().delete_at();
                 }
                 self.stamp_edit();
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Delete, KeyModifiers::CONTROL) => {
+                if let Some(edit) = self.edit.as_mut() {
+                    edit.line_mut().delete_word_after();
+                }
+                self.stamp_edit();
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Left, KeyModifiers::CONTROL) => {
+                if let Some(edit) = self.edit.as_mut() {
+                    edit.line_mut().move_word_left();
+                }
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Right, KeyModifiers::CONTROL) => {
+                if let Some(edit) = self.edit.as_mut() {
+                    edit.line_mut().move_word_right();
+                }
                 LibraryInteraction::handled()
             }
             (KeyCode::Left, KeyModifiers::NONE) => {
@@ -1128,14 +1154,82 @@ impl LibraryPageState {
     }
 
     fn handle_content_key(&mut self, key: KeyEvent) -> LibraryInteraction {
+        use crate::widgets::library::actions::{read_clipboard, write_clipboard};
+        use crossterm::event::KeyModifiers as M;
         match (key.code, key.modifiers) {
-            (KeyCode::Esc, KeyModifiers::NONE) => {
-                self.cancel_edit();
+            // honey: autosave owns persistence; Esc only exits the field.
+            (KeyCode::Esc, KeyModifiers::NONE) => self.commit_edit(),
+            (KeyCode::Tab, KeyModifiers::NONE) => {
+                self.move_content_caret(|body| body.indent());
+                self.stamp_edit();
                 LibraryInteraction::handled()
             }
-            (KeyCode::Tab, KeyModifiers::NONE) => self.commit_edit(),
+            (KeyCode::Tab, KeyModifiers::SHIFT) => {
+                self.move_content_caret(|body| body.outdent());
+                self.stamp_edit();
+                LibraryInteraction::handled()
+            }
             (KeyCode::Enter, KeyModifiers::NONE) => {
                 self.content_newline();
+                self.stamp_edit();
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Char('a'), M::CONTROL) => {
+                self.move_content_caret(|body| body.select_all());
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Char('z'), M::CONTROL) => {
+                self.move_content_caret(|body| {
+                    body.undo();
+                });
+                self.stamp_edit();
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Char('y'), M::CONTROL) => {
+                self.move_content_caret(|body| {
+                    body.redo();
+                });
+                self.stamp_edit();
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Char('x'), M::CONTROL) => {
+                self.move_content_caret(|body| {
+                    if let Some(text) = body.selected_text() {
+                        write_clipboard(&text);
+                        body.delete_selection();
+                    }
+                });
+                self.stamp_edit();
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Char('c'), M::CONTROL) => {
+                self.move_content_caret(|body| {
+                    if let Some(text) = body.selected_text() {
+                        write_clipboard(&text);
+                    }
+                });
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Char('v'), M::CONTROL) => {
+                if let Some(text) = read_clipboard()
+                    && !text.is_empty()
+                {
+                    self.move_content_caret(|body| body.insert_text(&text));
+                    self.stamp_edit();
+                }
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Backspace, M::CONTROL) => {
+                self.move_content_caret(|body| {
+                    body.delete_word_before();
+                });
+                self.stamp_edit();
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Delete, M::CONTROL) => {
+                self.move_content_caret(|body| {
+                    body.delete_word_after();
+                });
                 self.stamp_edit();
                 LibraryInteraction::handled()
             }
@@ -1153,28 +1247,84 @@ impl LibraryPageState {
                 self.stamp_edit();
                 LibraryInteraction::handled()
             }
+            (KeyCode::Left, M::CONTROL) => {
+                self.move_content_caret(|body| body.move_word_left(false));
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Right, M::CONTROL) => {
+                self.move_content_caret(|body| body.move_word_right(false));
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Left, modifiers) if modifiers == (M::CONTROL | M::SHIFT) => {
+                self.move_content_caret(|body| body.move_word_left(true));
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Right, modifiers) if modifiers == (M::CONTROL | M::SHIFT) => {
+                self.move_content_caret(|body| body.move_word_right(true));
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Home, M::CONTROL) => {
+                self.move_content_caret(|body| body.move_top(false));
+                LibraryInteraction::handled()
+            }
+            (KeyCode::End, M::CONTROL) => {
+                self.move_content_caret(|body| body.move_bottom(false));
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Home, modifiers) if modifiers == (M::CONTROL | M::SHIFT) => {
+                self.move_content_caret(|body| body.move_top(true));
+                LibraryInteraction::handled()
+            }
+            (KeyCode::End, modifiers) if modifiers == (M::CONTROL | M::SHIFT) => {
+                self.move_content_caret(|body| body.move_bottom(true));
+                LibraryInteraction::handled()
+            }
             (KeyCode::Left, KeyModifiers::NONE) => {
-                self.move_content_caret(|body| body.move_left());
+                self.move_content_caret(|body| body.move_left(false));
                 LibraryInteraction::handled()
             }
             (KeyCode::Right, KeyModifiers::NONE) => {
-                self.move_content_caret(|body| body.move_right());
+                self.move_content_caret(|body| body.move_right(false));
                 LibraryInteraction::handled()
             }
             (KeyCode::Up, KeyModifiers::NONE) => {
-                self.move_content_caret(|body| body.move_up());
+                self.move_content_caret(|body| body.move_up(false));
                 LibraryInteraction::handled()
             }
             (KeyCode::Down, KeyModifiers::NONE) => {
-                self.move_content_caret(|body| body.move_down());
+                self.move_content_caret(|body| body.move_down(false));
                 LibraryInteraction::handled()
             }
             (KeyCode::Home, KeyModifiers::NONE) => {
-                self.move_content_caret(|body| body.move_home());
+                self.move_content_caret(|body| body.move_home(false));
                 LibraryInteraction::handled()
             }
             (KeyCode::End, KeyModifiers::NONE) => {
-                self.move_content_caret(|body| body.move_end());
+                self.move_content_caret(|body| body.move_end(false));
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Left, KeyModifiers::SHIFT) => {
+                self.move_content_caret(|body| body.move_left(true));
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Right, KeyModifiers::SHIFT) => {
+                self.move_content_caret(|body| body.move_right(true));
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Up, KeyModifiers::SHIFT) => {
+                self.move_content_caret(|body| body.move_up(true));
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Down, KeyModifiers::SHIFT) => {
+                self.move_content_caret(|body| body.move_down(true));
+                LibraryInteraction::handled()
+            }
+            (KeyCode::Home, KeyModifiers::SHIFT) => {
+                self.move_content_caret(|body| body.move_home(true));
+                LibraryInteraction::handled()
+            }
+            (KeyCode::End, KeyModifiers::SHIFT) => {
+                self.move_content_caret(|body| body.move_end(true));
                 LibraryInteraction::handled()
             }
             (KeyCode::Char(ch), modifiers)
@@ -1524,6 +1674,8 @@ impl LibraryPageState {
             (KeyCode::Down, KeyModifiers::NONE) => self.move_selection(1),
             (KeyCode::Left, KeyModifiers::NONE) => self.search.move_left(),
             (KeyCode::Right, KeyModifiers::NONE) => self.search.move_right(),
+            (KeyCode::Left, KeyModifiers::CONTROL) => self.search.move_word_left(),
+            (KeyCode::Right, KeyModifiers::CONTROL) => self.search.move_word_right(),
             (KeyCode::Home, KeyModifiers::NONE) => self.search.move_home(),
             (KeyCode::End, KeyModifiers::NONE) => self.search.move_end(),
             (KeyCode::Backspace, KeyModifiers::NONE) => {
@@ -1531,8 +1683,18 @@ impl LibraryPageState {
                     self.rebuild_filter();
                 }
             }
+            (KeyCode::Backspace, KeyModifiers::CONTROL) => {
+                if self.search.delete_word_before() {
+                    self.rebuild_filter();
+                }
+            }
             (KeyCode::Delete, KeyModifiers::NONE) => {
                 if self.search.delete_at() {
+                    self.rebuild_filter();
+                }
+            }
+            (KeyCode::Delete, KeyModifiers::CONTROL) => {
+                if self.search.delete_word_after() {
                     self.rebuild_filter();
                 }
             }
