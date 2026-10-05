@@ -511,7 +511,7 @@ impl LibraryPageState {
             self.modal = Some(LibraryModal::AppFilter(menu));
             return LibraryInteraction::handled();
         }
-        let (_, _, right_x, _) = app_filter_panes(body.width);
+        let (_, _, right_x, _) = menu.panes(body.width);
         let rel = row.saturating_sub(body.y.saturating_add(APP_FILTER_ROWS_TOP));
         // honey: the right pane stays empty for now; clicks there are dead.
         if column >= body.x.saturating_add(right_x) {
@@ -568,6 +568,47 @@ impl LibraryPageState {
     pub(crate) fn move_app_filter_cursor(&mut self, down: bool) {
         if let Some(LibraryModal::AppFilter(menu)) = self.modal.as_mut() {
             menu.move_cursor(if down { 1 } else { -1 });
+        }
+    }
+
+    /// Grabbing the picker divider starts a resize drag. Returns true
+    /// when the press lands on the divider inside the rows area.
+    pub(crate) fn grab_app_filter_divider(
+        &mut self,
+        area: ratatui::layout::Rect,
+        column: u16,
+        row: u16,
+    ) -> bool {
+        let Some(LibraryModal::AppFilter(menu)) = self.modal.as_mut() else {
+            return false;
+        };
+        let (_, body, max_lines) = app_filter_geometry(area, menu);
+        let (_, divider_x, _, _) = menu.panes(body.width);
+        let origin = body.y.saturating_add(APP_FILTER_ROWS_TOP);
+        let search_row = origin.saturating_add(menu.search_rel(max_lines));
+        if column == body.x.saturating_add(divider_x) && row >= origin && row <= search_row {
+            menu.set_divider_drag(true);
+            return true;
+        }
+        false
+    }
+
+    /// Pointer motion while grabbed resizes the picker panes.
+    pub(crate) fn drag_app_filter_divider(&mut self, area: ratatui::layout::Rect, column: u16) {
+        let Some(LibraryModal::AppFilter(menu)) = self.modal.as_mut() else {
+            return;
+        };
+        if !menu.divider_drag() {
+            return;
+        }
+        let (_, body, _) = app_filter_geometry(area, menu);
+        menu.set_split(body.x, body.width, column);
+    }
+
+    /// Pointer release ends a picker divider drag.
+    pub(crate) fn release_app_filter_divider(&mut self) {
+        if let Some(LibraryModal::AppFilter(menu)) = self.modal.as_mut() {
+            menu.set_divider_drag(false);
         }
     }
 

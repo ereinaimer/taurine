@@ -2821,15 +2821,15 @@ fn filter_menu_caps_foreground_at_eight() {
 fn click_app_filter_search_places_caret() {
     let mut state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
-    // Popup fits content: `calc` leaves 3 used lines -> 8 high,
-    // body y12, rows from row 14, search docked at row 17 with
+    // Popup fits content: `calc` leaves 3 used lines -> 9 high,
+    // body y11, rows from row 13, search docked at row 17 with
     // exactly one blank above it.
     let mut menu = filter_menu(AppFilterSide::Allow);
     for ch in "calc".chars() {
         menu.search_mut().insert(ch);
     }
     state.modal = Some(LibraryModal::AppFilter(menu));
-    let interaction = state.click_app_filter_menu(area, 10, 17);
+    let interaction = state.click_app_filter_menu(area, 14, 17);
     assert!(interaction.pending_edit().is_none());
     let Some(LibraryModal::AppFilter(menu)) = state.modal() else {
         panic!("filter menu open");
@@ -2880,6 +2880,34 @@ fn click_app_filter_title_closes() {
     let interaction = state.click_app_filter_menu(area, 25, 11);
     assert!(interaction.pending_edit().is_none());
     assert!(state.modal().is_some());
+}
+
+#[test]
+fn app_filter_divider_drags_and_releases() {
+    let mut state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    // Fitted popup: body x11, divider at column 57, rows 12-16.
+    state.modal = Some(LibraryModal::AppFilter(filter_menu(AppFilterSide::Allow)));
+    assert!(state.grab_app_filter_divider(area, 57, 14));
+    state.drag_app_filter_divider(area, 65);
+    let Some(LibraryModal::AppFilter(menu)) = state.modal() else {
+        panic!("filter menu open");
+    };
+    let (left, _, _, _) = menu.panes(78);
+    assert!(left > 46);
+    // Off-divider presses never grab.
+    state.modal = Some(LibraryModal::AppFilter(filter_menu(AppFilterSide::Allow)));
+    assert!(!state.grab_app_filter_divider(area, 20, 14));
+    // Release ends the drag; further motion holds the split.
+    state.modal = Some(LibraryModal::AppFilter(filter_menu(AppFilterSide::Allow)));
+    assert!(state.grab_app_filter_divider(area, 57, 14));
+    state.release_app_filter_divider();
+    state.drag_app_filter_divider(area, 70);
+    let Some(LibraryModal::AppFilter(menu)) = state.modal() else {
+        panic!("filter menu open");
+    };
+    let (left, _, _, _) = menu.panes(78);
+    assert_eq!(left, 46);
 }
 
 #[test]

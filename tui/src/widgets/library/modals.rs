@@ -705,17 +705,15 @@ fn render_library_app_filter_modal(
     use ratatui::widgets::Block;
 
     use crate::widgets::library::state::{
-        APP_FILTER_PAD, APP_FILTER_RESERVED_LINES, APP_FILTER_ROWS_TOP, FilterRow, app_filter_body,
-        app_filter_panes, app_filter_popup,
+        APP_FILTER_PAD, APP_FILTER_ROWS_TOP, FilterRow, app_filter_geometry,
     };
 
-    let popup = app_filter_popup(area, state.content_lines());
+    let (popup, body, max_lines) = app_filter_geometry(area, state);
     frame.render_widget(Clear, popup);
     frame.render_widget(
         Block::default().style(Style::default().bg(Rgb(0x14, 0x14, 0x14))),
         popup,
     );
-    let body = app_filter_body(popup);
     if body.width == 0 || body.height < 5 {
         return;
     }
@@ -758,9 +756,8 @@ fn render_library_app_filter_modal(
             height: 1,
         },
     );
-    let max_lines = body.height.saturating_sub(APP_FILTER_RESERVED_LINES);
     let origin_y = body.y.saturating_add(APP_FILTER_ROWS_TOP);
-    let (left_w, divider_x, _, _) = app_filter_panes(body.width);
+    let (left_w, divider_x, _, _) = state.panes(body.width);
     // honey: content sits one padded cell in with one blank cell left
     // before the divider; the divider runs the full popup edge to edge.
     let content_x = body.x.saturating_add(APP_FILTER_PAD);

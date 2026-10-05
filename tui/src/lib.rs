@@ -413,6 +413,13 @@ fn handle_tui_mouse_event(
             }
         }
         MouseEventKind::Drag(MouseButton::Left) => {
+            if app.active_page() == Page::Library && app.library_page().app_filter_menu_open() {
+                let layout = terminal::mouse::frame_layout(area);
+                let full = terminal::mouse::library_full_area(layout.page);
+                app.library_page_mut()
+                    .drag_app_filter_divider(full, mouse.column);
+                return;
+            }
             if modal_open || app.active_page() != Page::Library {
                 return;
             }
@@ -425,6 +432,7 @@ fn handle_tui_mouse_event(
         MouseEventKind::Up(_) => {
             if app.active_page() == Page::Library {
                 app.library_page_mut().set_divider_drag(None);
+                app.library_page_mut().release_app_filter_divider();
             }
         }
         MouseEventKind::Down(MouseButton::Left) => {
@@ -449,6 +457,14 @@ fn handle_tui_mouse_event(
             if app.active_page() == Page::Library && app.library_page().app_filter_menu_open() {
                 let layout = terminal::mouse::frame_layout(area);
                 let full = terminal::mouse::library_full_area(layout.page);
+                // honey: grabbing the picker divider starts a resize;
+                // anywhere else clicks through to the rows.
+                if app
+                    .library_page_mut()
+                    .grab_app_filter_divider(full, mouse.column, mouse.row)
+                {
+                    return;
+                }
                 let interaction =
                     app.library_page_mut()
                         .click_app_filter_menu(full, mouse.column, mouse.row);

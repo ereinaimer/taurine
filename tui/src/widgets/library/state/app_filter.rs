@@ -7,7 +7,7 @@ use taurine_core::system::foreground_apps::ForegroundApp;
 
 /// Explicit popup width for this overlay only; the height fits the
 /// content (capped). The shared overlay component keeps its defaults.
-pub(crate) const APP_FILTER_POPUP_W: u16 = 88;
+pub(crate) const APP_FILTER_POPUP_W: u16 = 80;
 pub(crate) const APP_FILTER_MAX_H: u16 = 18;
 
 /// Line budget for measuring content; the fitted popup converges on it.
@@ -49,10 +49,13 @@ pub(crate) const MAX_FOREGROUND_APPS: usize = 8;
 /// the divider; rows and search share it.
 pub(crate) const APP_FILTER_PAD: u16 = 1;
 
+/// Default left fraction; dragging rewrites it per menu.
+pub(crate) const APP_FILTER_DEFAULT_SPLIT: f32 = 0.6;
+
 /// Pane split in body columns: left width, divider column, right
 /// start, right width. Left always wins the extra cells.
-pub(crate) fn app_filter_panes(body_width: u16) -> (u16, u16, u16, u16) {
-    let left = body_width.saturating_sub(1).saturating_mul(3) / 5;
+fn app_filter_panes_split(body_width: u16, split: f32) -> (u16, u16, u16, u16) {
+    let left = ((body_width.saturating_sub(1) as f32 * split) as u16).min(body_width);
     let divider = left;
     let right_x = divider.saturating_add(1);
     let right_w = body_width.saturating_sub(right_x);
@@ -119,7 +122,7 @@ impl FilterRow {
 /// App-filter picker: stored filters first (toggle off), then up
 /// to eight foreground apps (`exe:` picks with window-title context)
 /// narrowed by the search box. Every write hits the database live.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct LibraryAppFilterState {
     trigger_id: String,
     restore_index: usize,
@@ -131,6 +134,8 @@ pub(crate) struct LibraryAppFilterState {
     cursor: usize,
     scroll: usize,
     view_lines: u16,
+    split: f32,
+    divider_drag: bool,
     error: Option<String>,
 }
 
@@ -154,6 +159,8 @@ impl LibraryAppFilterState {
             cursor: 0,
             scroll: 0,
             view_lines: 11,
+            split: APP_FILTER_DEFAULT_SPLIT,
+            divider_drag: false,
             error: None,
         }
     }
@@ -180,6 +187,26 @@ impl LibraryAppFilterState {
 
     pub(crate) const fn cursor(&self) -> usize {
         self.cursor
+    }
+
+    /// Pane split for a body width, following live drags.
+    pub(crate) fn panes(&self, body_width: u16) -> (u16, u16, u16, u16) {
+        app_filter_panes_split(body_width, self.split)
+    }
+
+    pub(crate) const fn divider_drag(&self) -> bool {
+        self.divider_drag
+    }
+
+    pub(crate) fn set_divider_drag(&mut self, drag: bool) {
+        self.divider_drag = drag;
+    }
+
+    /// Resize from a drag column: fraction of the inner width clamped
+    /// so both panes stay usable.
+    pub(crate) fn set_split(&mut self, body_x: u16, body_width: u16, column: u16) {
+        let span = body_width.saturating_sub(1).max(1) as f32;
+        self.split = ((column.saturating_sub(body_x)) as f32 / span).clamp(0.2, 0.85);
     }
 
     /// Render/hit line budget refresh. Keyboard moves fall back to
