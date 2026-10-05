@@ -23,6 +23,7 @@ tokio = { workspace = true }
 tonic = "0.14"
 tracing = { workspace = true }
 zeroize = "1.8"
+tachyonfx = "0.25"
 
 [target.'cfg(unix)'.dev-dependencies]
 libc = "0.2"

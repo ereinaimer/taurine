@@ -48,19 +48,73 @@ pub fn render_library_modal(frame: &mut Frame, area: Rect, theme: &Theme, modal:
     }
 }
 
+/// Popup rects shared by rendering and the overlay open-transition so
+/// the sweep covers exactly what was painted.
+pub(crate) fn delete_popup(area: Rect) -> Rect {
+    let width = if area.width > 44 {
+        area.width.saturating_sub(4).min(64)
+    } else {
+        area.width.max(1)
+    };
+    util::centered_rect(width, 8, area)
+}
+
+pub(crate) fn export_popup(area: Rect) -> Rect {
+    let width = if area.width > 48 {
+        area.width.saturating_sub(6).min(76)
+    } else {
+        area.width.max(1)
+    };
+    util::centered_rect(width, area.height.clamp(1, 10), area)
+}
+
+pub(crate) fn import_popup(area: Rect) -> Rect {
+    let width = if area.width > 48 {
+        area.width.saturating_sub(6).min(76)
+    } else {
+        area.width.max(1)
+    };
+    util::centered_rect(width, area.height.clamp(1, 11), area)
+}
+
+pub(crate) fn import_run_variables_popup(area: Rect) -> Rect {
+    let width = if area.width > 52 {
+        area.width.saturating_sub(6).min(72)
+    } else {
+        area.width.max(1)
+    };
+    util::centered_rect(width, 9.min(area.height.max(1)), area)
+}
+
+pub(crate) fn import_result_popup(area: Rect, state: &LibraryImportResultModalState) -> Rect {
+    let width = if area.width > 48 {
+        area.width.saturating_sub(6).min(64)
+    } else {
+        area.width.max(1)
+    };
+    util::centered_rect(
+        width,
+        (state.lines().len() as u16 + 4).min(area.height.max(1)),
+        area,
+    )
+}
+
+pub(crate) fn export_result_popup(area: Rect) -> Rect {
+    let width = if area.width > 48 {
+        area.width.saturating_sub(6).min(76)
+    } else {
+        area.width.max(1)
+    };
+    util::centered_rect(width, 5.min(area.height.max(1)), area)
+}
+
 fn render_library_delete_modal(
     frame: &mut Frame,
     area: Rect,
     theme: &Theme,
     state: &LibraryDeleteModalState,
 ) {
-    let width = if area.width > 44 {
-        area.width.saturating_sub(4).min(64)
-    } else {
-        area.width.max(1)
-    };
-    let height = 8;
-    let popup = util::centered_rect(width, height, area);
+    let popup = delete_popup(area);
     frame.render_widget(Clear, popup);
     let inner = util::render_modal_block(frame, popup, "Delete Trigger", theme);
 
@@ -133,13 +187,7 @@ fn render_library_export_modal(
     theme: &Theme,
     state: &LibraryExportModalState,
 ) {
-    let width = if area.width > 48 {
-        area.width.saturating_sub(6).min(76)
-    } else {
-        area.width.max(1)
-    };
-    let height = area.height.clamp(1, 10);
-    let popup = util::centered_rect(width, height, area);
+    let popup = export_popup(area);
     frame.render_widget(Clear, popup);
     let inner = util::render_modal_block(frame, popup, "Export Triggers", theme);
 
@@ -234,12 +282,7 @@ fn render_library_import_modal(
     theme: &Theme,
     state: &LibraryImportModalState,
 ) {
-    let width = if area.width > 48 {
-        area.width.saturating_sub(6).min(76)
-    } else {
-        area.width.max(1)
-    };
-    let popup = util::centered_rect(width, area.height.clamp(1, 11), area);
+    let popup = import_popup(area);
     frame.render_widget(Clear, popup);
     let inner = util::render_modal_block(frame, popup, "Import Triggers", theme);
 
@@ -352,12 +395,7 @@ fn render_library_import_run_variables_modal(
     theme: &Theme,
     state: &LibraryImportRunVariablesModalState,
 ) {
-    let width = if area.width > 52 {
-        area.width.saturating_sub(6).min(72)
-    } else {
-        area.width.max(1)
-    };
-    let popup = util::centered_rect(width, 9.min(area.height.max(1)), area);
+    let popup = import_run_variables_popup(area);
     frame.render_widget(Clear, popup);
     let inner = util::render_modal_block(frame, popup, "Run Variables Warning", theme);
 
@@ -407,16 +445,7 @@ fn render_library_import_result_modal(
     theme: &Theme,
     state: &LibraryImportResultModalState,
 ) {
-    let width = if area.width > 48 {
-        area.width.saturating_sub(6).min(64)
-    } else {
-        area.width.max(1)
-    };
-    let popup = util::centered_rect(
-        width,
-        (state.lines().len() as u16 + 4).min(area.height.max(1)),
-        area,
-    );
+    let popup = import_result_popup(area, state);
     frame.render_widget(Clear, popup);
     let inner = util::render_modal_block(frame, popup, "Import complete", theme);
 
@@ -445,12 +474,7 @@ fn render_library_export_result_modal(
     theme: &Theme,
     state: &LibraryExportResultModalState,
 ) {
-    let width = if area.width > 48 {
-        area.width.saturating_sub(6).min(76)
-    } else {
-        area.width.max(1)
-    };
-    let popup = util::centered_rect(width, 5.min(area.height.max(1)), area);
+    let popup = export_result_popup(area);
     frame.render_widget(Clear, popup);
     let inner = util::render_modal_block(frame, popup, EXPORT_RESULT_MODAL_TITLE, theme);
 

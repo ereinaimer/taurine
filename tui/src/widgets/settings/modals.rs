@@ -56,7 +56,9 @@ fn overlay_shell(
     })
 }
 
-fn render_input_modal(frame: &mut Frame, area: Rect, theme: &Theme, state: &InputModalState) {
+/// Popup rects shared by rendering and the overlay open-transition so
+/// the sweep covers exactly what was painted.
+pub(crate) fn input_popup(area: Rect) -> Rect {
     let width = if area.width > 32 {
         area.width.saturating_sub(4).min(64)
     } else {
@@ -67,11 +69,39 @@ fn render_input_modal(frame: &mut Frame, area: Rect, theme: &Theme, state: &Inpu
     } else {
         area.height.max(1)
     };
+    util::centered_rect(width, height, area)
+}
+
+pub(crate) fn confirm_popup(area: Rect) -> Rect {
+    let width = if area.width > 44 {
+        area.width.saturating_sub(4).min(64)
+    } else {
+        area.width.max(1)
+    };
+    let height = if area.height >= 8 {
+        8
+    } else {
+        area.height.max(1)
+    };
+    util::centered_rect(width, height, area)
+}
+
+pub(crate) fn hotkey_popup(area: Rect) -> Rect {
+    let content_width = if area.width > 32 {
+        area.width.saturating_sub(4).min(64)
+    } else {
+        area.width.max(1)
+    };
+    util::centered_rect(content_width.saturating_add(4), 5 + 4, area)
+}
+
+fn render_input_modal(frame: &mut Frame, area: Rect, theme: &Theme, state: &InputModalState) {
+    let popup = input_popup(area);
     let Some(content) = overlay_shell(
         frame,
         area,
-        width,
-        height,
+        popup.width,
+        popup.height,
         state.key().display_name(),
         theme,
     ) else {
@@ -122,16 +152,12 @@ fn render_hotkey_capture_modal(
     theme: &Theme,
     state: &HotkeyCaptureModalState,
 ) {
-    let content_width = if area.width > 32 {
-        area.width.saturating_sub(4).min(64)
-    } else {
-        area.width.max(1)
-    };
+    let popup = hotkey_popup(area);
     let Some(content) = overlay_shell(
         frame,
         area,
-        content_width.saturating_add(4),
-        5 + 4,
+        popup.width,
+        popup.height,
         state.key().display_name(),
         theme,
     ) else {
@@ -239,17 +265,15 @@ fn render_confirm_reset_modal(
     theme: &Theme,
     state: &ConfirmResetModalState,
 ) {
-    let width = if area.width > 44 {
-        area.width.saturating_sub(4).min(64)
-    } else {
-        area.width.max(1)
-    };
-    let height = if area.height >= 8 {
-        8
-    } else {
-        area.height.max(1)
-    };
-    let Some(content) = overlay_shell(frame, area, width, height, "Reset Setting", theme) else {
+    let popup = confirm_popup(area);
+    let Some(content) = overlay_shell(
+        frame,
+        area,
+        popup.width,
+        popup.height,
+        "Reset Setting",
+        theme,
+    ) else {
         return;
     };
 

@@ -2,6 +2,7 @@
 // See LICENSE for details.
 
 mod overlay;
+mod overlay_fx;
 pub mod terminal;
 mod terminal_title;
 mod theme;
@@ -44,79 +45,13 @@ pub fn run() -> taurine_core::Result<()> {
     setup_signal_handler(|code| std::process::exit(code));
     let mut events = EventHandler::new(EVENT_TICK_RATE);
     let mut last_area = ratatui::layout::Rect::default();
+    let mut previous_layers = overlay_fx::layers(&app);
 
     loop {
         terminal.terminal.draw(|frame| {
             let area = frame.area();
             last_area = area;
-            let theme = app.theme();
-
-            frame.render_widget(
-                Block::default().style(Style::default().bg(theme.background)),
-                area,
-            );
-
-            let layout = terminal::mouse::frame_layout(area);
-
-            render_page_content(frame, layout.page, &app, theme);
-
-            if area.height > 0 {
-                use ratatui::text::Line;
-
-                // honey: only the hovered or dragged divider lifts; the
-                // other stays on the base border color. Degenerate
-                // dividers are never painted, so a parked edge shows
-                // one line while staying grabbable.
-                let full = terminal::mouse::library_full_area(layout.page);
-                let page = app.library_page();
-                for (side, column) in
-                    library::visible_divider_columns(full, page.split_ratio(), page.detail_ratio())
-                {
-                    let color = if page.divider_drag() == Some(side)
-                        || page.divider_hover() == Some(side)
-                    {
-                        library::DIVIDER_HOVER_COLOR
-                    } else {
-                        theme.border
-                    };
-                    let glyphs = vec![Line::from("│"); area.height as usize];
-                    frame.render_widget(
-                        ratatui::widgets::Paragraph::new(glyphs)
-                            .style(ratatui::style::Style::default().fg(color)),
-                        ratatui::layout::Rect {
-                            x: column,
-                            y: area.y,
-                            width: 1,
-                            height: area.height,
-                        },
-                    );
-                }
-            }
-
-            if let Some(msg) = app.notification() {
-                notification::render_notification(frame, area, theme, msg);
-            }
-
-            // honey: scrim pass darkens everything behind an open modal
-            // or the settings overlay; popups paint afterward onto the
-            // dimmed backdrop.
-            let any_modal = app.library_page().is_modal_open() || app.is_settings_overlay_open();
-            if any_modal {
-                dim_frame(frame);
-            }
-
-            // honey: modals render last so they sit above panes,
-            // dividers, and toasts.
-            let full = terminal::mouse::library_full_area(layout.page);
-            if let Some(modal) = app.library_page().modal() {
-                library::modals::render_library_modal(frame, full, theme, modal);
-            }
-            if app.is_settings_overlay_open() {
-                settings::render_settings_overlay(frame, area, theme, app.settings_page());
-                if let Some(modal) = app.settings_page().modal() {
-                    settings::modals::render_settings_modal(frame, area, theme, modal);
-                }
-            }
+            render_app(frame, &app, area);
         })?;
 
         match events.next()? {
@@ -132,11 +67,129 @@ pub fn run() -> taurine_core::Result<()> {
             }
         }
 
+        // honey: a newly appeared overlay sweeps in; closes and same-kind
+        // updates (hover, scroll, live reseed) never replay it.
+        let next_layers = overlay_fx::layers(&app);
+        if overlay_fx::appeared(&previous_layers, &next_layers) {
+            play_overlay_open(&mut terminal, &mut app, last_area)?;
+        }
+        previous_layers = next_layers;
+
         if app.should_quit() {
             break;
         }
     }
 
+    Ok(())
+}
+
+/// Full frame paint, shared by the main loop and the overlay open sweep
+/// so the transition starts from exactly what is on screen.
+fn render_app(frame: &mut ratatui::Frame, app: &App, area: ratatui::layout::Rect) {
+    let theme = app.theme();
+
+    frame.render_widget(
+        Block::default().style(Style::default().bg(theme.background)),
+        area,
+    );
+
+    let layout = terminal::mouse::frame_layout(area);
+
+    render_page_content(frame, layout.page, app, theme);
+
+    if area.height > 0 {
+        use ratatui::text::Line;
+
+        // honey: only the hovered or dragged divider lifts; the
+        // other stays on the base border color. Degenerate
+        // dividers are never painted, so a parked edge shows
+        // one line while staying grabbable.
+        let full = terminal::mouse::library_full_area(layout.page);
+        let page = app.library_page();
+        for (side, column) in
+            library::visible_divider_columns(full, page.split_ratio(), page.detail_ratio())
+        {
+            let color = if page.divider_drag() == Some(side) || page.divider_hover() == Some(side) {
+                library::DIVIDER_HOVER_COLOR
+            } else {
+                theme.border
+            };
+            let glyphs = vec![Line::from("│"); area.height as usize];
+            frame.render_widget(
+                ratatui::widgets::Paragraph::new(glyphs)
+                    .style(ratatui::style::Style::default().fg(color)),
+                ratatui::layout::Rect {
+                    x: column,
+                    y: area.y,
+                    width: 1,
+                    height: area.height,
+                },
+            );
+        }
+    }
+
+    if let Some(msg) = app.notification() {
+        notification::render_notification(frame, area, theme, msg);
+    }
+
+    // honey: scrim pass darkens everything behind an open modal
+    // or the settings overlay; popups paint afterward onto the
+    // dimmed backdrop.
+    let any_modal = app.library_page().is_modal_open() || app.is_settings_overlay_open();
+    if any_modal {
+        dim_frame(frame);
+    }
+
+    // honey: modals render last so they sit above panes,
+    // dividers, and toasts.
+    let full = terminal::mouse::library_full_area(layout.page);
+    if let Some(modal) = app.library_page().modal() {
+        library::modals::render_library_modal(frame, full, theme, modal);
+    }
+    if app.is_settings_overlay_open() {
+        settings::render_settings_overlay(frame, area, theme, app.settings_page());
+        if let Some(modal) = app.settings_page().modal() {
+            settings::modals::render_settings_modal(frame, area, theme, modal);
+        }
+    }
+}
+
+/// Plays the shared evolve-into sweep over every newly visible overlay
+/// popup, blocking the loop for one beat at ~60fps. Input during the
+/// sweep queues in the terminal and processes right after.
+fn play_overlay_open(
+    terminal: &mut TerminalGuard,
+    app: &mut App,
+    area: ratatui::layout::Rect,
+) -> taurine_core::Result<()> {
+    use std::time::{Duration as StdDuration, Instant};
+
+    use tachyonfx::EffectRenderer;
+
+    let layout = terminal::mouse::frame_layout(area);
+    let full = terminal::mouse::library_full_area(layout.page);
+    let rects: Vec<ratatui::layout::Rect> = overlay_fx::transition_rects(app, area, full)
+        .into_iter()
+        .filter(|rect| rect.width > 0 && rect.height > 0)
+        .collect();
+    if rects.is_empty() {
+        return Ok(());
+    }
+    let mut effects: Vec<tachyonfx::Effect> =
+        rects.iter().map(|_| overlay_fx::open_effect()).collect();
+    let frame_budget = StdDuration::from_millis(16);
+    let mut last = Instant::now();
+    while effects.iter().any(|effect| effect.running()) {
+        let elapsed = last.elapsed();
+        last = Instant::now();
+        terminal.terminal.draw(|frame| {
+            render_app(frame, app, area);
+            for (effect, rect) in effects.iter_mut().zip(rects.iter()) {
+                frame.render_effect(effect, *rect, elapsed.into());
+            }
+        })?;
+        std::thread::sleep(frame_budget.saturating_sub(last.elapsed()));
+    }
     Ok(())
 }
 

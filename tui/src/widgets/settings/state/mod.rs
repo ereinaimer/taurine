@@ -378,7 +378,27 @@ pub(crate) enum SettingsModal {
     HotkeyCapture(HotkeyCaptureModalState),
 }
 
+/// Discriminant for `SettingsModal`; see `SettingsModal::kind`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SettingsModalKind {
+    Input,
+    Select,
+    ConfirmReset,
+    HotkeyCapture,
+}
+
 impl SettingsModal {
+    /// Discriminant for overlay bookkeeping (layer tracking, open
+    /// transitions): cursor moves and typed text never change it.
+    pub(crate) const fn kind(&self) -> SettingsModalKind {
+        match self {
+            Self::Input(_) => SettingsModalKind::Input,
+            Self::Select(_) => SettingsModalKind::Select,
+            Self::ConfirmReset(_) => SettingsModalKind::ConfirmReset,
+            Self::HotkeyCapture(_) => SettingsModalKind::HotkeyCapture,
+        }
+    }
+
     fn set_error(&mut self, error: String) {
         match self {
             Self::Input(state) => state.error = Some(error),
