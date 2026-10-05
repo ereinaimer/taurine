@@ -2718,13 +2718,13 @@ fn filter_menu_grays_opposite_list() {
 #[test]
 fn filter_menu_cursor_skips_gray() {
     let mut menu = filter_menu(AppFilterSide::Allow);
-    // Rows: checked(0), gray notepad(1), calc(2), add(3).
+    // Rows: checked(0), gray notepad(1), calc(2).
     menu.move_cursor(1);
     assert_eq!(menu.cursor(), 2);
     menu.move_cursor(1);
-    assert_eq!(menu.cursor(), 3);
-    menu.move_cursor(1);
     assert_eq!(menu.cursor(), 0);
+    menu.move_cursor(-1);
+    assert_eq!(menu.cursor(), 2);
 }
 
 #[test]
@@ -2761,46 +2761,6 @@ fn filter_menu_toggle_adds_and_removes() {
 }
 
 #[test]
-fn filter_menu_confirm_validates_input() {
-    let mut menu = filter_menu(AppFilterSide::Allow);
-    menu.start_input();
-    assert_eq!(menu.confirm_input(), InputConfirm::Cancel);
-    assert!(!menu.input_active());
-
-    menu.start_input();
-    for ch in "bogus:code".chars() {
-        menu.push_input(ch);
-    }
-    assert!(matches!(menu.confirm_input(), InputConfirm::Invalid(_)));
-    assert!(menu.input_active());
-    assert!(menu.error().is_some());
-
-    menu.start_input();
-    for ch in "CODE".chars() {
-        menu.push_input(ch);
-    }
-    assert!(matches!(menu.confirm_input(), InputConfirm::Invalid(_)));
-
-    menu.start_input();
-    for ch in "exe:notepad".chars() {
-        menu.push_input(ch);
-    }
-    assert!(matches!(menu.confirm_input(), InputConfirm::Invalid(_)));
-
-    menu.start_input();
-    for ch in "title:Gmail".chars() {
-        menu.push_input(ch);
-    }
-    let InputConfirm::Save(pending) = menu.confirm_input() else {
-        panic!("valid input saves");
-    };
-    assert_eq!(
-        pending.field,
-        EditedField::OnlyApps(vec!["exe:code".to_string(), "title:Gmail".to_string()])
-    );
-}
-
-#[test]
 fn filter_menu_keys_toggle_and_type() {
     let mut state = sample_state();
     state.modal = Some(LibraryModal::AppFilter(filter_menu(AppFilterSide::Allow)));
@@ -2814,14 +2774,13 @@ fn filter_menu_keys_toggle_and_type() {
     );
     assert!(state.modal().is_some());
 
-    // Typing filters the list; the manual input stays closed.
+    // Typing filters the list.
     state.modal = Some(LibraryModal::AppFilter(filter_menu(AppFilterSide::Allow)));
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
     assert!(interaction.pending_edit().is_none());
     let Some(LibraryModal::AppFilter(menu)) = state.modal() else {
         panic!("filter menu open");
     };
-    assert!(!menu.input_active());
     assert_eq!(menu.search().text(), "c");
     assert_eq!(menu.matching_indices(), vec![1]);
 }
@@ -2870,7 +2829,7 @@ fn click_app_filter_search_places_caret() {
         menu.search_mut().insert(ch);
     }
     state.modal = Some(LibraryModal::AppFilter(menu));
-    let interaction = state.click_app_filter_menu(area, 23, 22);
+    let interaction = state.click_app_filter_menu(area, 19, 22);
     assert!(interaction.pending_edit().is_none());
     let Some(LibraryModal::AppFilter(menu)) = state.modal() else {
         panic!("filter menu open");
@@ -2919,19 +2878,12 @@ fn click_app_filter_blank_line_is_dead() {
 }
 
 #[test]
-fn click_app_filter_right_pane_removes() {
+fn click_app_filter_right_pane_is_dead() {
     let mut state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
-    // Right pane starts at column 56; first value sits on row 10.
+    // Right pane starts past the divider; clicks there do nothing.
     state.modal = Some(LibraryModal::AppFilter(filter_menu(AppFilterSide::Allow)));
-    let interaction = state.click_app_filter_menu(area, 56, 10);
-    let pending = interaction.pending_edit().expect("pending remove");
-    assert_eq!(pending.field, EditedField::OnlyApps(Vec::new()));
-    assert!(state.modal().is_some());
-
-    // The header row above it stays dead.
-    state.modal = Some(LibraryModal::AppFilter(filter_menu(AppFilterSide::Allow)));
-    let interaction = state.click_app_filter_menu(area, 56, 9);
+    let interaction = state.click_app_filter_menu(area, 60, 10);
     assert!(interaction.pending_edit().is_none());
     assert!(state.modal().is_some());
 }
@@ -2965,31 +2917,6 @@ fn click_app_filter_menu_toggles_and_grays() {
         pending.field,
         EditedField::OnlyApps(vec!["exe:code".to_string(), "exe:calc.exe".to_string()])
     );
-}
-
-#[test]
-fn filter_menu_add_row_opens_manual_input() {
-    // Cursor onto the Add row, Enter opens the `prefix:value` input.
-    let mut menu = filter_menu(AppFilterSide::Allow);
-    menu.set_cursor(FilterRow::Add);
-    let mut state = sample_state();
-    state.modal = Some(LibraryModal::AppFilter(menu));
-    let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    assert!(interaction.pending_edit().is_none());
-    let Some(LibraryModal::AppFilter(menu)) = state.modal() else {
-        panic!("filter menu open");
-    };
-    assert!(menu.input_active());
-
-    // Clicking the Add row (absolute row 14) does the same.
-    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
-    state.modal = Some(LibraryModal::AppFilter(filter_menu(AppFilterSide::Allow)));
-    let interaction = state.click_app_filter_menu(area, 25, 14);
-    assert!(interaction.pending_edit().is_none());
-    let Some(LibraryModal::AppFilter(menu)) = state.modal() else {
-        panic!("filter menu open");
-    };
-    assert!(menu.input_active());
 }
 
 #[test]

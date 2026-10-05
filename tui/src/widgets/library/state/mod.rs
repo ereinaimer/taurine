@@ -494,9 +494,6 @@ impl LibraryPageState {
         // honey: the search box pins the absolute bottom row; a click
         // there places the caret, exactly like the library search bar.
         if row == body.y.saturating_add(body.height).saturating_sub(1) {
-            if menu.input_active() {
-                menu.cancel_input();
-            }
             let field = menu.search_mut();
             field.place(field.index_at(column.saturating_sub(body.x) as usize));
             menu.refilter();
@@ -511,55 +508,30 @@ impl LibraryPageState {
         }
         let (_, _, right_x, _) = app_filter_panes(body.width);
         let rel = row.saturating_sub(body.y.saturating_add(APP_FILTER_ROWS_TOP));
-        // honey: the right pane mirrors the stored values; a click on
-        // one removes it straight away. The header row stays dead.
+        // honey: the right pane stays empty for now; clicks there are dead.
         if column >= body.x.saturating_add(right_x) {
-            if rel == 0 {
-                self.modal = Some(LibraryModal::AppFilter(menu));
-                return LibraryInteraction::handled();
-            }
-            let interaction = menu
-                .remove_at(rel.saturating_sub(1) as usize)
-                .map(LibraryInteraction::edit)
-                .unwrap_or_else(LibraryInteraction::handled);
             self.modal = Some(LibraryModal::AppFilter(menu));
-            return interaction;
+            return LibraryInteraction::handled();
         }
         let Some(hit) = menu.row_at(max_lines, rel) else {
             self.modal = Some(LibraryModal::AppFilter(menu));
             return LibraryInteraction::handled();
         };
-        match hit {
-            FilterRow::Add => {
-                if menu.input_active() {
-                    menu.place_input(column.saturating_sub(body.x) as usize);
-                } else {
-                    menu.start_input();
-                }
-                self.modal = Some(LibraryModal::AppFilter(menu));
-                LibraryInteraction::handled()
-            }
-            FilterRow::Checked(_) | FilterRow::Foreground(_) => {
-                if menu.input_active() {
-                    menu.cancel_input();
-                }
-                if matches!(hit, FilterRow::Foreground(index) if menu.is_gray(index)) {
-                    menu.set_error(format!(
-                        "That app is already {} for this trigger.",
-                        menu.side().opposite_hint()
-                    ));
-                    self.modal = Some(LibraryModal::AppFilter(menu));
-                    return LibraryInteraction::handled();
-                }
-                menu.set_cursor(hit);
-                let interaction = menu
-                    .toggle_focused()
-                    .map(LibraryInteraction::edit)
-                    .unwrap_or_else(LibraryInteraction::handled);
-                self.modal = Some(LibraryModal::AppFilter(menu));
-                interaction
-            }
+        if matches!(hit, FilterRow::Foreground(index) if menu.is_gray(index)) {
+            menu.set_error(format!(
+                "That app is already {} for this trigger.",
+                menu.side().opposite_hint()
+            ));
+            self.modal = Some(LibraryModal::AppFilter(menu));
+            return LibraryInteraction::handled();
         }
+        menu.set_cursor(hit);
+        let interaction = menu
+            .toggle_focused()
+            .map(LibraryInteraction::edit)
+            .unwrap_or_else(LibraryInteraction::handled);
+        self.modal = Some(LibraryModal::AppFilter(menu));
+        interaction
     }
 
     /// Mouse moves over an open app-filter menu focus the hovered row
@@ -1420,131 +1392,75 @@ impl LibraryPageState {
             // are skipped by the cursor and refuse clicks.
             LibraryModal::AppFilter(mut state) => match (key.code, key.modifiers) {
                 (KeyCode::Esc, KeyModifiers::NONE) => {
-                    if state.input_active() {
-                        state.cancel_input();
-                        self.modal = Some(LibraryModal::AppFilter(state));
-                    } else {
-                        self.modal = None;
-                    }
+                    self.modal = None;
                     LibraryInteraction::handled()
                 }
                 (KeyCode::Up, KeyModifiers::NONE) => {
-                    if !state.input_active() {
-                        state.move_cursor(-1);
-                    }
+                    state.move_cursor(-1);
                     self.modal = Some(LibraryModal::AppFilter(state));
                     LibraryInteraction::handled()
                 }
                 (KeyCode::Down, KeyModifiers::NONE) => {
-                    if !state.input_active() {
-                        state.move_cursor(1);
-                    }
+                    state.move_cursor(1);
                     self.modal = Some(LibraryModal::AppFilter(state));
                     LibraryInteraction::handled()
                 }
                 (KeyCode::Left, KeyModifiers::NONE) => {
-                    if state.input_active() {
-                        state.input_mut().move_left();
-                    } else {
-                        state.search_mut().move_left();
-                    }
+                    state.search_mut().move_left();
                     self.modal = Some(LibraryModal::AppFilter(state));
                     LibraryInteraction::handled()
                 }
                 (KeyCode::Right, KeyModifiers::NONE) => {
-                    if state.input_active() {
-                        state.input_mut().move_right();
-                    } else {
-                        state.search_mut().move_right();
-                    }
+                    state.search_mut().move_right();
                     self.modal = Some(LibraryModal::AppFilter(state));
                     LibraryInteraction::handled()
                 }
                 (KeyCode::Enter, KeyModifiers::NONE) => {
-                    if state.input_active() {
-                        match state.confirm_input() {
-                            crate::widgets::library::state::InputConfirm::Save(pending) => {
-                                self.modal = Some(LibraryModal::AppFilter(state));
-                                LibraryInteraction::edit(pending)
-                            }
-                            _ => {
-                                self.modal = Some(LibraryModal::AppFilter(state));
-                                LibraryInteraction::handled()
-                            }
-                        }
-                    } else if matches!(state.rows().get(state.cursor()), Some(FilterRow::Add)) {
-                        state.start_input();
-                        self.modal = Some(LibraryModal::AppFilter(state));
-                        LibraryInteraction::handled()
-                    } else {
-                        let interaction = state
-                            .toggle_focused()
-                            .map(LibraryInteraction::edit)
-                            .unwrap_or_else(LibraryInteraction::handled);
-                        self.modal = Some(LibraryModal::AppFilter(state));
-                        interaction
-                    }
+                    let interaction = state
+                        .toggle_focused()
+                        .map(LibraryInteraction::edit)
+                        .unwrap_or_else(LibraryInteraction::handled);
+                    self.modal = Some(LibraryModal::AppFilter(state));
+                    interaction
                 }
                 (KeyCode::Delete, KeyModifiers::NONE) => {
-                    if state.input_active() {
-                        state.delete_input_at();
-                    } else if state.search().cursor() < state.search().len_chars() {
+                    if state.search().cursor() < state.search().len_chars() {
                         // honey: caret inside the query deletes there;
                         // at the end it removes the focused row.
                         state.search_mut().delete_at();
                         state.refilter();
                         self.modal = Some(LibraryModal::AppFilter(state));
                         return LibraryInteraction::handled();
-                    } else {
-                        let interaction = state
-                            .remove_focused()
-                            .map(LibraryInteraction::edit)
-                            .unwrap_or_else(LibraryInteraction::handled);
-                        self.modal = Some(LibraryModal::AppFilter(state));
-                        return interaction;
                     }
+                    let interaction = state
+                        .remove_focused()
+                        .map(LibraryInteraction::edit)
+                        .unwrap_or_else(LibraryInteraction::handled);
                     self.modal = Some(LibraryModal::AppFilter(state));
-                    LibraryInteraction::handled()
+                    interaction
                 }
                 (KeyCode::Backspace, KeyModifiers::NONE) => {
-                    if state.input_active() {
-                        state.backspace_input();
-                    } else {
-                        state.search_mut().backspace();
-                        state.refilter();
-                    }
+                    state.search_mut().backspace();
+                    state.refilter();
                     self.modal = Some(LibraryModal::AppFilter(state));
                     LibraryInteraction::handled()
                 }
                 (KeyCode::Home, KeyModifiers::NONE) => {
-                    if state.input_active() {
-                        state.input_mut().move_home();
-                    } else {
-                        state.search_mut().move_home();
-                    }
+                    state.search_mut().move_home();
                     self.modal = Some(LibraryModal::AppFilter(state));
                     LibraryInteraction::handled()
                 }
                 (KeyCode::End, KeyModifiers::NONE) => {
-                    if state.input_active() {
-                        state.input_mut().move_end();
-                    } else {
-                        state.search_mut().move_end();
-                    }
+                    state.search_mut().move_end();
                     self.modal = Some(LibraryModal::AppFilter(state));
                     LibraryInteraction::handled()
                 }
                 (KeyCode::Char(ch), modifiers)
                     if !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
                 {
-                    // honey: typing always filters; the manual
-                    // `prefix:value` input opens from the Add row.
-                    if state.input_active() {
-                        state.push_input(ch);
-                    } else {
-                        state.search_mut().insert(ch);
-                        state.refilter();
-                    }
+                    // honey: typing always filters the foreground list.
+                    state.search_mut().insert(ch);
+                    state.refilter();
                     self.modal = Some(LibraryModal::AppFilter(state));
                     LibraryInteraction::handled()
                 }

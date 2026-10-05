@@ -689,13 +689,12 @@ fn render_tags_chips(frame: &mut Frame, body: Rect, theme: &Theme, state: &Libra
     }
 }
 
-/// App-filter picker on its own taller popup: title, search
-/// results left (stored filters, up to eight foreground apps as
-/// two-line `exe` plus window-title rows, manual add row), the
-/// current values right with click-to-remove, search box pinned to
-/// the absolute bottom. Opposite-list rows render dimmed with their
-/// reason and never take focus. Validation errors ride the title
-/// row; there is no footer.
+/// App-filter picker on its own taller popup: search results left
+/// (stored filters, up to eight foreground apps as two-line `exe`
+/// plus window-title rows), empty right pane behind a divider, search
+/// box pinned to the absolute bottom at the left pane width.
+/// Opposite-list rows render dimmed with their reason and never take
+/// focus. Validation errors ride the title row; there is no footer.
 fn render_library_app_filter_modal(
     frame: &mut Frame,
     area: Rect,
@@ -762,7 +761,7 @@ fn render_library_app_filter_modal(
     let max_lines = body.height.saturating_sub(APP_FILTER_RESERVED_LINES);
     let origin_y = body.y.saturating_add(APP_FILTER_ROWS_TOP);
     let search_y = body.y.saturating_add(body.height).saturating_sub(1);
-    let (left_w, divider_x, right_x, right_w) = app_filter_panes(body.width);
+    let (left_w, divider_x, _, _) = app_filter_panes(body.width);
     // honey: the divider runs the rows area only, title to search.
     for y in origin_y..search_y {
         frame.render_widget(
@@ -779,7 +778,7 @@ fn render_library_app_filter_modal(
         );
     }
     let focused = state.rows().get(state.cursor()).copied();
-    if state.checked().is_empty() && state.matching_indices().is_empty() && !state.input_active() {
+    if state.checked().is_empty() && state.matching_indices().is_empty() {
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 "No foreground apps.".to_string(),
@@ -867,99 +866,16 @@ fn render_library_app_filter_modal(
                     },
                 );
             }
-            FilterRow::Add => {
-                if state.input_active() {
-                    let avail = left_w.max(1);
-                    let (visible, caret) = state.input().window(avail);
-                    frame.render_widget(
-                        Paragraph::new(Line::from(Span::styled(
-                            visible.to_string(),
-                            Style::default().fg(theme.text),
-                        ))),
-                        Rect {
-                            x: body.x,
-                            y: row_y,
-                            width: left_w,
-                            height: 1,
-                        },
-                    );
-                    let (caret_x, caret_y) = util::caret_position(body.x, row_y, caret, avail);
-                    frame.set_cursor_position((caret_x, caret_y));
-                } else {
-                    let style = if is_focused {
-                        band().fg(theme.text)
-                    } else {
-                        Style::default().fg(theme.text_muted)
-                    };
-                    frame.render_widget(
-                        Paragraph::new(Line::from(Span::styled("+ Add".to_string(), style))),
-                        Rect {
-                            x: body.x,
-                            y: row_y,
-                            width: left_w,
-                            height: 1,
-                        },
-                    );
-                }
-            }
         }
     }
-    // honey: the right pane mirrors the stored values for review;
-    // clicks remove, the keyboard stays on the left list.
-    let right_abs_x = body.x.saturating_add(right_x);
-    let header = format!("Selected ({})", state.checked().len());
-    frame.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            util::truncate_to_width(&header, right_w.max(1)),
-            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
-        ))),
-        Rect {
-            x: right_abs_x,
-            y: origin_y,
-            width: right_w,
-            height: 1,
-        },
-    );
-    if state.checked().is_empty() {
-        frame.render_widget(
-            Paragraph::new(Line::from(Span::styled(
-                "No apps selected.".to_string(),
-                Style::default().fg(theme.text_muted),
-            ))),
-            Rect {
-                x: right_abs_x,
-                y: origin_y.saturating_add(1),
-                width: right_w,
-                height: 1,
-            },
-        );
-    }
-    for (index, value) in state
-        .checked()
-        .iter()
-        .enumerate()
-        .take(state.selected_layout(max_lines))
-    {
-        let text = util::truncate_to_width(&format!("× {value}"), right_w.max(1));
-        frame.render_widget(
-            Paragraph::new(Line::from(Span::styled(
-                text,
-                Style::default().fg(theme.text),
-            ))),
-            Rect {
-                x: right_abs_x,
-                y: origin_y.saturating_add(1).saturating_add(index as u16),
-                width: right_w,
-                height: 1,
-            },
-        );
-    }
-    // honey: the search box pins the absolute bottom row with a
-    // full-width background; typing always filters, never types the
-    // manual input. The caret shows while it is focused.
+    // honey: the right pane stays empty for now; the divider still
+    // splits the overlay with padding on both sides.
+    // honey: the search box pins the absolute bottom row at the left
+    // pane width with a blank line above the list; typing always
+    // filters. The caret always shows.
     let search_y = body.y.saturating_add(body.height).saturating_sub(1);
-    let (visible, caret) = state.search().window(body.width);
-    let searching = !state.input_active();
+    let search_w = left_w.max(1);
+    let (visible, caret) = state.search().window(search_w);
     let (text, style) = if state.search().is_empty() {
         (
             "Search apps".to_string(),
@@ -974,12 +890,10 @@ fn render_library_app_filter_modal(
         Rect {
             x: body.x,
             y: search_y,
-            width: body.width,
+            width: search_w,
             height: 1,
         },
     );
-    if searching {
-        let (caret_x, caret_y) = util::caret_position(body.x, search_y, caret, body.width);
-        frame.set_cursor_position((caret_x, caret_y));
-    }
+    let (caret_x, caret_y) = util::caret_position(body.x, search_y, caret, search_w);
+    frame.set_cursor_position((caret_x, caret_y));
 }

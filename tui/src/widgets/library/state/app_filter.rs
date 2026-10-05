@@ -2,13 +2,12 @@ use ratatui::layout::Rect;
 
 use crate::widgets::field::TextField;
 use crate::widgets::library::actions::{EditedField, PendingLibraryEdit};
-use crate::widgets::library::state::InputConfirm;
 use taurine_core::db::crud::AppFilterPrefix;
 use taurine_core::system::foreground_apps::ForegroundApp;
 
 /// Explicit popup size for this overlay only; the shared overlay
 /// component keeps its own defaults.
-pub(crate) const APP_FILTER_POPUP_W: u16 = 64;
+pub(crate) const APP_FILTER_POPUP_W: u16 = 72;
 pub(crate) const APP_FILTER_POPUP_H: u16 = 18;
 
 pub(crate) fn app_filter_popup(area: Rect) -> Rect {
@@ -19,8 +18,8 @@ pub(crate) fn app_filter_popup(area: Rect) -> Rect {
 /// and stored filters always show regardless of the cap.
 pub(crate) const MAX_FOREGROUND_APPS: usize = 8;
 
-/// Reserved body lines: title, blank, search (pinned bottom).
-pub(crate) const APP_FILTER_RESERVED_LINES: u16 = 3;
+/// Reserved body lines: title, blank, gap, search (pinned bottom).
+pub(crate) const APP_FILTER_RESERVED_LINES: u16 = 4;
 
 /// Rows start below the title and one blank line.
 pub(crate) const APP_FILTER_ROWS_TOP: u16 = 2;
@@ -76,12 +75,11 @@ pub(crate) fn gray_key(item: &str) -> String {
     bare.strip_suffix(".exe").unwrap_or(bare).to_string()
 }
 
-/// One pickable row: a stored filter, a foreground app, or the add row.
+/// One pickable row: a stored filter or a foreground app.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FilterRow {
     Checked(usize),
     Foreground(usize),
-    Add,
 }
 
 impl FilterRow {
@@ -94,9 +92,8 @@ impl FilterRow {
 }
 
 /// App-filter picker: stored filters first (toggle off), then up
-/// to eight foreground apps (`exe:` picks with title/class context)
-/// narrowed by the search box, then the manual add row. Every write
-/// hits the database live.
+/// to eight foreground apps (`exe:` picks with window-title context)
+/// narrowed by the search box. Every write hits the database live.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LibraryAppFilterState {
     trigger_id: String,
@@ -109,8 +106,6 @@ pub(crate) struct LibraryAppFilterState {
     cursor: usize,
     scroll: usize,
     view_lines: u16,
-    input_active: bool,
-    input: TextField,
     error: Option<String>,
 }
 
@@ -133,9 +128,7 @@ impl LibraryAppFilterState {
             search: TextField::new(""),
             cursor: 0,
             scroll: 0,
-            view_lines: 13,
-            input_active: false,
-            input: TextField::new(""),
+            view_lines: 12,
             error: None,
         }
     }
@@ -197,18 +190,17 @@ impl LibraryAppFilterState {
             .collect()
     }
 
-    /// Flat pickable rows: stored filters, matching foreground apps,
-    /// add row. Foreground rows carry full-list indices.
+    /// Flat pickable rows: stored filters, then matching foreground
+    /// apps. Foreground rows carry full-list indices.
     pub(crate) fn rows(&self) -> Vec<FilterRow> {
         let matching = self.matching_indices();
-        let mut rows = Vec::with_capacity(self.checked.len() + matching.len() + 1);
+        let mut rows = Vec::with_capacity(self.checked.len() + matching.len());
         for index in 0..self.checked.len() {
             rows.push(FilterRow::Checked(index));
         }
         for index in matching {
             rows.push(FilterRow::Foreground(index));
         }
-        rows.push(FilterRow::Add);
         rows
     }
 
@@ -313,7 +305,6 @@ impl LibraryAppFilterState {
                 apps.push(self.candidate(*index)?);
                 Some(self.pending(apps))
             }
-            FilterRow::Add => None,
         }
     }
 
@@ -335,12 +326,6 @@ impl LibraryAppFilterState {
         Some(self.pending(apps))
     }
 
-    /// Visible selected rows for a `max_lines` body: header excluded,
-    /// one line each, mirroring the render path.
-    pub(crate) fn selected_layout(&self, max_lines: u16) -> usize {
-        self.checked.len().min(max_lines.saturating_sub(1) as usize)
-    }
-
     /// Focus a row directly; gray rows refuse.
     pub(crate) fn set_cursor(&mut self, row: FilterRow) {
         let max_lines = self.view_lines;
@@ -351,82 +336,6 @@ impl LibraryAppFilterState {
             self.cursor = position;
             self.ensure_visible(max_lines);
         }
-    }
-
-    pub(crate) const fn input_active(&self) -> bool {
-        self.input_active
-    }
-
-    /// Open the inline input with a fresh buffer.
-    pub(crate) fn start_input(&mut self) {
-        self.input_active = true;
-        self.input = TextField::new("");
-        self.error = None;
-    }
-
-    /// Close the inline input, discarding its buffer.
-    pub(crate) fn cancel_input(&mut self) {
-        self.input_active = false;
-        self.input = TextField::new("");
-    }
-
-    pub(crate) fn input(&self) -> &TextField {
-        &self.input
-    }
-
-    pub(crate) fn input_mut(&mut self) -> &mut TextField {
-        &mut self.input
-    }
-
-    /// Input keystrokes; the caret never needs clamping here.
-    pub(crate) fn push_input(&mut self, ch: char) {
-        self.input.insert(ch);
-        self.error = None;
-    }
-
-    pub(crate) fn backspace_input(&mut self) {
-        self.input.backspace();
-    }
-
-    pub(crate) fn delete_input_at(&mut self) {
-        self.input.delete_at();
-    }
-
-    /// Place the input caret at a text column.
-    pub(crate) fn place_input(&mut self, column: usize) {
-        self.input.place(column);
-    }
-
-    /// Confirm the inline input: empty closes it, invalid text keeps
-    /// it open with a footer error, valid text persists live.
-    pub(crate) fn confirm_input(&mut self) -> InputConfirm {
-        let value = self.input.text().trim().to_string();
-        if value.is_empty() {
-            self.cancel_input();
-            return InputConfirm::Cancel;
-        }
-        if let Some(pos) = value.find(':')
-            && AppFilterPrefix::parse_prefix(&value[..pos]).is_none()
-        {
-            self.error = Some("Unknown prefix; use exe:, class:, or title:.".to_string());
-            return InputConfirm::Invalid("Unknown prefix; use exe:, class:, or title:.");
-        }
-        if self
-            .checked
-            .iter()
-            .any(|item| gray_key(item) == gray_key(&value))
-        {
-            self.error = Some("That app is already on this list.".to_string());
-            return InputConfirm::Invalid("That app is already on this list.");
-        }
-        if self.opposite_keys.contains(&gray_key(&value)) {
-            let hint = self.side.opposite_hint();
-            self.error = Some(format!("That app is already {hint}ed for this trigger."));
-            return InputConfirm::Invalid("That app is on the other list.");
-        }
-        let mut apps = self.checked.clone();
-        apps.push(value);
-        InputConfirm::Save(self.pending(apps))
     }
 
     fn pending(&self, apps: Vec<String>) -> PendingLibraryEdit {
@@ -445,13 +354,12 @@ impl LibraryAppFilterState {
         self.error = None;
     }
 
-    /// Re-seed from refreshed rows after a live write. A saved input
-    /// resets to a closed box; the cursor clamps into range.
+    /// Re-seed from refreshed rows after a live write; the cursor
+    /// clamps into range.
     pub(crate) fn reseed(&mut self, checked: Vec<String>, opposite: Vec<String>) {
         self.checked = checked;
         self.opposite_keys = opposite.iter().map(|item| gray_key(item)).collect();
         self.scroll = 0;
         self.cursor = self.cursor.min(self.rows().len().saturating_sub(1));
-        self.cancel_input();
     }
 }
