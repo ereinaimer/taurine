@@ -16,7 +16,6 @@ pub struct ButtonTheme {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Theme {
     pub name: &'static str,
-    pub dark: bool,
     // Core semantic palette
     pub primary: Color,
     pub secondary: Color,

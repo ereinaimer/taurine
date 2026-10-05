@@ -240,9 +240,6 @@ fn handle_tui_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
         return;
     }
 
-    // honey: app-level keys (theme toggle) run first; page states
-    // ignore Ctrl combos, so nothing double-handles.
-    app.handle_key_event(key);
     let interaction = app.library_page_mut().handle_key(key);
     apply_library_interaction(app, interaction);
 }
@@ -1370,19 +1367,19 @@ mod tests {
         let mut app = App::default();
         app.open_settings_overlay();
 
-        handle_tui_mouse_event(&mut app, left_click(2, 15), TEST_AREA);
+        handle_tui_mouse_event(&mut app, left_click(5, 5), TEST_AREA);
 
         assert!(!app.is_settings_overlay_open());
     }
 
     #[test]
-    fn settings_overlay_geometry_is_90_percent() {
+    fn settings_overlay_geometry_is_80_percent() {
         let popup = settings::overlay_popup(TEST_AREA);
-        assert_eq!(popup, ratatui::layout::Rect::new(5, 1, 90, 27));
+        assert_eq!(popup, ratatui::layout::Rect::new(10, 3, 80, 24));
         let body = settings::overlay_body(popup);
-        assert_eq!(body, ratatui::layout::Rect::new(8, 2, 84, 25));
+        assert_eq!(body, ratatui::layout::Rect::new(13, 4, 74, 22));
         let content = settings::overlay_content(body);
-        assert_eq!(content, ratatui::layout::Rect::new(8, 4, 84, 23));
+        assert_eq!(content, ratatui::layout::Rect::new(13, 6, 74, 20));
         // honey: the shared geometry must surface a real row hit.
         let app = App::default();
         let mut found = false;

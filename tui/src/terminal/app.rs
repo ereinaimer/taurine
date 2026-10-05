@@ -1,7 +1,5 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-
 use crate::theme::Theme;
-use crate::theme::builtin::{DARK_THEME, LIGHT_THEME};
+use crate::theme::builtin::DARK_THEME;
 use crate::widgets::library::LibraryPageState;
 use crate::widgets::settings::state::SettingsPageState;
 
@@ -35,13 +33,6 @@ impl App {
     #[allow(dead_code)]
     pub(crate) fn set_theme(&mut self, theme: &'static Theme) {
         self.current_theme = theme;
-    }
-    pub(crate) fn toggle_theme(&mut self) {
-        self.current_theme = if self.current_theme.dark {
-            &LIGHT_THEME
-        } else {
-            &DARK_THEME
-        };
     }
 
     pub(crate) const fn library_page(&self) -> &LibraryPageState {
@@ -94,18 +85,6 @@ impl App {
     pub(crate) fn set_notification(&mut self, message: String) {
         self.notification = Some(message);
     }
-
-    pub(crate) fn handle_key_event(&mut self, key: KeyEvent) {
-        self.handle_key(key.code, key.modifiers);
-    }
-
-    pub(crate) fn handle_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
-        // honey: q never quits; Ctrl+C is handled globally in lib.rs so
-        // it exits cleanly from any page, modal, or search state.
-        if (code, modifiers) == (KeyCode::Char('t'), KeyModifiers::CONTROL) {
-            self.toggle_theme();
-        }
-    }
 }
 
 #[cfg(test)]
@@ -128,31 +107,10 @@ mod tests {
     }
 
     #[test]
-    fn pressing_q_does_not_quit() {
-        let mut app = App::default();
-        app.handle_key(KeyCode::Char('q'), KeyModifiers::NONE);
-        assert!(!app.should_quit());
-    }
-
-    #[test]
     fn request_quit_marks_app_for_quit() {
         let mut app = App::default();
         app.request_quit();
         assert!(app.should_quit());
-    }
-
-    #[test]
-    fn pressing_escape_does_not_quit() {
-        let mut app = App::default();
-        app.handle_key(KeyCode::Esc, KeyModifiers::NONE);
-        assert!(!app.should_quit());
-    }
-
-    #[test]
-    fn pressing_ctrl_c_does_not_quit() {
-        let mut app = App::default();
-        app.handle_key(KeyCode::Char('c'), KeyModifiers::CONTROL);
-        assert!(!app.should_quit());
     }
 
     #[test]

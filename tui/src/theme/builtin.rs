@@ -3,7 +3,6 @@ use ratatui::style::Color;
 
 pub const DARK_THEME: Theme = Theme {
     name: "dark",
-    dark: true,
     primary: Color::Rgb(0x1E, 0x90, 0xFF),
     secondary: Color::Rgb(0x80, 0x80, 0x80),
     border: Color::Rgb(0x1A, 0x1A, 0x1A),
@@ -26,31 +25,5 @@ pub const DARK_THEME: Theme = Theme {
         active_bg: Color::Rgb(0x3A, 0x3A, 0x3A),
         inactive_bg: Color::Rgb(0x1E, 0x1E, 0x1E),
         text: Color::Rgb(0xCF, 0xCF, 0xCF),
-    },
-};
-
-pub const LIGHT_THEME: Theme = Theme {
-    name: "light",
-    dark: false,
-    primary: Color::Rgb(0x1E, 0x90, 0xFF),
-    secondary: Color::Rgb(0x66, 0x66, 0x66),
-    border: Color::Rgb(0x1A, 0x1A, 0x1A),
-    background: Color::Rgb(0xF5, 0xF5, 0xF5),
-    surface: Color::Rgb(0xFF, 0xFF, 0xFF),
-    text: Color::Rgb(0x1A, 0x1A, 0x1A),
-    text_muted: Color::Rgb(0x99, 0x99, 0x99),
-    description: Color::Rgb(0x8C, 0x8C, 0x8C),
-    accent: Color::Rgb(0x1E, 0x90, 0xFF),
-    error: Color::Rgb(0xCC, 0x00, 0x00),
-    warning: Color::Rgb(0xCC, 0x88, 0x00),
-    success: Color::Rgb(0x00, 0x80, 0x00),
-    header: HeaderTheme {
-        bg: Color::Rgb(0xE0, 0xE0, 0xE0),
-        text: Color::Rgb(0x1A, 0x1A, 0x1A),
-    },
-    button: ButtonTheme {
-        active_bg: Color::Rgb(0xD0, 0xD0, 0xD0),
-        inactive_bg: Color::Rgb(0xF0, 0xF0, 0xF0),
-        text: Color::Rgb(0x1A, 0x1A, 0x1A),
     },
 };
