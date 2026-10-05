@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Voice Error Sound**: Play a distinct error tone when dictation fails because the microphone or voice engine is unavailable.
 - **Pause Media While Dictating**: Pause music and video while recording and resume afterwards, on by default via a new setting.
 - **Cleaner Trigger List**: Listing shows one line per trigger with just the trigger and result, plus multi-tag filtering.
+- **Trigger Usage History**: Record daily per-trigger expansion stats and active application context in the local database.
 
 ### Fixed
 - **Cloud Login Defaults**: Sign in to Taurine Cloud directly without configuring manual environment variables.
