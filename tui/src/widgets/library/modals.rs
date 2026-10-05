@@ -725,8 +725,8 @@ fn render_library_app_filter_modal(
     let hint = "Esc";
     let error = state.error().unwrap_or("");
     let err_width = (error.chars().count() as u16).min(body.width);
-    let gap = body
-        .width
+    let title_w = body.width.saturating_sub(2);
+    let gap = title_w
         .saturating_sub(title.chars().count() as u16)
         .saturating_sub(err_width)
         .saturating_sub(hint.chars().count() as u16);
@@ -752,19 +752,19 @@ fn render_library_app_filter_modal(
     frame.render_widget(
         Paragraph::new(Line::from(title_spans)),
         Rect {
-            x: body.x,
+            x: body.x.saturating_add(1),
             y: body.y,
-            width: body.width,
+            width: title_w,
             height: 1,
         },
     );
     let max_lines = body.height.saturating_sub(APP_FILTER_RESERVED_LINES);
     let origin_y = body.y.saturating_add(APP_FILTER_ROWS_TOP);
     let (left_w, divider_x, _, _) = app_filter_panes(body.width);
-    // honey: left content carries padding on every side; the divider
-    // runs the full popup edge to edge, ignoring padding rules.
+    // honey: content sits one padded cell in with one blank cell left
+    // before the divider; the divider runs the full popup edge to edge.
     let content_x = body.x.saturating_add(APP_FILTER_PAD);
-    let content_w = left_w.saturating_sub(APP_FILTER_PAD.saturating_mul(2));
+    let content_w = left_w.saturating_sub(APP_FILTER_PAD);
     let divider_abs_x = body.x.saturating_add(divider_x);
     for y in popup.y..popup.y.saturating_add(popup.height) {
         frame.render_widget(
@@ -796,11 +796,19 @@ fn render_library_app_filter_modal(
         );
     }
     // honey: full-bleed highlight band for the focused row, no fg
-    // override — the overlay option-menu language.
+    // override — the overlay option-menu language. Bands pad to the
+    // content width so both lines fill the pane edge to padding.
     let band = || {
         Style::default()
             .bg(theme.surface)
             .add_modifier(Modifier::BOLD)
+    };
+    let fill = |text: String, style: Style| -> Line {
+        let rest = content_w.saturating_sub(text.chars().count() as u16) as usize;
+        Line::from(vec![
+            Span::styled(text, style),
+            Span::styled(" ".repeat(rest), style),
+        ])
     };
     for (row, rel) in state.layout(max_lines) {
         let row_y = origin_y.saturating_add(rel);
@@ -815,7 +823,7 @@ fn render_library_app_filter_modal(
                     Style::default().fg(theme.text)
                 };
                 frame.render_widget(
-                    Paragraph::new(Line::from(Span::styled(text, style))),
+                    Paragraph::new(fill(text, style)),
                     Rect {
                         x: content_x,
                         y: row_y,
@@ -838,7 +846,7 @@ fn render_library_app_filter_modal(
                     Style::default().fg(theme.text)
                 };
                 frame.render_widget(
-                    Paragraph::new(Line::from(Span::styled(exe, exe_style))),
+                    Paragraph::new(fill(exe, exe_style)),
                     Rect {
                         x: content_x,
                         y: row_y,
@@ -860,7 +868,7 @@ fn render_library_app_filter_modal(
                     Style::default().fg(theme.text_muted)
                 };
                 frame.render_widget(
-                    Paragraph::new(Line::from(Span::styled(detail, detail_style))),
+                    Paragraph::new(fill(detail, detail_style)),
                     Rect {
                         x: content_x,
                         y: row_y.saturating_add(1),
