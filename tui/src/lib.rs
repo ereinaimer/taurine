@@ -175,8 +175,11 @@ fn play_overlay_open(
     if rects.is_empty() {
         return Ok(());
     }
-    let mut effects: Vec<tachyonfx::Effect> =
-        rects.iter().map(|_| overlay_fx::open_effect()).collect();
+    let theme = app.theme();
+    let mut effects: Vec<tachyonfx::Effect> = rects
+        .iter()
+        .map(|_| overlay_fx::open_effect(theme))
+        .collect();
     let frame_budget = StdDuration::from_millis(16);
     let mut last = Instant::now();
     while effects.iter().any(|effect| effect.running()) {

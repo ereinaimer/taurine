@@ -5,19 +5,21 @@
 //! stays unit-testable without a terminal.
 
 use ratatui::layout::Rect;
+use ratatui::style::Style;
 use tachyonfx::{
     Effect, EffectTimer, Interpolation, fx::EvolveSymbolSet, fx::evolve_into,
     pattern::RadialPattern,
 };
 
 use crate::terminal::app::App;
+use crate::theme::Theme;
 use crate::widgets::library::state::{LibraryModal, LibraryModalKind, app_filter_geometry};
 use crate::widgets::settings;
 use crate::widgets::settings::modals as settings_modals;
 use crate::widgets::settings::state::{SettingsModal, SettingsModalKind};
 
-/// Open-sweep length: a beat, never a wait.
-pub(crate) const OPEN_FX_MS: u32 = 200;
+/// Open-sweep length: matches tachyonfx official transition timing.
+pub(crate) const OPEN_FX_MS: u32 = 1000;
 
 /// Geometry both an overlay render and its sweep agree on.
 pub(crate) struct FxAreas {
@@ -63,15 +65,16 @@ impl OverlayTransition for SettingsModal {
 }
 
 /// One appear sweep for every overlay: shaded evolve-into resolving to
-/// the painted content at completion. The radial pattern staggers cells
-/// center-outwards; without it every cell would hit the solid block
-/// glyph on the same frame and flash white.
-pub(crate) fn open_effect() -> Effect {
+/// the painted content at completion, styled with the active theme.
+/// A wide transition zone staggers cells smoothly center-outwards with
+/// intermediate gradient shading.
+pub(crate) fn open_effect(theme: &Theme) -> Effect {
+    let style = Style::default().fg(theme.surface).bg(theme.background);
     evolve_into(
-        EvolveSymbolSet::Shaded,
-        EffectTimer::from_ms(OPEN_FX_MS, Interpolation::QuadOut),
+        (EvolveSymbolSet::Shaded, style),
+        EffectTimer::from_ms(OPEN_FX_MS, Interpolation::CubicOut),
     )
-    .with_pattern(RadialPattern::center())
+    .with_pattern(RadialPattern::center().with_transition_width(20.0))
 }
 
 /// Visible overlay layers, by discriminant only: hover, scroll, and
@@ -192,7 +195,9 @@ mod tests {
     fn open_effect_runs_then_completes() {
         use ratatui::buffer::Buffer;
 
-        let mut effect = open_effect();
+        use crate::theme::builtin::DARK_THEME;
+
+        let mut effect = open_effect(&DARK_THEME);
         assert!(effect.running());
         let area = Rect::new(0, 0, 20, 5);
         let mut buffer = Buffer::empty(area);
@@ -208,13 +213,16 @@ mod tests {
     fn open_sweep_resolves_progressively_without_full_block_flash() {
         use ratatui::buffer::Buffer;
 
+        use crate::theme::builtin::DARK_THEME;
+
         // honey: mirrors the driver: each frame repaints fresh content,
         // then the sweep processes on top of it.
         let area = Rect::new(0, 0, 30, 10);
         let total = 30 * 10;
-        let mut effect = open_effect();
+        let mut effect = open_effect(&DARK_THEME);
         let mut saw_mixed = false;
         let mut saw_all_block = false;
+        let mut saw_shades = false;
         let step = tachyonfx::Duration::from_millis(8);
         while effect.running() {
             let mut buffer = Buffer::empty(area);
@@ -232,14 +240,26 @@ mod tests {
                 .iter()
                 .filter(|cell| cell.symbol() == "█")
                 .count();
+            let shades = buffer
+                .content
+                .iter()
+                .filter(|cell| matches!(cell.symbol(), "░" | "▒" | "▓"))
+                .count();
             if resolved > 0 && resolved < total {
                 saw_mixed = true;
             }
             if blocks == total {
                 saw_all_block = true;
             }
+            if shades > 0 {
+                saw_shades = true;
+            }
         }
         assert!(saw_mixed, "sweep should resolve cells progressively");
+        assert!(
+            saw_shades,
+            "sweep should exhibit intermediate gradient shading symbols"
+        );
         assert!(
             !saw_all_block,
             "sweep should never turn the whole popup into solid blocks at once"
