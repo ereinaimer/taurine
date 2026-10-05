@@ -491,7 +491,7 @@ async fn test_sync_worker_authenticated_two_way_cycle() {
     let port = listener.local_addr().unwrap().port();
 
     let server_handle = std::thread::spawn(move || {
-        for _ in 0..2 {
+        for _ in 0..3 {
             let (mut stream, _) = listener.accept().unwrap();
             let mut buf = [0u8; 4096];
             use std::io::{Read, Write};
@@ -537,6 +537,9 @@ async fn test_sync_worker_authenticated_two_way_cycle() {
                 assert!(req.contains("local-push-1"));
                 let resp = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
                 stream.write_all(resp.as_bytes()).unwrap();
+            } else if req.starts_with("GET /rest/v1/user_settings") {
+                let resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+                stream.write_all(resp.as_bytes()).unwrap();
             }
         }
     });
@@ -553,6 +556,9 @@ async fn test_sync_worker_authenticated_two_way_cycle() {
         SyncStatus::Success {
             pulled_snippets: 1,
             pushed_snippets: 1,
+            pulled_settings: 0,
+            pushed_settings: 0,
+            pushed_stats: 0,
         }
     );
 
@@ -641,7 +647,7 @@ async fn test_sync_worker_proactive_token_refresh() {
 
     let server_handle = std::thread::spawn(move || {
         use std::io::{Read, Write};
-        for _ in 0..2 {
+        for _ in 0..3 {
             let (mut stream, _) = listener.accept().unwrap();
             let mut buf = [0u8; 4096];
             let n = stream.read(&mut buf).unwrap();
@@ -668,6 +674,9 @@ async fn test_sync_worker_proactive_token_refresh() {
                 assert!(req.contains("Bearer fresh-access-proactive"));
                 let resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
                 stream.write_all(resp.as_bytes()).unwrap();
+            } else if req.starts_with("GET /rest/v1/user_settings") {
+                let resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+                stream.write_all(resp.as_bytes()).unwrap();
             }
         }
     });
@@ -684,6 +693,9 @@ async fn test_sync_worker_proactive_token_refresh() {
         SyncStatus::Success {
             pulled_snippets: 0,
             pushed_snippets: 0,
+            pulled_settings: 0,
+            pushed_settings: 0,
+            pushed_stats: 0,
         }
     );
 
@@ -724,7 +736,7 @@ async fn test_sync_worker_reactive_refresh_on_401() {
 
     let server_handle = std::thread::spawn(move || {
         use std::io::{Read, Write};
-        for _ in 0..3 {
+        for _ in 0..4 {
             let (mut stream, _) = listener.accept().unwrap();
             let mut buf = [0u8; 4096];
             let n = stream.read(&mut buf).unwrap();
@@ -756,8 +768,9 @@ async fn test_sync_worker_reactive_refresh_on_401() {
                     body
                 );
                 stream.write_all(resp.as_bytes()).unwrap();
-            } else if req.starts_with("GET /rest/v1/snippets")
-                && req.contains("fresh-access-reactive")
+            } else if (req.starts_with("GET /rest/v1/snippets")
+                && req.contains("fresh-access-reactive"))
+                || req.starts_with("GET /rest/v1/user_settings")
             {
                 let resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
                 stream.write_all(resp.as_bytes()).unwrap();
@@ -777,6 +790,9 @@ async fn test_sync_worker_reactive_refresh_on_401() {
         SyncStatus::Success {
             pulled_snippets: 0,
             pushed_snippets: 0,
+            pulled_settings: 0,
+            pushed_settings: 0,
+            pushed_stats: 0,
         }
     );
 
@@ -785,5 +801,299 @@ async fn test_sync_worker_reactive_refresh_on_401() {
     assert_eq!(saved_tokens.refresh_token, "next-refresh-reactive");
 
     server_handle.join().unwrap();
+    taurine_core::cloud::clear_tokens().unwrap();
+}
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn test_sync_settings_with_strict_allowlist_ignores_sensitive_and_hardware_keys() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    crate::hook::tests::mock_keystore::use_mock_keystore();
+
+    let tokens = taurine_core::cloud::AuthTokens {
+        access_token: "mock-token-xyz".to_string(),
+        refresh_token: "mock-refresh".to_string(),
+        user_id: "user-1".to_string(),
+        expires_at: Some(2000000000),
+    };
+    taurine_core::cloud::store_tokens(&tokens).unwrap();
+
+    let conn = Connection::open_in_memory().unwrap();
+    run_migrations(&conn).unwrap();
+
+    // Inserts local wpm (syncable), voice_input_device (hardware), and scripts_enabled (security)
+    taurine_core::db::crud::upsert_setting(&conn, "wpm", "120").unwrap();
+    taurine_core::db::crud::upsert_setting(&conn, "voice_input_device", "\"Realtek Mic\"").unwrap();
+    taurine_core::db::crud::upsert_setting(&conn, "scripts_enabled", "true").unwrap();
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let server_handle = std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        let start = std::time::Instant::now();
+        let mut handled = 0;
+        while handled < 3 && start.elapsed() < std::time::Duration::from_secs(3) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let _ = stream.set_nonblocking(false);
+                    let mut buf = [0u8; 4096];
+                    let n = match stream.read(&mut buf) {
+                        Ok(n) => n,
+                        Err(_) => continue,
+                    };
+                    let req = String::from_utf8_lossy(&buf[..n]);
+
+                    if req.starts_with("GET /rest/v1/snippets") {
+                        let resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+                        stream.write_all(resp.as_bytes()).unwrap();
+                    } else if req.starts_with("GET /rest/v1/user_settings") {
+                        // Remote response has one syncable setting and two forbidden hardware/security settings
+                        let remote_settings = vec![
+                            taurine_core::db::crud::CloudSettingPayload {
+                                key: "audio_volume".to_string(),
+                                value: serde_json::json!(75),
+                                version: 2,
+                                updated_at: Some("2026-10-05T10:00:00Z".to_string()),
+                            },
+                            taurine_core::db::crud::CloudSettingPayload {
+                                key: "voice_input_device".to_string(),
+                                value: serde_json::json!("Remote Hardware Mic"),
+                                version: 10,
+                                updated_at: Some("2026-10-05T10:00:00Z".to_string()),
+                            },
+                            taurine_core::db::crud::CloudSettingPayload {
+                                key: "scripts_enabled".to_string(),
+                                value: serde_json::json!(false),
+                                version: 10,
+                                updated_at: Some("2026-10-05T10:00:00Z".to_string()),
+                            },
+                        ];
+                        let body = serde_json::to_string(&remote_settings).unwrap();
+                        let resp = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                            body.len(),
+                            body
+                        );
+                        stream.write_all(resp.as_bytes()).unwrap();
+                    } else if req.starts_with("POST /rest/v1/user_settings") {
+                        assert!(req.contains("resolution=merge-duplicates"));
+                        assert!(req.contains("\"wpm\""));
+                        assert!(!req.contains("voice_input_device"));
+                        assert!(!req.contains("scripts_enabled"));
+
+                        let resp = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                        stream.write_all(resp.as_bytes()).unwrap();
+                    }
+                    handled += 1;
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let config = CloudConfig {
+        supabase_url: format!("http://127.0.0.1:{port}"),
+        anon_key: "test-anon-key".to_string(),
+    };
+    let client = CloudClient::new(config);
+
+    let status = SyncWorker::run_sync_cycle(&conn, Some(&client)).await;
+    assert_eq!(
+        status,
+        SyncStatus::Success {
+            pulled_snippets: 0,
+            pushed_snippets: 0,
+            pulled_settings: 1,
+            pushed_settings: 1,
+            pushed_stats: 0,
+        }
+    );
+
+    // Verify sensitive and hardware keys were NOT updated from remote
+    let dev = taurine_core::db::crud::get_setting(&conn, "voice_input_device")
+        .unwrap()
+        .unwrap();
+    assert_eq!(dev.value, "\"Realtek Mic\"");
+
+    let scripts = taurine_core::db::crud::get_setting(&conn, "scripts_enabled")
+        .unwrap()
+        .unwrap();
+    assert_eq!(scripts.value, "true");
+
+    // Verify syncable setting was updated from remote
+    let vol = taurine_core::db::crud::get_setting(&conn, "audio_volume")
+        .unwrap()
+        .unwrap();
+    assert_eq!(vol.value, "75");
+
+    // Verify local wpm is marked synced
+    let wpm = taurine_core::db::crud::get_setting(&conn, "wpm")
+        .unwrap()
+        .unwrap();
+    assert!(wpm.is_synced);
+
+    let _ = server_handle.join();
+    taurine_core::cloud::clear_tokens().unwrap();
+}
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn test_sync_trigger_daily_stats_and_global_stats_upload() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    crate::hook::tests::mock_keystore::use_mock_keystore();
+
+    let tokens = taurine_core::cloud::AuthTokens {
+        access_token: "mock-token-xyz".to_string(),
+        refresh_token: "mock-refresh".to_string(),
+        user_id: "user-1".to_string(),
+        expires_at: Some(2000000000),
+    };
+    taurine_core::cloud::store_tokens(&tokens).unwrap();
+
+    let conn = Connection::open_in_memory().unwrap();
+    run_migrations(&conn).unwrap();
+
+    // Insert dummy trigger for foreign key reference
+    conn.execute(
+        "INSERT INTO triggers (id, name, output, created_at, updated_at) VALUES ('trig-stat-1', 'test_trig', 'out', 100, 100)",
+        [],
+    )
+    .unwrap();
+
+    // Insert unsynced trigger_daily_stats
+    taurine_core::db::crud::stats::upsert_trigger_daily_stat_with_conn(
+        &conn,
+        "trig-stat-1",
+        "2026-10-05",
+        "code.exe",
+        5,
+        100,
+        2500,
+    )
+    .unwrap();
+
+    // Insert unsynced global stats
+    taurine_core::db::crud::increment_stat(
+        &conn,
+        "2026-10-05",
+        &taurine_core::db::crud::StatDeltas {
+            executions: 5,
+            keystrokes_saved: 100,
+            time_saved_ms: 2500,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    // Insert unsynced app stats
+    taurine_core::db::crud::upsert_app_stat_with_conn(
+        &conn,
+        "code.exe",
+        "2026-10-05",
+        5,
+        100,
+        2500,
+    )
+    .unwrap();
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let server_handle = std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        let start = std::time::Instant::now();
+        let mut handled = 0;
+        while handled < 5 && start.elapsed() < std::time::Duration::from_secs(3) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let _ = stream.set_nonblocking(false);
+                    let mut buf = [0u8; 4096];
+                    let n = match stream.read(&mut buf) {
+                        Ok(n) => n,
+                        Err(_) => continue,
+                    };
+                    let req = String::from_utf8_lossy(&buf[..n]);
+
+                    if req.starts_with("GET /rest/v1/snippets")
+                        || req.starts_with("GET /rest/v1/user_settings")
+                    {
+                        let resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+                        stream.write_all(resp.as_bytes()).unwrap();
+                    } else if req.starts_with("POST /rest/v1/trigger_daily_stats") {
+                        assert!(req.contains("resolution=merge-duplicates"));
+                        assert!(req.contains("trig-stat-1"));
+                        assert!(req.contains("code.exe"));
+                        let resp = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                        stream.write_all(resp.as_bytes()).unwrap();
+                    } else if req.starts_with("POST /rest/v1/user_stats") {
+                        assert!(req.contains("resolution=merge-duplicates"));
+                        assert!(req.contains("2026-10-05"));
+                        let resp = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                        stream.write_all(resp.as_bytes()).unwrap();
+                    } else if req.starts_with("POST /rest/v1/user_app_stats") {
+                        assert!(req.contains("resolution=merge-duplicates"));
+                        assert!(req.contains("code.exe"));
+                        let resp = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                        stream.write_all(resp.as_bytes()).unwrap();
+                    }
+                    handled += 1;
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let config = CloudConfig {
+        supabase_url: format!("http://127.0.0.1:{port}"),
+        anon_key: "test-anon-key".to_string(),
+    };
+    let client = CloudClient::new(config);
+
+    let status = SyncWorker::run_sync_cycle(&conn, Some(&client)).await;
+    assert_eq!(
+        status,
+        SyncStatus::Success {
+            pulled_snippets: 0,
+            pushed_snippets: 0,
+            pulled_settings: 0,
+            pushed_settings: 0,
+            pushed_stats: 3,
+        }
+    );
+
+    // Verify all local rows are marked is_synced = 1
+    assert!(
+        taurine_core::db::crud::get_unsynced_trigger_daily_stats(&conn, 10)
+            .unwrap()
+            .is_empty(),
+        "trigger_daily_stats must be marked synced"
+    );
+    assert!(
+        taurine_core::db::crud::get_unsynced_stats(&conn, 10)
+            .unwrap()
+            .is_empty(),
+        "stats must be marked synced"
+    );
+    assert!(
+        taurine_core::db::crud::get_unsynced_app_stats(&conn, 10)
+            .unwrap()
+            .is_empty(),
+        "app_stats must be marked synced"
+    );
+
+    let _ = server_handle.join();
     taurine_core::cloud::clear_tokens().unwrap();
 }

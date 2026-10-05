@@ -5,6 +5,13 @@ use taurine_core::db::crud::triggers::{
     CloudSnippetPayload, ReconcileOutcome, purge_deleted_tombstones, reconcile_cloud_snippet,
     serialize_trigger_to_cloud_snippet,
 };
+use taurine_core::db::crud::{
+    CloudSettingPayload, CloudTriggerDailyStatPayload, CloudUserAppStatPayload,
+    CloudUserStatPayload, SettingReconcileOutcome, get_unsynced_app_stats, get_unsynced_settings,
+    get_unsynced_stats, get_unsynced_trigger_daily_stats, mark_app_stats_synced,
+    mark_settings_synced, mark_stats_synced, mark_trigger_daily_stats_synced,
+    reconcile_cloud_setting,
+};
 
 /// The execution outcome of a sync cycle.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -13,6 +20,9 @@ pub enum SyncStatus {
     Success {
         pulled_snippets: usize,
         pushed_snippets: usize,
+        pulled_settings: usize,
+        pushed_settings: usize,
+        pushed_stats: usize,
     },
     Error(String),
 }
@@ -65,11 +75,22 @@ impl SyncWorker {
                                     SyncStatus::Success {
                                         pulled_snippets,
                                         pushed_snippets,
+                                        pulled_settings,
+                                        pushed_settings,
+                                        pushed_stats,
                                     } => {
-                                        if pulled_snippets > 0 || pushed_snippets > 0 {
+                                        if pulled_snippets > 0
+                                            || pushed_snippets > 0
+                                            || pulled_settings > 0
+                                            || pushed_settings > 0
+                                            || pushed_stats > 0
+                                        {
                                             tracing::info!(
-                                                pulled = pulled_snippets,
-                                                pushed = pushed_snippets,
+                                                pulled_snippets,
+                                                pushed_snippets,
+                                                pulled_settings,
+                                                pushed_settings,
+                                                pushed_stats,
                                                 "Cloud sync cycle succeeded"
                                             );
                                         } else {
@@ -120,6 +141,31 @@ impl SyncWorker {
                 Err(format!("Session refresh failed: {e}"))
             }
         }
+    }
+
+    fn unix_secs_to_rfc3339(ts: i64) -> String {
+        let mut days = ts / 86400;
+        let mut rem_secs = ts % 86400;
+        if rem_secs < 0 {
+            rem_secs += 86400;
+            days -= 1;
+        }
+        let hours = rem_secs / 3600;
+        let mins = (rem_secs % 3600) / 60;
+        let secs = rem_secs % 60;
+
+        let z = days + 719468;
+        let era = (if z >= 0 { z } else { z - 146096 }) / 146097;
+        let doe = (z - era * 146097) as u32;
+        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+        let y = yoe as i64 + era * 400;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let d = doy - (153 * mp + 2) / 5 + 1;
+        let m = if mp < 10 { mp + 3 } else { mp - 9 };
+        let y = if m <= 2 { y + 1 } else { y };
+
+        format!("{y:04}-{m:02}-{d:02}T{hours:02}:{mins:02}:{secs:02}Z")
     }
 
     /// Executes a single bidirectional sync cycle:
@@ -398,9 +444,391 @@ impl SyncWorker {
             }
         }
 
+        // Pull remote settings
+        let settings_url = format!(
+            "{}/rest/v1/user_settings?select=*&order=version.asc,updated_at.asc",
+            client.config().supabase_url.trim_end_matches('/')
+        );
+
+        let mut settings_pull_res = http_client
+            .get(&settings_url)
+            .header("apikey", &client.config().anon_key)
+            .header("Authorization", format!("Bearer {}", tokens.access_token))
+            .header("Accept", "application/json")
+            .send()
+            .await;
+
+        if let Ok(ref r) = settings_pull_res
+            && r.status() == reqwest::StatusCode::UNAUTHORIZED
+        {
+            tracing::debug!("Received 401 pulling settings; refreshing session...");
+            if Self::refresh_session_tokens(client, &mut tokens)
+                .await
+                .is_ok()
+            {
+                settings_pull_res = http_client
+                    .get(&settings_url)
+                    .header("apikey", &client.config().anon_key)
+                    .header("Authorization", format!("Bearer {}", tokens.access_token))
+                    .header("Accept", "application/json")
+                    .send()
+                    .await;
+            }
+        }
+
+        let mut pulled_settings = 0;
+        match settings_pull_res {
+            Ok(res) => {
+                if !res.status().is_success() {
+                    let status = res.status();
+                    let text = res.text().await.unwrap_or_default();
+                    return SyncStatus::Error(format!(
+                        "Failed to pull settings ({status}): {text}"
+                    ));
+                }
+                match res.json::<Vec<CloudSettingPayload>>().await {
+                    Ok(remote_settings) => {
+                        for setting in &remote_settings {
+                            match reconcile_cloud_setting(conn, setting) {
+                                Ok(outcome) => {
+                                    if matches!(outcome, SettingReconcileOutcome::UpdatedFromRemote)
+                                    {
+                                        pulled_settings += 1;
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        "Failed to reconcile setting {}: {e}",
+                                        setting.key
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        return SyncStatus::Error(format!(
+                            "Failed to deserialize remote settings: {e}"
+                        ));
+                    }
+                }
+            }
+            Err(e) => {
+                return SyncStatus::Error(format!("Network error pulling settings: {e}"));
+            }
+        }
+
+        // Push local unsynced settings
+        let unsynced_settings = match get_unsynced_settings(conn) {
+            Ok(rows) => rows,
+            Err(e) => return SyncStatus::Error(format!("Failed to query unsynced settings: {e}")),
+        };
+
+        let mut pushed_settings = 0;
+        if !unsynced_settings.is_empty() {
+            let payloads: Vec<CloudSettingPayload> = unsynced_settings
+                .iter()
+                .map(|s| {
+                    let value: serde_json::Value = serde_json::from_str(&s.value)
+                        .unwrap_or_else(|_| serde_json::Value::String(s.value.clone()));
+                    let updated_at = Some(Self::unix_secs_to_rfc3339(s.updated_at));
+                    CloudSettingPayload {
+                        key: s.key.clone(),
+                        value,
+                        version: s.version,
+                        updated_at,
+                    }
+                })
+                .collect();
+
+            let push_settings_url = format!(
+                "{}/rest/v1/user_settings",
+                client.config().supabase_url.trim_end_matches('/')
+            );
+
+            let mut push_res = http_client
+                .post(&push_settings_url)
+                .header("apikey", &client.config().anon_key)
+                .header("Authorization", format!("Bearer {}", tokens.access_token))
+                .header("Content-Type", "application/json")
+                .header("Prefer", "resolution=merge-duplicates")
+                .json(&payloads)
+                .send()
+                .await;
+
+            if let Ok(ref r) = push_res
+                && r.status() == reqwest::StatusCode::UNAUTHORIZED
+            {
+                tracing::debug!("Received 401 pushing settings; refreshing session...");
+                if Self::refresh_session_tokens(client, &mut tokens)
+                    .await
+                    .is_ok()
+                {
+                    push_res = http_client
+                        .post(&push_settings_url)
+                        .header("apikey", &client.config().anon_key)
+                        .header("Authorization", format!("Bearer {}", tokens.access_token))
+                        .header("Content-Type", "application/json")
+                        .header("Prefer", "resolution=merge-duplicates")
+                        .json(&payloads)
+                        .send()
+                        .await;
+                }
+            }
+
+            match push_res {
+                Ok(res) => {
+                    if !res.status().is_success() {
+                        let status = res.status();
+                        let text = res.text().await.unwrap_or_default();
+                        return SyncStatus::Error(format!(
+                            "Failed to push settings ({status}): {text}"
+                        ));
+                    }
+                    let keys: Vec<&str> =
+                        unsynced_settings.iter().map(|s| s.key.as_str()).collect();
+                    if let Err(e) = mark_settings_synced(conn, &keys) {
+                        tracing::warn!("Failed to mark settings synced: {e}");
+                    } else {
+                        pushed_settings += keys.len();
+                    }
+                }
+                Err(e) => {
+                    return SyncStatus::Error(format!("Network error pushing settings: {e}"));
+                }
+            }
+        }
+
+        // Upload unsynced trigger daily stats
+        let unsynced_trigger_stats = match get_unsynced_trigger_daily_stats(conn, 100) {
+            Ok(rows) => rows,
+            Err(e) => {
+                return SyncStatus::Error(format!(
+                    "Failed to query unsynced trigger daily stats: {e}"
+                ));
+            }
+        };
+
+        let mut pushed_stats = 0;
+        if !unsynced_trigger_stats.is_empty() {
+            let payloads: Vec<CloudTriggerDailyStatPayload> = unsynced_trigger_stats
+                .iter()
+                .map(CloudTriggerDailyStatPayload::from)
+                .collect();
+
+            let trigger_stats_url = format!(
+                "{}/rest/v1/trigger_daily_stats",
+                client.config().supabase_url.trim_end_matches('/')
+            );
+
+            let mut trigger_stats_res = http_client
+                .post(&trigger_stats_url)
+                .header("apikey", &client.config().anon_key)
+                .header("Authorization", format!("Bearer {}", tokens.access_token))
+                .header("Content-Type", "application/json")
+                .header("Prefer", "resolution=merge-duplicates")
+                .json(&payloads)
+                .send()
+                .await;
+
+            if let Ok(ref r) = trigger_stats_res
+                && r.status() == reqwest::StatusCode::UNAUTHORIZED
+            {
+                tracing::debug!("Received 401 pushing trigger daily stats; refreshing session...");
+                if Self::refresh_session_tokens(client, &mut tokens)
+                    .await
+                    .is_ok()
+                {
+                    trigger_stats_res = http_client
+                        .post(&trigger_stats_url)
+                        .header("apikey", &client.config().anon_key)
+                        .header("Authorization", format!("Bearer {}", tokens.access_token))
+                        .header("Content-Type", "application/json")
+                        .header("Prefer", "resolution=merge-duplicates")
+                        .json(&payloads)
+                        .send()
+                        .await;
+                }
+            }
+
+            match trigger_stats_res {
+                Ok(res) => {
+                    if !res.status().is_success() {
+                        let status = res.status();
+                        let text = res.text().await.unwrap_or_default();
+                        return SyncStatus::Error(format!(
+                            "Failed to push trigger daily stats ({status}): {text}"
+                        ));
+                    }
+                    let items: Vec<(&str, &str, &str)> = unsynced_trigger_stats
+                        .iter()
+                        .map(|s| (s.trigger_id.as_str(), s.date.as_str(), s.app_key.as_str()))
+                        .collect();
+                    if let Err(e) = mark_trigger_daily_stats_synced(conn, &items) {
+                        tracing::warn!("Failed to mark trigger daily stats synced: {e}");
+                    } else {
+                        pushed_stats += items.len();
+                    }
+                }
+                Err(e) => {
+                    return SyncStatus::Error(format!(
+                        "Network error pushing trigger daily stats: {e}"
+                    ));
+                }
+            }
+        }
+
+        // Upload unsynced global user stats
+        let unsynced_global_stats = match get_unsynced_stats(conn, 100) {
+            Ok(rows) => rows,
+            Err(e) => {
+                return SyncStatus::Error(format!("Failed to query unsynced global stats: {e}"));
+            }
+        };
+
+        if !unsynced_global_stats.is_empty() {
+            let payloads: Vec<CloudUserStatPayload> = unsynced_global_stats
+                .iter()
+                .map(CloudUserStatPayload::from)
+                .collect();
+
+            let user_stats_url = format!(
+                "{}/rest/v1/user_stats",
+                client.config().supabase_url.trim_end_matches('/')
+            );
+
+            let mut user_stats_res = http_client
+                .post(&user_stats_url)
+                .header("apikey", &client.config().anon_key)
+                .header("Authorization", format!("Bearer {}", tokens.access_token))
+                .header("Content-Type", "application/json")
+                .header("Prefer", "resolution=merge-duplicates")
+                .json(&payloads)
+                .send()
+                .await;
+
+            if let Ok(ref r) = user_stats_res
+                && r.status() == reqwest::StatusCode::UNAUTHORIZED
+            {
+                tracing::debug!("Received 401 pushing user stats; refreshing session...");
+                if Self::refresh_session_tokens(client, &mut tokens)
+                    .await
+                    .is_ok()
+                {
+                    user_stats_res = http_client
+                        .post(&user_stats_url)
+                        .header("apikey", &client.config().anon_key)
+                        .header("Authorization", format!("Bearer {}", tokens.access_token))
+                        .header("Content-Type", "application/json")
+                        .header("Prefer", "resolution=merge-duplicates")
+                        .json(&payloads)
+                        .send()
+                        .await;
+                }
+            }
+
+            match user_stats_res {
+                Ok(res) => {
+                    if !res.status().is_success() {
+                        let status = res.status();
+                        let text = res.text().await.unwrap_or_default();
+                        return SyncStatus::Error(format!(
+                            "Failed to push user stats ({status}): {text}"
+                        ));
+                    }
+                    let dates: Vec<&str> = unsynced_global_stats
+                        .iter()
+                        .map(|s| s.date.as_str())
+                        .collect();
+                    if let Err(e) = mark_stats_synced(conn, &dates) {
+                        tracing::warn!("Failed to mark global stats synced: {e}");
+                    } else {
+                        pushed_stats += dates.len();
+                    }
+                }
+                Err(e) => {
+                    return SyncStatus::Error(format!("Network error pushing user stats: {e}"));
+                }
+            }
+        }
+
+        // Upload unsynced user app stats
+        let unsynced_app_stats = match get_unsynced_app_stats(conn, 100) {
+            Ok(rows) => rows,
+            Err(e) => return SyncStatus::Error(format!("Failed to query unsynced app stats: {e}")),
+        };
+
+        if !unsynced_app_stats.is_empty() {
+            let payloads: Vec<CloudUserAppStatPayload> = unsynced_app_stats
+                .iter()
+                .map(CloudUserAppStatPayload::from)
+                .collect();
+
+            let user_app_stats_url = format!(
+                "{}/rest/v1/user_app_stats",
+                client.config().supabase_url.trim_end_matches('/')
+            );
+
+            let mut app_stats_res = http_client
+                .post(&user_app_stats_url)
+                .header("apikey", &client.config().anon_key)
+                .header("Authorization", format!("Bearer {}", tokens.access_token))
+                .header("Content-Type", "application/json")
+                .header("Prefer", "resolution=merge-duplicates")
+                .json(&payloads)
+                .send()
+                .await;
+
+            if let Ok(ref r) = app_stats_res
+                && r.status() == reqwest::StatusCode::UNAUTHORIZED
+            {
+                tracing::debug!("Received 401 pushing app stats; refreshing session...");
+                if Self::refresh_session_tokens(client, &mut tokens)
+                    .await
+                    .is_ok()
+                {
+                    app_stats_res = http_client
+                        .post(&user_app_stats_url)
+                        .header("apikey", &client.config().anon_key)
+                        .header("Authorization", format!("Bearer {}", tokens.access_token))
+                        .header("Content-Type", "application/json")
+                        .header("Prefer", "resolution=merge-duplicates")
+                        .json(&payloads)
+                        .send()
+                        .await;
+                }
+            }
+
+            match app_stats_res {
+                Ok(res) => {
+                    if !res.status().is_success() {
+                        let status = res.status();
+                        let text = res.text().await.unwrap_or_default();
+                        return SyncStatus::Error(format!(
+                            "Failed to push app stats ({status}): {text}"
+                        ));
+                    }
+                    let keys: Vec<(&str, &str)> = unsynced_app_stats
+                        .iter()
+                        .map(|s| (s.app_key.as_str(), s.date.as_str()))
+                        .collect();
+                    if let Err(e) = mark_app_stats_synced(conn, &keys) {
+                        tracing::warn!("Failed to mark app stats synced: {e}");
+                    } else {
+                        pushed_stats += keys.len();
+                    }
+                }
+                Err(e) => {
+                    return SyncStatus::Error(format!("Network error pushing app stats: {e}"));
+                }
+            }
+        }
+
         SyncStatus::Success {
             pulled_snippets,
             pushed_snippets,
+            pulled_settings,
+            pushed_settings,
+            pushed_stats,
         }
     }
 }
