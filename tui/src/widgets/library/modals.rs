@@ -718,11 +718,13 @@ fn render_library_app_filter_modal(
         return;
     }
     util::render_overlay_title(frame, body, theme, state.side().title());
-    // honey: rows run under the title; the search box sits above the
-    // footer with a blank line between it and the list. Typing always
-    // filters, never types the manual input. The caret shows while
-    // it is focused.
-    let search_y = body.y.saturating_add(body.height).saturating_sub(2);
+    // honey: rows run under the title; the search box sits exactly
+    // one blank line below the visible rows (pinned above the footer
+    // when the list fills the window). Typing always filters, never
+    // types the manual input. The caret shows while it is focused.
+    let max_lines = body.height.saturating_sub(APP_FILTER_RESERVED_LINES);
+    let origin_y = body.y.saturating_add(APP_FILTER_ROWS_TOP);
+    let search_y = origin_y.saturating_add(state.search_rel(max_lines));
     if body.height > 4 {
         let (visible, caret) = state.search().window(body.width);
         let searching = !state.input_active();
@@ -749,8 +751,6 @@ fn render_library_app_filter_modal(
             frame.set_cursor_position((caret_x, caret_y));
         }
     }
-    let max_lines = body.height.saturating_sub(APP_FILTER_RESERVED_LINES);
-    let origin_y = body.y.saturating_add(APP_FILTER_ROWS_TOP);
     let focused = state.rows().get(state.cursor()).copied();
     if state.checked().is_empty() && state.matching_indices().is_empty() && !state.input_active() {
         frame.render_widget(
@@ -823,11 +823,15 @@ fn render_library_app_filter_modal(
                     app.title.clone()
                 };
                 let detail = util::truncate_to_width(&detail, body.width.max(1));
+                // honey: the focused row bands across both lines; the
+                // description keeps its dimmed tone on the band.
+                let detail_style = if is_focused && !gray {
+                    band().fg(theme.text_muted)
+                } else {
+                    Style::default().fg(theme.text_muted)
+                };
                 frame.render_widget(
-                    Paragraph::new(Line::from(Span::styled(
-                        detail,
-                        Style::default().fg(theme.text_muted),
-                    ))),
+                    Paragraph::new(Line::from(Span::styled(detail, detail_style))),
                     Rect {
                         x: body.x,
                         y: row_y.saturating_add(1),

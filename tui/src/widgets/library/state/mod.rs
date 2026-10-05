@@ -490,9 +490,17 @@ impl LibraryPageState {
         {
             return LibraryInteraction::handled();
         }
-        // honey: the search box sits above the footer; a click there
-        // places the caret, exactly like the library search bar.
-        if row == body.y.saturating_add(body.height).saturating_sub(2) {
+        // honey: the search box sits one blank line below the visible
+        // rows; a click there places the caret, exactly like the
+        // library search bar.
+        let max_lines = body.height.saturating_sub(APP_FILTER_RESERVED_LINES);
+        menu.set_view_lines(body.height);
+        if row
+            == body
+                .y
+                .saturating_add(APP_FILTER_ROWS_TOP)
+                .saturating_add(menu.search_rel(max_lines))
+        {
             if menu.input_active() {
                 menu.cancel_input();
             }
@@ -508,8 +516,6 @@ impl LibraryPageState {
             self.modal = Some(LibraryModal::AppFilter(menu));
             return LibraryInteraction::handled();
         }
-        let max_lines = body.height.saturating_sub(APP_FILTER_RESERVED_LINES);
-        menu.set_view_lines(body.height);
         let rel = row.saturating_sub(body.y.saturating_add(APP_FILTER_ROWS_TOP));
         let Some(hit) = menu.row_at(max_lines, rel) else {
             self.modal = Some(LibraryModal::AppFilter(menu));
@@ -545,6 +551,40 @@ impl LibraryPageState {
                 self.modal = Some(LibraryModal::AppFilter(menu));
                 interaction
             }
+        }
+    }
+
+    /// Mouse moves over an open app-filter menu focus the hovered row
+    /// so the full-row band follows the mouse; gray rows refuse.
+    pub(crate) fn hover_app_filter_menu(
+        &mut self,
+        area: ratatui::layout::Rect,
+        column: u16,
+        row: u16,
+    ) {
+        let Some(LibraryModal::AppFilter(menu)) = self.modal.as_mut() else {
+            return;
+        };
+        let popup = crate::widgets::util::overlay_popup(area);
+        let body = crate::widgets::util::overlay_body(popup);
+        if body.width == 0
+            || column < body.x
+            || column >= body.x.saturating_add(body.width)
+            || row < body.y.saturating_add(APP_FILTER_ROWS_TOP)
+        {
+            return;
+        }
+        let max_lines = body.height.saturating_sub(APP_FILTER_RESERVED_LINES);
+        let rel = row.saturating_sub(body.y.saturating_add(APP_FILTER_ROWS_TOP));
+        if let Some(hit) = menu.row_at(max_lines, rel) {
+            menu.set_cursor(hit);
+        }
+    }
+
+    /// Wheel scroll over an open app-filter menu walks the cursor.
+    pub(crate) fn move_app_filter_cursor(&mut self, down: bool) {
+        if let Some(LibraryModal::AppFilter(menu)) = self.modal.as_mut() {
+            menu.move_cursor(if down { 1 } else { -1 });
         }
     }
 

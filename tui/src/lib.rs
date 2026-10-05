@@ -336,6 +336,11 @@ fn handle_tui_mouse_event(
                 app.library_page_mut().move_header_menu_cursor(down);
                 return;
             }
+            if app.active_page() == Page::Library && app.library_page().app_filter_menu_open() {
+                let down = mouse.kind == MouseEventKind::ScrollDown;
+                app.library_page_mut().move_app_filter_cursor(down);
+                return;
+            }
             if modal_open {
                 return;
             }
@@ -379,6 +384,13 @@ fn handle_tui_mouse_event(
                 let full = terminal::mouse::library_full_area(layout.page);
                 app.library_page_mut()
                     .hover_tags_menu(full, mouse.column, mouse.row);
+                return;
+            }
+            if app.active_page() == Page::Library && app.library_page().app_filter_menu_open() {
+                let layout = terminal::mouse::frame_layout(area);
+                let full = terminal::mouse::library_full_area(layout.page);
+                app.library_page_mut()
+                    .hover_app_filter_menu(full, mouse.column, mouse.row);
                 return;
             }
             if modal_open || app.active_page() != Page::Library {

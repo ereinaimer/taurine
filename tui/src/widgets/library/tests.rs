@@ -2862,20 +2862,49 @@ fn filter_menu_caps_foreground_at_eight() {
 fn click_app_filter_search_places_caret() {
     let mut state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
-    // Body at x25 y9, height 12: rows from row 11, search box on
-    // row 19 above the footer.
+    // Body at x25 y9, height 12: rows from row 11. With `calc`
+    // typed the list shrinks, so the search docks at row 16: one
+    // checked row, one two-line match, the Add row, one blank.
     let mut menu = filter_menu(AppFilterSide::Allow);
     for ch in "calc".chars() {
         menu.search_mut().insert(ch);
     }
     state.modal = Some(LibraryModal::AppFilter(menu));
-    let interaction = state.click_app_filter_menu(area, 27, 19);
+    let interaction = state.click_app_filter_menu(area, 27, 16);
     assert!(interaction.pending_edit().is_none());
     let Some(LibraryModal::AppFilter(menu)) = state.modal() else {
         panic!("filter menu open");
     };
     assert_eq!(menu.search().cursor(), 2);
     assert_eq!(menu.matching_indices(), vec![1]);
+}
+
+#[test]
+fn hover_app_filter_menu_follows_rows_skips_gray() {
+    let mut state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    // Rows from row 11: checked(0), gray notepad(12-13), calc(14-15).
+    state.modal = Some(LibraryModal::AppFilter(filter_menu(AppFilterSide::Allow)));
+    state.hover_app_filter_menu(area, 25, 14);
+    let Some(LibraryModal::AppFilter(menu)) = state.modal() else {
+        panic!("filter menu open");
+    };
+    assert_eq!(menu.cursor(), 2);
+    // Gray rows refuse the hover.
+    state.modal = Some(LibraryModal::AppFilter(menu.clone()));
+    state.hover_app_filter_menu(area, 25, 12);
+    let Some(LibraryModal::AppFilter(menu)) = state.modal() else {
+        panic!("filter menu open");
+    };
+    assert_eq!(menu.cursor(), 2);
+
+    // Wheel walks the cursor like the arrows do.
+    state.modal = Some(LibraryModal::AppFilter(menu.clone()));
+    state.move_app_filter_cursor(false);
+    let Some(LibraryModal::AppFilter(menu)) = state.modal() else {
+        panic!("filter menu open");
+    };
+    assert_eq!(menu.cursor(), 0);
 }
 
 #[test]

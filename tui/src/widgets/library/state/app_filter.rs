@@ -232,6 +232,19 @@ impl LibraryAppFilterState {
             .map(|(row, _)| row)
     }
 
+    /// Window-relative line of the search box: exactly one blank line
+    /// below the visible rows, pinned above the footer when the list
+    /// fills the window. Rendering and hit-testing share this.
+    pub(crate) fn search_rel(&self, max_lines: u16) -> u16 {
+        let used = self
+            .layout(max_lines)
+            .into_iter()
+            .map(|(row, y)| y.saturating_add(row.height()))
+            .max()
+            .unwrap_or(0);
+        used.saturating_add(1).min(max_lines.saturating_add(1))
+    }
+
     fn ensure_visible(&mut self, max_lines: u16) {
         let rows = self.rows();
         if rows.is_empty() {
