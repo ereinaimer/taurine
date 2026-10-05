@@ -1,4 +1,4 @@
-use ratatui::layout::Rect;
+use ratatui::layout::{Margin, Rect};
 
 use crate::widgets::field::TextField;
 use crate::widgets::library::actions::{EditedField, PendingLibraryEdit};
@@ -14,6 +14,12 @@ pub(crate) fn app_filter_popup(area: Rect) -> Rect {
     crate::widgets::util::centered_rect(APP_FILTER_POPUP_W, APP_FILTER_POPUP_H, area)
 }
 
+/// Uniform one-cell body padding on all sides; the shared overlay
+/// body keeps its own wider margins.
+pub(crate) fn app_filter_body(popup: Rect) -> Rect {
+    popup.inner(Margin::new(1, 1))
+}
+
 /// Foreground cap: Z-order truncation is free most-recent-first,
 /// and stored filters always show regardless of the cap.
 pub(crate) const MAX_FOREGROUND_APPS: usize = 8;
@@ -23,10 +29,6 @@ pub(crate) const APP_FILTER_RESERVED_LINES: u16 = 4;
 
 /// Rows start below the title and one blank line.
 pub(crate) const APP_FILTER_ROWS_TOP: u16 = 2;
-
-/// Inner content padding: rows and the search box sit one cell in
-/// from the body edges on both sides.
-pub(crate) const APP_FILTER_PAD: u16 = 1;
 
 /// Pane split in body columns: left width, divider column, right
 /// start, right width. Left always wins the extra cells.

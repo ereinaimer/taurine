@@ -479,7 +479,7 @@ impl LibraryPageState {
             return LibraryInteraction::handled();
         };
         let popup = app_filter_popup(area);
-        let body = crate::widgets::util::overlay_body(popup);
+        let body = app_filter_body(popup);
         // honey: an outside click closes by leaving the taken modal
         // dropped; picks keep the menu open across live writes.
         if body.width == 0
@@ -495,7 +495,7 @@ impl LibraryPageState {
         // there places the caret, exactly like the library search bar.
         if row == body.y.saturating_add(body.height).saturating_sub(1) {
             let field = menu.search_mut();
-            let column = column.saturating_sub(body.x).saturating_sub(APP_FILTER_PAD) as usize;
+            let column = column.saturating_sub(body.x) as usize;
             field.place(field.index_at(column));
             menu.refilter();
             self.modal = Some(LibraryModal::AppFilter(menu));
@@ -547,7 +547,7 @@ impl LibraryPageState {
             return;
         };
         let popup = app_filter_popup(area);
-        let body = crate::widgets::util::overlay_body(popup);
+        let body = app_filter_body(popup);
         if body.width == 0
             || column < body.x
             || column >= body.x.saturating_add(body.width)
