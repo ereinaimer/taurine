@@ -686,7 +686,7 @@ impl LibraryPageState {
             self.modal = Some(LibraryModal::Tags(menu));
             return interaction;
         }
-        if Some(rel) == add && (menu.input_active() || x == menu.plus_hit_x(body.width)) {
+        if Some(rel) == add && (menu.input_active() || menu.plus_hit_accepts(body.width, x)) {
             if menu.input_active() {
                 // honey: a click on the live input row places the
                 // caret; the `+` it replaced starts at plus_cell.

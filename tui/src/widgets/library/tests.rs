@@ -2881,18 +2881,32 @@ fn click_tags_menu_empty_plus_opens_input() {
     assert!(!menu.input_active());
     let popup = crate::widgets::util::overlay_popup(area);
     let body = crate::widgets::util::overlay_body(popup);
-    let plus_x = menu.plus_hit_x(body.width);
-    state.modal = Some(LibraryModal::Tags(menu.clone()));
-    let interaction = state.click_tags_menu(
-        area,
-        body.x.saturating_add(plus_x),
-        body.y.saturating_add(2),
-    );
-    assert!(interaction.pending_edit().is_none());
-    let Some(LibraryModal::Tags(menu)) = state.modal() else {
-        panic!("tags menu open");
+    // honey: the `+` glyph sits two cells past the empty text
+    // (`"{line}  + "`); the padded cells each side count too.
+    let menu = {
+        let Some(LibraryModal::Tags(menu)) = state.modal() else {
+            panic!("tags menu open");
+        };
+        menu.clone()
     };
-    assert!(menu.input_active());
+    let plus_x = menu.plus_hit_x(body.width);
+    assert_eq!(plus_x, TAGS_EMPTY_LINE.chars().count() as u16 + 2);
+    for dx in [0, 1, 2] {
+        state.modal = Some(LibraryModal::Tags(menu.clone()));
+        let interaction = state.click_tags_menu(
+            area,
+            body.x
+                .saturating_add(plus_x)
+                .saturating_sub(1)
+                .saturating_add(dx),
+            body.y.saturating_add(2),
+        );
+        assert!(interaction.pending_edit().is_none());
+        let Some(LibraryModal::Tags(menu)) = state.modal() else {
+            panic!("tags menu open");
+        };
+        assert!(menu.input_active(), "dx={dx}");
+    }
 }
 
 #[test]

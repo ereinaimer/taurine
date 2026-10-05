@@ -188,11 +188,25 @@ impl LibraryTagsModalState {
 
     /// Cloud-relative x of the `+` button: after the empty line
     /// when there are no chips yet, else the trailing plus cell.
+    /// Empty renders `"{line}  + "`, so the glyph sits two cells
+    /// past the text.
     pub(crate) fn plus_hit_x(&self, width: u16) -> u16 {
         if self.checked.is_empty() && !self.input_active {
-            TAGS_EMPTY_LINE.chars().count() as u16 + 1
+            TAGS_EMPTY_LINE.chars().count() as u16 + 2
         } else {
             self.plus_cell(width).0
+        }
+    }
+
+    /// True when a cloud-relative x hits the `+` button. Empty
+    /// renders a padded three-cell `" + "` span, so the padding
+    /// each side counts; the chip cloud keeps its exact cell.
+    pub(crate) fn plus_hit_accepts(&self, width: u16, x: u16) -> bool {
+        if self.checked.is_empty() && !self.input_active {
+            let center = self.plus_hit_x(width);
+            x >= center.saturating_sub(1) && x <= center.saturating_add(1)
+        } else {
+            x == self.plus_cell(width).0
         }
     }
 
