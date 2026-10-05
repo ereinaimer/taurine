@@ -490,10 +490,9 @@ impl LibraryPageState {
         {
             return LibraryInteraction::handled();
         }
-        // honey: the search box owns row 2 (blank line under the
-        // title); a click there places the caret, exactly like the
-        // library search bar.
-        if row == body.y.saturating_add(2) {
+        // honey: the search box sits above the footer; a click there
+        // places the caret, exactly like the library search bar.
+        if row == body.y.saturating_add(body.height).saturating_sub(2) {
             if menu.input_active() {
                 menu.cancel_input();
             }

@@ -718,11 +718,12 @@ fn render_library_app_filter_modal(
         return;
     }
     util::render_overlay_title(frame, body, theme, state.side().title());
-    // honey: blank line under the title, then the search box with a
-    // full-width background; typing always filters, never types the
-    // manual input. The caret shows while it is focused.
-    let search_y = body.y.saturating_add(2);
-    if body.height > 3 {
+    // honey: rows run under the title; the search box sits above the
+    // footer with a blank line between it and the list. Typing always
+    // filters, never types the manual input. The caret shows while
+    // it is focused.
+    let search_y = body.y.saturating_add(body.height).saturating_sub(2);
+    if body.height > 4 {
         let (visible, caret) = state.search().window(body.width);
         let searching = !state.input_active();
         let (text, style) = if state.search().is_empty() {

@@ -8,11 +8,11 @@ use taurine_core::system::foreground_apps::ForegroundApp;
 /// and stored filters always show regardless of the cap.
 pub(crate) const MAX_FOREGROUND_APPS: usize = 8;
 
-/// Reserved body lines: title, search box, blank, footer error.
-pub(crate) const APP_FILTER_RESERVED_LINES: u16 = 4;
+/// Reserved body lines: title, blank, blank, search, footer error.
+pub(crate) const APP_FILTER_RESERVED_LINES: u16 = 5;
 
-/// Rows start below the title, search box, and one blank line.
-pub(crate) const APP_FILTER_ROWS_TOP: u16 = 3;
+/// Rows start below the title and one blank line.
+pub(crate) const APP_FILTER_ROWS_TOP: u16 = 2;
 
 /// Which props row opened the picker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,7 +112,7 @@ impl LibraryAppFilterState {
             search: TextField::new(""),
             cursor: 0,
             scroll: 0,
-            view_lines: 8,
+            view_lines: 7,
             input_active: false,
             input: TextField::new(""),
             error: None,
