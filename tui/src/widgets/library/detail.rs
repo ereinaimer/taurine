@@ -22,21 +22,17 @@ pub(crate) const CONTENT_INNER_HEIGHT: usize = 16;
 /// border glyph set.
 pub(crate) const EMPTY_TOKEN: &str = "───";
 // honey: fixed 5-cell groove with a 2-cell knob riding left (off) or
-// right (on); no track line. Position plus knob color carry the state,
-// so flipping never shifts the header layout.
+// right (on); no track line. Position alone carries the state, so
+// flipping never shifts the header layout.
 pub(crate) const TOGGLE_WIDTH: u16 = 5;
 const TOGGLE_KNOB_WIDTH: u16 = 2;
 
-/// Sliding pill switch: groove background throughout, solid knob block
-/// parked by enable state. Shared by rendering, so the painted switch
-/// always matches the hit box.
+/// Sliding pill switch: groove background throughout, one solid knob
+/// block parked by enable state. Shared by rendering, so the painted
+/// switch always matches the hit box.
 pub(crate) fn toggle_spans(item: &LibraryTrigger, theme: &Theme) -> Vec<Span<'static>> {
     let groove = Style::default().bg(theme.surface);
-    let knob = Style::default().bg(if item.is_enabled() {
-        theme.success
-    } else {
-        theme.text
-    });
+    let knob = Style::default().bg(theme.text);
     let knob_text = " ".repeat(TOGGLE_KNOB_WIDTH as usize);
     let rest_text = " ".repeat((TOGGLE_WIDTH - TOGGLE_KNOB_WIDTH) as usize);
     if item.is_enabled() {

@@ -1134,7 +1134,7 @@ fn toggle_pill_parks_knob_by_enable_state() {
     assert_eq!(spans[0].content.chars().count(), 3);
     assert_eq!(spans[0].style.bg, Some(DARK_THEME.surface));
     assert_eq!(spans[1].content.chars().count(), 2);
-    assert_eq!(spans[1].style.bg, Some(DARK_THEME.success));
+    assert_eq!(spans[1].style.bg, Some(DARK_THEME.text));
 
     let mut raw = list_item(
         "id-off",
