@@ -7,7 +7,8 @@
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use tachyonfx::{
-    Effect, EffectTimer, Interpolation, fx::EvolveSymbolSet, fx::evolve_into,
+    Effect, EffectTimer, Interpolation,
+    fx::{EvolveSymbolSet, evolve_into, fade_from},
     pattern::RadialPattern,
 };
 
@@ -103,12 +104,17 @@ pub(crate) fn open_effect(theme: &Theme) -> Effect {
     .with_pattern(RadialPattern::center().with_transition_width(20.0))
 }
 
-/// One disappear sweep for every overlay: the exact opposite of the
-/// open transition. Reverses the shaded evolve-into sweep with the same
-/// theme styling and wide radial pattern, collapsing the painted content
-/// smoothly inward toward the center upon dismissal.
+/// Close-transition length: fast fade in of newly revealed content.
+pub(crate) const CLOSE_FX_MS: u32 = 200;
+
+/// Fast close transition: fades in the newly revealed content from the
+/// theme background color upon overlay dismissal.
 pub(crate) fn close_effect(theme: &Theme) -> Effect {
-    open_effect(theme).reversed()
+    fade_from(
+        theme.background,
+        theme.background,
+        EffectTimer::from_ms(CLOSE_FX_MS, Interpolation::QuadOut),
+    )
 }
 
 /// Visible overlay layers, by discriminant only: hover, scroll, and
@@ -362,12 +368,12 @@ mod tests {
     fn close_effect_runs_then_completes() {
         use ratatui::buffer::Buffer;
 
+        let area = Rect::new(0, 0, 20, 5);
         let mut effect = close_effect(&DARK_THEME);
         assert!(effect.running());
-        let area = Rect::new(0, 0, 20, 5);
         let mut buffer = Buffer::empty(area);
         effect.process(
-            tachyonfx::Duration::from_millis(OPEN_FX_MS + 50),
+            tachyonfx::Duration::from_millis(CLOSE_FX_MS + 50),
             &mut buffer,
             area,
         );
@@ -375,61 +381,39 @@ mod tests {
     }
 
     #[test]
-    fn close_sweep_starts_with_content_and_collapses_inward_with_shades() {
+    fn close_sweep_fades_in_revealed_content() {
         use ratatui::buffer::Buffer;
+        use ratatui::style::Color;
 
-        let area = Rect::new(0, 0, 30, 10);
-        let total = 30 * 10;
+        let area = Rect::new(0, 0, 20, 5);
         let mut effect = close_effect(&DARK_THEME);
 
-        // Frame 0: At t=0, the effect must NOT touch the buffer; all 'x' remain intact.
-        let mut buffer = Buffer::empty(area);
-        for cell in buffer.content.iter_mut() {
-            cell.set_char('x');
-        }
-        effect.process(tachyonfx::Duration::ZERO, &mut buffer, area);
-        let intact = buffer
-            .content
-            .iter()
-            .filter(|cell| cell.symbol() == "x")
-            .count();
-        assert_eq!(
-            intact, total,
-            "at t=0 all cells must show the painted content"
-        );
-
-        // Intermediate frames: cells should progressively turn into shaded glyphs
-        let mut saw_mixed = false;
-        let mut saw_shades = false;
-        let step = tachyonfx::Duration::from_millis(8);
-        while effect.running() {
+        let make_buffer = || {
             let mut buf = Buffer::empty(area);
             for cell in buf.content.iter_mut() {
-                cell.set_char('x');
+                cell.set_char('A');
+                cell.set_fg(Color::Rgb(255, 255, 255));
+                cell.set_bg(Color::Rgb(10, 10, 10));
             }
-            effect.process(step, &mut buf, area);
-            let intact = buf
-                .content
-                .iter()
-                .filter(|cell| cell.symbol() == "x")
-                .count();
-            let shades = buf
-                .content
-                .iter()
-                .filter(|cell| matches!(cell.symbol(), "░" | "▒" | "▓"))
-                .count();
-            if intact > 0 && intact < total {
-                saw_mixed = true;
-            }
-            if shades > 0 {
-                saw_shades = true;
-            }
-        }
-        assert!(saw_mixed, "close sweep should collapse progressively");
-        assert!(
-            saw_shades,
-            "close sweep must show intermediate shaded symbols"
+            buf
+        };
+
+        // At t=0: cells start faded from the theme background color
+        let mut buffer = make_buffer();
+        effect.process(tachyonfx::Duration::ZERO, &mut buffer, area);
+        assert_eq!(buffer.content[0].fg, DARK_THEME.background);
+        assert_eq!(buffer.content[0].bg, DARK_THEME.background);
+
+        // At completion: cells smoothly interpolate back to their target colors
+        let mut buffer = make_buffer();
+        effect.process(
+            tachyonfx::Duration::from_millis(CLOSE_FX_MS),
+            &mut buffer,
+            area,
         );
+        assert_eq!(buffer.content[0].fg, Color::Rgb(255, 255, 255));
+        assert_eq!(buffer.content[0].bg, Color::Rgb(10, 10, 10));
+        assert!(!effect.running());
     }
 
     #[test]
@@ -480,6 +464,38 @@ mod tests {
         assert_eq!(
             closed_rects(&open_settings, &closed(), &[rect1]),
             vec![rect1]
+        );
+    }
+
+    #[test]
+    fn close_sweep_begins_immediately_on_first_frame() {
+        use ratatui::buffer::Buffer;
+        use ratatui::style::Color;
+
+        let area = Rect::new(0, 0, 40, 18);
+        let mut effect = close_effect(&DARK_THEME);
+
+        let make_buffer = || {
+            let mut buf = Buffer::empty(area);
+            for cell in buf.content.iter_mut() {
+                cell.set_char('x');
+                cell.set_fg(Color::Rgb(255, 255, 255));
+                cell.set_bg(Color::Rgb(10, 10, 10));
+            }
+            buf
+        };
+
+        // Frame 0 (at t=0): cells start at background color.
+        let mut buf0 = make_buffer();
+        effect.process(tachyonfx::Duration::ZERO, &mut buf0, area);
+        assert_eq!(buf0.content[0].fg, DARK_THEME.background);
+
+        // Frame 1 (16ms): transition immediately begins interpolating towards target colors.
+        let mut buf1 = make_buffer();
+        effect.process(tachyonfx::Duration::from_millis(16), &mut buf1, area);
+        assert_ne!(
+            buf1.content[0].fg, DARK_THEME.background,
+            "first animation frame must immediately interpolate colors"
         );
     }
 }
