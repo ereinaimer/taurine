@@ -67,8 +67,8 @@ pub fn run() -> taurine_core::Result<()> {
             }
         }
 
-        // honey: a newly appeared overlay sweeps in; closes and same-kind
-        // updates (hover, scroll, live reseed) never replay it.
+        // honey: a newly appeared overlay sweeps in; closes dismiss
+        // immediately without a blocking sweep.
         let next_layers = overlay_fx::layers(&app);
         if overlay_fx::appeared(&previous_layers, &next_layers) {
             play_overlay_open(&mut terminal, &mut app, last_area)?;

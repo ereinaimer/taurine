@@ -19,7 +19,7 @@ use crate::widgets::settings::modals as settings_modals;
 use crate::widgets::settings::state::{SettingsModal, SettingsModalKind};
 
 /// Open-sweep length: matches tachyonfx official transition timing.
-pub(crate) const OPEN_FX_MS: u32 = 1000;
+pub(crate) const OPEN_FX_MS: u32 = 1500;
 
 /// Geometry both an overlay render and its sweep agree on.
 pub(crate) struct FxAreas {
@@ -67,7 +67,8 @@ impl OverlayTransition for SettingsModal {
 /// One appear sweep for every overlay: shaded evolve-into resolving to
 /// the painted content at completion, styled with the active theme.
 /// A wide transition zone staggers cells smoothly center-outwards with
-/// intermediate gradient shading.
+/// intermediate gradient shading, exactly as instructed in the tachyonfx
+/// official documentation.
 pub(crate) fn open_effect(theme: &Theme) -> Effect {
     let style = Style::default().fg(theme.surface).bg(theme.background);
     evolve_into(
@@ -127,6 +128,7 @@ pub(crate) fn transition_rects(app: &App, frame: Rect, library_full: Rect) -> Ve
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::theme::builtin::DARK_THEME;
     use crate::widgets::library::state::{
         AppFilterSide, LibraryAppFilterState, LibraryTagsModalState,
     };
@@ -195,8 +197,6 @@ mod tests {
     fn open_effect_runs_then_completes() {
         use ratatui::buffer::Buffer;
 
-        use crate::theme::builtin::DARK_THEME;
-
         let mut effect = open_effect(&DARK_THEME);
         assert!(effect.running());
         let area = Rect::new(0, 0, 20, 5);
@@ -212,8 +212,6 @@ mod tests {
     #[test]
     fn open_sweep_resolves_progressively_without_full_block_flash() {
         use ratatui::buffer::Buffer;
-
-        use crate::theme::builtin::DARK_THEME;
 
         // honey: mirrors the driver: each frame repaints fresh content,
         // then the sweep processes on top of it.
