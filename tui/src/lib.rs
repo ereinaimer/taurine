@@ -16,6 +16,7 @@ mod widgets;
 use std::io;
 use std::time::Duration;
 
+use crate::overlay_fx::OverlayTransition;
 use crate::theme::Theme;
 use crate::widgets::library;
 use crate::widgets::settings;
@@ -47,7 +48,6 @@ pub fn run() -> taurine_core::Result<()> {
     let mut last_area = ratatui::layout::Rect::default();
     let mut previous_layers = overlay_fx::layers(&app);
     let mut previous_rects = Vec::new();
-
     loop {
         terminal.terminal.draw(|frame| {
             let area = frame.area();
@@ -74,7 +74,7 @@ pub fn run() -> taurine_core::Result<()> {
             }
         }
 
-        // honey: a newly appeared overlay sweeps in; closes fade in the underlying content.
+        // honey: a newly appeared overlay sweeps in; closes fade out smoothly.
         let next_layers = overlay_fx::layers(&app);
         if overlay_fx::appeared(&previous_layers, &next_layers) {
             play_overlay_open(&mut terminal, &mut app, last_area)?;
@@ -207,9 +207,9 @@ fn play_overlay_open(
     Ok(())
 }
 
-/// Plays the fast fade-in transition over the closing overlay rects when an
-/// overlay dismisses, revealing the underlying screen at ~60fps before
-/// restoring normal processing.
+/// Plays the smooth gradient fade-in transition over the closing overlay rects when an
+/// overlay dismisses, revealing the underlying screen at ~60fps over 300ms while
+/// restoring normal screen lighting.
 fn play_overlay_close(
     terminal: &mut TerminalGuard,
     app: &App,
@@ -235,13 +235,26 @@ fn play_overlay_close(
         .collect();
     let _cursor_guard = overlay_fx::CursorSuppressGuard::new();
     let frame_budget = StdDuration::from_millis(16);
-    let mut last = Instant::now();
+    let total_secs = (overlay_fx::CLOSE_FX_MS as f32) / 1000.0;
+    let any_modal = app.library_page().is_modal_open() || app.is_settings_overlay_open();
+
+    // Start with the first frame budget already elapsed so the transition begins
+    // visibly interpolating on the very first draw, eliminating any freeze
+    // or perceived lag when dismissing.
+    let start = Instant::now() - frame_budget;
+    let mut last = start;
 
     while effects.iter().any(|effect| effect.running()) {
         let elapsed = last.elapsed();
         last = Instant::now();
+        let progress = (start.elapsed().as_secs_f32() / total_secs).clamp(0.0, 1.0);
+        let dim_factor = 0.4 + 0.6 * progress;
+
         terminal.terminal.draw(|frame| {
             render_app(frame, app, area);
+            if !any_modal {
+                dim_frame_factor(frame, dim_factor);
+            }
             for (effect, rect) in effects.iter_mut().zip(rects.iter()) {
                 frame.render_effect(effect, *rect, elapsed.into());
             }
@@ -251,15 +264,18 @@ fn play_overlay_close(
     Ok(())
 }
 
-/// Scales every rendered cell toward black so an open modal sits on
-/// a dimmed backdrop. RGB channels keep 40 percent of their value
-/// (60 percent black opacity); a non-RGB foreground (no RGB base to
-/// scale) takes the DIM modifier instead.
 fn dim_frame(frame: &mut ratatui::Frame) {
+    dim_frame_factor(frame, 0.4);
+}
+
+fn dim_frame_factor(frame: &mut ratatui::Frame, factor: f32) {
     use ratatui::style::{Color, Modifier};
 
-    const DIM: f32 = 0.4;
-    let scale = |channel: u8| (channel as f32 * DIM) as u8;
+    let factor = factor.clamp(0.0, 1.0);
+    if factor >= 0.999 {
+        return;
+    }
+    let scale = |channel: u8| (channel as f32 * factor) as u8;
     for cell in frame.buffer_mut().content.iter_mut() {
         if let Color::Rgb(red, green, blue) = cell.bg {
             cell.set_bg(Color::Rgb(scale(red), scale(green), scale(blue)));
@@ -584,6 +600,18 @@ fn handle_tui_mouse_event(
             // honey: clicks outside the settings popup close it; row
             // and search clicks reuse the page hit path on the body.
             if app.is_settings_overlay_open() {
+                if let Some(modal) = app.settings_page().modal() {
+                    let areas = overlay_fx::FxAreas {
+                        frame: area,
+                        library_full: area,
+                    };
+                    if let Some(modal_popup) = modal.transition_rect(&areas)
+                        && !terminal::mouse::contains(modal_popup, mouse.column, mouse.row)
+                    {
+                        app.settings_page_mut().clear_modal();
+                        return;
+                    }
+                }
                 let popup = settings::overlay_popup(area, app.settings_page());
                 if !terminal::mouse::contains(popup, mouse.column, mouse.row) {
                     app.close_settings_overlay();

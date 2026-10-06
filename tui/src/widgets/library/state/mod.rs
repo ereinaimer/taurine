@@ -533,14 +533,10 @@ impl LibraryPageState {
         let Some(LibraryModal::AppFilter(mut menu)) = self.modal.take() else {
             return LibraryInteraction::handled();
         };
-        let (_, body, max_lines) = app_filter_geometry(area, &menu);
+        let (popup, body, max_lines) = app_filter_geometry(area, &menu);
         // honey: an outside click closes by leaving the taken modal
         // dropped; picks keep the menu open across live writes.
-        if body.width == 0
-            || column < body.x
-            || column >= body.x.saturating_add(body.width)
-            || row < body.y.saturating_add(1)
-        {
+        if !crate::terminal::mouse::contains(popup, column, row) || row < body.y.saturating_add(1) {
             return LibraryInteraction::handled();
         }
         menu.set_view_lines(body.height);
@@ -605,10 +601,8 @@ impl LibraryPageState {
         let Some(LibraryModal::AppFilter(menu)) = self.modal.as_mut() else {
             return;
         };
-        let (_, body, max_lines) = app_filter_geometry(area, menu);
-        if body.width == 0
-            || column < body.x
-            || column >= body.x.saturating_add(body.width)
+        let (popup, body, max_lines) = app_filter_geometry(area, menu);
+        if !crate::terminal::mouse::contains(popup, column, row)
             || row < body.y.saturating_add(APP_FILTER_ROWS_TOP)
         {
             return;
@@ -684,11 +678,7 @@ impl LibraryPageState {
         menu.set_cloud_width(body.width);
         // honey: an outside click closes by leaving the taken modal
         // dropped; picks keep the menu open across live writes.
-        if body.width == 0
-            || column < body.x
-            || column >= body.x.saturating_add(body.width)
-            || row < body.y.saturating_add(2)
-        {
+        if !crate::terminal::mouse::contains(popup, column, row) || row < body.y.saturating_add(2) {
             return LibraryInteraction::handled();
         }
         let max_rows = body.height.saturating_sub(3);
@@ -745,11 +735,7 @@ impl LibraryPageState {
         };
         let popup = crate::widgets::util::overlay_popup(area);
         let body = crate::widgets::util::overlay_body(popup);
-        if body.width == 0
-            || column < body.x
-            || column >= body.x.saturating_add(body.width)
-            || row < body.y.saturating_add(2)
-        {
+        if !crate::terminal::mouse::contains(popup, column, row) || row < body.y.saturating_add(2) {
             menu.set_hover(None);
             return;
         }

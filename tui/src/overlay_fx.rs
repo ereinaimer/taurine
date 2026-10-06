@@ -7,8 +7,8 @@
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use tachyonfx::{
-    Effect, EffectTimer, Interpolation,
-    fx::{EvolveSymbolSet, evolve_into, fade_from},
+    Effect, EffectTimer, Interpolation, Motion,
+    fx::{EvolveSymbolSet, evolve_into, sweep_in},
     pattern::RadialPattern,
 };
 
@@ -104,16 +104,18 @@ pub(crate) fn open_effect(theme: &Theme) -> Effect {
     .with_pattern(RadialPattern::center().with_transition_width(20.0))
 }
 
-/// Close-transition length: fast fade in of newly revealed content.
-pub(crate) const CLOSE_FX_MS: u32 = 200;
+/// Close-transition length: smooth 300ms gradient sweep of newly revealed content.
+pub(crate) const CLOSE_FX_MS: u32 = 300;
 
-/// Fast close transition: fades in the newly revealed content from the
+/// Smooth close transition: gradient sweep of newly revealed content from the
 /// theme background color upon overlay dismissal.
 pub(crate) fn close_effect(theme: &Theme) -> Effect {
-    fade_from(
+    sweep_in(
+        Motion::LeftToRight,
+        12,
+        0,
         theme.background,
-        theme.background,
-        EffectTimer::from_ms(CLOSE_FX_MS, Interpolation::QuadOut),
+        EffectTimer::from_ms(CLOSE_FX_MS, Interpolation::Linear),
     )
 }
 
@@ -393,7 +395,7 @@ mod tests {
             for cell in buf.content.iter_mut() {
                 cell.set_char('A');
                 cell.set_fg(Color::Rgb(255, 255, 255));
-                cell.set_bg(Color::Rgb(10, 10, 10));
+                cell.set_bg(Color::Rgb(30, 30, 30));
             }
             buf
         };
@@ -404,7 +406,7 @@ mod tests {
         assert_eq!(buffer.content[0].fg, DARK_THEME.background);
         assert_eq!(buffer.content[0].bg, DARK_THEME.background);
 
-        // At completion: cells smoothly interpolate back to their target colors
+        // At completion: cells have smoothly interpolated back to their target colors
         let mut buffer = make_buffer();
         effect.process(
             tachyonfx::Duration::from_millis(CLOSE_FX_MS),
@@ -412,7 +414,7 @@ mod tests {
             area,
         );
         assert_eq!(buffer.content[0].fg, Color::Rgb(255, 255, 255));
-        assert_eq!(buffer.content[0].bg, Color::Rgb(10, 10, 10));
+        assert_eq!(buffer.content[0].bg, Color::Rgb(30, 30, 30));
         assert!(!effect.running());
     }
 
@@ -480,21 +482,23 @@ mod tests {
             for cell in buf.content.iter_mut() {
                 cell.set_char('x');
                 cell.set_fg(Color::Rgb(255, 255, 255));
-                cell.set_bg(Color::Rgb(10, 10, 10));
+                cell.set_bg(Color::Rgb(30, 30, 30));
             }
             buf
         };
 
-        // Frame 0 (at t=0): cells start at background color.
+        // Frame 0 (at t=0): cells start faded to background color.
         let mut buf0 = make_buffer();
         effect.process(tachyonfx::Duration::ZERO, &mut buf0, area);
         assert_eq!(buf0.content[0].fg, DARK_THEME.background);
 
-        // Frame 1 (16ms): transition immediately begins interpolating towards target colors.
+        // Frame 1 (16ms): transition immediately begins interpolating towards target colors at the leading edge.
         let mut buf1 = make_buffer();
         effect.process(tachyonfx::Duration::from_millis(16), &mut buf1, area);
+        let leading = ratatui::layout::Position::new(0, 0);
         assert_ne!(
-            buf1.content[0].fg, DARK_THEME.background,
+            buf1.cell(leading).unwrap().fg,
+            DARK_THEME.background,
             "first animation frame must immediately interpolate colors"
         );
     }

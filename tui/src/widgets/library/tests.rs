@@ -1089,7 +1089,7 @@ fn parse_tags_handles_stored_shapes() {
 fn header_hit_region_for_toggle() {
     let state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
-    // Center content at x=25 width=31: [ON ] toggle owns the last 5 cells.
+    // Center content at x=25 width=31: pill toggle owns the last 5 cells.
     assert_eq!(
         detail::hit_test(
             area,
@@ -1112,6 +1112,49 @@ fn header_hit_region_for_toggle() {
         ),
         None
     );
+}
+
+#[test]
+fn toggle_pill_parks_knob_by_enable_state() {
+    use crate::theme::builtin::DARK_THEME;
+
+    let enabled = LibraryTrigger::single(list_item(
+        "id-on",
+        None,
+        TriggerType::Word,
+        "on",
+        "output",
+        "text",
+        "all",
+        0,
+        None,
+    ));
+    let spans = detail::toggle_spans(&enabled, &DARK_THEME);
+    assert_eq!(spans.len(), 2);
+    assert_eq!(spans[0].content.chars().count(), 3);
+    assert_eq!(spans[0].style.bg, Some(DARK_THEME.surface));
+    assert_eq!(spans[1].content.chars().count(), 2);
+    assert_eq!(spans[1].style.bg, Some(DARK_THEME.success));
+
+    let mut raw = list_item(
+        "id-off",
+        None,
+        TriggerType::Word,
+        "off",
+        "output",
+        "text",
+        "all",
+        0,
+        None,
+    );
+    raw.is_enabled = false;
+    let disabled = LibraryTrigger::single(raw);
+    let spans = detail::toggle_spans(&disabled, &DARK_THEME);
+    assert_eq!(spans.len(), 2);
+    assert_eq!(spans[0].content.chars().count(), 2);
+    assert_eq!(spans[0].style.bg, Some(DARK_THEME.text));
+    assert_eq!(spans[1].content.chars().count(), 3);
+    assert_eq!(spans[1].style.bg, Some(DARK_THEME.surface));
 }
 
 #[test]

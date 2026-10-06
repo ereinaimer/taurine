@@ -21,10 +21,36 @@ pub(crate) const CONTENT_INNER_HEIGHT: usize = 16;
 /// Empty-state token: three ROUNDED-border horizontals, matching the pane
 /// border glyph set.
 pub(crate) const EMPTY_TOKEN: &str = "───";
-// honey: padded to the same 5-cell width as TOGGLE_OFF so flipping
-// the switch never shifts the header layout.
-const TOGGLE_ON: &str = "[ON ]";
-const TOGGLE_OFF: &str = "[OFF]";
+// honey: fixed 5-cell groove with a 2-cell knob riding left (off) or
+// right (on); no track line. Position plus knob color carry the state,
+// so flipping never shifts the header layout.
+pub(crate) const TOGGLE_WIDTH: u16 = 5;
+const TOGGLE_KNOB_WIDTH: u16 = 2;
+
+/// Sliding pill switch: groove background throughout, solid knob block
+/// parked by enable state. Shared by rendering, so the painted switch
+/// always matches the hit box.
+pub(crate) fn toggle_spans(item: &LibraryTrigger, theme: &Theme) -> Vec<Span<'static>> {
+    let groove = Style::default().bg(theme.surface);
+    let knob = Style::default().bg(if item.is_enabled() {
+        theme.success
+    } else {
+        theme.text
+    });
+    let knob_text = " ".repeat(TOGGLE_KNOB_WIDTH as usize);
+    let rest_text = " ".repeat((TOGGLE_WIDTH - TOGGLE_KNOB_WIDTH) as usize);
+    if item.is_enabled() {
+        vec![
+            Span::styled(rest_text, groove),
+            Span::styled(knob_text, knob),
+        ]
+    } else {
+        vec![
+            Span::styled(knob_text, knob),
+            Span::styled(rest_text, groove),
+        ]
+    }
+}
 
 /// Fixed single-row offsets above the content section.
 const DESCRIPTION_OFFSET: u16 = 2;
@@ -106,7 +132,7 @@ pub(crate) fn hit_test(
     let selected = state.selected_index()?;
     let item = state.item_at_filtered(selected)?;
     if row == content.y {
-        let width = toggle_width(item);
+        let width = toggle_width();
         let start = content
             .x
             .saturating_add(content.width.saturating_sub(width));
@@ -450,12 +476,8 @@ pub(crate) fn edge_value_width(label: &str, row_width: u16) -> u16 {
     row_width.saturating_sub(label.chars().count() as u16 + 1)
 }
 
-fn toggle_width(item: &LibraryTrigger) -> u16 {
-    if item.is_enabled() {
-        TOGGLE_ON.chars().count() as u16
-    } else {
-        TOGGLE_OFF.chars().count() as u16
-    }
+fn toggle_width() -> u16 {
+    TOGGLE_WIDTH
 }
 
 fn render_header_row(
@@ -469,18 +491,7 @@ fn render_header_row(
     if row.width == 0 {
         return;
     }
-    let toggle = if item.is_enabled() {
-        Span::styled(
-            TOGGLE_ON.to_string(),
-            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
-        )
-    } else {
-        Span::styled(
-            TOGGLE_OFF.to_string(),
-            Style::default().fg(theme.text).add_modifier(Modifier::DIM),
-        )
-    };
-    let width = toggle_width(item);
+    let width = toggle_width();
     let available = row.width.saturating_sub(width).saturating_sub(1);
     // honey: editing shows the caret-anchored viewport with a real
     // caret, mirroring the search box; read mode shows the truncated
@@ -488,14 +499,15 @@ fn render_header_row(
     if let Some(edit) = state.name_edit() {
         let (visible, caret) = edit.field().window(available);
         let gap = available.saturating_sub(visible.chars().count() as u16);
-        let line = Line::from(vec![
+        let mut spans = vec![
             Span::styled(
                 visible.to_string(),
                 Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
             ),
             Span::raw(" ".repeat(gap as usize + 1)),
-            toggle,
-        ]);
+        ];
+        spans.extend(toggle_spans(item, theme));
+        let line = Line::from(spans);
         frame.render_widget(Paragraph::new(line), row);
         if !crate::overlay_fx::is_cursor_suppressed() {
             let (cx, cy) = util::caret_position(row.x, row.y, caret, available);
@@ -506,14 +518,15 @@ fn render_header_row(
     let name = util::truncate_to_width(item.display_name(), available);
     let name_width = name.chars().count();
     let gap = available.saturating_sub(name_width as u16);
-    let line = Line::from(vec![
+    let mut spans = vec![
         Span::styled(
             name,
             Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
         ),
         Span::raw(" ".repeat(gap as usize + 1)),
-        toggle,
-    ]);
+    ];
+    spans.extend(toggle_spans(item, theme));
+    let line = Line::from(spans);
     frame.render_widget(Paragraph::new(line), row);
 }
 
