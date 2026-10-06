@@ -1131,8 +1131,8 @@ fn toggle_word_reflects_enable_state() {
     ));
     let spans = detail::toggle_spans(&enabled, &DARK_THEME);
     let text: String = spans.iter().map(|span| span.content.as_ref()).collect();
-    // honey: plain words, fixed width, no styling either way.
-    assert_eq!(text, "ON ");
+    // honey: plain words, fixed width, flush right, no styling either way.
+    assert_eq!(text, "   ON");
     assert_eq!(spans.len(), 1);
 
     let mut raw = list_item(
@@ -1150,7 +1150,7 @@ fn toggle_word_reflects_enable_state() {
     let disabled = LibraryTrigger::single(raw);
     let spans = detail::toggle_spans(&disabled, &DARK_THEME);
     let text: String = spans.iter().map(|span| span.content.as_ref()).collect();
-    assert_eq!(text, "OFF");
+    assert_eq!(text, "  OFF");
     assert_eq!(spans.len(), 1);
 }
 

@@ -26,14 +26,15 @@ pub(crate) const EMPTY_TOKEN: &str = "───";
 pub(crate) const TOGGLE_WIDTH: u16 = 5;
 
 /// Plain status word, padded to the fixed width: ON or OFF with no
-/// colors, no brackets, no dot. Shared by rendering, so the painted
-/// switch always matches the hit box.
+/// colors, no brackets, no dot. The padding sits on the left so the
+/// word ends flush with the pane edge. Shared by rendering, so the
+/// painted switch always matches the hit box.
 pub(crate) fn toggle_spans(item: &LibraryTrigger, _theme: &Theme) -> Vec<Span<'static>> {
     if item.is_enabled() {
-        // honey: trailing space pads ON to the fixed width.
-        vec![Span::raw("ON ".to_string())]
+        // honey: leading spaces right-align ON in the fixed width.
+        vec![Span::raw("   ON".to_string())]
     } else {
-        vec![Span::raw("OFF".to_string())]
+        vec![Span::raw("  OFF".to_string())]
     }
 }
 
