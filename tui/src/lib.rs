@@ -46,13 +46,22 @@ pub fn run() -> taurine_core::Result<()> {
     let mut events = EventHandler::new(EVENT_TICK_RATE);
     let mut last_area = ratatui::layout::Rect::default();
     let mut previous_layers = overlay_fx::layers(&app);
+    let mut previous_rects = Vec::new();
+    let mut last_snapshot_buffer: Option<ratatui::buffer::Buffer> = None;
 
     loop {
-        terminal.terminal.draw(|frame| {
+        let completed = terminal.terminal.draw(|frame| {
             let area = frame.area();
             last_area = area;
             render_app(frame, &app, area);
         })?;
+
+        if previous_layers.is_any_open() {
+            let layout = terminal::mouse::frame_layout(last_area);
+            let full = terminal::mouse::library_full_area(layout.page);
+            previous_rects = overlay_fx::transition_rects(&app, last_area, full);
+            last_snapshot_buffer = Some(completed.buffer.clone());
+        }
 
         match events.next()? {
             Event::Key(key) => {
@@ -67,11 +76,16 @@ pub fn run() -> taurine_core::Result<()> {
             }
         }
 
-        // honey: a newly appeared overlay sweeps in; closes dismiss
-        // immediately without a blocking sweep.
+        // honey: a newly appeared overlay sweeps in; closes reverse-sweep inward.
         let next_layers = overlay_fx::layers(&app);
         if overlay_fx::appeared(&previous_layers, &next_layers) {
             play_overlay_open(&mut terminal, &mut app, last_area)?;
+        } else if overlay_fx::disappeared(&previous_layers, &next_layers)
+            && let Some(snapshot) = last_snapshot_buffer.take()
+        {
+            let closing = overlay_fx::closed_rects(&previous_layers, &next_layers, &previous_rects);
+            play_overlay_close(&mut terminal, &app, last_area, &closing, &snapshot)?;
+            previous_rects.clear();
         }
         previous_layers = next_layers;
 
@@ -180,6 +194,7 @@ fn play_overlay_open(
         .iter()
         .map(|_| overlay_fx::open_effect(theme))
         .collect();
+    let _cursor_guard = overlay_fx::CursorSuppressGuard::new();
     let frame_budget = StdDuration::from_millis(16);
     let mut last = Instant::now();
     while effects.iter().any(|effect| effect.running()) {
@@ -187,6 +202,67 @@ fn play_overlay_open(
         last = Instant::now();
         terminal.terminal.draw(|frame| {
             render_app(frame, app, area);
+            for (effect, rect) in effects.iter_mut().zip(rects.iter()) {
+                frame.render_effect(effect, *rect, elapsed.into());
+            }
+        })?;
+        std::thread::sleep(frame_budget.saturating_sub(last.elapsed()));
+    }
+    Ok(())
+}
+
+/// Plays the reverse evolve-into sweep when an overlay dismisses,
+/// collapsing the popup inward to the center at ~60fps before
+/// restoring the clean, un-dimmed screen.
+fn play_overlay_close(
+    terminal: &mut TerminalGuard,
+    app: &App,
+    area: ratatui::layout::Rect,
+    closing_rects: &[ratatui::layout::Rect],
+    snapshot: &ratatui::buffer::Buffer,
+) -> taurine_core::Result<()> {
+    use std::time::{Duration as StdDuration, Instant};
+
+    use tachyonfx::EffectRenderer;
+
+    let rects: Vec<ratatui::layout::Rect> = closing_rects
+        .iter()
+        .copied()
+        .filter(|rect| rect.width > 0 && rect.height > 0)
+        .collect();
+    if rects.is_empty() {
+        return Ok(());
+    }
+    let theme = app.theme();
+    let mut effects: Vec<tachyonfx::Effect> = rects
+        .iter()
+        .map(|_| overlay_fx::close_effect(theme))
+        .collect();
+    let _cursor_guard = overlay_fx::CursorSuppressGuard::new();
+    let frame_budget = StdDuration::from_millis(16);
+    let mut last = Instant::now();
+    let any_modal = app.library_page().is_modal_open() || app.is_settings_overlay_open();
+
+    while effects.iter().any(|effect| effect.running()) {
+        let elapsed = last.elapsed();
+        last = Instant::now();
+        terminal.terminal.draw(|frame| {
+            render_app(frame, app, area);
+            if !any_modal {
+                dim_frame(frame);
+            }
+            for rect in &rects {
+                for y in rect.top()..rect.bottom() {
+                    for x in rect.left()..rect.right() {
+                        let pos = ratatui::layout::Position::new(x, y);
+                        if let (Some(src), Some(dest)) =
+                            (snapshot.cell(pos), frame.buffer_mut().cell_mut(pos))
+                        {
+                            *dest = src.clone();
+                        }
+                    }
+                }
+            }
             for (effect, rect) in effects.iter_mut().zip(rects.iter()) {
                 frame.render_effect(effect, *rect, elapsed.into());
             }

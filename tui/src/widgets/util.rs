@@ -383,7 +383,7 @@ pub(crate) fn render_modal_input_field(
     frame.render_widget(block, area);
     let (visible, caret) = super::field::window_of(value, cursor, area.width);
     frame.render_widget(Paragraph::new(visible.to_string()).style(text_style), area);
-    if focused && area.width > 0 && area.height > 0 {
+    if focused && area.width > 0 && area.height > 0 && !crate::overlay_fx::is_cursor_suppressed() {
         let (cx, cy) = caret_position(area.x, area.y, caret, area.width);
         frame.set_cursor_position((cx, cy));
     }
@@ -440,7 +440,12 @@ pub(crate) fn render_modal_password_row(
         Paragraph::new(visible.to_string()).style(value_style),
         sections[1],
     );
-    if focused && !disabled && sections[1].width > 0 && sections[1].height > 0 {
+    if focused
+        && !disabled
+        && sections[1].width > 0
+        && sections[1].height > 0
+        && !crate::overlay_fx::is_cursor_suppressed()
+    {
         let (cx, cy) = caret_position(sections[1].x, sections[1].y, caret, sections[1].width);
         frame.set_cursor_position((cx, cy));
     }
@@ -549,7 +554,7 @@ pub(crate) fn render_search_block(
         Line::from(placeholder.to_string())
     };
     frame.render_widget(Paragraph::new(title).style(title_style), line_area);
-    if is_active {
+    if is_active && !crate::overlay_fx::is_cursor_suppressed() {
         let (cx, cy) = caret_position(line_area.x, line_area.y, caret, line_area.width);
         frame.set_cursor_position((cx, cy));
     }

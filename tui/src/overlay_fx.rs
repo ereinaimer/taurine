@@ -14,9 +14,34 @@ use tachyonfx::{
 use crate::terminal::app::App;
 use crate::theme::Theme;
 use crate::widgets::library::state::{LibraryModal, LibraryModalKind, app_filter_geometry};
-use crate::widgets::settings;
 use crate::widgets::settings::modals as settings_modals;
-use crate::widgets::settings::state::{SettingsModal, SettingsModalKind};
+use crate::widgets::settings::{self, SettingsModal, SettingsModalKind};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static CURSOR_SUPPRESSED: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn is_cursor_suppressed() -> bool {
+    CURSOR_SUPPRESSED.load(Ordering::Relaxed)
+}
+
+pub(crate) fn set_cursor_suppressed(suppressed: bool) {
+    CURSOR_SUPPRESSED.store(suppressed, Ordering::Relaxed);
+}
+
+pub(crate) struct CursorSuppressGuard;
+
+impl CursorSuppressGuard {
+    pub(crate) fn new() -> Self {
+        set_cursor_suppressed(true);
+        Self
+    }
+}
+
+impl Drop for CursorSuppressGuard {
+    fn drop(&mut self) {
+        set_cursor_suppressed(false);
+    }
+}
 
 /// Open-sweep length: matches tachyonfx official transition timing.
 pub(crate) const OPEN_FX_MS: u32 = 1500;
@@ -78,6 +103,14 @@ pub(crate) fn open_effect(theme: &Theme) -> Effect {
     .with_pattern(RadialPattern::center().with_transition_width(20.0))
 }
 
+/// One disappear sweep for every overlay: the exact opposite of the
+/// open transition. Reverses the shaded evolve-into sweep with the same
+/// theme styling and wide radial pattern, collapsing the painted content
+/// smoothly inward toward the center upon dismissal.
+pub(crate) fn close_effect(theme: &Theme) -> Effect {
+    open_effect(theme).reversed()
+}
+
 /// Visible overlay layers, by discriminant only: hover, scroll, and
 /// live reseeds never change these, so same-kind updates stay still.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,6 +118,12 @@ pub(crate) struct OverlayLayers {
     pub library: Option<LibraryModalKind>,
     pub settings: bool,
     pub settings_editor: Option<SettingsModalKind>,
+}
+
+impl OverlayLayers {
+    pub(crate) const fn is_any_open(&self) -> bool {
+        self.library.is_some() || self.settings || self.settings_editor.is_some()
+    }
 }
 
 pub(crate) fn layers(app: &App) -> OverlayLayers {
@@ -104,6 +143,37 @@ pub(crate) fn appeared(previous: &OverlayLayers, next: &OverlayLayers) -> bool {
     (next.library.is_some() && previous.library != next.library)
         || (next.settings && !previous.settings)
         || (next.settings_editor.is_some() && previous.settings_editor != next.settings_editor)
+}
+
+/// True when an overlay layer closed: dismissals sweep inward;
+/// opens and same-kind updates never do.
+pub(crate) fn disappeared(previous: &OverlayLayers, next: &OverlayLayers) -> bool {
+    if next == previous {
+        return false;
+    }
+    (previous.library.is_some() && next.library.is_none())
+        || (previous.settings && !next.settings)
+        || (previous.settings_editor.is_some() && next.settings_editor.is_none())
+}
+
+/// Returns the popup rects of the overlays that just closed between
+/// `previous` and `next`.
+pub(crate) fn closed_rects(
+    previous: &OverlayLayers,
+    next: &OverlayLayers,
+    previous_rects: &[Rect],
+) -> Vec<Rect> {
+    if previous == next {
+        return Vec::new();
+    }
+    if previous.settings_editor.is_some()
+        && next.settings_editor.is_none()
+        && next.settings
+        && let Some(top) = previous_rects.last()
+    {
+        return vec![*top];
+    }
+    previous_rects.to_vec()
 }
 
 /// Popup rects of every currently visible overlay, in paint order.
@@ -286,5 +356,130 @@ mod tests {
         let expected = app_filter_geometry(full, &menu).0;
         app.library_page_mut().modal = Some(LibraryModal::AppFilter(menu));
         assert_eq!(transition_rects(&app, area, full), vec![expected]);
+    }
+
+    #[test]
+    fn close_effect_runs_then_completes() {
+        use ratatui::buffer::Buffer;
+
+        let mut effect = close_effect(&DARK_THEME);
+        assert!(effect.running());
+        let area = Rect::new(0, 0, 20, 5);
+        let mut buffer = Buffer::empty(area);
+        effect.process(
+            tachyonfx::Duration::from_millis(OPEN_FX_MS + 50),
+            &mut buffer,
+            area,
+        );
+        assert!(!effect.running());
+    }
+
+    #[test]
+    fn close_sweep_starts_with_content_and_collapses_inward_with_shades() {
+        use ratatui::buffer::Buffer;
+
+        let area = Rect::new(0, 0, 30, 10);
+        let total = 30 * 10;
+        let mut effect = close_effect(&DARK_THEME);
+
+        // Frame 0: At t=0, the effect must NOT touch the buffer; all 'x' remain intact.
+        let mut buffer = Buffer::empty(area);
+        for cell in buffer.content.iter_mut() {
+            cell.set_char('x');
+        }
+        effect.process(tachyonfx::Duration::ZERO, &mut buffer, area);
+        let intact = buffer
+            .content
+            .iter()
+            .filter(|cell| cell.symbol() == "x")
+            .count();
+        assert_eq!(
+            intact, total,
+            "at t=0 all cells must show the painted content"
+        );
+
+        // Intermediate frames: cells should progressively turn into shaded glyphs
+        let mut saw_mixed = false;
+        let mut saw_shades = false;
+        let step = tachyonfx::Duration::from_millis(8);
+        while effect.running() {
+            let mut buf = Buffer::empty(area);
+            for cell in buf.content.iter_mut() {
+                cell.set_char('x');
+            }
+            effect.process(step, &mut buf, area);
+            let intact = buf
+                .content
+                .iter()
+                .filter(|cell| cell.symbol() == "x")
+                .count();
+            let shades = buf
+                .content
+                .iter()
+                .filter(|cell| matches!(cell.symbol(), "░" | "▒" | "▓"))
+                .count();
+            if intact > 0 && intact < total {
+                saw_mixed = true;
+            }
+            if shades > 0 {
+                saw_shades = true;
+            }
+        }
+        assert!(saw_mixed, "close sweep should collapse progressively");
+        assert!(
+            saw_shades,
+            "close sweep must show intermediate shaded symbols"
+        );
+    }
+
+    #[test]
+    fn disappeared_detects_layer_dismissals() {
+        let open_library = OverlayLayers {
+            library: Some(LibraryModalKind::Tags),
+            ..closed()
+        };
+        assert!(disappeared(&open_library, &closed()));
+        let open_settings = OverlayLayers {
+            settings: true,
+            ..closed()
+        };
+        assert!(disappeared(&open_settings, &closed()));
+        let open_editor = OverlayLayers {
+            settings: true,
+            settings_editor: Some(SettingsModalKind::Input),
+            ..closed()
+        };
+        assert!(disappeared(&open_editor, &open_settings));
+
+        // Opens and same-kind updates never trigger disappeared
+        assert!(!disappeared(&closed(), &open_library));
+        assert!(!disappeared(&open_library, &open_library));
+        assert!(!disappeared(&closed(), &closed()));
+    }
+
+    #[test]
+    fn closed_rects_isolates_editor_or_full_layer() {
+        let rect1 = Rect::new(0, 0, 50, 20);
+        let rect2 = Rect::new(10, 5, 30, 10);
+        let open_settings = OverlayLayers {
+            settings: true,
+            ..closed()
+        };
+        let open_editor = OverlayLayers {
+            settings: true,
+            settings_editor: Some(SettingsModalKind::Input),
+            ..closed()
+        };
+
+        // Editor modal closing only dissolves the editor popup, keeping settings intact
+        assert_eq!(
+            closed_rects(&open_editor, &open_settings, &[rect1, rect2]),
+            vec![rect2]
+        );
+        // Entire settings overlay closing dissolves all its rects
+        assert_eq!(
+            closed_rects(&open_settings, &closed(), &[rect1]),
+            vec![rect1]
+        );
     }
 }

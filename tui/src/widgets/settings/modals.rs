@@ -128,7 +128,8 @@ fn render_input_modal(frame: &mut Frame, area: Rect, theme: &Theme, state: &Inpu
             .style(Style::default().fg(theme.text).bg(theme.surface)),
         sections[1],
     );
-    if sections[1].width > 0 && sections[1].height > 0 {
+    if sections[1].width > 0 && sections[1].height > 0 && !crate::overlay_fx::is_cursor_suppressed()
+    {
         let (cx, cy) = util::caret_position(sections[1].x, sections[1].y, caret, sections[1].width);
         frame.set_cursor_position((cx, cy));
     }

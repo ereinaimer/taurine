@@ -683,13 +683,15 @@ fn render_tags_chips(frame: &mut Frame, body: Rect, theme: &Theme, state: &Libra
                     height: 1,
                 },
             );
-            let (caret_x, caret_y) = util::caret_position(
-                body.x.saturating_add(plus_x).saturating_add(1),
-                row_y,
-                caret,
-                avail,
-            );
-            frame.set_cursor_position((caret_x, caret_y));
+            if !crate::overlay_fx::is_cursor_suppressed() {
+                let (caret_x, caret_y) = util::caret_position(
+                    body.x.saturating_add(plus_x).saturating_add(1),
+                    row_y,
+                    caret,
+                    avail,
+                );
+                frame.set_cursor_position((caret_x, caret_y));
+            }
         } else {
             let focused = state.focus_is_add_row();
             let style = if focused {
@@ -926,6 +928,8 @@ fn render_library_app_filter_modal(
             height: 1,
         },
     );
-    let (caret_x, caret_y) = util::caret_position(content_x, search_y, caret, search_w);
-    frame.set_cursor_position((caret_x, caret_y));
+    if !crate::overlay_fx::is_cursor_suppressed() {
+        let (caret_x, caret_y) = util::caret_position(content_x, search_y, caret, search_w);
+        frame.set_cursor_position((caret_x, caret_y));
+    }
 }

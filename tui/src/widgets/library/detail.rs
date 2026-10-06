@@ -497,8 +497,10 @@ fn render_header_row(
             toggle,
         ]);
         frame.render_widget(Paragraph::new(line), row);
-        let (cx, cy) = util::caret_position(row.x, row.y, caret, available);
-        frame.set_cursor_position((cx, cy));
+        if !crate::overlay_fx::is_cursor_suppressed() {
+            let (cx, cy) = util::caret_position(row.x, row.y, caret, available);
+            frame.set_cursor_position((cx, cy));
+        }
         return;
     }
     let name = util::truncate_to_width(item.display_name(), available);
@@ -537,8 +539,10 @@ fn render_description_row(
             Span::raw(" ".repeat(gap as usize)),
         ]);
         frame.render_widget(Paragraph::new(line), row);
-        let (cx, cy) = util::caret_position(row.x, row.y, caret, row.width);
-        frame.set_cursor_position((cx, cy));
+        if !crate::overlay_fx::is_cursor_suppressed() {
+            let (cx, cy) = util::caret_position(row.x, row.y, caret, row.width);
+            frame.set_cursor_position((cx, cy));
+        }
         return;
     }
     let text = match item.description() {
@@ -834,7 +838,7 @@ fn render_content_editor(
                     )
                 };
             frame.render_widget(paragraph, row);
-            if visual == caret_visual {
+            if visual == caret_visual && !crate::overlay_fx::is_cursor_suppressed() {
                 // honey: no backgrounds while editing; the real caret alone
                 // marks the position.
                 let (cx, cy) = util::caret_position(row.x, row.y, caret_cell, text.width);
