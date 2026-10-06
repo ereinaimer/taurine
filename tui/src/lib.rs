@@ -192,7 +192,8 @@ fn play_overlay_open(
         .collect();
     let _cursor_guard = overlay_fx::CursorSuppressGuard::new();
     let frame_budget = StdDuration::from_millis(16);
-    let mut last = Instant::now();
+    let start = Instant::now() - frame_budget;
+    let mut last = start;
     while effects.iter().any(|effect| effect.running()) {
         let elapsed = last.elapsed();
         last = Instant::now();
@@ -235,7 +236,7 @@ fn play_overlay_close(
         .collect();
     let _cursor_guard = overlay_fx::CursorSuppressGuard::new();
     let frame_budget = StdDuration::from_millis(16);
-    let total_secs = (overlay_fx::CLOSE_FX_MS as f32) / 1000.0;
+    let total_secs = (overlay_fx::OVERLAY_FX_MS as f32) / 1000.0;
     let any_modal = app.library_page().is_modal_open() || app.is_settings_overlay_open();
 
     // Start with the first frame budget already elapsed so the transition begins

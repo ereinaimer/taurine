@@ -1,16 +1,11 @@
-//! Shared overlay open-transition: one tachyonfx evolve-into sweep for
-//! every overlay. Overlays report the popup rect they painted through
-//! `OverlayTransition`; the run loop plays the sweep over those rects
-//! whenever a layer newly appears. Pure state tracking lives here so it
-//! stays unit-testable without a terminal.
+//! Shared overlay transitions: unified single-color alpha fade for every
+//! overlay open and close. Overlays report the popup rect they painted
+//! through `OverlayTransition`; the run loop plays the alpha fade over
+//! those rects whenever a layer appears or dismisses. Pure state tracking
+//! lives here so it stays unit-testable without a terminal.
 
 use ratatui::layout::Rect;
-use ratatui::style::Style;
-use tachyonfx::{
-    Effect, EffectTimer, Interpolation, Motion,
-    fx::{EvolveSymbolSet, evolve_into, sweep_in},
-    pattern::RadialPattern,
-};
+use tachyonfx::{Effect, EffectTimer, Interpolation, fx::fade_from};
 
 use crate::terminal::app::App;
 use crate::theme::Theme;
@@ -44,8 +39,8 @@ impl Drop for CursorSuppressGuard {
     }
 }
 
-/// Open-sweep length: matches tachyonfx official transition timing.
-pub(crate) const OPEN_FX_MS: u32 = 1500;
+/// Shared overlay transition length: fast 200ms alpha fade for both open and close.
+pub(crate) const OVERLAY_FX_MS: u32 = 200;
 
 /// Geometry both an overlay render and its sweep agree on.
 pub(crate) struct FxAreas {
@@ -90,33 +85,25 @@ impl OverlayTransition for SettingsModal {
     }
 }
 
-/// One appear sweep for every overlay: shaded evolve-into resolving to
-/// the painted content at completion, styled with the active theme.
-/// A wide transition zone staggers cells smoothly center-outwards with
-/// intermediate gradient shading, exactly as instructed in the tachyonfx
-/// official documentation.
-pub(crate) fn open_effect(theme: &Theme) -> Effect {
-    let style = Style::default().fg(theme.surface).bg(theme.background);
-    evolve_into(
-        (EvolveSymbolSet::Shaded, style),
-        EffectTimer::from_ms(OPEN_FX_MS, Interpolation::CubicOut),
+/// Shared single-color terminal alpha fade: smoothly interpolates cell RGB values
+/// to/from the theme background color using alpha blending, with zero character
+/// modifications or multi-color gradients.
+pub(crate) fn overlay_effect(theme: &Theme) -> Effect {
+    fade_from(
+        theme.background,
+        theme.background,
+        EffectTimer::from_ms(OVERLAY_FX_MS, Interpolation::Linear),
     )
-    .with_pattern(RadialPattern::center().with_transition_width(20.0))
 }
 
-/// Close-transition length: smooth 300ms gradient sweep of newly revealed content.
-pub(crate) const CLOSE_FX_MS: u32 = 300;
+/// One appear transition for every overlay: unified single-color alpha fade.
+pub(crate) fn open_effect(theme: &Theme) -> Effect {
+    overlay_effect(theme)
+}
 
-/// Smooth close transition: gradient sweep of newly revealed content from the
-/// theme background color upon overlay dismissal.
+/// One dismissal transition for every overlay: unified single-color alpha fade.
 pub(crate) fn close_effect(theme: &Theme) -> Effect {
-    sweep_in(
-        Motion::LeftToRight,
-        12,
-        0,
-        theme.background,
-        EffectTimer::from_ms(CLOSE_FX_MS, Interpolation::Linear),
-    )
+    overlay_effect(theme)
 }
 
 /// Visible overlay layers, by discriminant only: hover, scroll, and
@@ -280,7 +267,7 @@ mod tests {
         let area = Rect::new(0, 0, 20, 5);
         let mut buffer = Buffer::empty(area);
         effect.process(
-            tachyonfx::Duration::from_millis(OPEN_FX_MS + 50),
+            tachyonfx::Duration::from_millis(OVERLAY_FX_MS + 50),
             &mut buffer,
             area,
         );
@@ -288,58 +275,49 @@ mod tests {
     }
 
     #[test]
-    fn open_sweep_resolves_progressively_without_full_block_flash() {
+    fn open_effect_fades_in_content() {
         use ratatui::buffer::Buffer;
+        use ratatui::style::Color;
 
-        // honey: mirrors the driver: each frame repaints fresh content,
-        // then the sweep processes on top of it.
-        let area = Rect::new(0, 0, 30, 10);
-        let total = 30 * 10;
+        let area = Rect::new(0, 0, 20, 5);
         let mut effect = open_effect(&DARK_THEME);
-        let mut saw_mixed = false;
-        let mut saw_all_block = false;
-        let mut saw_shades = false;
-        let step = tachyonfx::Duration::from_millis(8);
-        while effect.running() {
-            let mut buffer = Buffer::empty(area);
-            for cell in buffer.content.iter_mut() {
+
+        let make_buffer = || {
+            let mut buf = Buffer::empty(area);
+            for cell in buf.content.iter_mut() {
                 cell.set_char('x');
+                cell.set_fg(Color::Rgb(255, 255, 255));
+                cell.set_bg(Color::Rgb(30, 30, 30));
             }
-            effect.process(step, &mut buffer, area);
-            let resolved = buffer
-                .content
-                .iter()
-                .filter(|cell| cell.symbol() == "x")
-                .count();
-            let blocks = buffer
-                .content
-                .iter()
-                .filter(|cell| cell.symbol() == "█")
-                .count();
-            let shades = buffer
-                .content
-                .iter()
-                .filter(|cell| matches!(cell.symbol(), "░" | "▒" | "▓"))
-                .count();
-            if resolved > 0 && resolved < total {
-                saw_mixed = true;
-            }
-            if blocks == total {
-                saw_all_block = true;
-            }
-            if shades > 0 {
-                saw_shades = true;
-            }
-        }
-        assert!(saw_mixed, "sweep should resolve cells progressively");
-        assert!(
-            saw_shades,
-            "sweep should exhibit intermediate gradient shading symbols"
+            buf
+        };
+
+        // At t=0: cells start faded from the theme background color
+        let mut buffer = make_buffer();
+        effect.process(tachyonfx::Duration::ZERO, &mut buffer, area);
+        assert_eq!(buffer.content[0].fg, DARK_THEME.background);
+        assert_eq!(buffer.content[0].bg, DARK_THEME.background);
+
+        // Frame 1 (16ms): alpha blending begins immediately
+        let mut buf1 = make_buffer();
+        effect.process(tachyonfx::Duration::from_millis(16), &mut buf1, area);
+        assert_ne!(buf1.content[0].fg, DARK_THEME.background);
+
+        // At completion: cells have smoothly interpolated back to their target colors
+        let mut buffer = make_buffer();
+        effect.process(
+            tachyonfx::Duration::from_millis(OVERLAY_FX_MS),
+            &mut buffer,
+            area,
         );
-        assert!(
-            !saw_all_block,
-            "sweep should never turn the whole popup into solid blocks at once"
-        );
+        assert_eq!(buffer.content[0].fg, Color::Rgb(255, 255, 255));
+        assert_eq!(buffer.content[0].bg, Color::Rgb(30, 30, 30));
+        assert!(!effect.running());
+    }
+
+    #[test]
+    fn open_and_close_effects_are_symmetrical() {
+        assert_eq!(OVERLAY_FX_MS, 200);
     }
 
     #[test]
@@ -375,7 +353,7 @@ mod tests {
         assert!(effect.running());
         let mut buffer = Buffer::empty(area);
         effect.process(
-            tachyonfx::Duration::from_millis(CLOSE_FX_MS + 50),
+            tachyonfx::Duration::from_millis(OVERLAY_FX_MS + 50),
             &mut buffer,
             area,
         );
@@ -409,7 +387,7 @@ mod tests {
         // At completion: cells have smoothly interpolated back to their target colors
         let mut buffer = make_buffer();
         effect.process(
-            tachyonfx::Duration::from_millis(CLOSE_FX_MS),
+            tachyonfx::Duration::from_millis(OVERLAY_FX_MS),
             &mut buffer,
             area,
         );
