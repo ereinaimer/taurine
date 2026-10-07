@@ -117,7 +117,13 @@ fn overlay_label_prefix(icon: &str) -> String {
 /// Fixed overlay rect shared by rendering and hit-testing so clicks
 /// land on the options as drawn.
 pub(crate) fn overlay_popup(area: Rect) -> Rect {
-    centered_rect(56, 14, area)
+    overlay_popup_sized(56, 14, area)
+}
+
+/// Sized overlay rect for dialogs with less content than a full option
+/// menu; same centering, so small popups feel like the same component.
+pub(crate) fn overlay_popup_sized(width: u16, height: u16, area: Rect) -> Rect {
+    centered_rect(width, height, area)
 }
 
 /// Content rect inside an overlay popup, shared by overlay renders

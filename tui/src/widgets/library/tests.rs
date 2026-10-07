@@ -1015,17 +1015,17 @@ fn confirm_up_selects_yes_and_down_selects_no() {
 
 #[test]
 fn delete_option_hit_selects_horizontal_buttons() {
-    // overlay_popup on 100x30 centers 56x14 at (22,8); body starts at
-    // (25,9); buttons row is body.y+5=14 with Yes at x=42..48 and
+    // Sized 56x9 popup on 100x30 centers at (22,10); body starts at
+    // (25,11); buttons row is body.y+5=16 with Yes at x=42..48 and
     // No at x=52..57.
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
 
-    assert_eq!(modals::delete_option_hit(area, 43, 14), Some(true));
-    assert_eq!(modals::delete_option_hit(area, 42, 14), Some(true));
-    assert_eq!(modals::delete_option_hit(area, 48, 14), Some(true));
-    assert_eq!(modals::delete_option_hit(area, 53, 14), Some(false));
-    assert_eq!(modals::delete_option_hit(area, 52, 14), Some(false));
-    assert_eq!(modals::delete_option_hit(area, 57, 14), Some(false));
+    assert_eq!(modals::delete_option_hit(area, 43, 16), Some(true));
+    assert_eq!(modals::delete_option_hit(area, 42, 16), Some(true));
+    assert_eq!(modals::delete_option_hit(area, 48, 16), Some(true));
+    assert_eq!(modals::delete_option_hit(area, 53, 16), Some(false));
+    assert_eq!(modals::delete_option_hit(area, 52, 16), Some(false));
+    assert_eq!(modals::delete_option_hit(area, 57, 16), Some(false));
 }
 
 #[test]
@@ -1033,16 +1033,16 @@ fn delete_option_hit_ignores_chrome_gap_and_outside() {
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
 
     // Title, blank, question, name, blank rows.
-    assert_eq!(modals::delete_option_hit(area, 30, 9), None);
-    assert_eq!(modals::delete_option_hit(area, 30, 10), None);
     assert_eq!(modals::delete_option_hit(area, 30, 11), None);
     assert_eq!(modals::delete_option_hit(area, 30, 12), None);
     assert_eq!(modals::delete_option_hit(area, 30, 13), None);
-    // Gap between the buttons and cells outside them.
-    assert_eq!(modals::delete_option_hit(area, 49, 14), None);
     assert_eq!(modals::delete_option_hit(area, 30, 14), None);
-    assert_eq!(modals::delete_option_hit(area, 41, 14), None);
-    assert_eq!(modals::delete_option_hit(area, 58, 14), None);
+    assert_eq!(modals::delete_option_hit(area, 30, 15), None);
+    // Gap between the buttons and cells outside them.
+    assert_eq!(modals::delete_option_hit(area, 49, 16), None);
+    assert_eq!(modals::delete_option_hit(area, 30, 16), None);
+    assert_eq!(modals::delete_option_hit(area, 41, 16), None);
+    assert_eq!(modals::delete_option_hit(area, 58, 16), None);
     assert_eq!(modals::delete_option_hit(area, 0, 0), None);
 }
 

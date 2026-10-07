@@ -50,8 +50,12 @@ pub fn render_library_modal(frame: &mut Frame, area: Rect, theme: &Theme, modal:
 
 /// Popup geometry for library modal dialogs.
 pub(crate) fn delete_popup(area: Rect) -> Rect {
-    util::overlay_popup(area)
+    util::overlay_popup_sized(56, DELETE_POPUP_HEIGHT, area)
 }
+
+/// Delete popup height: body rows are title, blank, question, name,
+/// blank, buttons, error, so nothing sits empty below the buttons.
+pub(crate) const DELETE_POPUP_HEIGHT: u16 = 9;
 
 /// Body-row offsets inside the delete confirm, shared by rendering and
 /// hit-testing: title, blank, question, trigger name, blank, then the
@@ -168,12 +172,14 @@ fn render_library_delete_modal(
     if body.width == 0 || body.height == 0 {
         return;
     }
-    util::render_overlay_title(frame, body, theme, "Delete Trigger");
+    util::render_overlay_title(frame, body, theme, "Confirm delete");
 
     let question_y = body.y.saturating_add(DELETE_QUESTION_OFFSET);
     let name_y = body.y.saturating_add(DELETE_NAME_OFFSET);
     let buttons = delete_buttons_row(area);
-    let error_y = body.y.saturating_add(body.height).saturating_sub(1);
+    // honey: error rides directly under the buttons so a failed
+    // confirm stays visible without reserving dead space for it.
+    let error_y = buttons.y.saturating_add(1);
     let bottom = body.y.saturating_add(body.height);
     if question_y < bottom {
         frame.render_widget(

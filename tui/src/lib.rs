@@ -1820,7 +1820,7 @@ mod tests {
         assert_eq!(app.library_page().delete_selected_yes(), Some(true));
 
         // No button of the overlay confirm on TEST_AREA.
-        handle_tui_mouse_event(&mut app, left_click(53, 14), TEST_AREA);
+        handle_tui_mouse_event(&mut app, left_click(53, 16), TEST_AREA);
 
         assert!(app.library_page().is_modal_open());
         assert_eq!(app.library_page().delete_selected_yes(), Some(false));
@@ -1834,7 +1834,7 @@ mod tests {
         app.library_page_mut().set_delete_selected_yes(false);
 
         // Yes button of the overlay confirm on TEST_AREA.
-        handle_tui_mouse_event(&mut app, left_click(43, 14), TEST_AREA);
+        handle_tui_mouse_event(&mut app, left_click(43, 16), TEST_AREA);
 
         assert!(app.library_page().is_modal_open());
         assert_eq!(app.library_page().delete_selected_yes(), Some(true));
