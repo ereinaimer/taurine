@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Bottom-Anchored Lists**: Library and settings rows now stack directly above the search bar with no dead gap, opening on the row that touches it.
 - **Rounded Search Box**: The bottom search bar is now a compact bordered box instead of a filled gray block.
 - **TUI Cursor Style**: Pick the text caret shape (block, bar, or underscore) from TUI settings; bar stays the default.
+- **Snippet Syntax Highlighting**: The snippet body now colors script code and Taurine variables, transformers, and directives in both preview and editing, with mistakes shown in red.
 
 ### Changed
 - **Inline Renaming**: Click a trigger name to edit it in place. Enter saves, switching triggers saves automatically.

@@ -7,6 +7,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::Paragraph,
 };
+use taurine_core::engine::ScriptInterpreter;
 
 use crate::theme::Theme;
 use crate::widgets::library::icons::{CHEVRON_DOWN, CHEVRON_UP, os_icon};
@@ -15,6 +16,7 @@ use crate::widgets::library::state::{
 };
 use crate::widgets::util;
 
+use super::highlight;
 use super::split_panes;
 
 pub(crate) const CONTENT_INNER_HEIGHT: usize = 16;
@@ -258,6 +260,7 @@ pub(crate) fn wrap_content_spans(line: &str, width: u16) -> Vec<(String, std::op
 /// Wrap source lines to the pane width, one visual row per chunk.
 /// Blank lines stay blank; tabs flatten; trailing space trimmed so it
 /// never forces an extra row. No ellipsis, nothing clipped.
+#[cfg(test)]
 pub(crate) fn wrap_content_lines(content: &str, width: u16) -> Vec<String> {
     let mut rows = Vec::new();
     for line in content.lines() {
@@ -270,9 +273,10 @@ pub(crate) fn wrap_content_lines(content: &str, width: u16) -> Vec<String> {
 
 /// Full flow layout, top to bottom: header 0, blank 1, description 2,
 /// blank 3, buttons 4, blank 5, static content box (18 rows: border +
-/// 16 text + border). Nothing follows the box.
+/// 16 text + border). Nothing follows the box. Content rows carry their
+/// source line plus char range so highlighting survives word-wrap.
 struct DetailLayout {
-    content_rows: Vec<(u16, String)>,
+    content_rows: Vec<(u16, usize, std::ops::Range<usize>)>,
     rest: usize,
 }
 
@@ -351,7 +355,13 @@ fn detail_layout(
         return None;
     }
     let text_width = content_text_width(width);
-    let wrapped = wrap_content_lines(item.content(), text_width);
+    let source: Vec<&str> = item.content().lines().collect();
+    let mut wrapped: Vec<(usize, std::ops::Range<usize>)> = Vec::new();
+    for (source_row, line) in source.iter().enumerate() {
+        for (_, range) in wrap_content_spans(line, text_width) {
+            wrapped.push((source_row, range));
+        }
+    }
     let total = wrapped.len();
     let visible = CONTENT_INNER_HEIGHT.min(total.saturating_sub(scroll.min(total)));
     let start = CONTENT_BOX_TOP.saturating_add(1);
@@ -360,7 +370,7 @@ fn detail_layout(
         .skip(scroll)
         .take(visible)
         .enumerate()
-        .map(|(index, line)| (start.saturating_add(index as u16), line))
+        .map(|(index, (source_row, range))| (start.saturating_add(index as u16), source_row, range))
         .collect::<Vec<_>>();
     let rest = total.saturating_sub(scroll.saturating_add(visible));
     Some(DetailLayout { content_rows, rest })
@@ -421,7 +431,7 @@ pub(crate) fn render_detail(
     render_description_row(frame, content, theme, state, item);
     render_buttons_row(frame, content, theme, state, item);
     if let Some(layout) = detail_layout(content.height, content.width, item, scroll) {
-        render_content_rows(frame, content, theme, state, &layout);
+        render_content_rows(frame, content, theme, state, item, &layout);
     }
 }
 
@@ -673,6 +683,7 @@ fn render_content_rows(
     area: Rect,
     theme: &Theme,
     state: &LibraryPageState,
+    item: &LibraryTrigger,
     layout: &DetailLayout,
 ) {
     use ratatui::symbols::border;
@@ -735,10 +746,19 @@ fn render_content_rows(
         .edit()
         .filter(|edit| edit.target() == EditTarget::Content)
     {
-        render_content_editor(frame, theme, text, edit, state.detail_scroll());
+        render_content_editor(
+            frame,
+            theme,
+            text,
+            edit,
+            state.detail_scroll(),
+            item.interpreter(),
+        );
         return;
     }
-    for (index, (_, line)) in layout.content_rows.iter().enumerate() {
+    let source: Vec<String> = item.content().lines().map(str::to_string).collect();
+    let highlighted = highlight::highlight_lines(&source, item.interpreter(), theme);
+    for (index, (_, source_row, range)) in layout.content_rows.iter().enumerate() {
         if index >= text.height as usize {
             break;
         }
@@ -748,11 +768,15 @@ fn render_content_rows(
             width: text.width,
             height: 1,
         };
-        // Pre-wrapped to the text width: one visual row, nothing clipped.
-        frame.render_widget(
-            Paragraph::new(Line::from(line.clone())).style(Style::default().fg(theme.text)),
-            row,
+        // Pre-wrapped to the text width: one visual row sliced from the
+        // highlighted source line, nothing clipped.
+        let spans = highlight::spans_for_range(
+            &source[*source_row],
+            &highlighted[*source_row],
+            range.clone(),
+            None,
         );
+        frame.render_widget(Paragraph::new(Line::from(spans)), row);
     }
 }
 
@@ -764,6 +788,7 @@ fn render_content_editor(
     text: Rect,
     edit: &crate::widgets::library::state::ActiveEdit,
     scroll: usize,
+    interpreter: Option<ScriptInterpreter>,
 ) {
     // honey: identical wrapping to read mode; the caret paints on the
     // wrapped visual row, so long paragraphs stay editable in place.
@@ -773,9 +798,10 @@ fn render_content_editor(
     let (caret_visual, caret_cell) =
         content_visual_cursor(body.lines(), caret_row, caret_col, text.width);
     let selection = body.selection_range();
+    let highlighted = highlight::highlight_lines(body.lines(), interpreter, theme);
     let mut visual = 0usize;
     'rows: for (source_row, line) in body.lines().iter().enumerate() {
-        for (chunk, range) in wrap_content_spans(line, text.width) {
+        for (_, range) in wrap_content_spans(line, text.width) {
             if visual < scroll {
                 visual = visual.saturating_add(1);
                 continue;
@@ -790,12 +816,11 @@ fn render_content_editor(
                 width: text.width,
                 height: 1,
             };
-            let paragraph =
-                if let Some(((sel_start_row, sel_start_col), (sel_end_row, sel_end_col))) =
-                    selection
-                    && source_row >= sel_start_row
-                    && source_row <= sel_end_row
-                {
+            let selected = selection.and_then(
+                |((sel_start_row, sel_start_col), (sel_end_row, sel_end_col))| {
+                    if source_row < sel_start_row || source_row > sel_end_row {
+                        return None;
+                    }
                     let lo = if source_row == sel_start_row {
                         sel_start_col
                     } else {
@@ -808,31 +833,14 @@ fn render_content_editor(
                         range.end
                     }
                     .min(range.end);
-                    let chars: Vec<char> = chunk.chars().collect();
-                    let base = Style::default().fg(theme.text);
-                    if lo < hi {
-                        let from = lo.saturating_sub(range.start).min(chars.len());
-                        let to = hi.saturating_sub(range.start).min(chars.len());
-                        let selected: String = chars[from..to].iter().collect();
-                        let head: String = chars[..from].iter().collect();
-                        let tail: String = chars[to..].iter().collect();
-                        let lit = Style::default()
-                            .fg(theme.text)
-                            .add_modifier(Modifier::REVERSED);
-                        Paragraph::new(Line::from(vec![
-                            Span::styled(head, base),
-                            Span::styled(selected, lit),
-                            Span::styled(tail, base),
-                        ]))
-                    } else {
-                        Paragraph::new(Line::from(Span::styled(chunk.clone(), base)))
-                    }
-                } else {
-                    Paragraph::new(
-                        Line::from(chunk.as_str()).style(Style::default().fg(theme.text)),
-                    )
-                };
-            frame.render_widget(paragraph, row);
+                    (lo < hi).then_some(lo..hi)
+                },
+            );
+            // honey: no backgrounds while editing; highlighted spans plus
+            // the real caret alone mark the position.
+            let spans =
+                highlight::spans_for_range(line, &highlighted[source_row], range.clone(), selected);
+            frame.render_widget(Paragraph::new(Line::from(spans)), row);
             if visual == caret_visual {
                 // honey: no backgrounds while editing; the real caret alone
                 // marks the position.

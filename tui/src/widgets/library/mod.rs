@@ -1,5 +1,6 @@
 pub mod actions;
 pub mod detail;
+pub mod highlight;
 pub mod icons;
 pub mod list;
 pub mod modals;
