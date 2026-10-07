@@ -1,7 +1,10 @@
 use std::path::PathBuf;
 use zeroize::Zeroize;
 
-use taurine_core::db::crud::{ActionType, InvocationType, TriggerListItem, delete_trigger};
+use taurine_core::db::crud::{
+    ActionType, InvocationType, NewEntry, TriggerListItem, TriggerType, create_entry,
+    delete_trigger,
+};
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 use taurine_core::exchange::{
     ExchangePayload, ImportConflictAction, decode_exchange_blob, encode_exchange_blob,
@@ -61,6 +64,65 @@ impl PendingLibraryDelete {
         }
         taurine_core::rpc::notify_daemon_reload();
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PendingLibraryCreate {
+    pub(crate) trigger: String,
+    pub(crate) trigger_type: TriggerType,
+    pub(crate) content: String,
+    pub(crate) name: String,
+    pub(crate) action_type: String,
+    pub(crate) target_os: String,
+    pub(crate) tags: Vec<String>,
+    pub(crate) allow_apps: Vec<String>,
+    pub(crate) block_apps: Vec<String>,
+    pub(crate) auto_case: bool,
+    pub(crate) interpreter: Option<ScriptInterpreter>,
+    pub(crate) behavior: Option<ScriptBehavior>,
+}
+
+impl PendingLibraryCreate {
+    fn invocation_type(&self) -> InvocationType {
+        match self.trigger_type {
+            TriggerType::Word => InvocationType::Word,
+            TriggerType::Hotkey => InvocationType::Hotkey,
+            TriggerType::Regex => InvocationType::Regex,
+        }
+    }
+
+    fn join_filters(items: &[String]) -> Option<String> {
+        (!items.is_empty()).then(|| join_app_filters(items))
+    }
+
+    /// Insert the draft as a new entry, returning its id so the page
+    /// can select the new row. Conflict and validation failures
+    /// surface with the modal still open.
+    pub(crate) fn apply(&self) -> taurine_core::Result<String> {
+        let conn = taurine_core::db::init::setup()?;
+        let tags_json = serde_json::to_string(&self.tags).map_err(|error| {
+            taurine_core::Error::Config(format!("Tags could not be encoded: {error}"))
+        })?;
+        let (id, _) = create_entry(
+            &conn,
+            NewEntry {
+                name: self.name.clone(),
+                description: None,
+                content: self.content.clone(),
+                action_type: self.action_type.clone(),
+                target_os: self.target_os.clone(),
+                only_apps: Self::join_filters(&self.allow_apps),
+                except_apps: Self::join_filters(&self.block_apps),
+                tags_json,
+                auto_case: self.auto_case,
+                interpreter: self.interpreter,
+                behavior: self.behavior,
+                invocations: vec![(self.invocation_type(), self.trigger.clone(), false)],
+            },
+        )?;
+        taurine_core::rpc::notify_daemon_reload();
+        Ok(id)
     }
 }
 
@@ -363,6 +425,7 @@ impl PreparedLibraryImport {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct LibraryInteraction {
     pending_delete: Option<PendingLibraryDelete>,
+    pending_create: Option<PendingLibraryCreate>,
     pending_toggle: Option<PendingLibraryToggle>,
     pending_edit: Option<PendingLibraryEdit>,
     pending_export: Option<PendingLibraryExport>,
@@ -374,6 +437,10 @@ pub(crate) struct LibraryInteraction {
 impl LibraryInteraction {
     pub(crate) const fn pending_delete(&self) -> Option<&PendingLibraryDelete> {
         self.pending_delete.as_ref()
+    }
+
+    pub(crate) const fn pending_create(&self) -> Option<&PendingLibraryCreate> {
+        self.pending_create.as_ref()
     }
 
     pub(crate) const fn pending_toggle(&self) -> Option<&PendingLibraryToggle> {
@@ -407,6 +474,20 @@ impl LibraryInteraction {
     pub(crate) fn delete(pending_delete: PendingLibraryDelete) -> Self {
         Self {
             pending_delete: Some(pending_delete),
+            pending_create: None,
+            pending_toggle: None,
+            pending_edit: None,
+            pending_export: None,
+            pending_import_prepare: None,
+            pending_import_commit: None,
+            close_modal: false,
+        }
+    }
+
+    pub(crate) fn create(pending_create: PendingLibraryCreate) -> Self {
+        Self {
+            pending_delete: None,
+            pending_create: Some(pending_create),
             pending_toggle: None,
             pending_edit: None,
             pending_export: None,
@@ -419,6 +500,7 @@ impl LibraryInteraction {
     pub(crate) fn toggle(pending_toggle: PendingLibraryToggle) -> Self {
         Self {
             pending_delete: None,
+            pending_create: None,
             pending_toggle: Some(pending_toggle),
             pending_edit: None,
             pending_export: None,
@@ -431,6 +513,7 @@ impl LibraryInteraction {
     pub(crate) fn edit(pending_edit: PendingLibraryEdit) -> Self {
         Self {
             pending_delete: None,
+            pending_create: None,
             pending_toggle: None,
             pending_edit: Some(pending_edit),
             pending_export: None,
@@ -443,6 +526,7 @@ impl LibraryInteraction {
     pub(crate) fn export(pending_export: PendingLibraryExport) -> Self {
         Self {
             pending_delete: None,
+            pending_create: None,
             pending_toggle: None,
             pending_edit: None,
             pending_export: Some(pending_export),
@@ -455,6 +539,7 @@ impl LibraryInteraction {
     pub(crate) fn prepare_import(pending_import_prepare: PendingLibraryImportPrepare) -> Self {
         Self {
             pending_delete: None,
+            pending_create: None,
             pending_toggle: None,
             pending_edit: None,
             pending_export: None,
@@ -467,6 +552,7 @@ impl LibraryInteraction {
     pub(crate) fn import(prepared: PreparedLibraryImport) -> Self {
         Self {
             pending_delete: None,
+            pending_create: None,
             pending_toggle: None,
             pending_edit: None,
             pending_export: None,
@@ -479,6 +565,7 @@ impl LibraryInteraction {
     pub(crate) fn close() -> Self {
         Self {
             pending_delete: None,
+            pending_create: None,
             pending_toggle: None,
             pending_edit: None,
             pending_export: None,

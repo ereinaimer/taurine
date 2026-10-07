@@ -35,6 +35,7 @@ pub(crate) struct LibraryHeaderMenuState {
     options: Vec<String>,
     details: Vec<String>,
     selected: usize,
+    return_to_create: Option<Box<super::create::LibraryCreateModalState>>,
 }
 
 impl LibraryHeaderMenuState {
@@ -81,6 +82,7 @@ impl LibraryHeaderMenuState {
                 options,
                 details: vec![String::new(); 6],
                 selected,
+                return_to_create: None,
             };
         }
         let details: Vec<String> = options
@@ -116,7 +118,29 @@ impl LibraryHeaderMenuState {
             options,
             details,
             selected,
+            return_to_create: None,
         }
+    }
+
+    /// Attach a create draft for the return trip: picks apply to the
+    /// draft instead of persisting to the database.
+    pub(crate) fn with_create_draft(
+        mut self,
+        draft: super::create::LibraryCreateModalState,
+    ) -> Self {
+        self.return_to_create = Some(Box::new(draft));
+        self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn return_to_create(&self) -> Option<&super::create::LibraryCreateModalState> {
+        self.return_to_create.as_deref()
+    }
+
+    pub(crate) fn take_return_to_create(
+        &mut self,
+    ) -> Option<Box<super::create::LibraryCreateModalState>> {
+        self.return_to_create.take()
     }
 
     pub(crate) const fn kind(&self) -> HeaderMenuKind {

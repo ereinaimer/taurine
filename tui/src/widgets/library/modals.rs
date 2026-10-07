@@ -7,11 +7,13 @@ use ratatui::{
 };
 
 use crate::theme::Theme;
+use crate::widgets::library::icons::CHEVRON_DOWN;
 use crate::widgets::library::state::{
-    LibraryAppFilterState, LibraryDeleteModalState, LibraryExportModalField,
-    LibraryExportModalState, LibraryExportResultModalState, LibraryHeaderMenuState,
-    LibraryImportModalField, LibraryImportModalState, LibraryImportResultModalState,
-    LibraryImportRunVariablesModalState, LibraryModal, LibrarySelectState, LibraryTagsModalState,
+    ButtonSelection, LibraryAppFilterState, LibraryCreateModalField, LibraryCreateModalState,
+    LibraryDeleteModalState, LibraryExportModalField, LibraryExportModalState,
+    LibraryExportResultModalState, LibraryHeaderMenuState, LibraryImportModalField,
+    LibraryImportModalState, LibraryImportResultModalState, LibraryImportRunVariablesModalState,
+    LibraryModal, LibrarySelectState, LibraryTagsModalState,
 };
 use crate::widgets::util::{self};
 
@@ -38,6 +40,7 @@ pub fn render_library_modal(frame: &mut Frame, area: Rect, theme: &Theme, modal:
         LibraryModal::ConfirmDelete(state) => {
             render_library_delete_modal(frame, area, theme, state)
         }
+        LibraryModal::Create(state) => render_library_create_modal(frame, area, theme, state),
         LibraryModal::HeaderMenu(state) => {
             render_library_header_menu_modal(frame, area, theme, state)
         }
@@ -232,6 +235,559 @@ fn render_library_delete_modal(
             .add_modifier(Modifier::DIM)
     };
     if error_y < bottom && error_y != buttons.y {
+        frame.render_widget(
+            Paragraph::new(state.error().unwrap_or("")).style(feedback_style),
+            Rect {
+                x: body.x,
+                y: error_y,
+                width: body.width,
+                height: 1,
+            },
+        );
+    }
+}
+
+/// Create popup width; the body sheds the overlay margins.
+pub(crate) const CREATE_POPUP_WIDTH: u16 = 76;
+pub(crate) const CREATE_BODY_WIDTH: u16 = CREATE_POPUP_WIDTH - 6;
+/// Label column width for the create form's inline rows.
+const CREATE_LABEL_WIDTH: u16 = 12;
+
+/// Create popup height by shape: title, type, trigger, content label
+/// plus box, name, action, script rows, os, advanced toggle, advanced
+/// rows, buttons, error.
+pub(crate) fn create_popup_height(is_script: bool, expanded: bool) -> u16 {
+    let mut height = 16u16;
+    if is_script {
+        height = height.saturating_add(2);
+    }
+    if expanded {
+        height = height.saturating_add(4);
+    }
+    height
+}
+
+pub(crate) fn create_popup(area: Rect, is_script: bool, expanded: bool) -> Rect {
+    util::overlay_popup_sized(
+        CREATE_POPUP_WIDTH,
+        create_popup_height(is_script, expanded),
+        area,
+    )
+}
+
+/// Body-relative rows of the create form, shared by rendering and
+/// hit-testing. The content box always spans four rows; the error row
+/// rides directly under the buttons.
+struct CreateRows {
+    field_rows: Vec<(LibraryCreateModalField, u16)>,
+    content_first: u16,
+    buttons: u16,
+}
+
+fn create_rows(is_script: bool, expanded: bool) -> CreateRows {
+    use LibraryCreateModalField as Field;
+    let content_first = 4u16;
+    let mut ordered = vec![
+        (Field::TriggerType, 1),
+        (Field::Trigger, 2),
+        (Field::Name, 8),
+        (Field::Action, 9),
+    ];
+    let mut next = 10u16;
+    if is_script {
+        ordered.push((Field::Interpreter, next));
+        next += 1;
+        ordered.push((Field::Behavior, next));
+        next += 1;
+    }
+    ordered.push((Field::Os, next));
+    next += 1;
+    ordered.push((Field::AdvancedToggle, next));
+    next += 1;
+    if expanded {
+        for field in [Field::AutoCase, Field::Tags, Field::Allow, Field::Block] {
+            ordered.push((field, next));
+            next += 1;
+        }
+    }
+    let buttons = next;
+    CreateRows {
+        field_rows: ordered,
+        content_first,
+        buttons,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CreateHit {
+    Field(LibraryCreateModalField),
+    Cancel,
+    Create,
+}
+
+fn create_buttons_row(area: Rect, is_script: bool, expanded: bool) -> (Rect, Rect, Rect) {
+    let popup = create_popup(area, is_script, expanded);
+    let body = util::overlay_body(popup);
+    let rows = create_rows(is_script, expanded);
+    let row = Rect {
+        x: body.x,
+        y: body.y.saturating_add(rows.buttons),
+        width: body.width,
+        height: 1,
+    };
+    let (cancel, create) = util::confirm_button_cells(row, "Cancel", "Create");
+    (row, cancel, create)
+}
+
+/// Click on the create modal: field rows focus (picker rows also
+/// open), the button pair cancels or submits, everything else is
+/// dead. Takes the draft since rows depend on its shape.
+pub(crate) fn create_option_hit(
+    draft: &LibraryCreateModalState,
+    area: Rect,
+    column: u16,
+    row: u16,
+) -> Option<CreateHit> {
+    use super::state::CREATE_CONTENT_ROWS;
+
+    let is_script = !draft.is_text_action();
+    let popup = create_popup(area, is_script, draft.advanced_expanded());
+    if !crate::terminal::mouse::contains(popup, column, row) {
+        return None;
+    }
+    let body = util::overlay_body(popup);
+    if body.width == 0 || body.height == 0 {
+        return None;
+    }
+    if column < body.x || column >= body.x.saturating_add(body.width) {
+        return None;
+    }
+    let rows = create_rows(is_script, draft.advanced_expanded());
+    let rel = row.saturating_sub(body.y);
+    let (_, cancel, create) = create_buttons_row(area, is_script, draft.advanced_expanded());
+    if row == cancel.y && column >= cancel.x && column < cancel.x.saturating_add(cancel.width) {
+        return Some(CreateHit::Cancel);
+    }
+    if row == create.y && column >= create.x && column < create.x.saturating_add(create.width) {
+        return Some(CreateHit::Create);
+    }
+    if rel >= rows.content_first
+        && rel
+            < rows
+                .content_first
+                .saturating_add(CREATE_CONTENT_ROWS as u16)
+    {
+        return Some(CreateHit::Field(LibraryCreateModalField::Content));
+    }
+    rows.field_rows
+        .iter()
+        .find(|(_, y)| *y == rel)
+        .map(|(field, _)| CreateHit::Field(*field))
+}
+
+fn render_create_text_row(
+    frame: &mut Frame,
+    body: Rect,
+    y: u16,
+    label: &str,
+    field: &crate::widgets::field::TextField,
+    focused: bool,
+    theme: &Theme,
+) {
+    let bottom = body.y.saturating_add(body.height);
+    if y >= bottom {
+        return;
+    }
+    let area = Rect {
+        x: body.x,
+        y,
+        width: body.width,
+        height: 1,
+    };
+    let label_style = if focused {
+        Style::default().fg(theme.text).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme.text_muted)
+    };
+    frame.render_widget(
+        Paragraph::new(label).style(label_style),
+        Rect {
+            x: area.x,
+            y,
+            width: CREATE_LABEL_WIDTH.min(area.width),
+            height: 1,
+        },
+    );
+    let input_x = area.x.saturating_add(CREATE_LABEL_WIDTH).saturating_add(1);
+    let input_width = area
+        .width
+        .saturating_sub(CREATE_LABEL_WIDTH)
+        .saturating_sub(1);
+    if input_width == 0 {
+        return;
+    }
+    let bg = if focused {
+        theme.surface
+    } else {
+        theme.background
+    };
+    frame.render_widget(
+        Block::default().style(Style::default().bg(bg)),
+        Rect {
+            x: input_x,
+            y,
+            width: input_width,
+            height: 1,
+        },
+    );
+    let (visible, caret) = field.window(input_width);
+    frame.render_widget(
+        Paragraph::new(visible.to_string()).style(Style::default().fg(theme.text).bg(bg)),
+        Rect {
+            x: input_x,
+            y,
+            width: input_width,
+            height: 1,
+        },
+    );
+    if focused {
+        let (cx, cy) = util::caret_position(input_x, y, caret, input_width);
+        frame.set_cursor_position((cx, cy));
+    }
+}
+
+fn render_library_create_modal(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    state: &LibraryCreateModalState,
+) {
+    use ratatui::style::Color::Rgb;
+
+    use super::state::CREATE_CONTENT_ROWS;
+
+    let is_script = !state.is_text_action();
+    let expanded = state.advanced_expanded();
+    let popup = create_popup(area, is_script, expanded);
+    frame.render_widget(Clear, popup);
+    // honey: flat borderless fill, the shared overlay language.
+    frame.render_widget(
+        Block::default().style(Style::default().bg(Rgb(0x14, 0x14, 0x14))),
+        popup,
+    );
+    let body = util::overlay_body(popup);
+    if body.width == 0 || body.height == 0 {
+        return;
+    }
+    util::render_overlay_title(frame, body, theme, "New Trigger");
+    let rows = create_rows(is_script, expanded);
+    let bottom = body.y.saturating_add(body.height);
+    let focused = state.focus();
+
+    for (field, y) in &rows.field_rows {
+        let y = body.y.saturating_add(*y);
+        if y >= bottom {
+            continue;
+        }
+        let is_focused = focused == *field;
+        match field {
+            LibraryCreateModalField::TriggerType => {
+                util::render_modal_key_value_row(
+                    frame,
+                    Rect {
+                        x: body.x,
+                        y,
+                        width: body.width,
+                        height: 1,
+                    },
+                    "Type",
+                    &format!("{} {CHEVRON_DOWN}", state.type_label()),
+                    is_focused,
+                    false,
+                    theme,
+                );
+            }
+            LibraryCreateModalField::Trigger => {
+                render_create_text_row(
+                    frame,
+                    body,
+                    y,
+                    "Trigger",
+                    state.trigger_field(),
+                    is_focused,
+                    theme,
+                );
+            }
+            LibraryCreateModalField::Name => {
+                render_create_text_row(
+                    frame,
+                    body,
+                    y,
+                    "Name",
+                    state.name_field(),
+                    is_focused,
+                    theme,
+                );
+            }
+            LibraryCreateModalField::Action => {
+                util::render_modal_key_value_row(
+                    frame,
+                    Rect {
+                        x: body.x,
+                        y,
+                        width: body.width,
+                        height: 1,
+                    },
+                    "Action",
+                    state.action_label(),
+                    is_focused,
+                    false,
+                    theme,
+                );
+            }
+            LibraryCreateModalField::Interpreter => {
+                util::render_modal_key_value_row(
+                    frame,
+                    Rect {
+                        x: body.x,
+                        y,
+                        width: body.width,
+                        height: 1,
+                    },
+                    "Language",
+                    &format!("{} {CHEVRON_DOWN}", state.interpreter_label()),
+                    is_focused,
+                    false,
+                    theme,
+                );
+            }
+            LibraryCreateModalField::Behavior => {
+                util::render_modal_key_value_row(
+                    frame,
+                    Rect {
+                        x: body.x,
+                        y,
+                        width: body.width,
+                        height: 1,
+                    },
+                    "Behavior",
+                    &format!("{} {CHEVRON_DOWN}", state.behavior_label()),
+                    is_focused,
+                    false,
+                    theme,
+                );
+            }
+            LibraryCreateModalField::Os => {
+                util::render_modal_key_value_row(
+                    frame,
+                    Rect {
+                        x: body.x,
+                        y,
+                        width: body.width,
+                        height: 1,
+                    },
+                    "OS",
+                    &format!("{} {CHEVRON_DOWN}", state.target_os()),
+                    is_focused,
+                    false,
+                    theme,
+                );
+            }
+            LibraryCreateModalField::AdvancedToggle => {
+                let chevron = if expanded {
+                    super::icons::CHEVRON_UP
+                } else {
+                    CHEVRON_DOWN
+                };
+                let style = if is_focused {
+                    Style::default()
+                        .fg(theme.text)
+                        .bg(theme.surface)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(theme.text_muted)
+                };
+                frame.render_widget(
+                    Paragraph::new(Line::from(vec![
+                        Span::styled(format!("{chevron} "), style),
+                        Span::styled("Advanced Options", style),
+                    ])),
+                    Rect {
+                        x: body.x,
+                        y,
+                        width: body.width,
+                        height: 1,
+                    },
+                );
+            }
+            LibraryCreateModalField::AutoCase => {
+                util::render_modal_key_value_row(
+                    frame,
+                    Rect {
+                        x: body.x,
+                        y,
+                        width: body.width,
+                        height: 1,
+                    },
+                    "Auto case",
+                    if state.auto_case() { "on" } else { "off" },
+                    is_focused,
+                    false,
+                    theme,
+                );
+            }
+            LibraryCreateModalField::Tags => {
+                let summary = if state.tags().is_empty() {
+                    super::detail::EMPTY_TOKEN.to_string()
+                } else {
+                    state.tags().join(", ")
+                };
+                util::render_modal_key_value_row(
+                    frame,
+                    Rect {
+                        x: body.x,
+                        y,
+                        width: body.width,
+                        height: 1,
+                    },
+                    "Tags",
+                    &format!("{summary} {CHEVRON_DOWN}"),
+                    is_focused,
+                    false,
+                    theme,
+                );
+            }
+            LibraryCreateModalField::Allow => {
+                let summary = if state.allow_apps().is_empty() {
+                    super::detail::EMPTY_TOKEN.to_string()
+                } else {
+                    state.allow_apps().join(", ")
+                };
+                util::render_modal_key_value_row(
+                    frame,
+                    Rect {
+                        x: body.x,
+                        y,
+                        width: body.width,
+                        height: 1,
+                    },
+                    "Allow on",
+                    &format!("{summary} {CHEVRON_DOWN}"),
+                    is_focused,
+                    false,
+                    theme,
+                );
+            }
+            LibraryCreateModalField::Block => {
+                let summary = if state.block_apps().is_empty() {
+                    super::detail::EMPTY_TOKEN.to_string()
+                } else {
+                    state.block_apps().join(", ")
+                };
+                util::render_modal_key_value_row(
+                    frame,
+                    Rect {
+                        x: body.x,
+                        y,
+                        width: body.width,
+                        height: 1,
+                    },
+                    "Block on",
+                    &format!("{summary} {CHEVRON_DOWN}"),
+                    is_focused,
+                    false,
+                    theme,
+                );
+            }
+            LibraryCreateModalField::Content | LibraryCreateModalField::ActionButton => {}
+        }
+    }
+
+    // honey: content label plus a four-row viewport that follows the
+    // caret; long lines truncate in place like the detail preview.
+    let label_y = body.y.saturating_add(3);
+    if label_y < bottom {
+        let style = if focused == LibraryCreateModalField::Content {
+            Style::default().fg(theme.text).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme.text_muted)
+        };
+        frame.render_widget(
+            Paragraph::new("Content").style(style),
+            Rect {
+                x: body.x,
+                y: label_y,
+                width: body.width,
+                height: 1,
+            },
+        );
+    }
+    let (caret_row, caret_col) = state.content().cursor();
+    let lines = state.content().lines();
+    for index in 0..CREATE_CONTENT_ROWS {
+        let y = body
+            .y
+            .saturating_add(rows.content_first)
+            .saturating_add(index as u16);
+        if y >= bottom {
+            break;
+        }
+        let line = lines
+            .get(state.content_scroll().saturating_add(index))
+            .map(String::as_str)
+            .unwrap_or("");
+        let visible: String = line.chars().take(body.width as usize).collect();
+        let is_caret_row = focused == LibraryCreateModalField::Content
+            && caret_row == state.content_scroll().saturating_add(index);
+        let style = if is_caret_row {
+            Style::default().fg(theme.text).bg(theme.surface)
+        } else {
+            Style::default().fg(theme.text)
+        };
+        frame.render_widget(
+            Paragraph::new(visible).style(style),
+            Rect {
+                x: body.x,
+                y,
+                width: body.width,
+                height: 1,
+            },
+        );
+        if is_caret_row {
+            let (cx, cy) = util::caret_position(
+                body.x,
+                y,
+                caret_col.min(body.width.saturating_sub(1) as usize),
+                body.width,
+            );
+            frame.set_cursor_position((cx, cy));
+        }
+    }
+
+    let (_, cancel, create) = create_buttons_row(area, is_script, expanded);
+    if cancel.y < bottom {
+        util::render_confirm_buttons(
+            frame,
+            cancel,
+            create,
+            "Cancel",
+            "Create",
+            state.button_selection() == ButtonSelection::Cancel,
+            theme,
+        );
+    }
+
+    let error_y = cancel.y.saturating_add(1);
+    let feedback_style = if state.error().is_some() {
+        Style::default()
+            .fg(theme.error)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .fg(theme.text_muted)
+            .add_modifier(Modifier::DIM)
+    };
+    if error_y < bottom {
         frame.render_widget(
             Paragraph::new(state.error().unwrap_or("")).style(feedback_style),
             Rect {

@@ -56,6 +56,7 @@ pub(crate) struct LibraryTagsModalState {
     cloud_width: u16,
     input: TextField,
     error: Option<String>,
+    return_to_create: Option<Box<super::create::LibraryCreateModalState>>,
 }
 
 impl LibraryTagsModalState {
@@ -71,7 +72,32 @@ impl LibraryTagsModalState {
             cloud_width: 0,
             input: TextField::new(""),
             error: None,
+            return_to_create: None,
         }
+    }
+
+    /// Attach a create draft for the return trip: toggles collect
+    /// into the draft instead of persisting to the database.
+    pub(crate) fn with_create_draft(
+        mut self,
+        draft: super::create::LibraryCreateModalState,
+    ) -> Self {
+        self.return_to_create = Some(Box::new(draft));
+        self
+    }
+
+    pub(crate) fn return_to_create(&self) -> Option<&super::create::LibraryCreateModalState> {
+        self.return_to_create.as_deref()
+    }
+
+    pub(crate) fn draft_mut(&mut self) -> Option<&mut super::create::LibraryCreateModalState> {
+        self.return_to_create.as_deref_mut()
+    }
+
+    pub(crate) fn take_return_to_create(
+        &mut self,
+    ) -> Option<Box<super::create::LibraryCreateModalState>> {
+        self.return_to_create.take()
     }
 
     pub(crate) const fn input_active(&self) -> bool {

@@ -1,4 +1,5 @@
 mod app_filter;
+mod create;
 mod delete;
 mod edit;
 mod export;
@@ -8,6 +9,7 @@ mod tags;
 mod trigger;
 
 pub(crate) use app_filter::*;
+pub(crate) use create::*;
 pub(crate) use delete::*;
 pub(crate) use edit::*;
 pub(crate) use export::*;
@@ -50,6 +52,7 @@ pub(crate) enum LibraryModal {
     ImportResult(LibraryImportResultModalState),
     ConfirmImportRunVariables(LibraryImportRunVariablesModalState),
     ConfirmDelete(LibraryDeleteModalState),
+    Create(Box<LibraryCreateModalState>),
     HeaderMenu(LibraryHeaderMenuState),
     Tags(LibraryTagsModalState),
     AppFilter(LibraryAppFilterState),
@@ -95,6 +98,7 @@ impl LibraryModal {
             Self::ImportResult(state) => state.set_error(error),
             Self::ConfirmImportRunVariables(state) => state.set_error(error),
             Self::ConfirmDelete(state) => state.set_error(error),
+            Self::Create(state) => state.set_error(error),
             // honey: menu confirms carry no typed text to restore, so a
             // failed pick only surfaces through the status line.
             Self::HeaderMenu(_) => {}
@@ -533,8 +537,12 @@ impl LibraryPageState {
         };
         let (popup, body, max_lines) = app_filter_geometry(area, &menu);
         // honey: an outside click closes by leaving the taken modal
-        // dropped; picks keep the menu open across live writes.
+        // dropped; picks keep the menu open across live writes. From
+        // the create draft it returns there instead.
         if !crate::terminal::mouse::contains(popup, column, row) || row < body.y.saturating_add(1) {
+            if menu.return_to_create().is_some() {
+                self.restore_create_draft_from_app_filter(menu);
+            }
             return LibraryInteraction::handled();
         }
         menu.set_view_lines(body.height);
@@ -580,12 +588,13 @@ impl LibraryPageState {
             return LibraryInteraction::handled();
         }
         menu.set_cursor(hit);
-        let interaction = menu
-            .toggle_focused()
-            .map(LibraryInteraction::edit)
-            .unwrap_or_else(LibraryInteraction::handled);
-        self.modal = Some(LibraryModal::AppFilter(menu));
-        interaction
+        match menu.toggle_focused() {
+            Some(pending) => self.app_filter_edit_for_draft(menu, pending),
+            None => {
+                self.modal = Some(LibraryModal::AppFilter(menu));
+                LibraryInteraction::handled()
+            }
+        }
     }
 
     /// Mouse moves over an open app-filter menu focus the hovered row
@@ -675,8 +684,12 @@ impl LibraryPageState {
         let body = crate::widgets::util::overlay_body(popup);
         menu.set_cloud_width(body.width);
         // honey: an outside click closes by leaving the taken modal
-        // dropped; picks keep the menu open across live writes.
+        // dropped; picks keep the menu open across live writes. From
+        // the create draft it returns there instead.
         if !crate::terminal::mouse::contains(popup, column, row) || row < body.y.saturating_add(2) {
+            if menu.return_to_create().is_some() {
+                self.restore_create_draft_from_tags(menu);
+            }
             return LibraryInteraction::handled();
         }
         let max_rows = body.height.saturating_sub(3);
@@ -696,16 +709,19 @@ impl LibraryPageState {
             // step. Anywhere else on the chip parks focus.
             let x_cell = body.x.saturating_add(cell.x);
             menu.set_hover(Some(cell.index));
-            let interaction = if column == x_cell {
-                menu.remove_at(cell.index)
-                    .map(LibraryInteraction::edit)
-                    .unwrap_or_else(LibraryInteraction::handled)
-            } else {
-                menu.set_focus(cell.index);
-                LibraryInteraction::handled()
-            };
+            if column == x_cell {
+                let pending = menu.remove_at(cell.index);
+                return match pending {
+                    Some(pending) => self.tags_edit_for_draft(menu, pending),
+                    None => {
+                        self.modal = Some(LibraryModal::Tags(menu));
+                        LibraryInteraction::handled()
+                    }
+                };
+            }
+            menu.set_focus(cell.index);
             self.modal = Some(LibraryModal::Tags(menu));
-            return interaction;
+            return LibraryInteraction::handled();
         }
         if Some(rel) == add && (menu.input_active() || menu.plus_hit_accepts(body.width, x)) {
             if menu.input_active() {
@@ -816,6 +832,18 @@ impl LibraryPageState {
     /// Commits the menu cursor as a persist interaction. Unchanged values
     /// close silently; the caller refreshes the list on success.
     fn confirm_header_menu(&mut self, menu: LibraryHeaderMenuState) -> LibraryInteraction {
+        let mut menu = menu;
+        // honey: from the create draft the pick applies to the draft
+        // and the menu hands the draft back; unchanged values still
+        // return, closing the picker either way.
+        if let Some(draft) = menu.take_return_to_create() {
+            let mut draft = *draft;
+            if let Some(option) = menu.selected_option() {
+                draft.apply_header_pick(menu.kind(), option);
+            }
+            self.modal = Some(LibraryModal::Create(Box::new(draft)));
+            return LibraryInteraction::handled();
+        }
         let Some(selected) = self.selected_index() else {
             return LibraryInteraction::handled();
         };
@@ -940,6 +968,71 @@ impl LibraryPageState {
         }
     }
 
+    /// Click on a create-form row: text rows focus, picker rows
+    /// open their shared menus with the draft attached, switch rows
+    /// flip in place.
+    pub(crate) fn click_create_field(
+        &mut self,
+        field: LibraryCreateModalField,
+    ) -> LibraryInteraction {
+        use LibraryCreateModalField as Field;
+        let Some(LibraryModal::Create(mut draft)) = self.modal.take() else {
+            return LibraryInteraction::handled();
+        };
+        draft.set_focus(field);
+        match field {
+            Field::TriggerType => {
+                self.open_header_menu_for_create(*draft, HeaderMenuKind::InvocationType);
+            }
+            Field::Interpreter => {
+                self.open_header_menu_for_create(*draft, HeaderMenuKind::Interpreter);
+            }
+            Field::Behavior => {
+                self.open_header_menu_for_create(*draft, HeaderMenuKind::Behavior);
+            }
+            Field::Os => {
+                self.open_header_menu_for_create(*draft, HeaderMenuKind::Platform);
+            }
+            Field::Tags => self.open_tags_for_create(*draft),
+            Field::Allow => self.open_app_filter_for_create(*draft, AppFilterSide::Allow),
+            Field::Block => self.open_app_filter_for_create(*draft, AppFilterSide::Block),
+            Field::AdvancedToggle => {
+                draft.toggle_advanced();
+                self.modal = Some(LibraryModal::Create(draft));
+            }
+            Field::AutoCase => {
+                draft.toggle_auto_case();
+                self.modal = Some(LibraryModal::Create(draft));
+            }
+            Field::Action => {
+                draft.toggle_action();
+                self.modal = Some(LibraryModal::Create(draft));
+            }
+            Field::Trigger | Field::Content | Field::Name | Field::ActionButton => {
+                self.modal = Some(LibraryModal::Create(draft));
+            }
+        }
+        LibraryInteraction::handled()
+    }
+
+    /// The Create button commits like Enter on it: a click is explicit
+    /// intent, so it submits regardless of the button cursor.
+    pub(crate) fn confirm_create_button(&mut self) -> LibraryInteraction {
+        let Some(LibraryModal::Create(mut draft)) = self.modal.take() else {
+            return LibraryInteraction::handled();
+        };
+        match draft.build_pending_create() {
+            Ok(pending) => {
+                self.modal = Some(LibraryModal::Create(draft));
+                LibraryInteraction::create(pending)
+            }
+            Err(error) => {
+                draft.set_error(error.to_string());
+                self.modal = Some(LibraryModal::Create(draft));
+                LibraryInteraction::handled()
+            }
+        }
+    }
     /// Confirm the open delete modal, mirroring the Enter key: Yes
     /// yields the pending delete, No closes the modal.
     pub(crate) fn confirm_delete(&mut self) -> LibraryInteraction {
@@ -959,8 +1052,150 @@ impl LibraryPageState {
         }
     }
 
+    pub(crate) fn open_create_modal(&mut self) {
+        self.modal = Some(LibraryModal::Create(Box::new(
+            LibraryCreateModalState::new(),
+        )));
+    }
+
+    /// Opens a shared header menu from the create draft, parking the
+    /// cursor on the draft value; picks return to the draft.
+    pub(crate) fn open_header_menu_for_create(
+        &mut self,
+        draft: LibraryCreateModalState,
+        kind: HeaderMenuKind,
+    ) {
+        let current = match kind {
+            HeaderMenuKind::InvocationType => draft.type_label().to_string(),
+            HeaderMenuKind::Platform => draft.target_os().to_string(),
+            HeaderMenuKind::Interpreter => draft.interpreter_label().to_string(),
+            HeaderMenuKind::Behavior => draft.behavior_label().to_string(),
+        };
+        self.modal = Some(LibraryModal::HeaderMenu(
+            LibraryHeaderMenuState::new(kind, &current).with_create_draft(draft),
+        ));
+    }
+
+    /// Opens the tags builder from the create draft, seeded with the
+    /// draft tags; toggles collect into the draft.
+    pub(crate) fn open_tags_for_create(&mut self, draft: LibraryCreateModalState) {
+        let mut menu = LibraryTagsModalState::new(String::new(), 0, draft.tags().to_vec())
+            .with_create_draft(draft);
+        menu.set_cloud_width(super::modals::CREATE_BODY_WIDTH);
+        self.modal = Some(LibraryModal::Tags(menu));
+    }
+
+    /// Opens the allow/block picker from the create draft, seeded with
+    /// the draft filters plus the live Alt-Tab list.
+    pub(crate) fn open_app_filter_for_create(
+        &mut self,
+        draft: LibraryCreateModalState,
+        side: AppFilterSide,
+    ) {
+        let (stored, other) = match side {
+            AppFilterSide::Allow => (draft.allow_apps(), draft.block_apps()),
+            AppFilterSide::Block => (draft.block_apps(), draft.allow_apps()),
+        };
+        let menu = LibraryAppFilterState::new(
+            String::new(),
+            0,
+            side,
+            stored.to_vec(),
+            other.to_vec(),
+            taurine_core::system::foreground_apps::list_foreground_apps(),
+        )
+        .with_create_draft(draft);
+        self.modal = Some(LibraryModal::AppFilter(menu));
+    }
+
+    /// Fold a tags write into the create draft when the menu was opened
+    /// from there; the menu stays open on the folded tags. Otherwise
+    /// the edit persists to the database as today.
+    fn tags_edit_for_draft(
+        &mut self,
+        mut state: LibraryTagsModalState,
+        pending: PendingLibraryEdit,
+    ) -> LibraryInteraction {
+        let tags = match &pending.field {
+            EditedField::Tags(tags) => Some(tags.clone()),
+            _ => None,
+        };
+        match (state.return_to_create().is_some(), tags) {
+            (true, Some(tags)) => {
+                if let Some(draft) = state.draft_mut() {
+                    draft.set_tags(tags.clone());
+                }
+                state.reseed(tags);
+                self.modal = Some(LibraryModal::Tags(state));
+                LibraryInteraction::handled()
+            }
+            _ => {
+                self.modal = Some(LibraryModal::Tags(state));
+                LibraryInteraction::edit(pending)
+            }
+        }
+    }
+
+    /// Fold an app-filter write into the create draft when the picker
+    /// was opened from there; the menu stays open on the folded
+    /// filters. Otherwise the edit persists as today.
+    fn app_filter_edit_for_draft(
+        &mut self,
+        mut state: LibraryAppFilterState,
+        pending: PendingLibraryEdit,
+    ) -> LibraryInteraction {
+        let payload: Option<(bool, Vec<String>)> = match &pending.field {
+            EditedField::OnlyApps(apps) => Some((true, apps.clone())),
+            EditedField::ExceptApps(apps) => Some((false, apps.clone())),
+            _ => None,
+        };
+        match (state.return_to_create().is_some(), payload) {
+            (true, Some((allow, apps))) => {
+                if let Some(draft) = state.draft_mut() {
+                    if allow {
+                        draft.set_allow_apps(apps.clone());
+                    } else {
+                        draft.set_block_apps(apps.clone());
+                    }
+                }
+                state.set_checked(apps);
+                self.modal = Some(LibraryModal::AppFilter(state));
+                LibraryInteraction::handled()
+            }
+            _ => {
+                self.modal = Some(LibraryModal::AppFilter(state));
+                LibraryInteraction::edit(pending)
+            }
+        }
+    }
+
+    /// Restore the create draft carried by a picker, snapshotting the
+    /// picker's current values first so nothing picked is lost.
+    fn restore_create_draft_from_tags(&mut self, mut state: LibraryTagsModalState) {
+        if let Some(mut draft) = state.take_return_to_create() {
+            draft.set_tags(state.checked().to_vec());
+            self.modal = Some(LibraryModal::Create(draft));
+        }
+    }
+
+    fn restore_create_draft_from_app_filter(&mut self, state: LibraryAppFilterState) {
+        if let Some(draft) = state.return_to_create().cloned() {
+            self.modal = Some(LibraryModal::Create(Box::new(draft)));
+        }
+    }
+
     pub(crate) fn clear_modal(&mut self) {
         self.modal = None;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn take_modal(&mut self) -> Option<LibraryModal> {
+        self.modal.take()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_modal(&mut self, modal: LibraryModal) {
+        self.modal = Some(modal);
     }
 
     pub(crate) fn selected_index(&self) -> Option<usize> {
@@ -1475,6 +1710,29 @@ impl LibraryPageState {
                     LibraryInteraction::handled()
                 }
             },
+            LibraryModal::Create(mut state) => match state.handle_key(key) {
+                CreateKeyOutcome::Handled => {
+                    self.modal = Some(LibraryModal::Create(state));
+                    LibraryInteraction::handled()
+                }
+                CreateKeyOutcome::Close => LibraryInteraction::close(),
+                CreateKeyOutcome::Submit(pending) => {
+                    self.modal = Some(LibraryModal::Create(state));
+                    LibraryInteraction::create(pending)
+                }
+                CreateKeyOutcome::OpenHeaderMenu(kind) => {
+                    self.open_header_menu_for_create(*state, kind);
+                    LibraryInteraction::handled()
+                }
+                CreateKeyOutcome::OpenTags => {
+                    self.open_tags_for_create(*state);
+                    LibraryInteraction::handled()
+                }
+                CreateKeyOutcome::OpenAppFilter(side) => {
+                    self.open_app_filter_for_create(*state, side);
+                    LibraryInteraction::handled()
+                }
+            },
             LibraryModal::ConfirmDelete(mut state) => match (key.code, key.modifiers) {
                 (KeyCode::Left, KeyModifiers::NONE) | (KeyCode::Char('h'), KeyModifiers::NONE) => {
                     state.set_selected_yes(true);
@@ -1546,7 +1804,11 @@ impl LibraryPageState {
                 }
                 (KeyCode::Enter, KeyModifiers::NONE) => self.confirm_header_menu(state),
                 (KeyCode::Esc, KeyModifiers::NONE) => {
-                    self.modal = None;
+                    if let Some(draft) = state.take_return_to_create() {
+                        self.modal = Some(LibraryModal::Create(draft));
+                    } else {
+                        self.modal = None;
+                    }
                     LibraryInteraction::handled()
                 }
                 _ => {
@@ -1562,6 +1824,8 @@ impl LibraryPageState {
                     if state.input_active() {
                         state.cancel_input();
                         self.modal = Some(LibraryModal::Tags(state));
+                    } else if state.return_to_create().is_some() {
+                        self.restore_create_draft_from_tags(state);
                     } else {
                         self.modal = None;
                     }
@@ -1607,8 +1871,7 @@ impl LibraryPageState {
                     if state.input_active() {
                         match state.confirm_input() {
                             crate::widgets::library::state::InputConfirm::Save(pending) => {
-                                self.modal = Some(LibraryModal::Tags(state));
-                                LibraryInteraction::edit(pending)
+                                self.tags_edit_for_draft(state, pending)
                             }
                             _ => {
                                 self.modal = Some(LibraryModal::Tags(state));
@@ -1630,12 +1893,14 @@ impl LibraryPageState {
                         self.modal = Some(LibraryModal::Tags(state));
                         LibraryInteraction::handled()
                     } else {
-                        let interaction = state
-                            .remove_focused()
-                            .map(LibraryInteraction::edit)
-                            .unwrap_or_else(LibraryInteraction::handled);
-                        self.modal = Some(LibraryModal::Tags(state));
-                        interaction
+                        let pending = state.remove_focused();
+                        match pending {
+                            Some(pending) => self.tags_edit_for_draft(state, pending),
+                            None => {
+                                self.modal = Some(LibraryModal::Tags(state));
+                                LibraryInteraction::handled()
+                            }
+                        }
                     }
                 }
                 (KeyCode::Backspace, KeyModifiers::NONE) => {
@@ -1678,7 +1943,11 @@ impl LibraryPageState {
             // are skipped by the cursor and refuse clicks.
             LibraryModal::AppFilter(mut state) => match (key.code, key.modifiers) {
                 (KeyCode::Esc, KeyModifiers::NONE) => {
-                    self.modal = None;
+                    if state.return_to_create().is_some() {
+                        self.restore_create_draft_from_app_filter(state);
+                    } else {
+                        self.modal = None;
+                    }
                     LibraryInteraction::handled()
                 }
                 (KeyCode::Up, KeyModifiers::NONE) => {
@@ -1701,14 +1970,13 @@ impl LibraryPageState {
                     self.modal = Some(LibraryModal::AppFilter(state));
                     LibraryInteraction::handled()
                 }
-                (KeyCode::Enter, KeyModifiers::NONE) => {
-                    let interaction = state
-                        .toggle_focused()
-                        .map(LibraryInteraction::edit)
-                        .unwrap_or_else(LibraryInteraction::handled);
-                    self.modal = Some(LibraryModal::AppFilter(state));
-                    interaction
-                }
+                (KeyCode::Enter, KeyModifiers::NONE) => match state.toggle_focused() {
+                    Some(pending) => self.app_filter_edit_for_draft(state, pending),
+                    None => {
+                        self.modal = Some(LibraryModal::AppFilter(state));
+                        LibraryInteraction::handled()
+                    }
+                },
                 (KeyCode::Delete, KeyModifiers::NONE) => {
                     if state.search().cursor() < state.search().len_chars() {
                         // honey: caret inside the query deletes there;
@@ -1718,12 +1986,13 @@ impl LibraryPageState {
                         self.modal = Some(LibraryModal::AppFilter(state));
                         return LibraryInteraction::handled();
                     }
-                    let interaction = state
-                        .remove_focused()
-                        .map(LibraryInteraction::edit)
-                        .unwrap_or_else(LibraryInteraction::handled);
-                    self.modal = Some(LibraryModal::AppFilter(state));
-                    interaction
+                    match state.remove_focused() {
+                        Some(pending) => self.app_filter_edit_for_draft(state, pending),
+                        None => {
+                            self.modal = Some(LibraryModal::AppFilter(state));
+                            LibraryInteraction::handled()
+                        }
+                    }
                 }
                 (KeyCode::Backspace, KeyModifiers::NONE) => {
                     state.search_mut().backspace();

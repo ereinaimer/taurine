@@ -138,6 +138,7 @@ pub(crate) struct LibraryAppFilterState {
     split: f32,
     divider_drag: bool,
     error: Option<String>,
+    return_to_create: Option<Box<super::create::LibraryCreateModalState>>,
 }
 
 impl LibraryAppFilterState {
@@ -163,7 +164,32 @@ impl LibraryAppFilterState {
             split: APP_FILTER_DEFAULT_SPLIT,
             divider_drag: false,
             error: None,
+            return_to_create: None,
         }
+    }
+
+    /// Attach a create draft for the return trip: toggles collect
+    /// into the draft instead of persisting to the database.
+    pub(crate) fn with_create_draft(
+        mut self,
+        draft: super::create::LibraryCreateModalState,
+    ) -> Self {
+        self.return_to_create = Some(Box::new(draft));
+        self
+    }
+
+    pub(crate) fn return_to_create(&self) -> Option<&super::create::LibraryCreateModalState> {
+        self.return_to_create.as_deref()
+    }
+
+    pub(crate) fn draft_mut(&mut self) -> Option<&mut super::create::LibraryCreateModalState> {
+        self.return_to_create.as_deref_mut()
+    }
+
+    /// Replace the checked list from a draft fold. The opposite side
+    /// never changes on this picker's own toggles.
+    pub(crate) fn set_checked(&mut self, checked: Vec<String>) {
+        self.checked = checked;
     }
 
     pub(crate) const fn side(&self) -> AppFilterSide {

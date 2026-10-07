@@ -4236,3 +4236,400 @@ fn name_edit_hit_only_on_name_cells() {
         Some(detail::DetailHit::EnableToggle)
     );
 }
+
+fn open_create_state() -> LibraryPageState {
+    let mut state = sample_state();
+    state.open_create_modal();
+    state
+}
+
+fn create_modal(state: &LibraryPageState) -> &LibraryCreateModalState {
+    match state.modal() {
+        Some(LibraryModal::Create(create)) => create,
+        other => panic!("expected create modal, got {other:?}"),
+    }
+}
+
+fn type_text(state: &mut LibraryPageState, text: &str) {
+    for ch in text.chars() {
+        state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+}
+
+#[test]
+fn create_modal_opens_with_sane_defaults() {
+    let state = open_create_state();
+
+    let create = create_modal(&state);
+    assert_eq!(create.focus(), LibraryCreateModalField::Trigger);
+    assert_eq!(create.trigger_type(), TriggerType::Word);
+    assert!(create.is_text_action());
+    assert_eq!(create.target_os(), "all");
+    assert!(!create.advanced_expanded());
+    assert!(!create.auto_case());
+    assert!(create.tags().is_empty());
+    assert!(create.allow_apps().is_empty());
+    assert!(create.block_apps().is_empty());
+    assert!(create.error().is_none());
+}
+
+#[test]
+fn create_typing_and_tab_navigation() {
+    let mut state = open_create_state();
+    type_text(&mut state, "gm");
+
+    assert_eq!(create_modal(&state).trigger_text(), "gm");
+
+    state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert_eq!(
+        create_modal(&state).focus(),
+        LibraryCreateModalField::Content
+    );
+    type_text(&mut state, "Good Morning");
+    assert_eq!(create_modal(&state).content_text(), "Good Morning");
+}
+
+#[test]
+fn create_esc_closes_modal() {
+    let mut state = open_create_state();
+
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+    assert!(interaction.should_close_modal());
+}
+
+#[test]
+fn create_empty_trigger_submit_sets_error() {
+    let mut state = open_create_state();
+    // Tab order from Trigger: Content, Name, Action, Os,
+    // AdvancedToggle, ActionButton.
+    for _ in 0..6 {
+        state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    }
+    assert_eq!(
+        create_modal(&state).focus(),
+        LibraryCreateModalField::ActionButton
+    );
+
+    // Move the cursor to Create; Enter on Cancel would close.
+    state.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+    state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert!(create_modal(&state).error().is_some());
+    assert!(state.modal().is_some());
+}
+
+#[test]
+fn create_overlong_trigger_submit_sets_error() {
+    let mut state = open_create_state();
+    type_text(&mut state, &"a".repeat(201));
+    for _ in 0..6 {
+        state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    }
+    // Move the cursor to Create; Enter on Cancel would close.
+    state.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+    state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert!(create_modal(&state).error().is_some());
+    assert!(state.modal().is_some());
+}
+
+#[test]
+fn create_valid_text_trigger_builds_pending() {
+    let mut state = open_create_state();
+    type_text(&mut state, "gm");
+    state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    type_text(&mut state, "Good Morning");
+    for _ in 0..5 {
+        state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    }
+    assert_eq!(
+        create_modal(&state).focus(),
+        LibraryCreateModalField::ActionButton
+    );
+
+    // Move the cursor to Create; Enter on Cancel would close.
+    state.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    let pending = interaction.pending_create().expect("pending create");
+    assert_eq!(pending.trigger, "gm");
+    assert_eq!(pending.content, "Good Morning");
+    assert_eq!(pending.trigger_type, TriggerType::Word);
+    assert_eq!(pending.action_type, "text");
+    assert_eq!(pending.target_os, "all");
+    assert!(!pending.auto_case);
+    assert!(pending.tags.is_empty());
+}
+
+#[test]
+fn create_type_row_enter_opens_header_menu_for_draft() {
+    let mut state = open_create_state();
+    state.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+    assert_eq!(
+        create_modal(&state).focus(),
+        LibraryCreateModalField::TriggerType
+    );
+
+    state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    match state.modal() {
+        Some(LibraryModal::HeaderMenu(menu)) => {
+            assert_eq!(menu.kind(), HeaderMenuKind::InvocationType);
+            assert!(menu.return_to_create().is_some());
+        }
+        other => panic!("expected header menu, got {other:?}"),
+    }
+}
+
+#[test]
+fn create_header_menu_pick_applies_to_draft_and_returns() {
+    let mut state = open_create_state();
+    state.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+    state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    state.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+
+    state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    let create = create_modal(&state);
+    assert_eq!(create.trigger_type(), TriggerType::Hotkey);
+}
+
+#[test]
+fn create_header_menu_esc_returns_draft_unchanged() {
+    let mut state = open_create_state();
+    type_text(&mut state, "gm");
+    state.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+    state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+    let create = create_modal(&state);
+    assert_eq!(create.trigger_type(), TriggerType::Word);
+    assert_eq!(create.trigger_text(), "gm");
+}
+
+#[test]
+fn create_os_row_pick_applies_to_draft() {
+    let mut state = open_create_state();
+    // Tab order: Trigger, Content, Name, Action, Os.
+    for _ in 0..4 {
+        state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    }
+    assert_eq!(create_modal(&state).focus(), LibraryCreateModalField::Os);
+    state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    match state.modal() {
+        Some(LibraryModal::HeaderMenu(menu)) => assert_eq!(menu.kind(), HeaderMenuKind::Platform),
+        other => panic!("expected platform menu, got {other:?}"),
+    }
+    // Platform options: All, Windows, macOS, Linux, Android, iOS.
+    for _ in 0..3 {
+        state.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    }
+
+    state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(create_modal(&state).target_os(), "linux");
+}
+
+#[test]
+fn create_advanced_toggle_expands_and_autocase_flips() {
+    let mut state = open_create_state();
+    for _ in 0..5 {
+        state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    }
+    assert_eq!(
+        create_modal(&state).focus(),
+        LibraryCreateModalField::AdvancedToggle
+    );
+
+    state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(create_modal(&state).advanced_expanded());
+
+    state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert_eq!(
+        create_modal(&state).focus(),
+        LibraryCreateModalField::AutoCase
+    );
+    state.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+    assert!(create_modal(&state).auto_case());
+}
+
+#[test]
+fn create_action_row_cycles_to_script_and_reveals_script_rows() {
+    let mut state = open_create_state();
+    for _ in 0..3 {
+        state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    }
+    assert_eq!(
+        create_modal(&state).focus(),
+        LibraryCreateModalField::Action
+    );
+
+    state.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+
+    let create = create_modal(&state);
+    assert!(!create.is_text_action());
+    assert!(
+        create
+            .visible_fields()
+            .contains(&LibraryCreateModalField::Interpreter)
+    );
+}
+
+#[test]
+fn create_script_submit_defaults_interpreter_and_behavior() {
+    let mut state = open_create_state();
+    type_text(&mut state, "deploy");
+    state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    type_text(&mut state, "echo hi");
+    // Content, Name, then Action.
+    state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    state.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+    // Script rows appear between Action and Os: Interpreter, Behavior,
+    // Os, AdvancedToggle, ActionButton.
+    for _ in 0..5 {
+        state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    }
+    assert_eq!(
+        create_modal(&state).focus(),
+        LibraryCreateModalField::ActionButton
+    );
+
+    // Move the cursor to Create; Enter on Cancel would close.
+    state.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    let pending = interaction.pending_create().expect("pending create");
+    assert_eq!(pending.action_type, "script");
+    assert!(pending.interpreter.is_some());
+    assert!(pending.behavior.is_some());
+}
+
+#[test]
+fn create_option_hit_selects_trigger_field_and_buttons() {
+    // Sized 76x16 popup on 100x30 centers at (12,7); body starts at
+    // (15,8): trigger row on 10, buttons row on 20 with Cancel at
+    // x=38..47 and Create at x=51..60.
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+
+    assert_eq!(
+        modals::create_option_hit(&sample_create_modal(), area, 20, 10),
+        Some(modals::CreateHit::Field(LibraryCreateModalField::Trigger))
+    );
+    assert_eq!(
+        modals::create_option_hit(&sample_create_modal(), area, 40, 20),
+        Some(modals::CreateHit::Cancel)
+    );
+    assert_eq!(
+        modals::create_option_hit(&sample_create_modal(), area, 55, 20),
+        Some(modals::CreateHit::Create)
+    );
+    assert_eq!(
+        modals::create_option_hit(&sample_create_modal(), area, 20, 8),
+        None
+    );
+    assert_eq!(
+        modals::create_option_hit(&sample_create_modal(), area, 0, 0),
+        None
+    );
+}
+
+fn sample_create_modal() -> LibraryCreateModalState {
+    LibraryCreateModalState::new()
+}
+
+fn open_create_with_tags_picker() -> LibraryPageState {
+    let mut state = sample_state();
+    state.open_create_modal();
+    let draft = match state.take_modal() {
+        Some(LibraryModal::Create(draft)) => *draft,
+        other => panic!("expected create modal, got {other:?}"),
+    };
+    state.open_tags_for_create(draft);
+    state
+}
+
+#[test]
+fn create_tags_picker_collects_into_draft_without_database_write() {
+    let mut state = open_create_with_tags_picker();
+    // Focus the + row and add a tag through the shared builder.
+    state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    for ch in "dev".chars() {
+        state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    // No persistence interaction: the menu stays open on folded tags.
+    assert!(interaction.pending_edit().is_none());
+    assert!(matches!(state.modal(), Some(LibraryModal::Tags(_))));
+
+    state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert_eq!(create_modal(&state).tags(), &["dev".to_string()]);
+}
+
+#[test]
+fn create_tags_esc_returns_to_draft() {
+    let mut state = open_create_with_tags_picker();
+
+    state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+    assert!(matches!(state.modal(), Some(LibraryModal::Create(_))));
+}
+
+#[test]
+fn create_tags_row_enter_opens_picker_with_draft() {
+    let mut state = open_create_state();
+    for _ in 0..5 {
+        state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    }
+    state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert_eq!(create_modal(&state).focus(), LibraryCreateModalField::Tags);
+
+    state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    match state.modal() {
+        Some(LibraryModal::Tags(menu)) => assert!(menu.return_to_create().is_some()),
+        other => panic!("expected tags menu, got {other:?}"),
+    }
+}
+
+#[test]
+fn create_app_filter_toggle_collects_into_draft() {
+    use taurine_core::system::foreground_apps::ForegroundApp;
+
+    let mut state = sample_state();
+    state.open_create_modal();
+    let draft = match state.take_modal() {
+        Some(LibraryModal::Create(draft)) => *draft,
+        other => panic!("expected create modal, got {other:?}"),
+    };
+    let menu = LibraryAppFilterState::new(
+        String::new(),
+        0,
+        AppFilterSide::Allow,
+        Vec::new(),
+        Vec::new(),
+        vec![ForegroundApp {
+            exe: "terminal".to_string(),
+            path: String::new(),
+            class: String::new(),
+            title: "Terminal".to_string(),
+        }],
+    )
+    .with_create_draft(draft);
+    state.set_modal(LibraryModal::AppFilter(menu));
+
+    // Toggling a foreground row folds into the draft: no database
+    // interaction, the picker stays open.
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(interaction.pending_edit().is_none());
+    assert!(matches!(state.modal(), Some(LibraryModal::AppFilter(_))));
+
+    state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert_eq!(create_modal(&state).allow_apps().len(), 1);
+}

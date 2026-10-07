@@ -326,6 +326,20 @@ fn handle_tui_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
         return;
     }
 
+    // honey: Ctrl+N opens the create modal; a library modal owns
+    // the screen while open and the settings overlay consumes its
+    // own keys, so both wait.
+    if key.code == crossterm::event::KeyCode::Char('n')
+        && key.modifiers == crossterm::event::KeyModifiers::CONTROL
+    {
+        if !app.library_page().is_modal_open() && !app.is_settings_overlay_open() {
+            let flush = app.library_page_mut().commit_edit();
+            apply_library_interaction(app, flush);
+            app.library_page_mut().open_create_modal();
+        }
+        return;
+    }
+
     // honey: Ctrl+, toggles the settings overlay; a library modal owns
     // the screen while open, so the toggle waits for it to close.
     if key.code == crossterm::event::KeyCode::Char(',')
@@ -458,6 +472,28 @@ fn handle_tui_mouse_event(
                 let popup = settings::overlay_popup(area, app.settings_page());
                 if terminal::mouse::contains(popup, mouse.column, mouse.row) {
                     handle_tui_key_event(app, scroll_key(mouse.kind == MouseEventKind::ScrollDown));
+                }
+                return;
+            }
+            // honey: the create form owns its clicks: field rows focus
+            // (picker rows open their menus), the button pair cancels
+            // or submits, outside clicks are dead like other forms.
+            if let Some(library::LibraryModal::Create(draft)) = app.library_page().modal() {
+                let layout = terminal::mouse::frame_layout(area);
+                let full = terminal::mouse::library_full_area(layout.page);
+                match library::modals::create_option_hit(draft, full, mouse.column, mouse.row) {
+                    Some(library::modals::CreateHit::Field(field)) => {
+                        let interaction = app.library_page_mut().click_create_field(field);
+                        apply_library_interaction(app, interaction);
+                    }
+                    Some(library::modals::CreateHit::Cancel) => {
+                        app.library_page_mut().clear_modal();
+                    }
+                    Some(library::modals::CreateHit::Create) => {
+                        let interaction = app.library_page_mut().confirm_create_button();
+                        apply_library_interaction(app, interaction);
+                    }
+                    None => {}
                 }
                 return;
             }
@@ -934,6 +970,17 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
             Ok(()) => {
                 refresh_library_page(app);
                 app.library_page_mut().select_after_delete(restore_index);
+                app.library_page_mut().clear_modal();
+            }
+            Err(error) => app.library_page_mut().set_save_error(error.to_string()),
+        }
+    }
+
+    if let Some(pending_create) = interaction.pending_create() {
+        match pending_create.apply() {
+            Ok(id) => {
+                refresh_library_page(app);
+                app.library_page_mut().select_by_id(&id);
                 app.library_page_mut().clear_modal();
             }
             Err(error) => app.library_page_mut().set_save_error(error.to_string()),
@@ -1847,6 +1894,75 @@ mod tests {
         app.library_page_mut().open_delete_modal_for_selected();
 
         handle_tui_mouse_event(&mut app, left_click(0, 0), TEST_AREA);
+
+        assert!(!app.library_page().is_modal_open());
+    }
+
+    fn ctrl_n() -> KeyEvent {
+        KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL)
+    }
+
+    #[test]
+    fn ctrl_n_opens_create_modal() {
+        let mut app = App::default();
+        seed_single_library_item(&mut app);
+
+        handle_tui_key_event(&mut app, ctrl_n());
+
+        assert!(app.library_page().is_modal_open());
+    }
+
+    #[test]
+    fn ctrl_n_blocked_while_library_modal_open() {
+        let mut app = App::default();
+        seed_single_library_item(&mut app);
+        app.library_page_mut().open_delete_modal_for_selected();
+
+        handle_tui_key_event(&mut app, ctrl_n());
+
+        assert!(matches!(
+            app.library_page().modal(),
+            Some(library::LibraryModal::ConfirmDelete(_))
+        ));
+    }
+
+    #[test]
+    fn ctrl_n_blocked_while_settings_overlay_open() {
+        let mut app = App::default();
+        seed_single_library_item(&mut app);
+        app.open_settings_overlay();
+
+        handle_tui_key_event(&mut app, ctrl_n());
+
+        assert!(!app.library_page().is_modal_open());
+        assert!(app.is_settings_overlay_open());
+    }
+
+    #[test]
+    fn clicking_create_trigger_field_focuses_it() {
+        let mut app = App::default();
+        seed_single_library_item(&mut app);
+        app.library_page_mut().open_create_modal();
+
+        // Trigger row of the create modal on TEST_AREA.
+        handle_tui_mouse_event(&mut app, left_click(20, 10), TEST_AREA);
+
+        assert!(app.library_page().is_modal_open());
+        assert!(matches!(
+            app.library_page().modal(),
+            Some(library::LibraryModal::Create(draft))
+                if draft.focus() == library::LibraryCreateModalField::Trigger
+        ));
+    }
+
+    #[test]
+    fn clicking_create_cancel_closes_modal() {
+        let mut app = App::default();
+        seed_single_library_item(&mut app);
+        app.library_page_mut().open_create_modal();
+
+        // Cancel button of the create modal on TEST_AREA.
+        handle_tui_mouse_event(&mut app, left_click(40, 20), TEST_AREA);
 
         assert!(!app.library_page().is_modal_open());
     }
