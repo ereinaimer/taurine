@@ -31,8 +31,10 @@ pub struct Theme {
     pub success: Color,
     // Template palette: desaturated GitHub-dark tones for Taurine's own
     // `[vars]` and `| transformers` markup, so template chrome never
-    // shouts over script code.
+    // shouts over script code. Brackets frame the tag; parens and pipes
+    // separate its stages.
     pub template_bracket: Color,
+    pub template_separator: Color,
     pub template_name: Color,
     pub template_transformer: Color,
     pub template_value: Color,

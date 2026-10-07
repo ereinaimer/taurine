@@ -348,7 +348,8 @@ fn overlay_taurine_tags(line: &str, runs: &mut Vec<Run>, theme: &Theme) {
 /// Argument span styles, resolved from [`Theme`] once per tag.
 struct ArgStyles {
     plain: Style,
-    structural: Style,
+    bracket: Style,
+    separator: Style,
     name: Style,
     transformer: Style,
     value: Style,
@@ -358,7 +359,8 @@ struct ArgStyles {
 fn tokenize_tag(line: &str, start: usize, end: usize, map: &ByteMap, theme: &Theme) -> Vec<Run> {
     let styles = ArgStyles {
         plain: Style::default().fg(theme.text),
-        structural: Style::default().fg(theme.template_bracket),
+        bracket: Style::default().fg(theme.template_bracket),
+        separator: Style::default().fg(theme.template_separator),
         name: Style::default().fg(theme.template_name),
         transformer: Style::default().fg(theme.template_transformer),
         value: Style::default().fg(theme.template_value),
@@ -367,12 +369,12 @@ fn tokenize_tag(line: &str, start: usize, end: usize, map: &ByteMap, theme: &The
         Run {
             start: map.to_char(start),
             end: map.to_char(start + 1),
-            style: styles.structural,
+            style: styles.bracket,
         },
         Run {
             start: map.to_char(end),
             end: map.to_char(end + 1),
-            style: styles.structural,
+            style: styles.bracket,
         },
     ];
     let inner = &line[start + 1..end];
@@ -416,7 +418,7 @@ fn tokenize_tag(line: &str, start: usize, end: usize, map: &ByteMap, theme: &The
     runs
 }
 
-/// Gap between segments: `|` structural, everything else plain text.
+/// Gap between segments: `|` separates, everything else plain text.
 fn paint_gap(
     inner: &str,
     from: usize,
@@ -431,7 +433,7 @@ fn paint_gap(
             start: to_char(byte),
             end: to_char(byte + ch.len_utf8()),
             style: if ch == '|' {
-                styles.structural
+                styles.separator
             } else {
                 styles.plain
             },
@@ -592,7 +594,7 @@ fn paint_args(
                 start: to_char(offset + index),
                 end: to_char(offset + index + ch.len_utf8()),
                 style: if "(),".contains(ch) {
-                    styles.structural
+                    styles.separator
                 } else {
                     styles.value
                 },
@@ -757,11 +759,18 @@ mod tests {
     #[test]
     fn brackets_and_pipes_highlight() {
         let runs = &plain_runs("[clip | case(upper)]")[0];
-        for marker in ["[", "]", "|"] {
+        for marker in ["[", "]"] {
             assert!(
                 runs.iter()
                     .any(|run| run.style.fg == Some(DARK_THEME.template_bracket)),
-                "{marker} must highlight, got {runs:?}"
+                "{marker} must bracket-tone, got {runs:?}"
+            );
+        }
+        for marker in ["|", "(", ")"] {
+            assert!(
+                runs.iter()
+                    .any(|run| run.style.fg == Some(DARK_THEME.template_separator)),
+                "{marker} must separator-tone, got {runs:?}"
             );
         }
     }

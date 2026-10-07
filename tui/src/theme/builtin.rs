@@ -19,7 +19,8 @@ pub const DARK_THEME: Theme = Theme {
     success: Color::Green,
     // honey: GitHub-dark template tones; pastel by design, the saturated
     // UI palette stays reserved for script code and states.
-    template_bracket: Color::Rgb(0x8B, 0x94, 0x9E),
+    template_bracket: Color::Rgb(0x7E, 0xE7, 0x87),
+    template_separator: Color::Rgb(0xF7, 0x78, 0xBA),
     template_name: Color::Rgb(0xD2, 0xA8, 0xFF),
     template_transformer: Color::Rgb(0x79, 0xC0, 0xFF),
     template_value: Color::Rgb(0xFF, 0xA6, 0x57),
