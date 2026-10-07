@@ -303,7 +303,8 @@ impl ByteMap {
 }
 
 /// Taurine template overlay: outermost `[...]` regions re-tokenized with
-/// core parsers, replacing script runs underneath.
+/// core parsers, replacing script runs underneath. The whole tag reads
+/// on the surface tone so template regions separate from body text.
 fn overlay_taurine_tags(line: &str, runs: &mut Vec<Run>, theme: &Theme) {
     let map = ByteMap::new(line);
     let mut overlay = Vec::new();
@@ -346,6 +347,14 @@ fn overlay_taurine_tags(line: &str, runs: &mut Vec<Run>, theme: &Theme) {
     *runs = kept;
     runs.extend(overlay);
     runs.sort_by_key(|run| (run.start, run.end));
+    for run in runs.iter_mut() {
+        if covered
+            .iter()
+            .any(|(start, end)| run.start >= *start && run.end <= *end)
+        {
+            run.style.bg = Some(theme.surface);
+        }
+    }
 }
 
 /// Argument span styles, resolved from [`Theme`] once per tag.
@@ -795,6 +804,28 @@ mod tests {
                 .all(|run| run.style.fg != Some(DARK_THEME.warning)),
             "no saturated yellow, got {runs:?}"
         );
+    }
+
+    #[test]
+    fn whole_tag_reads_on_surface() {
+        let line = "cd [key(enter)] now";
+        let runs = &plain_runs(line)[0];
+        for run in runs {
+            let text: String = line
+                .chars()
+                .skip(run.start)
+                .take(run.end - run.start)
+                .collect();
+            if text.contains('[') || text.contains(']') || (run.start >= 3 && run.end <= 15) {
+                assert_eq!(
+                    run.style.bg,
+                    Some(DARK_THEME.surface),
+                    "tag must chip: {run:?}"
+                );
+            } else {
+                assert_eq!(run.style.bg, None, "body must stay flat: {run:?}");
+            }
+        }
     }
 
     #[test]
