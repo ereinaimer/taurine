@@ -1223,7 +1223,7 @@ fn header_hit_region_for_toggle() {
 
 #[test]
 fn toggle_word_reflects_enable_state() {
-    use crate::theme::builtin::DARK_THEME;
+    use crate::theme::default::DARK_THEME;
 
     let enabled = LibraryTrigger::single(list_item(
         "id-on",
@@ -2448,7 +2448,7 @@ fn open_menu_flips_spawning_button_chevron() {
                 detail::render_detail(
                     frame,
                     frame.area(),
-                    &crate::theme::builtin::DARK_THEME,
+                    &crate::theme::default::DARK_THEME,
                     state,
                 );
             })
@@ -2891,7 +2891,7 @@ fn tags_menu_empty_state_reports_none() {
 
 #[test]
 fn tags_menu_chip_colors_match_props_row() {
-    use crate::theme::builtin::DARK_THEME;
+    use crate::theme::default::DARK_THEME;
     use crate::widgets::library::props::tag_color;
 
     // honey: overlay chips reuse the Properties pane color by tag

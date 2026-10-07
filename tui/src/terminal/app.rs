@@ -1,5 +1,5 @@
 use crate::theme::Theme;
-use crate::theme::builtin::DARK_THEME;
+use crate::theme::default::DARK_THEME;
 use crate::widgets::library::LibraryPageState;
 use crate::widgets::settings::state::SettingsPageState;
 

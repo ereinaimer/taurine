@@ -349,7 +349,7 @@ mod tests {
     use ratatui::{Terminal, backend::TestBackend};
 
     fn rendered(modal: &SettingsModal) -> String {
-        let theme = &crate::theme::builtin::DARK_THEME;
+        let theme = &crate::theme::default::DARK_THEME;
         let backend = TestBackend::new(100, 30);
         let mut terminal = Terminal::new(backend).expect("test terminal");
         terminal

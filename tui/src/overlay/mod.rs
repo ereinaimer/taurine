@@ -3,7 +3,7 @@ pub mod ui;
 
 pub use ai::run_ai_overlay;
 
-use crate::theme::builtin::DARK_THEME;
+use crate::theme::default::DARK_THEME;
 use crate::widgets::library::{
     LibraryExportModalField, LibraryExportModalState, LibraryImportConflictMode,
     LibraryImportModalField, LibraryImportModalState, LibraryInteraction, RememberedConflictChoice,

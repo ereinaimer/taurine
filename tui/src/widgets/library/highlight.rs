@@ -647,7 +647,7 @@ pub(crate) fn spans_for_range(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::theme::builtin::DARK_THEME;
+    use crate::theme::default::DARK_THEME;
 
     fn plain_runs(content: &str) -> Vec<Vec<Run>> {
         highlight_lines(

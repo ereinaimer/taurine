@@ -1,7 +1,7 @@
 pub(crate) mod actions;
 pub(crate) mod rows;
 
-use crate::theme::builtin::DARK_THEME;
+use crate::theme::default::DARK_THEME;
 use crate::widgets::library::actions::alias_line;
 use crate::widgets::library::{
     ButtonSelection, LibraryExportModalField, LibraryExportModalState, LibraryImportModalField,

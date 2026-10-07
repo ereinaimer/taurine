@@ -23,7 +23,7 @@ pub const DARK_THEME: Theme = Theme {
     syntax_keyword: Color::Rgb(0xC6, 0x78, 0xDD),
     syntax_string: Color::Rgb(0x98, 0xC3, 0x79),
     syntax_entity: Color::Rgb(0x61, 0xAF, 0xEF),
-    syntax_constant: Color::Rgb(0xD1, 0x9A, 0x66),
+    syntax_constant: Color::Rgb(0x7F, 0xD8, 0x8F),
     syntax_type: Color::Rgb(0xE5, 0xC0, 0x7B),
     syntax_variable: Color::Rgb(0xE0, 0x6C, 0x75),
     header: HeaderTheme {

@@ -15,7 +15,7 @@ use crate::overlay::ui::actions::{fill_bg, render_action_buttons_overlay};
 use crate::overlay::ui::rows::{
     desc_area, padded, render_desc, row_input, row_key_value, row_password,
 };
-use crate::theme::builtin::DARK_THEME;
+use crate::theme::default::DARK_THEME;
 use crate::widgets::library::ButtonSelection;
 
 pub(crate) fn render_ai_wizard(frame: &mut Frame, state: &AiWizardState) {
