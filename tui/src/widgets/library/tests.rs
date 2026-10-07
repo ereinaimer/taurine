@@ -1635,19 +1635,19 @@ fn content_edit_undo_redoes_keystrokes() {
 fn content_edit_hit_maps_wrapped_rows_to_source() {
     let state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
-    // Box text starts at (25, 8): first text row hits source row 0.
+    // Content text starts at (25, 9): first text row hits source row 0.
     assert_eq!(
         detail::hit_test(
             area,
             state.split_ratio(),
             state.detail_ratio(),
             &state,
-            27,
-            8
+            25,
+            9
         ),
         Some(detail::DetailHit::ContentEditAt { row: 0, col: 0 })
     );
-    // Border frame itself is not editable.
+    // Divider line and padding row under it are not editable.
     assert_eq!(
         detail::hit_test(
             area,
@@ -1656,6 +1656,17 @@ fn content_edit_hit_maps_wrapped_rows_to_source() {
             &state,
             23,
             7
+        ),
+        None
+    );
+    assert_eq!(
+        detail::hit_test(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            23,
+            8
         ),
         None
     );
@@ -1965,9 +1976,9 @@ fn long_content_line_wraps_instead_of_clipping() {
     ));
     // Six wrapped rows fit the 16-row window, so nothing scrolls.
     assert_eq!(detail::content_scroll_max(30, 37, &item), 0);
-    // Narrow box wraps harder: 200 chars at text width 6 need 34 rows,
-    // 16 visible leaves 18 scrollable.
-    assert_eq!(detail::content_scroll_max(30, 10, &item), 18);
+    // Narrow pane wraps: 200 chars at text width 10 need 20 rows,
+    // 16 visible leaves 4 scrollable.
+    assert_eq!(detail::content_scroll_max(30, 10, &item), 4);
 }
 
 #[test]

@@ -149,18 +149,19 @@ pub(crate) fn hit_test(
             }
         }
     }
-    // honey: text rows inside the box map straight onto wrapped visual
-    // rows; the border frame itself is not editable. Text starts two
-    // cells in (border plus padding), mirroring the render path.
+    // honey: text rows inside the content section map straight onto wrapped visual
+    // rows; the divider line and its padding row are not editable. Text
+    // starts flush with the content pane, mirroring the render path.
     let box_top = content.y.saturating_add(CONTENT_BOX_TOP);
-    let text_top = box_top.saturating_add(1);
+    let text_top = box_top.saturating_add(2);
     let text_bottom = text_top.saturating_add(CONTENT_INNER_HEIGHT as u16);
-    let text_x = content.x.saturating_add(2);
+    let text_x = content.x;
+    let width = content_text_width(content.width);
     if row >= text_top
         && row < text_bottom
         && row < content.y.saturating_add(content.height)
         && column >= text_x
-        && column < content.x.saturating_add(content.width).saturating_sub(1)
+        && column < content.x.saturating_add(width)
     {
         return Some(DetailHit::ContentEditAt {
             row: row.saturating_sub(text_top) as usize,
@@ -191,9 +192,9 @@ pub(crate) fn content_clamped_cell(
         return None;
     }
     let width = content_text_width(content.width);
-    let text_top = content.y.saturating_add(CONTENT_BOX_TOP).saturating_add(1);
+    let text_top = content.y.saturating_add(CONTENT_BOX_TOP).saturating_add(2);
     let rel = (row.saturating_sub(text_top) as usize).min(CONTENT_INNER_HEIGHT.saturating_sub(1));
-    let text_x = content.x.saturating_add(2);
+    let text_x = content.x;
     let col = (column.saturating_sub(text_x) as usize).min(width as usize);
     Some(content_source_cell(item, width, scroll + rel, col))
 }
@@ -272,8 +273,8 @@ pub(crate) fn wrap_content_lines(content: &str, width: u16) -> Vec<String> {
 }
 
 /// Full flow layout, top to bottom: header 0, blank 1, description 2,
-/// blank 3, buttons 4, blank 5, static content box (18 rows: border +
-/// 16 text + border). Nothing follows the box. Content rows carry their
+/// blank 3, buttons 4, blank 5, divider 6, blank 7, content rows (16 text rows).
+/// Nothing follows the content. Content rows carry their
 /// source line plus char range so highlighting survives word-wrap.
 struct DetailLayout {
     content_rows: Vec<(u16, usize, std::ops::Range<usize>)>,
@@ -283,10 +284,10 @@ struct DetailLayout {
 const CONTENT_BOX_TOP: u16 = 6;
 const CONTENT_BOX_HEIGHT: u16 = CONTENT_INNER_HEIGHT as u16 + 2;
 
-/// Text width inside the content box: border plus one cell of padding
-/// each side, mirroring the search box.
+/// Text width for the content area: full width of the center pane, with no
+/// extra horizontal padding.
 pub(crate) fn content_text_width(box_width: u16) -> u16 {
-    box_width.saturating_sub(4)
+    box_width
 }
 
 /// Map a source caret (row, column) onto wrapped visual (row, column)
@@ -364,7 +365,7 @@ fn detail_layout(
     }
     let total = wrapped.len();
     let visible = CONTENT_INNER_HEIGHT.min(total.saturating_sub(scroll.min(total)));
-    let start = CONTENT_BOX_TOP.saturating_add(1);
+    let start = CONTENT_BOX_TOP.saturating_add(2);
     let content_rows = wrapped
         .into_iter()
         .skip(scroll)
@@ -700,10 +701,10 @@ fn render_content_rows(
         );
     }
 
-    let text_x = area.x.saturating_add(2);
-    let text_y = divider_y.saturating_add(1);
+    let text_x = area.x;
+    let text_y = divider_y.saturating_add(2);
     let text_width = content_text_width(area.width);
-    if text_width == 0 || area.height <= CONTENT_BOX_TOP.saturating_add(1) {
+    if text_width == 0 || area.height <= CONTENT_BOX_TOP.saturating_add(2) {
         return;
     }
     let text = Rect {
