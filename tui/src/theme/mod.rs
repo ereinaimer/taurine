@@ -29,6 +29,13 @@ pub struct Theme {
     pub error: Color,
     pub warning: Color,
     pub success: Color,
+    // Template palette: desaturated GitHub-dark tones for Taurine's own
+    // `[vars]` and `| transformers` markup, so template chrome never
+    // shouts over script code.
+    pub template_bracket: Color,
+    pub template_name: Color,
+    pub template_transformer: Color,
+    pub template_value: Color,
     // Component sub-themes
     pub header: HeaderTheme,
     pub button: ButtonTheme,

@@ -348,20 +348,20 @@ fn overlay_taurine_tags(line: &str, runs: &mut Vec<Run>, theme: &Theme) {
 /// Argument span styles, resolved from [`Theme`] once per tag.
 struct ArgStyles {
     plain: Style,
-    muted: Style,
     structural: Style,
-    string: Style,
-    number: Style,
+    name: Style,
+    transformer: Style,
+    value: Style,
 }
 
 /// Tokenize one `[...]` region (byte `start..=end`) into tiling runs.
 fn tokenize_tag(line: &str, start: usize, end: usize, map: &ByteMap, theme: &Theme) -> Vec<Run> {
     let styles = ArgStyles {
         plain: Style::default().fg(theme.text),
-        muted: Style::default().fg(theme.text_muted),
-        structural: Style::default().fg(theme.primary),
-        string: Style::default().fg(theme.success),
-        number: Style::default().fg(theme.warning),
+        structural: Style::default().fg(theme.template_bracket),
+        name: Style::default().fg(theme.template_name),
+        transformer: Style::default().fg(theme.template_transformer),
+        value: Style::default().fg(theme.template_value),
     };
     let mut runs = vec![
         Run {
@@ -439,15 +439,8 @@ fn paint_gap(
     }
 }
 
-/// Directives and executables that deserve attention over plain roots.
-fn is_attention_root(root: &str) -> bool {
-    matches!(
-        root,
-        "key" | "delay" | "mouse" | "cursor" | "image" | "execute"
-    )
-}
-
 /// First pipeline segment: system call, user variable, or invalid.
+/// System names share one pastel tone; values carry their own.
 fn paint_base_segment(
     segment: &str,
     offset: usize,
@@ -460,19 +453,13 @@ fn paint_base_segment(
         paint_user_or_invalid(segment, offset, styles, theme, runs, to_char);
         return;
     };
-    let root = namespace.split('.').next().unwrap_or(namespace);
-    let style = if is_attention_root(&root.to_ascii_lowercase()) {
-        Style::default().fg(theme.warning)
-    } else {
-        Style::default().fg(theme.accent)
-    };
     let Some(relative) = segment.find(namespace) else {
         return;
     };
     runs.push(Run {
         start: to_char(offset + relative),
         end: to_char(offset + relative + namespace.len()),
-        style,
+        style: styles.name,
     });
     paint_args(
         &segment[relative + namespace.len()..],
@@ -532,7 +519,7 @@ fn paint_transformer_segment(
     to_char: &dyn Fn(usize) -> usize,
 ) {
     let error = Style::default().fg(theme.error);
-    let name_style = Style::default().fg(theme.primary);
+    let name_style = styles.transformer;
     let Some((name, _)) = transformers::transformer_call_parts(segment) else {
         runs.push(Run {
             start: to_char(offset),
@@ -563,8 +550,8 @@ fn paint_transformer_segment(
     );
 }
 
-/// Argument span: quoted strings read as strings, bare numbers as
-/// numbers, parens and commas stay muted.
+/// Argument span: values read as values, parens and commas share the
+/// structural tone.
 fn paint_args(
     args: &str,
     offset: usize,
@@ -585,7 +572,7 @@ fn paint_args(
             runs.push(Run {
                 start: to_char(offset + index),
                 end: to_char(offset + end),
-                style: styles.string,
+                style: styles.value,
             });
             index = end;
         } else if byte.is_ascii_digit() {
@@ -596,7 +583,7 @@ fn paint_args(
             runs.push(Run {
                 start: to_char(offset + index),
                 end: to_char(offset + end),
-                style: styles.number,
+                style: styles.value,
             });
             index = end;
         } else {
@@ -605,9 +592,9 @@ fn paint_args(
                 start: to_char(offset + index),
                 end: to_char(offset + index + ch.len_utf8()),
                 style: if "(),".contains(ch) {
-                    styles.muted
+                    styles.structural
                 } else {
-                    styles.plain
+                    styles.value
                 },
             });
             index += ch.len_utf8();
@@ -752,13 +739,18 @@ mod tests {
         let runs = &plain_runs("[clip | case(upper)]")[0];
         assert!(
             runs.iter()
-                .any(|run| run.style.fg == Some(DARK_THEME.accent)),
-            "system root must accent, got {runs:?}"
+                .any(|run| run.style.fg == Some(DARK_THEME.template_name)),
+            "system root must name-tone, got {runs:?}"
         );
         assert!(
             runs.iter()
-                .any(|run| run.style.fg == Some(DARK_THEME.primary)),
-            "transformer must primary, got {runs:?}"
+                .any(|run| run.style.fg == Some(DARK_THEME.template_transformer)),
+            "transformer must transformer-tone, got {runs:?}"
+        );
+        assert!(
+            runs.iter()
+                .any(|run| run.style.fg == Some(DARK_THEME.template_value)),
+            "value must value-tone, got {runs:?}"
         );
     }
 
@@ -768,10 +760,31 @@ mod tests {
         for marker in ["[", "]", "|"] {
             assert!(
                 runs.iter()
-                    .any(|run| run.style.fg == Some(DARK_THEME.primary)),
+                    .any(|run| run.style.fg == Some(DARK_THEME.template_bracket)),
                 "{marker} must highlight, got {runs:?}"
             );
         }
+    }
+
+    #[test]
+    fn directive_name_and_value_highlight() {
+        let line = "cd C:\\Projects\\taurine[key(enter)]";
+        let runs = &plain_runs(line)[0];
+        assert!(
+            runs.iter()
+                .any(|run| run.style.fg == Some(DARK_THEME.template_name)),
+            "name must highlight, got {runs:?}"
+        );
+        assert!(
+            runs.iter()
+                .any(|run| run.style.fg == Some(DARK_THEME.template_value)),
+            "value must highlight, got {runs:?}"
+        );
+        assert!(
+            runs.iter()
+                .all(|run| run.style.fg != Some(DARK_THEME.warning)),
+            "no saturated yellow, got {runs:?}"
+        );
     }
 
     #[test]
@@ -830,7 +843,7 @@ mod tests {
         assert!(
             highlighted[0]
                 .iter()
-                .any(|run| run.style.fg == Some(DARK_THEME.accent)),
+                .any(|run| run.style.fg == Some(DARK_THEME.template_name)),
             "tag must override bash, got {:?}",
             highlighted[0]
         );
@@ -861,7 +874,7 @@ mod tests {
         let runs = &plain_runs(line)[0];
         assert!(
             runs.iter()
-                .all(|run| run.style.fg != Some(DARK_THEME.accent)),
+                .all(|run| run.style.fg != Some(DARK_THEME.template_name)),
             "escaped tag must not highlight, got {runs:?}"
         );
     }
