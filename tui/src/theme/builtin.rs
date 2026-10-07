@@ -17,13 +17,13 @@ pub const DARK_THEME: Theme = Theme {
     error: Color::Red,
     warning: Color::Yellow,
     success: Color::Green,
-    // honey: GitHub-dark template tones; pastel by design, the saturated
-    // UI palette stays reserved for script code and states.
-    template_bracket: Color::Rgb(0x7E, 0xE7, 0x87),
-    template_separator: Color::Rgb(0xF7, 0x78, 0xBA),
-    template_name: Color::Rgb(0xD2, 0xA8, 0xFF),
-    template_transformer: Color::Rgb(0x79, 0xC0, 0xFF),
-    template_value: Color::Rgb(0xFF, 0xA6, 0x57),
+    // honey: GitHub-dark syntax scale; pastel by design, the saturated
+    // UI palette stays reserved for states and chrome.
+    syntax_comment: Color::Rgb(0x8B, 0x94, 0x9E),
+    syntax_keyword: Color::Rgb(0xFF, 0x7B, 0x72),
+    syntax_string: Color::Rgb(0xA5, 0xD6, 0xFF),
+    syntax_entity: Color::Rgb(0xD2, 0xA8, 0xFF),
+    syntax_constant: Color::Rgb(0x79, 0xC0, 0xFF),
     header: HeaderTheme {
         bg: Color::Rgb(0x1E, 0x1E, 0x1E),
         text: Color::Rgb(0xCF, 0xCF, 0xCF),

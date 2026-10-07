@@ -29,15 +29,14 @@ pub struct Theme {
     pub error: Color,
     pub warning: Color,
     pub success: Color,
-    // Template palette: desaturated GitHub-dark tones for Taurine's own
-    // `[vars]` and `| transformers` markup, so template chrome never
-    // shouts over script code. Brackets frame the tag; parens and pipes
-    // separate its stages.
-    pub template_bracket: Color,
-    pub template_separator: Color,
-    pub template_name: Color,
-    pub template_transformer: Color,
-    pub template_value: Color,
+    // Syntax scale: desaturated GitHub-dark tones shared by script code
+    // and Taurine's own `[vars]` / `| transformers` markup. Structure
+    // recedes, names lead, values support; nothing shouts.
+    pub syntax_comment: Color,
+    pub syntax_keyword: Color,
+    pub syntax_string: Color,
+    pub syntax_entity: Color,
+    pub syntax_constant: Color,
     // Component sub-themes
     pub header: HeaderTheme,
     pub button: ButtonTheme,

@@ -58,12 +58,12 @@ fn kind_for(index: usize) -> Kind {
 
 fn kind_style(kind: Kind, theme: &Theme) -> Style {
     match kind {
-        Kind::Comment => Style::default().fg(theme.text_muted),
-        Kind::String => Style::default().fg(theme.success),
-        Kind::Number => Style::default().fg(theme.warning),
-        Kind::Keyword => Style::default().fg(theme.primary),
-        Kind::Function => Style::default().fg(theme.accent),
-        Kind::Type => Style::default().fg(theme.accent),
+        Kind::Comment => Style::default().fg(theme.syntax_comment),
+        Kind::String => Style::default().fg(theme.syntax_string),
+        Kind::Number => Style::default().fg(theme.syntax_constant),
+        Kind::Keyword => Style::default().fg(theme.syntax_keyword),
+        Kind::Function => Style::default().fg(theme.syntax_entity),
+        Kind::Type => Style::default().fg(theme.syntax_entity),
         Kind::Invalid => Style::default().fg(theme.error),
     }
 }
@@ -348,10 +348,8 @@ fn overlay_taurine_tags(line: &str, runs: &mut Vec<Run>, theme: &Theme) {
 /// Argument span styles, resolved from [`Theme`] once per tag.
 struct ArgStyles {
     plain: Style,
-    bracket: Style,
-    separator: Style,
+    punct: Style,
     name: Style,
-    transformer: Style,
     value: Style,
 }
 
@@ -359,22 +357,20 @@ struct ArgStyles {
 fn tokenize_tag(line: &str, start: usize, end: usize, map: &ByteMap, theme: &Theme) -> Vec<Run> {
     let styles = ArgStyles {
         plain: Style::default().fg(theme.text),
-        bracket: Style::default().fg(theme.template_bracket),
-        separator: Style::default().fg(theme.template_separator),
-        name: Style::default().fg(theme.template_name),
-        transformer: Style::default().fg(theme.template_transformer),
-        value: Style::default().fg(theme.template_value),
+        punct: Style::default().fg(theme.syntax_comment),
+        name: Style::default().fg(theme.syntax_entity),
+        value: Style::default().fg(theme.syntax_string),
     };
     let mut runs = vec![
         Run {
             start: map.to_char(start),
             end: map.to_char(start + 1),
-            style: styles.bracket,
+            style: styles.punct,
         },
         Run {
             start: map.to_char(end),
             end: map.to_char(end + 1),
-            style: styles.bracket,
+            style: styles.punct,
         },
     ];
     let inner = &line[start + 1..end];
@@ -433,7 +429,7 @@ fn paint_gap(
             start: to_char(byte),
             end: to_char(byte + ch.len_utf8()),
             style: if ch == '|' {
-                styles.separator
+                styles.punct
             } else {
                 styles.plain
             },
@@ -521,7 +517,7 @@ fn paint_transformer_segment(
     to_char: &dyn Fn(usize) -> usize,
 ) {
     let error = Style::default().fg(theme.error);
-    let name_style = styles.transformer;
+    let name_style = styles.name;
     let Some((name, _)) = transformers::transformer_call_parts(segment) else {
         runs.push(Run {
             start: to_char(offset),
@@ -594,7 +590,7 @@ fn paint_args(
                 start: to_char(offset + index),
                 end: to_char(offset + index + ch.len_utf8()),
                 style: if "(),".contains(ch) {
-                    styles.separator
+                    styles.punct
                 } else {
                     styles.value
                 },
@@ -682,8 +678,8 @@ mod tests {
         assert!(
             highlighted[0]
                 .iter()
-                .any(|run| run.style.fg == Some(DARK_THEME.accent)),
-            "cmdlet must accent, got {:?}",
+                .any(|run| run.style.fg == Some(DARK_THEME.syntax_entity)),
+            "cmdlet must entity-tone, got {:?}",
             highlighted[0]
         );
         assert!(
@@ -714,8 +710,8 @@ mod tests {
         assert!(
             highlighted[0]
                 .iter()
-                .any(|run| run.style.fg == Some(DARK_THEME.text_muted)),
-            "comment must dim, got {:?}",
+                .any(|run| run.style.fg == Some(DARK_THEME.syntax_comment)),
+            "comment must recede, got {:?}",
             highlighted[0]
         );
     }
@@ -741,36 +737,24 @@ mod tests {
         let runs = &plain_runs("[clip | case(upper)]")[0];
         assert!(
             runs.iter()
-                .any(|run| run.style.fg == Some(DARK_THEME.template_name)),
-            "system root must name-tone, got {runs:?}"
+                .any(|run| run.style.fg == Some(DARK_THEME.syntax_entity)),
+            "names must entity-tone, got {runs:?}"
         );
         assert!(
             runs.iter()
-                .any(|run| run.style.fg == Some(DARK_THEME.template_transformer)),
-            "transformer must transformer-tone, got {runs:?}"
-        );
-        assert!(
-            runs.iter()
-                .any(|run| run.style.fg == Some(DARK_THEME.template_value)),
-            "value must value-tone, got {runs:?}"
+                .any(|run| run.style.fg == Some(DARK_THEME.syntax_string)),
+            "value must string-tone, got {runs:?}"
         );
     }
 
     #[test]
     fn brackets_and_pipes_highlight() {
         let runs = &plain_runs("[clip | case(upper)]")[0];
-        for marker in ["[", "]"] {
+        for marker in ["[", "]", "|", "(", ")"] {
             assert!(
                 runs.iter()
-                    .any(|run| run.style.fg == Some(DARK_THEME.template_bracket)),
-                "{marker} must bracket-tone, got {runs:?}"
-            );
-        }
-        for marker in ["|", "(", ")"] {
-            assert!(
-                runs.iter()
-                    .any(|run| run.style.fg == Some(DARK_THEME.template_separator)),
-                "{marker} must separator-tone, got {runs:?}"
+                    .any(|run| run.style.fg == Some(DARK_THEME.syntax_comment)),
+                "{marker} must recede, got {runs:?}"
             );
         }
     }
@@ -781,12 +765,12 @@ mod tests {
         let runs = &plain_runs(line)[0];
         assert!(
             runs.iter()
-                .any(|run| run.style.fg == Some(DARK_THEME.template_name)),
+                .any(|run| run.style.fg == Some(DARK_THEME.syntax_entity)),
             "name must highlight, got {runs:?}"
         );
         assert!(
             runs.iter()
-                .any(|run| run.style.fg == Some(DARK_THEME.template_value)),
+                .any(|run| run.style.fg == Some(DARK_THEME.syntax_string)),
             "value must highlight, got {runs:?}"
         );
         assert!(
@@ -794,6 +778,22 @@ mod tests {
                 .all(|run| run.style.fg != Some(DARK_THEME.warning)),
             "no saturated yellow, got {runs:?}"
         );
+    }
+
+    #[test]
+    fn palette_stays_restrained() {
+        // honey: the rainbow guard — a rich mixed line may use at most
+        // four accent tones besides body text and error red.
+        use std::collections::HashSet;
+        let line = "echo [clip | case(upper)] # done [key(enter)] [nope(1)]";
+        let lines = [line.to_string()];
+        let highlighted = highlight_lines(&lines, Some(ScriptInterpreter::Bash), &DARK_THEME);
+        let tones: HashSet<_> = highlighted[0]
+            .iter()
+            .map(|run| run.style.fg)
+            .filter(|fg| *fg != Some(DARK_THEME.text) && *fg != Some(DARK_THEME.error))
+            .collect();
+        assert!(tones.len() <= 4, "rainbow creep: {tones:?}");
     }
 
     #[test]
@@ -852,7 +852,7 @@ mod tests {
         assert!(
             highlighted[0]
                 .iter()
-                .any(|run| run.style.fg == Some(DARK_THEME.template_name)),
+                .any(|run| run.style.fg == Some(DARK_THEME.syntax_entity)),
             "tag must override bash, got {:?}",
             highlighted[0]
         );
@@ -883,7 +883,7 @@ mod tests {
         let runs = &plain_runs(line)[0];
         assert!(
             runs.iter()
-                .all(|run| run.style.fg != Some(DARK_THEME.template_name)),
+                .all(|run| run.style.fg != Some(DARK_THEME.syntax_entity)),
             "escaped tag must not highlight, got {runs:?}"
         );
     }
