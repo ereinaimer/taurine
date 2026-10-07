@@ -318,6 +318,63 @@ pub(crate) fn render_action_buttons(
     );
 }
 
+/// Horizontal confirm-button pair centered in `row`: two padded cells
+/// (`  label  `) with a three-cell gap. Shared geometry for every
+/// confirm overlay so rendering and hit-testing agree; future deletes
+/// reuse this instead of copying it.
+pub(crate) fn confirm_button_cells(row: Rect, left_label: &str, right_label: &str) -> (Rect, Rect) {
+    const PAD: u16 = 2;
+    const GAP: u16 = 3;
+    let left_width = left_label.chars().count() as u16 + PAD * 2;
+    let right_width = right_label.chars().count() as u16 + PAD * 2;
+    let total = left_width.saturating_add(GAP).saturating_add(right_width);
+    let start = row.x.saturating_add(row.width.saturating_sub(total) / 2);
+    let left = Rect {
+        x: start,
+        y: row.y,
+        width: left_width,
+        height: 1,
+    };
+    let right = Rect {
+        x: start.saturating_add(left_width).saturating_add(GAP),
+        y: row.y,
+        width: right_width,
+        height: 1,
+    };
+    (left, right)
+}
+
+/// Paints a `confirm_button_cells` pair: the selected cell takes the
+/// cursor band, the other stays muted text.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn render_confirm_buttons(
+    frame: &mut Frame,
+    left: Rect,
+    right: Rect,
+    left_label: &str,
+    right_label: &str,
+    select_left: bool,
+    theme: &Theme,
+) {
+    for (cell, label, selected) in [
+        (left, left_label, select_left),
+        (right, right_label, !select_left),
+    ] {
+        if cell.width == 0 || cell.height == 0 {
+            continue;
+        }
+        let style = if selected {
+            Style::default()
+                .fg(theme.text)
+                .bg(theme.surface)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme.text_muted)
+        };
+        frame.render_widget(Paragraph::new(format!("  {label}  ")).style(style), cell);
+    }
+}
+
 pub(crate) fn render_modal_field_label(
     frame: &mut Frame,
     area: Rect,
@@ -562,7 +619,21 @@ pub(crate) fn render_search_block(
 
 #[cfg(test)]
 mod tests {
+    use ratatui::layout::Rect;
+
     use crate::widgets::field::TextField;
+
+    use super::confirm_button_cells;
+
+    #[test]
+    fn confirm_button_cells_center_yes_no_pair() {
+        let row = Rect::new(25, 14, 50, 1);
+
+        let (yes, no) = confirm_button_cells(row, "Yes", "No");
+
+        assert_eq!(yes, Rect::new(42, 14, 7, 1));
+        assert_eq!(no, Rect::new(52, 14, 6, 1));
+    }
 
     #[test]
     fn viewport_shows_full_query_when_it_fits() {

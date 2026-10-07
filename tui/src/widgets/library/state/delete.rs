@@ -10,8 +10,6 @@ pub(crate) struct LibraryDeleteModalState {
 }
 
 impl LibraryDeleteModalState {
-    // honey: unreachable until the shortcut rework lands; kept with tests.
-    #[allow(dead_code)]
     pub(crate) fn from_item(item: &LibraryTrigger, restore_index: usize) -> Self {
         Self {
             trigger_id: item.id().to_string(),
@@ -26,8 +24,6 @@ impl LibraryDeleteModalState {
         &self.trigger_id
     }
 
-    // honey: unreachable until the shortcut rework lands; kept with tests.
-    #[allow(dead_code)]
     pub(crate) fn name(&self) -> &str {
         &self.name
     }

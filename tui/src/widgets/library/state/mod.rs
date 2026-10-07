@@ -49,8 +49,6 @@ pub(crate) enum LibraryModal {
     Import(LibraryImportModalState),
     ImportResult(LibraryImportResultModalState),
     ConfirmImportRunVariables(LibraryImportRunVariablesModalState),
-    // honey: unreachable until the shortcut rework lands; kept with tests.
-    #[allow(dead_code)]
     ConfirmDelete(LibraryDeleteModalState),
     HeaderMenu(LibraryHeaderMenuState),
     Tags(LibraryTagsModalState),
@@ -912,8 +910,6 @@ impl LibraryPageState {
         ));
     }
 
-    // honey: unreachable until the shortcut rework lands; kept with tests.
-    #[allow(dead_code)]
     pub(crate) fn open_delete_modal_for_selected(&mut self) {
         let Some(selected_index) = self.selected_index() else {
             self.load_error = Some("No trigger selected.".to_string());
@@ -926,6 +922,41 @@ impl LibraryPageState {
         self.modal = Some(LibraryModal::ConfirmDelete(
             LibraryDeleteModalState::from_item(&item, selected_index),
         ));
+    }
+
+    /// Confirm-modal cursor for mouse hit-testing: `Some(true)` is Yes,
+    /// `Some(false)` is No, `None` when no confirm is open.
+    pub(crate) fn delete_selected_yes(&self) -> Option<bool> {
+        match self.modal.as_ref() {
+            Some(LibraryModal::ConfirmDelete(state)) => Some(state.selected_yes()),
+            _ => None,
+        }
+    }
+
+    /// Flip the confirm-modal cursor; no-op unless a confirm is open.
+    pub(crate) fn set_delete_selected_yes(&mut self, selected: bool) {
+        if let Some(LibraryModal::ConfirmDelete(state)) = self.modal.as_mut() {
+            state.set_selected_yes(selected);
+        }
+    }
+
+    /// Confirm the open delete modal, mirroring the Enter key: Yes
+    /// yields the pending delete, No closes the modal.
+    pub(crate) fn confirm_delete(&mut self) -> LibraryInteraction {
+        let Some(LibraryModal::ConfirmDelete(state)) = self.modal.as_ref() else {
+            return LibraryInteraction::handled();
+        };
+        if state.selected_yes() {
+            let interaction = LibraryInteraction::delete(PendingLibraryDelete {
+                trigger_id: state.trigger_id().to_string(),
+                restore_index: state.restore_index(),
+            });
+            self.modal = Some(LibraryModal::ConfirmDelete(state.clone()));
+            interaction
+        } else {
+            self.modal = None;
+            LibraryInteraction::handled()
+        }
     }
 
     pub(crate) fn clear_modal(&mut self) {
@@ -1066,6 +1097,14 @@ impl LibraryPageState {
             }
             (KeyCode::Up, KeyModifiers::NONE) => {
                 self.move_selection(-1);
+                LibraryInteraction::handled()
+            }
+            // honey: Delete opens the confirm modal; text edits and
+            // search own Delete above, so this only fires on the list.
+            (KeyCode::Delete, KeyModifiers::NONE) => {
+                if self.selected_index().is_some() {
+                    self.open_delete_modal_for_selected();
+                }
                 LibraryInteraction::handled()
             }
             // honey: trigger editor removed pending revamp; Enter reserved.
@@ -1442,7 +1481,19 @@ impl LibraryPageState {
                     self.modal = Some(LibraryModal::ConfirmDelete(state));
                     LibraryInteraction::handled()
                 }
+                // honey: vertical arrows match the overlay option-menu
+                // language; the rows stack Yes over No.
+                (KeyCode::Up, KeyModifiers::NONE) | (KeyCode::Char('k'), KeyModifiers::NONE) => {
+                    state.set_selected_yes(true);
+                    self.modal = Some(LibraryModal::ConfirmDelete(state));
+                    LibraryInteraction::handled()
+                }
                 (KeyCode::Right, KeyModifiers::NONE) | (KeyCode::Char('l'), KeyModifiers::NONE) => {
+                    state.set_selected_yes(false);
+                    self.modal = Some(LibraryModal::ConfirmDelete(state));
+                    LibraryInteraction::handled()
+                }
+                (KeyCode::Down, KeyModifiers::NONE) | (KeyCode::Char('j'), KeyModifiers::NONE) => {
                     state.set_selected_yes(false);
                     self.modal = Some(LibraryModal::ConfirmDelete(state));
                     LibraryInteraction::handled()

@@ -940,6 +940,113 @@ fn delete_confirmation_enter_creates_pending_delete() {
 }
 
 #[test]
+fn delete_key_opens_confirm_for_selected_row() {
+    let mut state = sample_state();
+    assert!(state.modal().is_none());
+
+    state.handle_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE));
+
+    assert!(matches!(
+        state.modal(),
+        Some(LibraryModal::ConfirmDelete(_))
+    ));
+}
+
+#[test]
+fn delete_key_with_empty_library_stays_closed() {
+    let mut state = LibraryPageState::default();
+
+    state.handle_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE));
+
+    assert!(state.modal().is_none());
+}
+
+#[test]
+fn delete_key_while_search_active_stays_in_search() {
+    let mut state = sample_state();
+    state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+
+    state.handle_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE));
+
+    assert!(state.modal().is_none());
+    assert!(state.is_search_active());
+}
+
+#[test]
+fn delete_key_while_confirm_open_keeps_modal() {
+    let mut state = sample_state();
+    state.open_delete_modal_for_selected();
+
+    state.handle_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE));
+
+    assert!(matches!(
+        state.modal(),
+        Some(LibraryModal::ConfirmDelete(_))
+    ));
+}
+
+#[test]
+fn confirm_up_selects_yes_and_down_selects_no() {
+    let mut state = sample_state();
+    state.open_delete_modal_for_selected();
+
+    state.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    assert!(
+        !state
+            .modal()
+            .and_then(|modal| match modal {
+                LibraryModal::ConfirmDelete(delete) => Some(delete.selected_yes()),
+                _ => None,
+            })
+            .expect("confirm modal")
+    );
+
+    state.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+    assert!(
+        state
+            .modal()
+            .and_then(|modal| match modal {
+                LibraryModal::ConfirmDelete(delete) => Some(delete.selected_yes()),
+                _ => None,
+            })
+            .expect("confirm modal")
+    );
+}
+
+#[test]
+fn delete_option_hit_selects_horizontal_buttons() {
+    // overlay_popup on 100x30 centers 56x14 at (22,8); body starts at
+    // (25,9); buttons row is body.y+5=14 with Yes at x=42..48 and
+    // No at x=52..57.
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+
+    assert_eq!(modals::delete_option_hit(area, 43, 14), Some(true));
+    assert_eq!(modals::delete_option_hit(area, 42, 14), Some(true));
+    assert_eq!(modals::delete_option_hit(area, 48, 14), Some(true));
+    assert_eq!(modals::delete_option_hit(area, 53, 14), Some(false));
+    assert_eq!(modals::delete_option_hit(area, 52, 14), Some(false));
+    assert_eq!(modals::delete_option_hit(area, 57, 14), Some(false));
+}
+
+#[test]
+fn delete_option_hit_ignores_chrome_gap_and_outside() {
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+
+    // Title, blank, question, name, blank rows.
+    assert_eq!(modals::delete_option_hit(area, 30, 9), None);
+    assert_eq!(modals::delete_option_hit(area, 30, 10), None);
+    assert_eq!(modals::delete_option_hit(area, 30, 11), None);
+    assert_eq!(modals::delete_option_hit(area, 30, 12), None);
+    assert_eq!(modals::delete_option_hit(area, 30, 13), None);
+    // Gap between the buttons and cells outside them.
+    assert_eq!(modals::delete_option_hit(area, 49, 14), None);
+    assert_eq!(modals::delete_option_hit(area, 30, 14), None);
+    assert_eq!(modals::delete_option_hit(area, 41, 14), None);
+    assert_eq!(modals::delete_option_hit(area, 58, 14), None);
+    assert_eq!(modals::delete_option_hit(area, 0, 0), None);
+}
+
+#[test]
 fn select_after_delete_chooses_nearest_remaining_item() {
     let mut state = sample_state();
     state.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));

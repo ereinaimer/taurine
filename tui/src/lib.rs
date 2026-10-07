@@ -461,6 +461,33 @@ fn handle_tui_mouse_event(
                 }
                 return;
             }
+            // honey: the delete confirm owns its clicks: option rows
+            // select (a click on the cursor row confirms), clicks
+            // outside the popup cancel. Other modals stay keyboard-only.
+            if let Some(library::LibraryModal::ConfirmDelete(_)) = app.library_page().modal() {
+                let layout = terminal::mouse::frame_layout(area);
+                let full = terminal::mouse::library_full_area(layout.page);
+                match library::modals::delete_option_hit(full, mouse.column, mouse.row) {
+                    Some(yes) => {
+                        if app.library_page().delete_selected_yes() == Some(yes) {
+                            let interaction = app.library_page_mut().confirm_delete();
+                            apply_library_interaction(app, interaction);
+                        } else {
+                            app.library_page_mut().set_delete_selected_yes(yes);
+                        }
+                    }
+                    None => {
+                        if !terminal::mouse::contains(
+                            library::modals::delete_popup(full),
+                            mouse.column,
+                            mouse.row,
+                        ) {
+                            app.library_page_mut().clear_modal();
+                        }
+                    }
+                }
+                return;
+            }
             if modal_open {
                 return;
             }
@@ -1761,6 +1788,67 @@ mod tests {
 
         assert!(app.library_page().is_modal_open());
         assert_eq!(app.library_page().selected_index(), selected_before);
+    }
+
+    #[test]
+    fn delete_key_opens_confirm_for_selected_row() {
+        let mut app = App::default();
+        seed_single_library_item(&mut app);
+
+        handle_tui_key_event(&mut app, KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE));
+
+        assert!(app.library_page().is_modal_open());
+    }
+
+    #[test]
+    fn delete_key_while_settings_overlay_open_stays_in_settings() {
+        let mut app = App::default();
+        seed_single_library_item(&mut app);
+        app.open_settings_overlay();
+
+        handle_tui_key_event(&mut app, KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE));
+
+        assert!(!app.library_page().is_modal_open());
+        assert!(app.is_settings_overlay_open());
+    }
+
+    #[test]
+    fn clicking_no_row_flips_delete_selection() {
+        let mut app = App::default();
+        seed_single_library_item(&mut app);
+        app.library_page_mut().open_delete_modal_for_selected();
+        assert_eq!(app.library_page().delete_selected_yes(), Some(true));
+
+        // No button of the overlay confirm on TEST_AREA.
+        handle_tui_mouse_event(&mut app, left_click(53, 14), TEST_AREA);
+
+        assert!(app.library_page().is_modal_open());
+        assert_eq!(app.library_page().delete_selected_yes(), Some(false));
+    }
+
+    #[test]
+    fn clicking_yes_row_selects_yes() {
+        let mut app = App::default();
+        seed_single_library_item(&mut app);
+        app.library_page_mut().open_delete_modal_for_selected();
+        app.library_page_mut().set_delete_selected_yes(false);
+
+        // Yes button of the overlay confirm on TEST_AREA.
+        handle_tui_mouse_event(&mut app, left_click(43, 14), TEST_AREA);
+
+        assert!(app.library_page().is_modal_open());
+        assert_eq!(app.library_page().delete_selected_yes(), Some(true));
+    }
+
+    #[test]
+    fn clicking_outside_delete_modal_cancels() {
+        let mut app = App::default();
+        seed_single_library_item(&mut app);
+        app.library_page_mut().open_delete_modal_for_selected();
+
+        handle_tui_mouse_event(&mut app, left_click(0, 0), TEST_AREA);
+
+        assert!(!app.library_page().is_modal_open());
     }
 
     #[test]

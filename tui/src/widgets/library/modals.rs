@@ -3,7 +3,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Clear, Paragraph},
+    widgets::{Block, Clear, Paragraph},
 };
 
 use crate::theme::Theme;
@@ -48,15 +48,55 @@ pub fn render_library_modal(frame: &mut Frame, area: Rect, theme: &Theme, modal:
     }
 }
 
-/// Popup rects shared by rendering and the overlay open-transition so
-/// the sweep covers exactly what was painted.
+/// Popup geometry for library modal dialogs.
 pub(crate) fn delete_popup(area: Rect) -> Rect {
-    let width = if area.width > 44 {
-        area.width.saturating_sub(4).min(64)
-    } else {
-        area.width.max(1)
+    util::overlay_popup(area)
+}
+
+/// Body-row offsets inside the delete confirm, shared by rendering and
+/// hit-testing: title, blank, question, trigger name, blank, then the
+/// horizontal Yes/No button pair.
+pub(crate) const DELETE_QUESTION_OFFSET: u16 = 2;
+pub(crate) const DELETE_NAME_OFFSET: u16 = 3;
+pub(crate) const DELETE_BUTTONS_OFFSET: u16 = 5;
+
+/// Delete confirm button labels, shared by rendering and hit-testing
+/// so the pair never drifts between the two paths.
+pub(crate) const DELETE_YES_LABEL: &str = "Yes";
+pub(crate) const DELETE_NO_LABEL: &str = "No";
+
+/// Buttons row inside the delete confirm, shared by rendering and
+/// hit-testing.
+fn delete_buttons_row(area: Rect) -> Rect {
+    let popup = delete_popup(area);
+    let body = util::overlay_body(popup);
+    Rect {
+        x: body.x,
+        y: body.y.saturating_add(DELETE_BUTTONS_OFFSET),
+        width: body.width,
+        height: 1,
+    }
+}
+
+/// Click on the delete confirm at `(column, row)`: `Some(true)` is Yes,
+/// `Some(false)` is No. Only the button cells select; title, blanks,
+/// question, name, and error cells never do.
+pub(crate) fn delete_option_hit(area: Rect, column: u16, row: u16) -> Option<bool> {
+    let row_area = delete_buttons_row(area);
+    let (yes, no) = util::confirm_button_cells(row_area, DELETE_YES_LABEL, DELETE_NO_LABEL);
+    let inside = |cell: Rect| {
+        column >= cell.x
+            && column < cell.x.saturating_add(cell.width)
+            && row == cell.y
+            && cell.width > 0
     };
-    util::centered_rect(width, 8, area)
+    if inside(yes) {
+        Some(true)
+    } else if inside(no) {
+        Some(false)
+    } else {
+        None
+    }
 }
 
 pub(crate) fn export_popup(area: Rect) -> Rect {
@@ -114,57 +154,67 @@ fn render_library_delete_modal(
     theme: &Theme,
     state: &LibraryDeleteModalState,
 ) {
+    use ratatui::style::Color::Rgb;
+
     let popup = delete_popup(area);
     frame.render_widget(Clear, popup);
-    let inner = util::render_modal_block(frame, popup, "Delete Trigger", theme);
-
-    let sections = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Min(0),
-        ])
-        .split(inner);
-
+    // honey: flat borderless fill, the shared overlay language; the
+    // cursor band marks the selected option.
     frame.render_widget(
-        Paragraph::new("Do you want to delete this trigger?")
-            .style(Style::default().fg(theme.text_muted)),
-        sections[0],
+        Block::default().style(Style::default().bg(Rgb(0x14, 0x14, 0x14))),
+        popup,
     );
-    frame.render_widget(
-        Paragraph::new(util::truncate_to_width(state.name(), sections[1].width))
-            .style(Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
-        sections[1],
-    );
+    let body = util::overlay_body(popup);
+    if body.width == 0 || body.height == 0 {
+        return;
+    }
+    util::render_overlay_title(frame, body, theme, "Delete Trigger");
 
-    let yes_style = if state.selected_yes() {
-        Style::default()
-            .fg(theme.text)
-            .bg(theme.surface)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(theme.text_muted)
-    };
-    let no_style = if !state.selected_yes() {
-        Style::default()
-            .fg(theme.text)
-            .bg(theme.surface)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(theme.text_muted)
-    };
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled("  Yes  ", yes_style),
-            Span::raw("    "),
-            Span::styled("  No  ", no_style),
-        ]))
-        .alignment(ratatui::layout::Alignment::Center),
-        sections[2],
-    );
+    let question_y = body.y.saturating_add(DELETE_QUESTION_OFFSET);
+    let name_y = body.y.saturating_add(DELETE_NAME_OFFSET);
+    let buttons = delete_buttons_row(area);
+    let error_y = body.y.saturating_add(body.height).saturating_sub(1);
+    let bottom = body.y.saturating_add(body.height);
+    if question_y < bottom {
+        frame.render_widget(
+            Paragraph::new("Do you want to delete this trigger?")
+                .style(Style::default().fg(theme.text_muted)),
+            Rect {
+                x: body.x,
+                y: question_y,
+                width: body.width,
+                height: 1,
+            },
+        );
+    }
+    if name_y < bottom {
+        frame.render_widget(
+            Paragraph::new(util::truncate_to_width(state.name(), body.width))
+                .style(Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
+            Rect {
+                x: body.x,
+                y: name_y,
+                width: body.width,
+                height: 1,
+            },
+        );
+    }
+
+    // honey: horizontal pair on the shared confirm geometry so a
+    // future delete overlay reuses the same cells in rendering and
+    // hit-testing.
+    if buttons.y < bottom && buttons.width > 0 {
+        let (yes, no) = util::confirm_button_cells(buttons, DELETE_YES_LABEL, DELETE_NO_LABEL);
+        util::render_confirm_buttons(
+            frame,
+            yes,
+            no,
+            DELETE_YES_LABEL,
+            DELETE_NO_LABEL,
+            state.selected_yes(),
+            theme,
+        );
+    }
 
     let feedback_style = if state.error().is_some() {
         Style::default()
@@ -175,10 +225,17 @@ fn render_library_delete_modal(
             .fg(theme.text_muted)
             .add_modifier(Modifier::DIM)
     };
-    frame.render_widget(
-        Paragraph::new(state.error().unwrap_or("")).style(feedback_style),
-        sections[3],
-    );
+    if error_y < bottom && error_y != buttons.y {
+        frame.render_widget(
+            Paragraph::new(state.error().unwrap_or("")).style(feedback_style),
+            Rect {
+                x: body.x,
+                y: error_y,
+                width: body.width,
+                height: 1,
+            },
+        );
+    }
 }
 
 fn render_library_export_modal(
