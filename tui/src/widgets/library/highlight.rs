@@ -1,21 +1,18 @@
-//! Center-pane syntax highlighting: script grammars via syntect
-//! (pure-Rust `fancy-regex`, no native deps) mapped onto the Taurine
+//! Center-pane syntax highlighting: script grammars via tree-sitter
+//! (real parsers, error-tolerant mid-typing) mapped onto the Taurine
 //! [`Theme`] palette, plus a Taurine template overlay (`[vars]`,
 //! `| transformers`, directives) that wins inside `[...]` regions.
 //! Runs are char-indexed so they survive the word-wrap in `detail.rs`.
 
 use std::ops::Range;
-use std::str::FromStr;
 use std::sync::{Mutex, OnceLock};
 
 use ratatui::style::{Modifier, Style};
 use ratatui::text::Span;
-use syntect::highlighting::ScopeSelectors;
-use syntect::parsing::{ParseState, ScopeStack, SyntaxReference, SyntaxSet};
-use syntect::util::LinesWithEndings;
 use taurine_core::engine::ScriptInterpreter;
 use taurine_core::engine::variables::system::transformers;
 use taurine_core::engine::variables::{parse_system_call, tags};
+use tree_sitter_highlight::{HighlightConfiguration, HighlightEvent, Highlighter};
 
 use crate::theme::Theme;
 
@@ -38,28 +35,25 @@ enum Kind {
     Invalid,
 }
 
-/// Pre-parsed Sublime scope selectors, most specific first. Parsed once;
-/// the [`Theme`] colors resolve per render.
-static SELECTORS: OnceLock<Vec<(ScopeSelectors, Kind)>> = OnceLock::new();
+/// Recognized tree-sitter capture names, index-aligned with [`kind_for`].
+/// Unrecognized captures (variables, operators, punctuation) fall through
+/// to plain body text. Matching is longest-prefix on dot parts, so
+/// `function.builtin` lands on `function`.
+const NAMES: [&str; 7] = [
+    "comment", "string", "number", "keyword", "function", "type", "error",
+];
 
-fn selectors() -> &'static [(ScopeSelectors, Kind)] {
-    SELECTORS.get_or_init(|| {
-        [
-            ("invalid", Kind::Invalid),
-            ("comment", Kind::Comment),
-            ("string", Kind::String),
-            ("constant.numeric", Kind::Number),
-            ("entity.name.function, support.function", Kind::Function),
-            (
-                "entity.name.type, entity.name.class, support.type, support.class",
-                Kind::Type,
-            ),
-            ("keyword, storage", Kind::Keyword),
-        ]
-        .into_iter()
-        .filter_map(|(source, kind)| ScopeSelectors::from_str(source).ok().map(|sel| (sel, kind)))
-        .collect()
-    })
+fn kind_for(index: usize) -> Kind {
+    const KINDS: [Kind; 7] = [
+        Kind::Comment,
+        Kind::String,
+        Kind::Number,
+        Kind::Keyword,
+        Kind::Function,
+        Kind::Type,
+        Kind::Invalid,
+    ];
+    KINDS[index.min(KINDS.len() - 1)]
 }
 
 fn kind_style(kind: Kind, theme: &Theme) -> Style {
@@ -76,24 +70,70 @@ fn kind_style(kind: Kind, theme: &Theme) -> Style {
     }
 }
 
-static SYNTAX_SET: OnceLock<SyntaxSet> = OnceLock::new();
+/// Highlight configurations, one per interpreter, query-compiled once.
+/// A language whose query fails to compile resolves to `None` and the
+/// content falls back to plain text plus the Taurine overlay.
+static CONFIGS: OnceLock<Vec<(ScriptInterpreter, HighlightConfiguration)>> = OnceLock::new();
 
-/// Bat-curated Sublime grammar dump (fancy-regex compatible build).
-/// honey: ~1MB static, loaded once; per-frame cost is parsing only.
-fn syntax_set() -> &'static SyntaxSet {
-    SYNTAX_SET.get_or_init(two_face::syntax::extra_newlines)
+fn configs() -> &'static [(ScriptInterpreter, HighlightConfiguration)] {
+    CONFIGS.get_or_init(|| {
+        ScriptInterpreter::ALL
+            .iter()
+            .filter_map(|interpreter| {
+                build_config(*interpreter).map(|config| (*interpreter, config))
+            })
+            .collect()
+    })
 }
 
-/// Sublime grammar extension per Taurine script interpreter.
-fn syntax_for(set: &SyntaxSet, interpreter: ScriptInterpreter) -> Option<&SyntaxReference> {
-    let extension = match interpreter {
-        ScriptInterpreter::Bash => "sh",
-        ScriptInterpreter::PowerShell => "ps1",
-        ScriptInterpreter::Python => "py",
-        ScriptInterpreter::Node => "js",
-        ScriptInterpreter::Cmd => "bat",
+fn build_config(interpreter: ScriptInterpreter) -> Option<HighlightConfiguration> {
+    use tree_sitter::{Language, Parser};
+
+    // honey: grammar crates pin their own query sources; empty injection
+    // and locals (no cross-language injection or locals tracking in a
+    // 16-row preview).
+    let (language, name, query): (Language, &str, &str) = match interpreter {
+        ScriptInterpreter::Bash => (
+            tree_sitter_bash::LANGUAGE.into(),
+            "bash",
+            tree_sitter_bash::HIGHLIGHT_QUERY,
+        ),
+        ScriptInterpreter::PowerShell => (
+            tree_sitter_powershell::LANGUAGE.into(),
+            "powershell",
+            tree_sitter_powershell::HIGHLIGHTS_QUERY,
+        ),
+        ScriptInterpreter::Python => (
+            tree_sitter_python::LANGUAGE.into(),
+            "python",
+            tree_sitter_python::HIGHLIGHTS_QUERY,
+        ),
+        ScriptInterpreter::Node => (
+            tree_sitter_javascript::LANGUAGE.into(),
+            "javascript",
+            tree_sitter_javascript::HIGHLIGHT_QUERY,
+        ),
+        ScriptInterpreter::Cmd => (
+            tree_sitter_batch::LANGUAGE.into(),
+            "batch",
+            tree_sitter_batch::HIGHLIGHTS_QUERY,
+        ),
     };
-    set.find_syntax_by_extension(extension)
+    // honey: fail fast on ABI drift — a grammar the linked runtime can't
+    // load must surface here, not as mis-highlighted text.
+    let mut parser = Parser::new();
+    parser.set_language(&language).ok()?;
+    let mut config = HighlightConfiguration::new(language, name, query, "", "").ok()?;
+    config.configure(&NAMES);
+    Some(config)
+}
+
+/// Highlight configuration per Taurine script interpreter.
+fn config_for(interpreter: ScriptInterpreter) -> Option<&'static HighlightConfiguration> {
+    configs()
+        .iter()
+        .find(|(candidate, _)| *candidate == interpreter)
+        .map(|(_, config)| config)
 }
 
 /// Highlight source lines: script grammar base plus the Taurine overlay
@@ -132,12 +172,21 @@ pub(crate) fn highlight_lines(
     {
         return hit.runs.clone();
     }
-    let set = syntax_set();
-    let syntax = interpreter.and_then(|interpreter| syntax_for(set, interpreter));
-    let runs: Vec<Vec<Run>> = lines
-        .iter()
-        .map(|line| highlight_line(line, syntax, set, theme))
-        .collect();
+    let runs: Vec<Vec<Run>> = match interpreter.and_then(config_for) {
+        Some(config) => script_runs(lines, config, theme),
+        None => lines
+            .iter()
+            .map(|line| {
+                let mut runs = vec![Run {
+                    start: 0,
+                    end: line.chars().count(),
+                    style: Style::default().fg(theme.text),
+                }];
+                overlay_taurine_tags(line, &mut runs, theme);
+                runs
+            })
+            .collect(),
+    };
     if let Ok(mut cache) = CACHE.lock() {
         *cache = Some(Cached {
             hash,
@@ -149,68 +198,81 @@ pub(crate) fn highlight_lines(
     runs
 }
 
-fn highlight_line(
-    line: &str,
-    syntax: Option<&SyntaxReference>,
-    set: &SyntaxSet,
-    theme: &Theme,
-) -> Vec<Run> {
-    let chars = line.chars().count();
-    let mut runs = match syntax {
-        Some(syntax) => script_runs(line, syntax, set, theme),
-        None => vec![Run {
-            start: 0,
-            end: chars,
-            style: Style::default().fg(theme.text),
-        }],
-    };
-    overlay_taurine_tags(line, &mut runs, theme);
-    runs
-}
-
-/// Script grammar runs via syntect parse states, mapped onto [`Theme`].
-/// Unmatched tokens fall back to body text so the line always tiles.
-fn script_runs(line: &str, syntax: &SyntaxReference, set: &SyntaxSet, theme: &Theme) -> Vec<Run> {
+/// Script grammar runs for the whole document (multi-line strings and
+/// heredocs fold lines), sliced per source line. Unmatched spans fall
+/// back to body text so every line tiles.
+fn script_runs(lines: &[String], config: &HighlightConfiguration, theme: &Theme) -> Vec<Vec<Run>> {
     let plain = Style::default().fg(theme.text);
-    let map = ByteMap::new(line);
-    let mut state = ParseState::new(syntax);
-    let mut stack = ScopeStack::new();
-    let mut runs = Vec::new();
-    // honey: newline kept for the parser (heredocs fold lines),
-    // stripped from the painted run.
-    let parsed = format!("{line}\n");
-    for token in LinesWithEndings::from(&parsed) {
-        let Ok(ops) = state.parse_line(token, set) else {
-            continue;
-        };
-        for (index, (start, op)) in ops.iter().enumerate() {
-            let end = ops
-                .get(index + 1)
-                .map(|(next, _)| *next)
-                .unwrap_or(token.len());
-            let _ = stack.apply(op);
-            if end <= *start || *start >= token.len() {
+    let content = lines.join("\n");
+    // honey: line byte ranges over the joined text; the `\r` of a CRLF
+    // pair lands in the gap and never paints (invisible anyway).
+    let mut starts = Vec::with_capacity(lines.len());
+    let mut cursor = 0usize;
+    for line in lines {
+        starts.push(cursor);
+        cursor += line.len() + 1;
+    }
+    let mut highlighter = Highlighter::new();
+    let mut segments: Vec<(usize, usize, Style)> = Vec::new();
+    let highlight = highlighter.highlight(config, content.as_bytes(), None, None, |_| None);
+    // honey: a document the parser rejects wholesale still shows
+    // text; per-line tiling below covers the gap.
+    if let Ok(events) = highlight {
+        let mut stack = vec![plain];
+        for event in events {
+            let Ok(event) = event else {
                 continue;
-            }
-            let style = selectors()
-                .iter()
-                .find(|(sel, _)| sel.does_match(stack.as_slice()).is_some())
-                .map(|(_, kind)| kind_style(*kind, theme))
-                .unwrap_or(plain);
-            let (start, end) = (map.to_char(*start), map.to_char(end.min(token.len())));
-            if end > start {
-                runs.push(Run { start, end, style });
+            };
+            match event {
+                HighlightEvent::Source { start, end } => {
+                    if let Some(style) = stack.last() {
+                        segments.push((start, end, *style));
+                    }
+                }
+                HighlightEvent::HighlightStart(index) => {
+                    stack.push(kind_style(kind_for(index.0), theme));
+                }
+                HighlightEvent::HighlightEnd => {
+                    stack.pop();
+                    if stack.is_empty() {
+                        stack.push(plain);
+                    }
+                }
             }
         }
     }
-    if runs.is_empty() {
-        runs.push(Run {
-            start: 0,
-            end: line.chars().count(),
-            style: plain,
-        });
-    }
-    runs
+    lines
+        .iter()
+        .enumerate()
+        .map(|(index, line)| {
+            let map = ByteMap::new(line);
+            let (line_start, line_end) = (starts[index], starts[index] + line.len());
+            let mut runs: Vec<Run> = segments
+                .iter()
+                .filter_map(|(start, end, style)| {
+                    let (start, end) = (*start, *end);
+                    let (start, end) = (
+                        map.to_char(start.max(line_start) - line_start),
+                        map.to_char(end.min(line_end).max(line_start) - line_start),
+                    );
+                    (end > start).then_some(Run {
+                        start,
+                        end,
+                        style: *style,
+                    })
+                })
+                .collect();
+            if runs.is_empty() {
+                runs.push(Run {
+                    start: 0,
+                    end: line.chars().count(),
+                    style: plain,
+                });
+            }
+            overlay_taurine_tags(line, &mut runs, theme);
+            runs
+        })
+        .collect()
 }
 
 /// Byte-to-char index for one line; lookups only land on char
@@ -625,12 +687,8 @@ mod tests {
     }
 
     #[test]
-    fn powershell_falls_back_to_plain_with_overlay() {
-        // honey: two-face excludes PowerShell from its fancy-regex dump
-        // (onig-only patterns); revisit if it gets re-included.
-        let set = syntax_set();
-        assert!(syntax_for(set, ScriptInterpreter::PowerShell).is_none());
-        let line = "Write-Host [clip]";
+    fn powershell_highlights_cmdlet_and_variable() {
+        let line = "Start-Process $Env:USERPROFILE\\Downloads";
         let lines = [line.to_string()];
         let highlighted = highlight_lines(&lines, Some(ScriptInterpreter::PowerShell), &DARK_THEME);
         assert_tiles(line, &highlighted[0]);
@@ -638,21 +696,24 @@ mod tests {
             highlighted[0]
                 .iter()
                 .any(|run| run.style.fg == Some(DARK_THEME.accent)),
-            "overlay must still highlight tags, got {:?}",
+            "cmdlet must accent, got {:?}",
+            highlighted[0]
+        );
+        assert!(
+            highlighted[0]
+                .iter()
+                .any(|run| run.style != Style::default().fg(DARK_THEME.text)),
+            "grammar must add color, got {:?}",
             highlighted[0]
         );
     }
 
     #[test]
-    fn other_interpreters_resolve_a_grammar() {
-        let set = syntax_set();
+    fn every_interpreter_resolves_a_config() {
         for interpreter in ScriptInterpreter::ALL {
-            if interpreter == ScriptInterpreter::PowerShell {
-                continue;
-            }
             assert!(
-                syntax_for(set, interpreter).is_some(),
-                "{interpreter:?} has no syntect grammar"
+                config_for(interpreter).is_some(),
+                "{interpreter:?} has no tree-sitter config"
             );
         }
     }
