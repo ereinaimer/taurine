@@ -675,9 +675,8 @@ pub(crate) fn property_rows(item: &LibraryTrigger) -> Vec<(&'static str, String)
     rows
 }
 
-/// Static content box: fixed 18 rows with the rounded search-box border
-/// and 16 scrollable text rows inside, no scrollbar.
-/// The box never grows or shrinks with the content length.
+/// Content section: single horizontal divider line separating the header
+/// controls from the body, with 16 scrollable text rows inside.
 fn render_content_rows(
     frame: &mut Frame,
     area: Rect,
@@ -686,60 +685,31 @@ fn render_content_rows(
     item: &LibraryTrigger,
     layout: &DetailLayout,
 ) {
-    use ratatui::symbols::border;
-    use ratatui::widgets::{Block, Borders};
-
-    let popup = Rect {
-        x: area.x,
-        y: area.y.saturating_add(CONTENT_BOX_TOP),
-        width: area.width,
-        height: CONTENT_BOX_HEIGHT,
-    };
-    // honey: open bottom — corners continue as walls, bottom edge is
-    // blank, so the sides read as running off the pane.
-    let open_set = border::Set {
-        bottom_left: border::ROUNDED.vertical_left,
-        bottom_right: border::ROUNDED.vertical_right,
-        horizontal_bottom: " ",
-        ..border::ROUNDED
-    };
-    let wall = Style::default().fg(theme.border);
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_set(open_set)
-        .border_style(wall);
-    let inner = block.inner(popup);
-    frame.render_widget(block, popup);
-    // honey: decorative walls from the box bottom to the terminal bottom
-    // edge, straight through the pane padding; clicks fall through
-    // exactly as on empty space.
-    let walls_end = frame.area().y.saturating_add(frame.area().height);
-    let mut y = popup.y.saturating_add(popup.height);
-    while y < walls_end {
-        for x in [
-            popup.x,
-            popup.x.saturating_add(popup.width.saturating_sub(1)),
-        ] {
-            frame.render_widget(
-                Paragraph::new(Line::from("│")).style(wall),
-                Rect {
-                    x,
-                    y,
-                    width: 1,
-                    height: 1,
-                },
-            );
-        }
-        y = y.saturating_add(1);
+    let divider_y = area.y.saturating_add(CONTENT_BOX_TOP);
+    if divider_y < frame.area().height {
+        let divider = Rect {
+            x: area.x,
+            y: divider_y,
+            width: area.width,
+            height: 1,
+        };
+        let line = "─".repeat(area.width as usize);
+        frame.render_widget(
+            Paragraph::new(Line::from(line)).style(Style::default().fg(theme.border)),
+            divider,
+        );
     }
-    if inner.width == 0 || inner.height == 0 {
+
+    let text_x = area.x.saturating_add(2);
+    let text_y = divider_y.saturating_add(1);
+    let text_width = content_text_width(area.width);
+    if text_width == 0 || area.height <= CONTENT_BOX_TOP.saturating_add(1) {
         return;
     }
-    // honey: one cell of horizontal padding inside the border, like search.
     let text = Rect {
-        x: inner.x.saturating_add(1),
-        y: inner.y,
-        width: inner.width.saturating_sub(2),
+        x: text_x,
+        y: text_y,
+        width: text_width,
         height: CONTENT_INNER_HEIGHT as u16,
     };
     if let Some(edit) = state
