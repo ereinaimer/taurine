@@ -62,9 +62,7 @@ fn kind_style(kind: Kind, theme: &Theme) -> Style {
         Kind::String => Style::default().fg(theme.success),
         Kind::Number => Style::default().fg(theme.warning),
         Kind::Keyword => Style::default().fg(theme.primary),
-        Kind::Function => Style::default()
-            .fg(theme.accent)
-            .add_modifier(Modifier::BOLD),
+        Kind::Function => Style::default().fg(theme.accent),
         Kind::Type => Style::default().fg(theme.accent),
         Kind::Invalid => Style::default().fg(theme.error),
     }
@@ -351,6 +349,7 @@ fn overlay_taurine_tags(line: &str, runs: &mut Vec<Run>, theme: &Theme) {
 struct ArgStyles {
     plain: Style,
     muted: Style,
+    structural: Style,
     string: Style,
     number: Style,
 }
@@ -360,6 +359,7 @@ fn tokenize_tag(line: &str, start: usize, end: usize, map: &ByteMap, theme: &The
     let styles = ArgStyles {
         plain: Style::default().fg(theme.text),
         muted: Style::default().fg(theme.text_muted),
+        structural: Style::default().fg(theme.primary),
         string: Style::default().fg(theme.success),
         number: Style::default().fg(theme.warning),
     };
@@ -367,12 +367,12 @@ fn tokenize_tag(line: &str, start: usize, end: usize, map: &ByteMap, theme: &The
         Run {
             start: map.to_char(start),
             end: map.to_char(start + 1),
-            style: styles.muted,
+            style: styles.structural,
         },
         Run {
             start: map.to_char(end),
             end: map.to_char(end + 1),
-            style: styles.muted,
+            style: styles.structural,
         },
     ];
     let inner = &line[start + 1..end];
@@ -416,7 +416,7 @@ fn tokenize_tag(line: &str, start: usize, end: usize, map: &ByteMap, theme: &The
     runs
 }
 
-/// Gap between segments: `|` muted, everything else plain text.
+/// Gap between segments: `|` structural, everything else plain text.
 fn paint_gap(
     inner: &str,
     from: usize,
@@ -431,7 +431,7 @@ fn paint_gap(
             start: to_char(byte),
             end: to_char(byte + ch.len_utf8()),
             style: if ch == '|' {
-                styles.muted
+                styles.structural
             } else {
                 styles.plain
             },
@@ -464,9 +464,7 @@ fn paint_base_segment(
     let style = if is_attention_root(&root.to_ascii_lowercase()) {
         Style::default().fg(theme.warning)
     } else {
-        Style::default()
-            .fg(theme.accent)
-            .add_modifier(Modifier::BOLD)
+        Style::default().fg(theme.accent)
     };
     let Some(relative) = segment.find(namespace) else {
         return;
@@ -762,6 +760,47 @@ mod tests {
                 .any(|run| run.style.fg == Some(DARK_THEME.primary)),
             "transformer must primary, got {runs:?}"
         );
+    }
+
+    #[test]
+    fn brackets_and_pipes_highlight() {
+        let runs = &plain_runs("[clip | case(upper)]")[0];
+        for marker in ["[", "]", "|"] {
+            assert!(
+                runs.iter()
+                    .any(|run| run.style.fg == Some(DARK_THEME.primary)),
+                "{marker} must highlight, got {runs:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn no_bold_anywhere_in_highlighting() {
+        let samples = [
+            (Some(ScriptInterpreter::Bash), "echo hello # comment"),
+            (
+                Some(ScriptInterpreter::PowerShell),
+                "Start-Process $Env:USERPROFILE\\Downloads",
+            ),
+            (Some(ScriptInterpreter::Python), "def f(x): return x  # hi"),
+            (Some(ScriptInterpreter::Node), "console.log('hi'); // hi"),
+            (Some(ScriptInterpreter::Cmd), "@echo off & REM hi"),
+            (
+                None,
+                "[clip | case(upper)] [key(enter)] [nope(1)] hi [name]",
+            ),
+        ];
+        for (interpreter, sample) in samples {
+            let lines = [sample.to_string()];
+            let highlighted = highlight_lines(&lines, interpreter, &DARK_THEME);
+            assert!(
+                highlighted[0]
+                    .iter()
+                    .all(|run| !run.style.add_modifier.contains(Modifier::BOLD)),
+                "bold found in {sample:?}: {:?}",
+                highlighted[0]
+            );
+        }
     }
 
     #[test]
