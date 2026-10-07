@@ -17,13 +17,15 @@ pub const DARK_THEME: Theme = Theme {
     error: Color::Red,
     warning: Color::Yellow,
     success: Color::Green,
-    // honey: GitHub-dark syntax scale; pastel by design, the saturated
-    // UI palette stays reserved for states and chrome.
-    syntax_comment: Color::Rgb(0x8B, 0x94, 0x9E),
-    syntax_keyword: Color::Rgb(0xFF, 0x7B, 0x72),
-    syntax_string: Color::Rgb(0xA5, 0xD6, 0xFF),
-    syntax_entity: Color::Rgb(0xD2, 0xA8, 0xFF),
-    syntax_constant: Color::Rgb(0x79, 0xC0, 0xFF),
+    // honey: Atom One Dark token roles; template punctuation reuses the
+    // muted UI grey instead of growing another field.
+    syntax_comment: Color::Rgb(0x5C, 0x63, 0x70),
+    syntax_keyword: Color::Rgb(0xC6, 0x78, 0xDD),
+    syntax_string: Color::Rgb(0x98, 0xC3, 0x79),
+    syntax_entity: Color::Rgb(0x61, 0xAF, 0xEF),
+    syntax_constant: Color::Rgb(0xD1, 0x9A, 0x66),
+    syntax_type: Color::Rgb(0xE5, 0xC0, 0x7B),
+    syntax_variable: Color::Rgb(0xE0, 0x6C, 0x75),
     header: HeaderTheme {
         bg: Color::Rgb(0x1E, 0x1E, 0x1E),
         text: Color::Rgb(0xCF, 0xCF, 0xCF),

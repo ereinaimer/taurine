@@ -32,25 +32,27 @@ enum Kind {
     Keyword,
     Function,
     Type,
+    Variable,
     Invalid,
 }
 
 /// Recognized tree-sitter capture names, index-aligned with [`kind_for`].
-/// Unrecognized captures (variables, operators, punctuation) fall through
-/// to plain body text. Matching is longest-prefix on dot parts, so
+/// Unrecognized captures (operators, punctuation) fall through to plain
+/// body text. Matching is longest-prefix on dot parts, so
 /// `function.builtin` lands on `function`.
-const NAMES: [&str; 7] = [
-    "comment", "string", "number", "keyword", "function", "type", "error",
+const NAMES: [&str; 8] = [
+    "comment", "string", "number", "keyword", "function", "type", "variable", "error",
 ];
 
 fn kind_for(index: usize) -> Kind {
-    const KINDS: [Kind; 7] = [
+    const KINDS: [Kind; 8] = [
         Kind::Comment,
         Kind::String,
         Kind::Number,
         Kind::Keyword,
         Kind::Function,
         Kind::Type,
+        Kind::Variable,
         Kind::Invalid,
     ];
     KINDS[index.min(KINDS.len() - 1)]
@@ -63,7 +65,8 @@ fn kind_style(kind: Kind, theme: &Theme) -> Style {
         Kind::Number => Style::default().fg(theme.syntax_constant),
         Kind::Keyword => Style::default().fg(theme.syntax_keyword),
         Kind::Function => Style::default().fg(theme.syntax_entity),
-        Kind::Type => Style::default().fg(theme.syntax_entity),
+        Kind::Type => Style::default().fg(theme.syntax_type),
+        Kind::Variable => Style::default().fg(theme.syntax_variable),
         Kind::Invalid => Style::default().fg(theme.error),
     }
 }
@@ -346,20 +349,24 @@ fn overlay_taurine_tags(line: &str, runs: &mut Vec<Run>, theme: &Theme) {
 }
 
 /// Argument span styles, resolved from [`Theme`] once per tag.
+/// Quoted text reads green, bare values orange, names blue — the One
+/// Dark roles; punctuation reuses the muted UI grey.
 struct ArgStyles {
     plain: Style,
     punct: Style,
     name: Style,
-    value: Style,
+    string: Style,
+    constant: Style,
 }
 
 /// Tokenize one `[...]` region (byte `start..=end`) into tiling runs.
 fn tokenize_tag(line: &str, start: usize, end: usize, map: &ByteMap, theme: &Theme) -> Vec<Run> {
     let styles = ArgStyles {
         plain: Style::default().fg(theme.text),
-        punct: Style::default().fg(theme.syntax_comment),
+        punct: Style::default().fg(theme.text_muted),
         name: Style::default().fg(theme.syntax_entity),
-        value: Style::default().fg(theme.syntax_string),
+        string: Style::default().fg(theme.syntax_string),
+        constant: Style::default().fg(theme.syntax_constant),
     };
     let mut runs = vec![
         Run {
@@ -548,8 +555,8 @@ fn paint_transformer_segment(
     );
 }
 
-/// Argument span: values read as values, parens and commas share the
-/// structural tone.
+/// Argument span: quoted text reads green, bare words and numbers
+/// orange, parens and commas stay muted.
 fn paint_args(
     args: &str,
     offset: usize,
@@ -570,7 +577,7 @@ fn paint_args(
             runs.push(Run {
                 start: to_char(offset + index),
                 end: to_char(offset + end),
-                style: styles.value,
+                style: styles.string,
             });
             index = end;
         } else if byte.is_ascii_digit() {
@@ -581,7 +588,7 @@ fn paint_args(
             runs.push(Run {
                 start: to_char(offset + index),
                 end: to_char(offset + end),
-                style: styles.value,
+                style: styles.constant,
             });
             index = end;
         } else {
@@ -592,7 +599,7 @@ fn paint_args(
                 style: if "(),".contains(ch) {
                     styles.punct
                 } else {
-                    styles.value
+                    styles.constant
                 },
             });
             index += ch.len_utf8();
@@ -742,8 +749,18 @@ mod tests {
         );
         assert!(
             runs.iter()
+                .any(|run| run.style.fg == Some(DARK_THEME.syntax_constant)),
+            "bare value must constant-tone, got {runs:?}"
+        );
+    }
+
+    #[test]
+    fn quoted_values_read_green() {
+        let runs = &plain_runs("[env(\"HOME\")]")[0];
+        assert!(
+            runs.iter()
                 .any(|run| run.style.fg == Some(DARK_THEME.syntax_string)),
-            "value must string-tone, got {runs:?}"
+            "quoted value must string-tone, got {runs:?}"
         );
     }
 
@@ -753,7 +770,7 @@ mod tests {
         for marker in ["[", "]", "|", "(", ")"] {
             assert!(
                 runs.iter()
-                    .any(|run| run.style.fg == Some(DARK_THEME.syntax_comment)),
+                    .any(|run| run.style.fg == Some(DARK_THEME.text_muted)),
                 "{marker} must recede, got {runs:?}"
             );
         }
@@ -770,7 +787,7 @@ mod tests {
         );
         assert!(
             runs.iter()
-                .any(|run| run.style.fg == Some(DARK_THEME.syntax_string)),
+                .any(|run| run.style.fg == Some(DARK_THEME.syntax_constant)),
             "value must highlight, got {runs:?}"
         );
         assert!(

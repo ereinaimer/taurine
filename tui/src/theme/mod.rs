@@ -29,14 +29,16 @@ pub struct Theme {
     pub error: Color,
     pub warning: Color,
     pub success: Color,
-    // Syntax scale: desaturated GitHub-dark tones shared by script code
-    // and Taurine's own `[vars]` / `| transformers` markup. Structure
-    // recedes, names lead, values support; nothing shouts.
+    // Syntax scale: Atom One Dark roles shared by script code and
+    // Taurine's own `[vars]` / `| transformers` markup. Commands read
+    // blue, quoted text green, keywords purple, numbers orange.
     pub syntax_comment: Color,
     pub syntax_keyword: Color,
     pub syntax_string: Color,
     pub syntax_entity: Color,
     pub syntax_constant: Color,
+    pub syntax_type: Color,
+    pub syntax_variable: Color,
     // Component sub-themes
     pub header: HeaderTheme,
     pub button: ButtonTheme,
