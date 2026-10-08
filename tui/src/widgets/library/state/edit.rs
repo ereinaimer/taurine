@@ -1,4 +1,4 @@
-use taurine_core::db::crud::TriggerLimits;
+use taurine_core::db::crud::{MAX_TRIGGER_LENGTH, TriggerLimits};
 
 use crate::widgets::field::TextField;
 use crate::widgets::library::actions::LibraryInteraction;
@@ -10,7 +10,7 @@ pub(crate) const CONTENT_DOUBLE_CLICK_MS: u64 = 500;
 /// Which trigger part an edit session targets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EditTarget {
-    Name,
+    Trigger,
     Description,
     Content,
 }
@@ -63,7 +63,7 @@ impl ActiveEdit {
 
     fn line_cap(&self) -> usize {
         match self.target {
-            EditTarget::Name => TriggerLimits::MAX_NAME_LENGTH,
+            EditTarget::Trigger => MAX_TRIGGER_LENGTH,
             _ => TriggerLimits::MAX_DESCRIPTION_LENGTH,
         }
     }
@@ -80,11 +80,11 @@ impl super::LibraryPageState {
         self.edit.as_ref()
     }
 
-    /// Old name-edit entry point, kept for the header click path.
-    pub(crate) fn name_edit(&self) -> Option<&ActiveEdit> {
+    /// Header click path entry point: the active trigger edit, if any.
+    pub(crate) fn trigger_edit(&self) -> Option<&ActiveEdit> {
         self.edit
             .as_ref()
-            .filter(|edit| edit.target == EditTarget::Name)
+            .filter(|edit| edit.target == EditTarget::Trigger)
     }
 
     fn begin_edit(&mut self, target: EditTarget, initial: String) -> LibraryInteraction {
@@ -104,21 +104,21 @@ impl super::LibraryPageState {
         flush
     }
 
-    /// Click on the trigger name starts an edit session with the caret
+    /// Click on the trigger text starts an edit session with the caret
     /// at the click; the draft starts with the displayed text.
-    // honey: exercised by tests; production opens via start_name_edit_at.
+    // honey: exercised by tests; production opens via start_trigger_edit_at.
     #[allow(dead_code)]
-    pub(crate) fn start_name_edit(&mut self) {
-        self.start_name_edit_at(usize::MAX);
+    pub(crate) fn start_trigger_edit(&mut self) {
+        self.start_trigger_edit_at(usize::MAX);
     }
 
     /// Click-to-place: caret lands on the clicked character. A session
     /// on another part commits first; the caller persists the result.
-    pub(crate) fn start_name_edit_at(&mut self, cursor: usize) -> LibraryInteraction {
+    pub(crate) fn start_trigger_edit_at(&mut self, cursor: usize) -> LibraryInteraction {
         let same_target = self
             .edit
             .as_ref()
-            .is_some_and(|edit| edit.target == EditTarget::Name);
+            .is_some_and(|edit| edit.target == EditTarget::Trigger);
         if same_target {
             if let Some(edit) = self.edit.as_mut() {
                 edit.line.place(cursor);
@@ -126,9 +126,9 @@ impl super::LibraryPageState {
             return LibraryInteraction::handled();
         }
         let initial = self
-            .selected_item_text(EditTarget::Name)
+            .selected_item_text(EditTarget::Trigger)
             .unwrap_or_default();
-        let flush = self.begin_edit(EditTarget::Name, initial);
+        let flush = self.begin_edit(EditTarget::Trigger, initial);
         if let Some(edit) = self.edit.as_mut() {
             edit.line.place(cursor);
         }
@@ -270,7 +270,7 @@ impl super::LibraryPageState {
         let selected = self.selected_index()?;
         let item = self.item_at_filtered(selected)?;
         Some(match target {
-            EditTarget::Name => item.display_name().to_string(),
+            EditTarget::Trigger => item.trigger().to_string(),
             EditTarget::Description => item.description().unwrap_or("").to_string(),
             EditTarget::Content => item.content().to_string(),
         })
@@ -298,15 +298,15 @@ impl super::LibraryPageState {
             return LibraryInteraction::handled();
         };
         match edit.target {
-            EditTarget::Name => {
-                let name = edit.line.text().trim().to_string();
-                if TriggerLimits::validate_name(&name).is_err() || name == item.name() {
+            EditTarget::Trigger => {
+                let trigger = edit.line.text().trim().to_string();
+                if trigger.is_empty() || trigger == item.trigger() {
                     return LibraryInteraction::handled();
                 }
                 LibraryInteraction::edit(crate::widgets::library::actions::PendingLibraryEdit {
                     trigger_id: edit.trigger_id.clone(),
                     trigger: item.trigger().to_string(),
-                    field: crate::widgets::library::actions::EditedField::Name(name),
+                    field: crate::widgets::library::actions::EditedField::Trigger(trigger),
                     restore_index: selected,
                 })
             }

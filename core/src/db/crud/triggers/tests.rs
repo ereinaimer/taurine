@@ -12,11 +12,10 @@ fn insert_raw_trigger(
     let invocation_type = InvocationType::parse_str(trigger_type).expect("test trigger_type");
     conn.execute(
         "INSERT INTO triggers
-                (id, name, output, target_os, created_at, updated_at)
-              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                (id, output, target_os, created_at, updated_at)
+              VALUES (?1, ?2, ?3, ?4, ?5)",
         (
             id,
-            format!("Trigger {id}"),
             format!("payload-{id}"),
             target_os,
             1_700_000_000_i64,
@@ -51,7 +50,6 @@ fn upsert_trigger_inserts_new_row_with_version_1() {
     upsert_trigger(
         &conn,
         "uuid-1",
-        "Good Morning",
         None,
         "gm",
         "Good morning!",
@@ -65,12 +63,11 @@ fn upsert_trigger_inserts_new_row_with_version_1() {
 
     let row = get_trigger(&conn, "uuid-1").unwrap().unwrap();
     assert_eq!(row.id, "uuid-1");
-    assert_eq!(row.name, "Good Morning");
     assert_eq!(row.description, None);
     assert_eq!(row.invocations.len(), 1);
     assert_eq!(row.invocations[0].invocation_type, InvocationType::Word);
     assert_eq!(row.invocations[0].invocation, "gm");
-    assert_eq!(row.display, "Good Morning");
+    assert_eq!(row.display, "gm");
     assert_eq!(row.output, "Good morning!");
     assert_eq!(row.action_type, "text");
     assert_eq!(row.target_os, "all");
@@ -92,7 +89,6 @@ fn upsert_trigger_increments_version_on_update() {
     upsert_trigger(
         &conn,
         "uuid-1",
-        "Good Morning",
         None,
         "gm",
         "Good morning!",
@@ -107,7 +103,6 @@ fn upsert_trigger_increments_version_on_update() {
     upsert_trigger(
         &conn,
         "uuid-1",
-        "Good Morning",
         Some("description"),
         "gm",
         "Good morning!!",
@@ -139,7 +134,6 @@ fn delete_trigger_tombstones_and_returns_true_once() {
     upsert_trigger(
         &conn,
         "uuid-1",
-        "Good Morning",
         None,
         "gm",
         "Good morning!",
@@ -181,15 +175,15 @@ fn delete_triggers_by_values_tombstones_matches() {
     let (_dir, conn) = open_test_db();
 
     upsert_trigger(
-        &conn, "uuid-1", "A", None, "t1", "out", "text", "all", "[]", 0, None,
+        &conn, "uuid-1", None, "t1", "out", "text", "all", "[]", 0, None,
     )
     .unwrap();
     upsert_trigger(
-        &conn, "uuid-2", "B", None, "t2", "out", "text", "all", "[]", 0, None,
+        &conn, "uuid-2", None, "t2", "out", "text", "all", "[]", 0, None,
     )
     .unwrap();
     upsert_trigger(
-        &conn, "uuid-3", "C", None, "t3", "out", "text", "all", "[]", 0, None,
+        &conn, "uuid-3", None, "t3", "out", "text", "all", "[]", 0, None,
     )
     .unwrap();
 
@@ -225,7 +219,6 @@ fn get_all_active_triggers_ignores_deleted_rows() {
     upsert_trigger(
         &conn,
         "uuid-1",
-        "GM One",
         None,
         "gm",
         "Good morning one!",
@@ -240,7 +233,6 @@ fn get_all_active_triggers_ignores_deleted_rows() {
     upsert_trigger(
         &conn,
         "uuid-2",
-        "GM Two",
         None,
         "gm2",
         "Good morning two!",
@@ -272,7 +264,6 @@ fn get_all_active_triggers_filters_by_target_os() {
     upsert_trigger(
         &conn,
         "uuid-1",
-        "GM All",
         None,
         "gm_all",
         "payload_all",
@@ -288,7 +279,6 @@ fn get_all_active_triggers_filters_by_target_os() {
     upsert_trigger(
         &conn,
         "uuid-2",
-        "GM Fake OS",
         None,
         "gm_fake",
         "payload_fake",
@@ -312,7 +302,6 @@ fn get_all_active_triggers_filters_by_target_os() {
     upsert_trigger(
         &conn,
         "uuid-3",
-        "GM Native",
         None,
         "gm_native",
         "payload_native",
@@ -344,7 +333,6 @@ fn get_all_active_triggers_excludes_hotkey_triggers() {
     upsert_trigger(
         &conn,
         "uuid-word",
-        "Word",
         None,
         "gm",
         "payload_word",
@@ -358,7 +346,6 @@ fn get_all_active_triggers_excludes_hotkey_triggers() {
     upsert_trigger_with_type(
         &conn,
         "uuid-hotkey",
-        "Hotkey",
         None,
         TriggerType::Hotkey,
         "ctrl+shift+g",
@@ -385,7 +372,6 @@ fn get_all_active_hotkey_triggers_loads_only_hotkeys() {
     upsert_trigger(
         &conn,
         "uuid-word",
-        "Word",
         None,
         "gm",
         "payload_word",
@@ -399,7 +385,6 @@ fn get_all_active_hotkey_triggers_loads_only_hotkeys() {
     upsert_trigger_with_type(
         &conn,
         "uuid-hotkey",
-        "Hotkey",
         None,
         TriggerType::Hotkey,
         "ctrl+shift+g",
@@ -425,7 +410,6 @@ fn upsert_trigger_with_type_round_trips_hotkey() {
     upsert_trigger_with_type(
         &conn,
         "uuid-hotkey-1",
-        "Command Palette",
         None,
         TriggerType::Hotkey,
         "ctrl+shift+p",
@@ -442,7 +426,7 @@ fn upsert_trigger_with_type_round_trips_hotkey() {
     assert_eq!(row.invocations.len(), 1);
     assert_eq!(row.invocations[0].invocation_type, InvocationType::Hotkey);
     assert_eq!(row.invocations[0].invocation, "ctrl+shift+p");
-    assert_eq!(row.display, "Command Palette");
+    assert_eq!(row.display, "ctrl+shift+p");
     assert_eq!(row.target_os, "win");
 }
 
@@ -469,7 +453,7 @@ fn validate_trigger_target_os_conflict_rejects_all_vs_specific_overlap() {
     let (_dir, conn) = open_test_db();
 
     upsert_trigger(
-        &conn, "uuid-1", "Greeting", None, "gm", "hello", "text", "all", "[]", 0, None,
+        &conn, "uuid-1", None, "gm", "hello", "text", "all", "[]", 0, None,
     )
     .unwrap();
 
@@ -497,7 +481,6 @@ fn different_trigger_types_do_not_conflict_for_same_trigger_and_target_os() {
     upsert_trigger(
         &conn,
         "uuid-word",
-        "Greeting",
         None,
         "f12",
         "hello",
@@ -512,7 +495,6 @@ fn different_trigger_types_do_not_conflict_for_same_trigger_and_target_os() {
     upsert_trigger_with_type(
         &conn,
         "uuid-hotkey",
-        "Hotkey Greeting",
         None,
         TriggerType::Hotkey,
         "f12",
@@ -540,7 +522,6 @@ fn hotkey_overlap_validation_treats_generic_and_side_specific_modifiers_as_confl
     upsert_trigger_with_type(
         &conn,
         "uuid-alt",
-        "Generic Alt",
         None,
         TriggerType::Hotkey,
         "alt+m",
@@ -592,7 +573,6 @@ fn hotkey_overlap_validation_allows_distinct_modifier_sides() {
     upsert_trigger_with_type(
         &conn,
         "uuid-left-alt",
-        "Left Alt",
         None,
         TriggerType::Hotkey,
         "lalt+m",
@@ -625,7 +605,6 @@ fn hotkey_overlap_validation_preserves_target_os_overlap_rules() {
     upsert_trigger_with_type(
         &conn,
         "uuid-right-alt-win",
-        "Right Alt Windows",
         None,
         TriggerType::Hotkey,
         "ralt+m",
@@ -687,7 +666,6 @@ fn creates_and_validates_mouse_button_hotkey_triggers() {
     let id1 = create_trigger(
         &mut conn,
         NewTrigger {
-            name: Some("Right Alt Mouse 4"),
             description: None,
             trigger_type: TriggerType::Hotkey,
             trigger: "ralt+mouse4",
@@ -705,7 +683,7 @@ fn creates_and_validates_mouse_button_hotkey_triggers() {
     let row1 = get_trigger(&conn, &id1).unwrap().unwrap();
     assert_eq!(row1.invocations[0].invocation_type, InvocationType::Hotkey);
     assert_eq!(row1.invocations[0].invocation, "ralt+mouse4");
-    assert_eq!(row1.display, "Right Alt Mouse 4");
+    assert_eq!(row1.display, "ralt+mouse4");
     assert_eq!(row1.output, "Action 1");
 
     // 3. add_trigger_by_type with mouse button hotkeys
@@ -764,7 +742,6 @@ fn bare_mouse_buttons_fail_trigger_validation_with_informative_error() {
     let err_create = create_trigger(
         &mut conn,
         NewTrigger {
-            name: Some("Bare Mouse Button"),
             description: None,
             trigger_type: TriggerType::Hotkey,
             trigger: "mouse4",
@@ -829,7 +806,6 @@ fn mouse_hotkey_overlap_detection() {
     upsert_trigger_with_type(
         &conn,
         "uuid-alt-mouse4",
-        "Alt Mouse4",
         None,
         TriggerType::Hotkey,
         "alt+mouse4",
@@ -874,7 +850,6 @@ fn mouse_hotkey_overlap_detection() {
     upsert_trigger_with_type(
         &conn,
         "uuid-ralt-mouse4",
-        "Right Alt Mouse4",
         None,
         TriggerType::Hotkey,
         "ralt+mouse4",
@@ -909,7 +884,6 @@ fn get_action_by_trigger_respects_target_os() {
     upsert_trigger(
         &conn,
         "uuid-1",
-        "Mac specific",
         None,
         "t_mac",
         "Apple",
@@ -923,17 +897,7 @@ fn get_action_by_trigger_respects_target_os() {
 
     // A universal trigger
     upsert_trigger(
-        &conn,
-        "uuid-2",
-        "Universal",
-        None,
-        "t_all",
-        "World",
-        "text",
-        "all",
-        "[]",
-        1,
-        None,
+        &conn, "uuid-2", None, "t_all", "World", "text", "all", "[]", 1, None,
     )
     .unwrap();
 
@@ -948,7 +912,7 @@ fn get_action_by_trigger_respects_target_os() {
 }
 
 #[test]
-fn search_triggers_matches_name_and_trigger_and_sorts_by_usage() {
+fn search_triggers_matches_invocation_and_sorts_by_usage() {
     init_tracing_for_tests();
     let (_dir, conn) = open_test_db();
     conn.execute("DELETE FROM triggers", []).unwrap();
@@ -956,7 +920,6 @@ fn search_triggers_matches_name_and_trigger_and_sorts_by_usage() {
     upsert_trigger(
         &conn,
         "uuid-1",
-        "Good Morning",
         Some("Say good morning"),
         "gm",
         "Good morning!",
@@ -971,9 +934,8 @@ fn search_triggers_matches_name_and_trigger_and_sorts_by_usage() {
     upsert_trigger(
         &conn,
         "uuid-2",
-        "Morning Standup",
         Some("Daily standup snippet"),
-        "standup",
+        "gms",
         "Standup notes",
         "text",
         "all",
@@ -985,22 +947,12 @@ fn search_triggers_matches_name_and_trigger_and_sorts_by_usage() {
 
     // Tombstoned rows must not appear in search results.
     upsert_trigger(
-        &conn,
-        "uuid-3",
-        "Old Morning Thing",
-        None,
-        "oldgm",
-        "Old",
-        "text",
-        "all",
-        r#"[]"#,
-        100,
-        None,
+        &conn, "uuid-3", None, "gmold", "Old", "text", "all", r#"[]"#, 100, None,
     )
     .unwrap();
     delete_trigger(&conn, "uuid-3").unwrap();
 
-    let results = search_triggers(&conn, "morning", 10).unwrap();
+    let results = search_triggers(&conn, "gm", 10).unwrap();
     assert_eq!(results.len(), 2);
 
     // Sorted by usage_count desc: uuid-2 (20) then uuid-1 (5).
@@ -1016,7 +968,7 @@ fn get_library_triggers_includes_disabled_with_flag() {
 
     for (id, trigger) in [("uuid-lib-1", "alpha"), ("uuid-lib-2", "beta")] {
         upsert_trigger(
-            &conn, id, trigger, None, trigger, "out", "text", "all", r#"[]"#, 0, None,
+            &conn, id, None, trigger, "out", "text", "all", r#"[]"#, 0, None,
         )
         .unwrap();
     }
@@ -1044,7 +996,6 @@ fn get_triggers_list_includes_target_os() {
     upsert_trigger(
         &conn,
         "uuid-list-1",
-        "Windows Opener",
         Some("Open Reddit"),
         "ralt+r",
         "[Script: powershell]",
@@ -1083,7 +1034,6 @@ fn update_existing_trigger_updates_same_row_by_id() {
     upsert_trigger(
         &conn,
         "uuid-edit-1",
-        "GM",
         None,
         "gm",
         "hello",
@@ -1099,7 +1049,6 @@ fn update_existing_trigger_updates_same_row_by_id() {
         &mut conn,
         ExistingTriggerUpdate {
             id: "uuid-edit-1",
-            name: "GM",
             description: None,
             trigger_type: TriggerType::Word,
             trigger: "gm2",
@@ -1117,7 +1066,7 @@ fn update_existing_trigger_updates_same_row_by_id() {
     .unwrap();
 
     let row = get_trigger(&conn, "uuid-edit-1").unwrap().unwrap();
-    assert_eq!(row.display, "GM");
+    assert_eq!(row.display, "gm2");
     assert_eq!(row.invocations.len(), 1);
     assert_eq!(row.invocations[0].invocation, "gm2");
     assert_eq!(row.output, "hello again");
@@ -1140,7 +1089,6 @@ fn update_existing_script_preserves_script_metadata() {
     upsert_trigger_with_type(
         &conn,
         "uuid-script-edit",
-        "Script Edit",
         Some("Keep description"),
         TriggerType::Hotkey,
         "ralt+m",
@@ -1165,7 +1113,6 @@ fn update_existing_script_preserves_script_metadata() {
         &mut conn,
         ExistingTriggerUpdate {
             id: "uuid-script-edit",
-            name: "Script Edit",
             description: Some("Keep description"),
             trigger_type: TriggerType::Hotkey,
             trigger: "ralt+m",
@@ -1203,7 +1150,6 @@ fn update_existing_trigger_removes_stale_script_when_switching_to_text() {
     upsert_trigger_with_type(
         &conn,
         "uuid-switch-kind",
-        "Switch Kind",
         None,
         TriggerType::Word,
         "deploy",
@@ -1228,7 +1174,6 @@ fn update_existing_trigger_removes_stale_script_when_switching_to_text() {
         &mut conn,
         ExistingTriggerUpdate {
             id: "uuid-switch-kind",
-            name: "Switch Kind",
             description: None,
             trigger_type: TriggerType::Word,
             trigger: "deploy",
@@ -1258,7 +1203,6 @@ fn update_existing_trigger_rejects_conflicts_with_other_rows() {
     upsert_trigger(
         &conn,
         "uuid-conflict-a",
-        "A",
         None,
         "gm",
         "hello",
@@ -1272,7 +1216,6 @@ fn update_existing_trigger_rejects_conflicts_with_other_rows() {
     upsert_trigger(
         &conn,
         "uuid-conflict-b",
-        "B",
         None,
         "gs",
         "status",
@@ -1288,7 +1231,6 @@ fn update_existing_trigger_rejects_conflicts_with_other_rows() {
         &mut conn,
         ExistingTriggerUpdate {
             id: "uuid-conflict-b",
-            name: "B",
             description: None,
             trigger_type: TriggerType::Word,
             trigger: "gm",
@@ -1316,7 +1258,6 @@ fn create_trigger_creates_new_text_row() {
     let id = create_trigger(
         &mut conn,
         NewTrigger {
-            name: None,
             description: None,
             trigger_type: TriggerType::Word,
             trigger: "gm",
@@ -1346,7 +1287,6 @@ fn create_trigger_creates_script_with_defaults() {
     let id = create_trigger(
         &mut conn,
         NewTrigger {
-            name: None,
             description: None,
             trigger_type: TriggerType::Word,
             trigger: "deploy",
@@ -1380,7 +1320,6 @@ fn create_trigger_rejects_conflicts_without_updating_existing_rows() {
     let original_id = create_trigger(
         &mut conn,
         NewTrigger {
-            name: None,
             description: None,
             trigger_type: TriggerType::Word,
             trigger: "gm",
@@ -1398,7 +1337,6 @@ fn create_trigger_rejects_conflicts_without_updating_existing_rows() {
     let error = create_trigger(
         &mut conn,
         NewTrigger {
-            name: None,
             description: None,
             trigger_type: TriggerType::Word,
             trigger: "gm",
@@ -1426,7 +1364,6 @@ fn create_trigger_rejects_empty_trigger() {
     let error = create_trigger(
         &mut conn,
         NewTrigger {
-            name: None,
             description: None,
             trigger_type: TriggerType::Word,
             trigger: "   ",
@@ -1452,13 +1389,13 @@ fn get_syncable_triggers_returns_only_sync_enabled_rows() {
 
     // Standard upserts default to is_synced = 1
     upsert_trigger(
-        &conn, "uuid-1", "A1", None, "t1", "p1", "text", "all", r#"[]"#, 0, None,
+        &conn, "uuid-1", None, "t1", "p1", "text", "all", r#"[]"#, 0, None,
     )
     .unwrap();
 
     // Force one to is_synced = 0 manually to test the filter
     upsert_trigger(
-        &conn, "uuid-2", "A2", None, "t2", "p2", "text", "all", r#"[]"#, 0, None,
+        &conn, "uuid-2", None, "t2", "p2", "text", "all", r#"[]"#, 0, None,
     )
     .unwrap();
     conn.execute("UPDATE triggers SET is_synced = 0 WHERE id = 'uuid-2'", [])
@@ -1484,7 +1421,6 @@ fn test_record_expansion_usage_updates_trigger_and_stats() {
     upsert_trigger(
         &conn,
         "uuid-stats-1",
-        "Test Stats",
         None,
         "m",
         "Stats worked!",
@@ -1604,7 +1540,6 @@ fn test_add_and_retrieve_with_auto_case() {
         "btw",
         "by the way",
         "all",
-        None,
         None,
         None,
         None,
@@ -1789,25 +1724,16 @@ fn test_audit_payload_tags_transformer_arity() {
 
 fn fresh_db() -> rusqlite::Connection {
     let conn = rusqlite::Connection::open_in_memory().unwrap();
-    crate::db::init::migrate::run_migrations(&conn).unwrap();
+    crate::db::init::schema::ensure_schema(&conn).unwrap();
     conn
 }
 
 fn seed_entry(conn: &rusqlite::Connection, output: &str, action_type: &str) -> String {
-    seed_entry_named(conn, "", output, action_type)
-}
-
-fn seed_entry_named(
-    conn: &rusqlite::Connection,
-    name: &str,
-    output: &str,
-    action_type: &str,
-) -> String {
     let id = uuid::Uuid::new_v4().to_string();
     conn.execute(
-        "INSERT INTO triggers (id, name, output, action_type, target_os, tags, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, 'all', '[]', unixepoch(), unixepoch())",
-        rusqlite::params![id, name, output, action_type],
+        "INSERT INTO triggers (id, output, action_type, target_os, tags, created_at, updated_at)
+         VALUES (?1, ?2, ?3, 'all', '[]', unixepoch(), unixepoch())",
+        rusqlite::params![id, output, action_type],
     )
     .unwrap();
     id
@@ -1872,8 +1798,8 @@ fn voice_loader_filters_by_target_os() {
     ] {
         let pid = uuid::Uuid::new_v4().to_string();
         conn.execute(
-            "INSERT INTO triggers (id, name, output, action_type, target_os, tags, created_at, updated_at)
-             VALUES (?1, '', 'Hello!', 'text', ?2, '[]', unixepoch(), unixepoch())",
+            "INSERT INTO triggers (id, output, action_type, target_os, tags, created_at, updated_at)
+             VALUES (?1, 'Hello!', 'text', ?2, '[]', unixepoch(), unixepoch())",
             rusqlite::params![pid, target_os],
         )
         .unwrap();
@@ -1888,12 +1814,12 @@ fn voice_loader_filters_by_target_os() {
 }
 
 #[test]
-fn display_prefers_name_over_invocations() {
+fn display_comes_from_invocations() {
     let conn = fresh_db();
-    let pid = seed_entry_named(&conn, "Greeting", "Hello!", "text");
+    let pid = seed_entry(&conn, "Hello!", "text");
     add_alias(&conn, &pid, InvocationType::Word, "hi", false).unwrap();
     let row = get_trigger(&conn, &pid).unwrap().unwrap();
-    assert_eq!(row.display, "Greeting");
+    assert_eq!(row.display, "hi");
 
     let pid2 = seed_entry(&conn, "Hello!", "text");
     add_alias(&conn, &pid2, InvocationType::Word, "hi2", false).unwrap();

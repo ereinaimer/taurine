@@ -186,7 +186,6 @@ Taurine enforces several guardrails when creating or updating triggers to preven
 | Trigger string (word, hotkey, regex) | 200 characters |
 | Text output | 100 KB |
 | Script content | 1 MB |
-| Trigger display name | 200 characters |
 | Description | 1000 characters |
 
 ### Tags
@@ -208,10 +207,6 @@ Application filters (`--include-apps` / `--exclude-apps`) are automatically clea
 ### Dead Reference Detection
 
 If a trigger's output contains a `[use("name")]` reference to a trigger that doesn't exist, the creation is rejected at save time.
-
-### Duplicate Name Warning
-
-Creating or updating a trigger whose display name matches an existing trigger produces a warning (not an error), visible in daemon logs and CLI output.
 
 ### Unicode Normalization
 

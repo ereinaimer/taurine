@@ -2056,7 +2056,6 @@ mod tests {
         taurine_core::db::crud::create_entry(
             &conn,
             taurine_core::db::crud::NewEntry {
-                name: String::new(),
                 description: None,
                 content: "Hello, [person=there]!".to_string(),
                 action_type: "text".to_string(),
@@ -3495,7 +3494,6 @@ mod tests {
         taurine_core::db::crud::create_entry(
             &conn,
             taurine_core::db::crud::NewEntry {
-                name: String::new(),
                 description: None,
                 content: "Hello, [person=there]!".to_string(),
                 action_type: "text".to_string(),

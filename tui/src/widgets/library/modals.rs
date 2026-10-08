@@ -56,12 +56,12 @@ pub(crate) fn delete_popup(area: Rect) -> Rect {
     util::overlay_popup_sized(56, DELETE_POPUP_HEIGHT, area)
 }
 
-/// Delete popup height: body rows are title, blank, question, name,
+/// Delete popup height: body rows are title, blank, question, trigger,
 /// blank, buttons, error, so nothing sits empty below the buttons.
 pub(crate) const DELETE_POPUP_HEIGHT: u16 = 9;
 
 /// Body-row offsets inside the delete confirm, shared by rendering and
-/// hit-testing: title, blank, question, trigger name, blank, then the
+/// hit-testing: title, blank, question, trigger, blank, then the
 /// horizontal Yes/No button pair.
 pub(crate) const DELETE_QUESTION_OFFSET: u16 = 2;
 pub(crate) const DELETE_NAME_OFFSET: u16 = 3;
@@ -87,7 +87,7 @@ fn delete_buttons_row(area: Rect) -> Rect {
 
 /// Click on the delete confirm at `(column, row)`: `Some(true)` is Yes,
 /// `Some(false)` is No. Only the button cells select; title, blanks,
-/// question, name, and error cells never do.
+/// question, trigger, and error cells never do.
 pub(crate) fn delete_option_hit(area: Rect, column: u16, row: u16) -> Option<bool> {
     let row_area = delete_buttons_row(area);
     let (yes, no) = util::confirm_button_cells(row_area, DELETE_YES_LABEL, DELETE_NO_LABEL);
@@ -198,7 +198,7 @@ fn render_library_delete_modal(
     }
     if name_y < bottom {
         frame.render_widget(
-            Paragraph::new(util::truncate_to_width(state.name(), body.width))
+            Paragraph::new(util::truncate_to_width(state.trigger(), body.width))
                 .style(Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
             Rect {
                 x: body.x,
@@ -254,10 +254,10 @@ pub(crate) const CREATE_BODY_WIDTH: u16 = CREATE_POPUP_WIDTH - 6;
 const CREATE_LABEL_WIDTH: u16 = 12;
 
 /// Create popup height by shape: title, type, trigger, content label
-/// plus box, name, action, script rows, os, advanced toggle, advanced
+/// plus box, action, script rows, os, advanced toggle, advanced
 /// rows, buttons, error.
 pub(crate) fn create_popup_height(is_script: bool, expanded: bool) -> u16 {
-    let mut height = 16u16;
+    let mut height = 15u16;
     if is_script {
         height = height.saturating_add(2);
     }
@@ -290,10 +290,9 @@ fn create_rows(is_script: bool, expanded: bool) -> CreateRows {
     let mut ordered = vec![
         (Field::TriggerType, 1),
         (Field::Trigger, 2),
-        (Field::Name, 8),
-        (Field::Action, 9),
+        (Field::Action, 8),
     ];
-    let mut next = 10u16;
+    let mut next = 9u16;
     if is_script {
         ordered.push((Field::Interpreter, next));
         next += 1;
@@ -514,17 +513,6 @@ fn render_library_create_modal(
                     y,
                     "Trigger",
                     state.trigger_field(),
-                    is_focused,
-                    theme,
-                );
-            }
-            LibraryCreateModalField::Name => {
-                render_create_text_row(
-                    frame,
-                    body,
-                    y,
-                    "Name",
-                    state.name_field(),
                     is_focused,
                     theme,
                 );
@@ -1302,15 +1290,13 @@ fn render_tags_chips(frame: &mut Frame, body: Rect, theme: &Theme, state: &Libra
                     height: 1,
                 },
             );
-            if !crate::overlay_fx::is_cursor_suppressed() {
-                let (caret_x, caret_y) = util::caret_position(
-                    body.x.saturating_add(plus_x).saturating_add(1),
-                    row_y,
-                    caret,
-                    avail,
-                );
-                frame.set_cursor_position((caret_x, caret_y));
-            }
+            let (caret_x, caret_y) = util::caret_position(
+                body.x.saturating_add(plus_x).saturating_add(1),
+                row_y,
+                caret,
+                avail,
+            );
+            frame.set_cursor_position((caret_x, caret_y));
         } else {
             let focused = state.focus_is_add_row();
             let style = if focused {
@@ -1547,8 +1533,6 @@ fn render_library_app_filter_modal(
             height: 1,
         },
     );
-    if !crate::overlay_fx::is_cursor_suppressed() {
-        let (caret_x, caret_y) = util::caret_position(content_x, search_y, caret, search_w);
-        frame.set_cursor_position((caret_x, caret_y));
-    }
+    let (caret_x, caret_y) = util::caret_position(content_x, search_y, caret, search_w);
+    frame.set_cursor_position((caret_x, caret_y));
 }

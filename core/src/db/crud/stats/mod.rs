@@ -246,7 +246,6 @@ mod tests {
         crate::db::crud::upsert_trigger(
             &conn,
             "uuid-stat-recorder",
-            "Greeting",
             None,
             "gm",
             "Good morning!",

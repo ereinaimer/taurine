@@ -171,7 +171,7 @@ pub fn get_top_app_stats_with_conn(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::init::migrate::run_migrations;
+    use crate::db::init::schema::ensure_schema;
 
     #[test]
     fn test_format_app_display_name_option1() {
@@ -194,7 +194,7 @@ mod tests {
     #[test]
     fn test_upsert_and_get_top_app_stats() {
         let conn = Connection::open_in_memory().unwrap();
-        run_migrations(&conn).unwrap();
+        ensure_schema(&conn).unwrap();
 
         upsert_app_stat_with_conn(&conn, "google-chrome.exe", "2026-08-12", 10, 100, 5000).unwrap();
         upsert_app_stat_with_conn(&conn, "google-chrome.exe", "2026-08-12", 5, 50, 2500).unwrap();

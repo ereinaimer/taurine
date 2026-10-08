@@ -7,32 +7,6 @@ use crate::db::crud::triggers::validate::{
 use rusqlite::Connection;
 
 #[test]
-fn test_create_trigger_name_exceeds_max_length() {
-    let _guard = crate::testing::TEST_LOCK
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    let (_dir, mut conn) = crate::testing::open_test_db();
-
-    let long_name = "a".repeat(201);
-    let new_trigger = NewTrigger {
-        name: Some(&long_name),
-        description: None,
-        trigger_type: TriggerType::Word,
-        trigger: "test_trigger",
-        content: "test output",
-        action_type: "text",
-        target_os: "all",
-        tags_json: "[]",
-        auto_case: false,
-        interpreter: None,
-        behavior: None,
-    };
-    let result = create_trigger(&mut conn, new_trigger);
-    assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("character limit"));
-}
-
-#[test]
 fn test_create_trigger_description_exceeds_max_length() {
     let _guard = crate::testing::TEST_LOCK
         .lock()
@@ -41,7 +15,6 @@ fn test_create_trigger_description_exceeds_max_length() {
 
     let long_desc = "a".repeat(1001);
     let new_trigger = NewTrigger {
-        name: Some("short name"),
         description: Some(&long_desc),
         trigger_type: TriggerType::Word,
         trigger: "test_trigger2",
@@ -71,7 +44,6 @@ fn add_trigger_rejects_invalid_regex() {
         None,
         None,
         None,
-        None,
         false,
     );
     assert!(result.is_err(), "invalid regex should be rejected");
@@ -90,21 +62,19 @@ fn add_trigger_accepts_valid_regex() {
         None,
         None,
         None,
-        None,
         false,
     );
     assert!(result.is_ok(), "valid regex should be accepted: {result:?}");
 }
 
 #[test]
-fn test_create_trigger_short_name_succeeds() {
+fn test_create_trigger_with_description_succeeds() {
     let _guard = crate::testing::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let (_dir, mut conn) = crate::testing::open_test_db();
 
     let new_trigger = NewTrigger {
-        name: Some("short name"),
         description: Some("short description"),
         trigger_type: TriggerType::Word,
         trigger: "test_trigger3",
@@ -121,55 +91,6 @@ fn test_create_trigger_short_name_succeeds() {
 }
 
 #[test]
-fn test_update_trigger_name_exceeds_max_length() {
-    let _guard = crate::testing::TEST_LOCK
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    let (_dir, mut conn) = crate::testing::open_test_db();
-
-    let id = create_trigger(
-        &mut conn,
-        NewTrigger {
-            name: Some("original"),
-            description: None,
-            trigger_type: TriggerType::Word,
-            trigger: "update_test_trigger",
-            content: "test output",
-            action_type: "text",
-            target_os: "all",
-            tags_json: "[]",
-            auto_case: false,
-            interpreter: None,
-            behavior: None,
-        },
-    )
-    .unwrap();
-
-    let long_name = "a".repeat(201);
-    let result = update_existing_trigger(
-        &mut conn,
-        ExistingTriggerUpdate {
-            id: &id,
-            name: &long_name,
-            description: None,
-            trigger_type: TriggerType::Word,
-            trigger: "update_test_trigger",
-            content: "test output",
-            action_type: "text",
-            target_os: "all",
-            tags_json: "[]",
-            auto_case: false,
-            usage_count: 0,
-            last_used_at: None,
-            interpreter: None,
-            behavior: None,
-        },
-    );
-    assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("character limit"));
-}
-
-#[test]
 fn test_update_trigger_description_exceeds_max_length() {
     let _guard = crate::testing::TEST_LOCK
         .lock()
@@ -179,7 +100,6 @@ fn test_update_trigger_description_exceeds_max_length() {
     let id = create_trigger(
         &mut conn,
         NewTrigger {
-            name: Some("original"),
             description: None,
             trigger_type: TriggerType::Word,
             trigger: "update_desc_test",
@@ -199,7 +119,6 @@ fn test_update_trigger_description_exceeds_max_length() {
         &mut conn,
         ExistingTriggerUpdate {
             id: &id,
-            name: "original",
             description: Some(&long_desc),
             trigger_type: TriggerType::Word,
             trigger: "update_desc_test",
@@ -377,8 +296,8 @@ fn test_validate_dead_use_reference() {
     let now = crate::db::now_unix_secs();
     let id = uuid::Uuid::new_v4().to_string();
     conn.execute(
-            "INSERT INTO triggers (id, name, output, action_type, target_os, is_deleted, created_at, updated_at)
-              VALUES (?1, 'existing', 'hello', 'text', 'all', 0, ?2, ?2)",
+            "INSERT INTO triggers (id, output, action_type, target_os, is_deleted, created_at, updated_at)
+              VALUES (?1, 'hello', 'text', 'all', 0, ?2, ?2)",
             rusqlite::params![id, now],
         ).unwrap();
     add_alias(&conn, &id, InvocationType::Word, "existing", false).unwrap();
@@ -403,8 +322,8 @@ fn test_validate_live_reference_passes() {
     let now = crate::db::now_unix_secs();
     let id = uuid::Uuid::new_v4().to_string();
     conn.execute(
-            "INSERT INTO triggers (id, name, output, action_type, target_os, is_deleted, created_at, updated_at)
-              VALUES (?1, 'other', 'world', 'text', 'all', 0, ?2, ?2)",
+            "INSERT INTO triggers (id, output, action_type, target_os, is_deleted, created_at, updated_at)
+              VALUES (?1, 'world', 'text', 'all', 0, ?2, ?2)",
             rusqlite::params![id, now],
         ).unwrap();
     add_alias(&conn, &id, InvocationType::Word, "other", false).unwrap();
@@ -453,8 +372,8 @@ fn test_set_trigger_description_trims_and_nulls_blank() {
     let now = crate::db::now_unix_secs();
     let id = uuid::Uuid::new_v4().to_string();
     conn.execute(
-            "INSERT INTO triggers (id, name, output, action_type, target_os, is_deleted, created_at, updated_at)
-              VALUES (?1, 'test', 'out', 'text', 'all', 0, ?2, ?2)",
+            "INSERT INTO triggers (id, output, action_type, target_os, is_deleted, created_at, updated_at)
+              VALUES (?1, 'out', 'text', 'all', 0, ?2, ?2)",
             rusqlite::params![id, now],
         ).unwrap();
 
@@ -493,7 +412,6 @@ fn test_set_trigger_content_text_and_script() {
     let text_id = create_entry(
         &conn,
         NewEntry {
-            name: String::new(),
             description: None,
             content: "old output".to_string(),
             action_type: "text".to_string(),
@@ -526,7 +444,6 @@ fn test_set_trigger_content_text_and_script() {
     let script_id = create_entry(
         &conn,
         NewEntry {
-            name: String::new(),
             description: None,
             content: "echo hi".to_string(),
             action_type: "script".to_string(),
@@ -557,36 +474,75 @@ fn test_set_trigger_content_text_and_script() {
 }
 
 #[test]
-fn test_set_trigger_name_trims_validates_and_bumps() {
+fn test_rename_alias_invocation_rewrites_row_and_bumps() {
     let _guard = crate::testing::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let (_dir, conn) = crate::testing::open_test_db();
 
-    let now = crate::db::now_unix_secs();
-    let id = uuid::Uuid::new_v4().to_string();
-    conn.execute(
-            "INSERT INTO triggers (id, name, output, action_type, target_os, is_deleted, created_at, updated_at)
-              VALUES (?1, 'old', 'out', 'text', 'all', 0, ?2, ?2)",
-            rusqlite::params![id, now],
-        ).unwrap();
+    let (id, _) = create_entry(&conn, entry_fixture(vec![(InvocationType::Word, "gm")])).unwrap();
 
-    assert!(set_trigger_name(&conn, &id, "  New Name  ").unwrap());
-    let (name, synced, version): (String, bool, i64) = conn
-        .query_row(
-            "SELECT name, is_synced, version FROM triggers WHERE id = ?1",
-            [&id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )
-        .unwrap();
-    assert_eq!(name, "New Name");
-    assert!(!synced);
-    assert_eq!(version, 2);
+    assert!(rename_alias_invocation(&conn, &id, "gm", "  morning  ").unwrap());
+    let row = crate::db::crud::get_trigger(&conn, &id).unwrap().unwrap();
+    // honey: word invocations store verbatim (no trimming on this path).
+    assert_eq!(row.invocations.len(), 1);
+    assert_eq!(row.invocations[0].invocation, "  morning  ");
+    assert_eq!(row.display, "  morning  ");
+    assert_eq!(row.version, 2);
+    assert!(!row.is_synced);
 
-    assert!(set_trigger_name(&conn, &id, "New Name").unwrap());
-    assert!(!set_trigger_name(&conn, "ghost", "x").unwrap());
-    assert!(set_trigger_name(&conn, &id, "   ").is_err());
-    assert!(set_trigger_name(&conn, &id, &"a".repeat(201)).is_err());
+    // Renaming onto the identical stored text is a no-op success.
+    assert!(rename_alias_invocation(&conn, &id, "  morning  ", "  morning  ").unwrap());
+
+    // Unknown rows and unknown parents report false.
+    assert!(!rename_alias_invocation(&conn, &id, "missing", "other").unwrap());
+    assert!(!rename_alias_invocation(&conn, "ghost", "gm", "other").unwrap());
+
+    // Empty and overlong replacements fail validation.
+    assert!(rename_alias_invocation(&conn, &id, "  morning  ", "   ").is_err());
+    assert!(rename_alias_invocation(&conn, &id, "  morning  ", &"a".repeat(201)).is_err());
+}
+
+#[test]
+fn test_rename_alias_invocation_rejects_conflicts() {
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let (_dir, conn) = crate::testing::open_test_db();
+
+    let (first, _) =
+        create_entry(&conn, entry_fixture(vec![(InvocationType::Word, "gm")])).unwrap();
+    let (second, _) = create_entry(
+        &conn,
+        entry_fixture(vec![(InvocationType::Word, "standup")]),
+    )
+    .unwrap();
+
+    // Another live entry holds the target: conflict.
+    assert!(
+        rename_alias_invocation(&conn, &second, "standup", "gm")
+            .unwrap_err()
+            .to_string()
+            .contains("conflicts")
+    );
+
+    // The failed rename leaves both rows untouched.
+    assert_eq!(
+        crate::db::crud::get_trigger(&conn, &first)
+            .unwrap()
+            .unwrap()
+            .invocations[0]
+            .invocation,
+        "gm"
+    );
+    assert_eq!(
+        crate::db::crud::get_trigger(&conn, &second)
+            .unwrap()
+            .unwrap()
+            .invocations[0]
+            .invocation,
+        "standup"
+    );
 }
 
 #[test]
@@ -599,8 +555,8 @@ fn test_set_trigger_enabled_flips_flag_without_version_churn_on_missing() {
     let now = crate::db::now_unix_secs();
     let id = uuid::Uuid::new_v4().to_string();
     conn.execute(
-            "INSERT INTO triggers (id, name, output, action_type, target_os, is_deleted, created_at, updated_at)
-              VALUES (?1, 'test', 'out', 'text', 'all', 0, ?2, ?2)",
+            "INSERT INTO triggers (id, output, action_type, target_os, is_deleted, created_at, updated_at)
+              VALUES (?1, 'out', 'text', 'all', 0, ?2, ?2)",
             rusqlite::params![id, now],
         ).unwrap();
 
@@ -639,8 +595,8 @@ fn test_update_app_filters_trims_whitespace() {
     let now = crate::db::now_unix_secs();
     let id = uuid::Uuid::new_v4().to_string();
     conn.execute(
-            "INSERT INTO triggers (id, name, output, action_type, target_os, is_deleted, created_at, updated_at)
-              VALUES (?1, 'test', 'out', 'text', 'all', 0, ?2, ?2)",
+            "INSERT INTO triggers (id, output, action_type, target_os, is_deleted, created_at, updated_at)
+              VALUES (?1, 'out', 'text', 'all', 0, ?2, ?2)",
             rusqlite::params![id, now],
         ).unwrap();
 
@@ -664,8 +620,8 @@ fn test_update_app_filters_removes_empty() {
     let now = crate::db::now_unix_secs();
     let id = uuid::Uuid::new_v4().to_string();
     conn.execute(
-            "INSERT INTO triggers (id, name, output, action_type, target_os, is_deleted, created_at, updated_at)
-              VALUES (?1, 'test', 'out', 'text', 'all', 0, ?2, ?2)",
+            "INSERT INTO triggers (id, output, action_type, target_os, is_deleted, created_at, updated_at)
+              VALUES (?1, 'out', 'text', 'all', 0, ?2, ?2)",
             rusqlite::params![id, now],
         ).unwrap();
 
@@ -706,8 +662,8 @@ fn test_update_app_filters_accepts_valid_prefixes() {
     let now = crate::db::now_unix_secs();
     let id = uuid::Uuid::new_v4().to_string();
     conn.execute(
-            "INSERT INTO triggers (id, name, output, action_type, target_os, is_deleted, created_at, updated_at)
-              VALUES (?1, 'test', 'out', 'text', 'all', 0, ?2, ?2)",
+            "INSERT INTO triggers (id, output, action_type, target_os, is_deleted, created_at, updated_at)
+              VALUES (?1, 'out', 'text', 'all', 0, ?2, ?2)",
             rusqlite::params![id, now],
         ).unwrap();
 
@@ -737,8 +693,8 @@ fn test_update_app_filters_none_stays_none() {
     let now = crate::db::now_unix_secs();
     let id = uuid::Uuid::new_v4().to_string();
     conn.execute(
-            "INSERT INTO triggers (id, name, output, action_type, target_os, is_deleted, created_at, updated_at)
-              VALUES (?1, 'test', 'out', 'text', 'all', 0, ?2, ?2)",
+            "INSERT INTO triggers (id, output, action_type, target_os, is_deleted, created_at, updated_at)
+              VALUES (?1, 'out', 'text', 'all', 0, ?2, ?2)",
             rusqlite::params![id, now],
         ).unwrap();
 
@@ -806,7 +762,6 @@ fn test_normalize_trigger_nfc() {
     let id = create_trigger(
         &mut conn,
         NewTrigger {
-            name: Some("accent"),
             description: None,
             trigger_type: TriggerType::Word,
             trigger: nfd_e,
@@ -853,7 +808,6 @@ fn test_add_trigger_by_type_normalizes_nfc() {
         None,
         None,
         None,
-        None,
         false,
     )
     .unwrap();
@@ -888,7 +842,6 @@ fn test_add_trigger_by_type_rejects_dead_ref() {
         None,
         None,
         None,
-        None,
         false,
     );
     assert!(result.is_err());
@@ -896,7 +849,7 @@ fn test_add_trigger_by_type_rejects_dead_ref() {
 }
 
 #[test]
-fn test_add_trigger_with_name_and_description() {
+fn test_add_trigger_with_description() {
     let _guard = crate::testing::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
@@ -911,40 +864,37 @@ fn test_add_trigger_with_name_and_description() {
         None,
         None,
         None,
-        Some("My Greeting"),
         Some("A friendly salutation"),
         false,
     )
     .unwrap();
 
-    let (stored_name, stored_desc): (String, Option<String>) = conn
+    let stored_desc: Option<String> = conn
         .query_row(
-            "SELECT t.name, t.description FROM triggers t
+            "SELECT t.description FROM triggers t
               WHERE t.id = (SELECT trigger_id FROM trigger_aliases
                              WHERE invocation_type = 'word' AND invocation = 'greeting')",
             [],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(stored_name, "My Greeting");
     assert_eq!(stored_desc.as_deref(), Some("A friendly salutation"));
 }
 
 #[test]
-fn test_update_name_and_description_on_re_add() {
+fn test_update_description_on_re_add() {
     let _guard = crate::testing::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let (_dir, conn) = crate::testing::open_test_db();
 
-    // First add — no custom name/description
+    // First add — no custom description
     add_trigger_by_type_with_case(
         &conn,
         TriggerType::Word,
         "greeting2",
         "hello",
         "all",
-        None,
         None,
         None,
         None,
@@ -966,11 +916,10 @@ fn test_update_name_and_description_on_re_add() {
     let row1 = get_trigger(&conn, &parent_of(&conn, "greeting2"))
         .unwrap()
         .unwrap();
-    assert_eq!(row1.name, ""); // Stored exactly; display falls back to the invocation
     assert_eq!(row1.description, None);
     assert_eq!(row1.display, "greeting2");
 
-    // Re-add with same output but custom name/description
+    // Re-add with same output plus a description
     let outcome = add_trigger_by_type_with_case(
         &conn,
         TriggerType::Word,
@@ -980,24 +929,22 @@ fn test_update_name_and_description_on_re_add() {
         None,
         None,
         None,
-        Some("Updated Name"),
         Some("Now has a description"),
         false,
     )
     .unwrap();
     assert_eq!(outcome, AddOutcome::Updated);
 
-    let (name2, desc2): (String, Option<String>) = conn
+    let desc2: Option<String> = conn
         .query_row(
-            "SELECT name, description FROM triggers WHERE id = ?1",
+            "SELECT description FROM triggers WHERE id = ?1",
             [parent_of(&conn, "greeting2")],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(name2, "Updated Name");
     assert_eq!(desc2.as_deref(), Some("Now has a description"));
 
-    // Re-add with different output + name override
+    // Re-add with different output and no description
     let outcome2 = add_trigger_by_type_with_case(
         &conn,
         TriggerType::Word,
@@ -1007,50 +954,23 @@ fn test_update_name_and_description_on_re_add() {
         None,
         None,
         None,
-        Some("French Greeting"),
         None,
         false,
     )
     .unwrap();
     assert_eq!(outcome2, AddOutcome::Updated);
 
-    let (name3, desc3, output3): (String, Option<String>, String) = conn
+    let (desc3, output3): (Option<String>, String) = conn
         .query_row(
-            "SELECT name, description, output FROM triggers WHERE id = ?1",
+            "SELECT description, output FROM triggers WHERE id = ?1",
             [parent_of(&conn, "greeting2")],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .unwrap();
-    assert_eq!(name3, "French Greeting");
     // Entry upsert writes every column: absent description clears (same as the
     // old id-addressed update path), unlike the old add-path COALESCE.
     assert_eq!(desc3, None);
     assert_eq!(output3, "bonjour");
-}
-
-#[test]
-fn test_add_trigger_by_type_with_case_rejects_long_name() {
-    let _guard = crate::testing::TEST_LOCK
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    let (_dir, conn) = crate::testing::open_test_db();
-
-    let long_name = "a".repeat(201);
-    let result = add_trigger_by_type_with_case(
-        &conn,
-        TriggerType::Word,
-        "len_test",
-        "out",
-        "all",
-        None,
-        None,
-        None,
-        Some(&long_name),
-        None,
-        false,
-    );
-    assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("character limit"));
 }
 
 #[test]
@@ -1070,7 +990,6 @@ fn test_add_trigger_by_type_with_case_rejects_long_description() {
         None,
         None,
         None,
-        Some("ok"),
         Some(&long_desc),
         false,
     );
@@ -1079,7 +998,7 @@ fn test_add_trigger_by_type_with_case_rejects_long_description() {
 }
 
 #[test]
-fn test_re_add_same_output_no_name_returns_already_exists() {
+fn test_re_add_same_output_returns_already_exists() {
     let _guard = crate::testing::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
@@ -1091,7 +1010,6 @@ fn test_re_add_same_output_no_name_returns_already_exists() {
         "foo",
         "bar",
         "all",
-        None,
         None,
         None,
         None,
@@ -1110,7 +1028,6 @@ fn test_re_add_same_output_no_name_returns_already_exists() {
         None,
         None,
         None,
-        None,
         false,
     )
     .unwrap();
@@ -1118,7 +1035,7 @@ fn test_re_add_same_output_no_name_returns_already_exists() {
 }
 
 #[test]
-fn test_duplicate_name_warns() {
+fn test_duplicate_descriptions_allowed() {
     let _guard = crate::testing::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
@@ -1127,7 +1044,6 @@ fn test_duplicate_name_warns() {
     create_trigger(
         &mut conn,
         NewTrigger {
-            name: Some("Duplicate"),
             description: None,
             trigger_type: TriggerType::Word,
             trigger: "first",
@@ -1142,11 +1058,10 @@ fn test_duplicate_name_warns() {
     )
     .unwrap();
 
-    // Second trigger with same name should succeed (warning, not error)
+    // Second trigger with different invocation succeeds
     let id = create_trigger(
         &mut conn,
         NewTrigger {
-            name: Some("Duplicate"),
             description: None,
             trigger_type: TriggerType::Word,
             trigger: "second",
@@ -1165,7 +1080,7 @@ fn test_duplicate_name_warns() {
 }
 
 #[test]
-fn test_duplicate_name_warn_update_excludes_self() {
+fn test_update_same_trigger_succeeds() {
     let _guard = crate::testing::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
@@ -1174,7 +1089,6 @@ fn test_duplicate_name_warn_update_excludes_self() {
     let id = create_trigger(
         &mut conn,
         NewTrigger {
-            name: Some("Unique"),
             description: None,
             trigger_type: TriggerType::Word,
             trigger: "uniq",
@@ -1189,12 +1103,11 @@ fn test_duplicate_name_warn_update_excludes_self() {
     )
     .unwrap();
 
-    // Updating the same trigger to keep its own name should not warn
+    // Updating the same trigger keeps working
     update_existing_trigger(
         &mut conn,
         ExistingTriggerUpdate {
             id: &id,
-            name: "Unique",
             description: None,
             trigger_type: TriggerType::Word,
             trigger: "uniq",
@@ -1216,8 +1129,8 @@ fn create_test_trigger(conn: &Connection) -> String {
     let id = uuid::Uuid::new_v4().to_string();
     let now = crate::db::now_unix_secs();
     conn.execute(
-            "INSERT INTO triggers (id, name, output, action_type, target_os, is_deleted, created_at, updated_at)
-              VALUES (?1, 'test', 'o', 'text', 'all', 0, ?2, ?2)",
+            "INSERT INTO triggers (id, output, action_type, target_os, is_deleted, created_at, updated_at)
+              VALUES (?1, 'o', 'text', 'all', 0, ?2, ?2)",
             rusqlite::params![id, now],
         ).unwrap();
     add_alias(conn, &id, InvocationType::Word, "t", false).unwrap();
@@ -1355,7 +1268,7 @@ fn test_prepare_trigger_taurine_pause_conflict_diagnostic() {
 
 fn fresh_db() -> Connection {
     let conn = Connection::open_in_memory().unwrap();
-    crate::db::init::migrate::run_migrations(&conn).unwrap();
+    crate::db::init::schema::ensure_schema(&conn).unwrap();
     conn
 }
 
@@ -1365,7 +1278,6 @@ fn entry_fixture(invocations: Vec<(InvocationType, &str)>) -> NewEntry {
 
 fn entry_fixture_with_output(output: &str, invocations: Vec<(InvocationType, &str)>) -> NewEntry {
     NewEntry {
-        name: String::new(),
         description: None,
         content: output.to_string(),
         action_type: "text".to_string(),
@@ -1471,7 +1383,6 @@ fn disjoint_os_same_hotkey_creates_separate_parents() {
         None,
         None,
         None,
-        None,
         false,
     )
     .unwrap();
@@ -1482,7 +1393,6 @@ fn disjoint_os_same_hotkey_creates_separate_parents() {
         "ctrl+shift+g",
         "git linux",
         "linux",
-        None,
         None,
         None,
         None,
@@ -1520,7 +1430,6 @@ fn disjoint_app_filters_same_word_creates_separate_parents() {
         None,
         None,
         None,
-        None,
         false,
     )
     .unwrap();
@@ -1532,7 +1441,6 @@ fn disjoint_app_filters_same_word_creates_separate_parents() {
         "Action for VS Code",
         "all",
         Some("exe:code"),
-        None,
         None,
         None,
         None,
@@ -1574,7 +1482,6 @@ fn overlapping_scope_same_invocation_conflicts() {
         None,
         None,
         None,
-        None,
         false,
     )
     .unwrap();
@@ -1584,7 +1491,6 @@ fn overlapping_scope_same_invocation_conflicts() {
         "other",
         "two",
         "all",
-        None,
         None,
         None,
         None,
@@ -1620,7 +1526,6 @@ fn delete_by_value_removes_all_holders() {
             output,
             "all",
             Some(app),
-            None,
             None,
             None,
             None,
@@ -1674,7 +1579,6 @@ fn create_entry_accepts_matching_voice_slots() {
 
 fn script_entry_fixture(invocation: &str) -> NewEntry {
     NewEntry {
-        name: String::new(),
         description: None,
         content: "echo hi".to_string(),
         action_type: "script".to_string(),
@@ -1788,7 +1692,6 @@ fn test_set_script_setters_reject_text_triggers() {
 
 fn word_entry_fixture(invocation: &str, action_type: &str) -> NewEntry {
     NewEntry {
-        name: String::new(),
         description: None,
         content: "output".to_string(),
         action_type: action_type.to_string(),

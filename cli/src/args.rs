@@ -312,10 +312,6 @@ pub struct AddArgs {
     #[arg(long = "tag", value_delimiter = ',', num_args = 1..)]
     pub tag: Option<Vec<String>>,
 
-    /// Display name (defaults to the trigger string)
-    #[arg(long)]
-    pub name: Option<String>,
-
     /// Description for the trigger
     #[arg(long)]
     pub description: Option<String>,
@@ -367,10 +363,6 @@ pub enum AddSubcommand {
         /// Tags
         #[arg(long = "tag", value_delimiter = ',', num_args = 1..)]
         tag: Option<Vec<String>>,
-
-        /// Display name (defaults to the trigger string)
-        #[arg(long)]
-        name: Option<String>,
 
         /// Description for the trigger
         #[arg(long)]

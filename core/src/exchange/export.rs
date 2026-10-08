@@ -9,7 +9,6 @@ use zeroize::Zeroize;
 
 struct RawTriggerExport {
     id: String,
-    name: String,
     description: Option<String>,
     output: String,
     action_type: String,
@@ -25,7 +24,6 @@ pub fn export_triggers(conn: &Connection) -> crate::Result<ExchangePayload> {
     let mut stmt = conn.prepare_cached(
         "SELECT
             a.id,
-            a.name,
             a.description,
             a.output,
             a.action_type,
@@ -38,22 +36,21 @@ pub fn export_triggers(conn: &Connection) -> crate::Result<ExchangePayload> {
          FROM triggers a
          LEFT JOIN scripts s ON s.trigger_id = a.id
          WHERE a.is_deleted = 0
-         ORDER BY a.name ASC, a.target_os ASC, a.id ASC",
+         ORDER BY a.target_os ASC, a.id ASC",
     )?;
 
     let rows = stmt.query_map([], |row| {
         Ok(RawTriggerExport {
             id: row.get(0)?,
-            name: row.get(1)?,
-            description: row.get(2)?,
-            output: row.get(3)?,
-            action_type: row.get(4)?,
-            is_enabled: row.get(5)?,
-            target_os: row.get(6)?,
-            tags: row.get(7)?,
-            interpreter: row.get(8)?,
-            behavior: row.get(9)?,
-            script_binary: row.get(10)?,
+            description: row.get(1)?,
+            output: row.get(2)?,
+            action_type: row.get(3)?,
+            is_enabled: row.get(4)?,
+            target_os: row.get(5)?,
+            tags: row.get(6)?,
+            interpreter: row.get(7)?,
+            behavior: row.get(8)?,
+            script_binary: row.get(9)?,
         })
     })?;
 
@@ -142,7 +139,7 @@ fn to_trigger_export(conn: &Connection, row: RawTriggerExport) -> crate::Result<
     let alias_rows = list_aliases(conn, &row.id).map_err(|err| {
         crate::Error::Service(format!(
             "failed to load aliases for trigger '{}': {err}",
-            row.name
+            row.id
         ))
     })?;
     let aliases = alias_rows
@@ -211,7 +208,6 @@ fn to_trigger_export(conn: &Connection, row: RawTriggerExport) -> crate::Result<
     }
 
     Ok(TriggerExport {
-        name: row.name,
         description: row.description,
         trigger_type,
         trigger,

@@ -95,16 +95,15 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
         .map(|(_, s, _)| s.as_str());
     taurine_core::engine::variables::system::validate_output(&output, first)?;
 
-    // R2: an upsert onto an existing entry reuses its name/description/tags
-    // for flags the user did not pass; new entries default to ""/None/'[]'.
-    let (reuse_name, reuse_description, reuse_tags) = existing_entry_defaults(
+    // R2: an upsert onto an existing entry reuses its description/tags
+    // for flags the user did not pass; new entries default to None/'[]'.
+    let (reuse_description, reuse_tags) = existing_entry_defaults(
         &conn,
         &invocations,
         &os,
         args.include_apps.as_deref(),
         args.exclude_apps.as_deref(),
     )?;
-    let name = args.name.unwrap_or(reuse_name);
     let description = args.description.or(reuse_description);
     let tags_json = match args.tag {
         Some(tags) => {
@@ -123,7 +122,6 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
     let outcome = upsert_entry_full(
         &conn,
         NewEntry {
-            name: name.clone(),
             description,
             content: output,
             action_type: "text".to_string(),
@@ -138,7 +136,7 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
         },
     )?;
 
-    let (display, aliases) = resolve_display(&conn, &name, &invocations);
+    let (display, aliases) = resolve_display(&conn, &invocations);
     report_outcome(
         outcome,
         &display,
@@ -173,7 +171,7 @@ pub fn execute(
     let invocations = vec![(invocation_type, trigger.clone(), false)];
     audit_payload_tags_with_trigger_type(&output, trigger_type)?;
     taurine_core::engine::variables::system::validate_output(&output, Some(&trigger))?;
-    let (name, description, tags_json) = existing_entry_defaults(
+    let (description, tags_json) = existing_entry_defaults(
         &conn,
         &invocations,
         &os,
@@ -183,7 +181,6 @@ pub fn execute(
     let outcome = upsert_entry_full(
         &conn,
         NewEntry {
-            name: name.clone(),
             description,
             content: output,
             action_type: "text".to_string(),
@@ -198,7 +195,7 @@ pub fn execute(
         },
     )?;
 
-    let (display, aliases) = resolve_display(&conn, &name, &invocations);
+    let (display, aliases) = resolve_display(&conn, &invocations);
     report_outcome(
         outcome,
         &display,
@@ -212,16 +209,16 @@ pub fn execute(
 }
 
 /// R2: when the requested invocations hit exactly one scope-overlapping live
-/// parent, return its (name, description, tags) for flag-absent reuse.
+/// parent, return its (description, tags) for flag-absent reuse.
 /// Otherwise (no hit, or a disjoint scope that upsert will create fresh)
-/// return the new-entry defaults "" / None / '[]'.
+/// return the new-entry defaults None / '[]'.
 pub(crate) fn existing_entry_defaults(
     conn: &rusqlite::Connection,
     invocations: &[(InvocationType, String, bool)],
     target_os: &str,
     only_apps: Option<&str>,
     except_apps: Option<&str>,
-) -> taurine_core::error::Result<(String, Option<String>, String)> {
+) -> taurine_core::error::Result<(Option<String>, String)> {
     for (invocation_type, invocation, _) in invocations {
         let Some(pid) = find_parent_by_invocation(conn, *invocation_type, invocation)? else {
             continue;
@@ -243,16 +240,15 @@ pub(crate) fn existing_entry_defaults(
         ) {
             continue;
         }
-        return Ok((row.name, row.description, row.tags));
+        return Ok((row.description, row.tags));
     }
-    Ok((String::new(), None, "[]".to_string()))
+    Ok((None, "[]".to_string()))
 }
 
 /// Display string + stored aliases for the just-upserted entry, looked up
 /// through the requested invocations (first hit wins).
 pub(crate) fn resolve_display(
     conn: &rusqlite::Connection,
-    name: &str,
     invocations: &[(InvocationType, String, bool)],
 ) -> (String, Vec<TriggerAliasRow>) {
     for (invocation_type, invocation, _) in invocations {
@@ -262,14 +258,10 @@ pub(crate) fn resolve_display(
             return (row.display, row.invocations);
         }
     }
-    let fallback = if name.is_empty() {
-        invocations
-            .first()
-            .map(|(_, s, _)| s.clone())
-            .unwrap_or_default()
-    } else {
-        name.to_string()
-    };
+    let fallback = invocations
+        .first()
+        .map(|(_, s, _)| s.clone())
+        .unwrap_or_default();
     (fallback, Vec::new())
 }
 
@@ -396,7 +388,6 @@ mod tests {
             exclude_apps: None,
             os: TargetOsCli::All,
             tag: None,
-            name: None,
             description: None,
             auto_case: false,
         }
@@ -441,7 +432,7 @@ mod tests {
     }
 
     #[test]
-    fn new_entry_name_defaults_empty_for_display_rule() {
+    fn new_entry_display_comes_from_invocation() {
         init_tracing_for_tests();
 
         with_test_db(|db_path| {
@@ -454,18 +445,16 @@ mod tests {
             let conn = open_keyed_db(db_path);
             let pid = parent_for(&conn, InvocationType::Word, "gs");
             let row = get_trigger(&conn, &pid).unwrap().unwrap();
-            assert_eq!(row.name, "");
             assert_eq!(row.display, "gs");
         });
     }
 
     #[test]
-    fn upsert_preserves_name_description_tags_when_flags_absent() {
+    fn upsert_preserves_description_tags_when_flags_absent() {
         init_tracing_for_tests();
 
         with_test_db(|db_path| {
             let mut first = add_args(vec!["gs", "one"], vec![], vec![], vec![]);
-            first.name = Some("My entry".to_string());
             first.description = Some("desc".to_string());
             first.tag = Some(vec!["dev".to_string()]);
             execute_args(first, false).unwrap();
@@ -476,7 +465,6 @@ mod tests {
             let pid = parent_for(&conn, InvocationType::Word, "gs");
             let row = get_trigger(&conn, &pid).unwrap().unwrap();
             assert_eq!(row.output, "two");
-            assert_eq!(row.name, "My entry");
             assert_eq!(row.description.as_deref(), Some("desc"));
             assert_eq!(row.tags, "[\"dev\"]");
             assert_eq!(count_aliases(&conn, &pid).unwrap(), 1);

@@ -33,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **New Trigger Form**: Press Ctrl+N to create a trigger without leaving the library, with script options and a collapsible Advanced section for platform, tags, app filters, and auto-case.
 
 ### Changed
-- **Inline Renaming**: Click a trigger name to edit it in place. Enter saves, switching triggers saves automatically.
+- **Inline Renaming**: Click the trigger at the top of the detail pane to edit the actual trigger text in place. Enter saves, switching triggers saves automatically.
 - **Editable Description and Content**: Click the description or the snippet body to edit in place with a real caret. Long paragraphs wrap while editing exactly like they display. Tab commits content, Esc discards, leaving the trigger auto-saves.
 - **Autosave While Typing**: Edits save themselves after a one-second pause, so Enter stays free for newlines and quitting never loses typed text.
 - **Three-Pane Library**: Trigger list, content, and properties now sit side by side with two draggable dividers, collapsing gracefully on narrow terminals.
@@ -53,6 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Voice Confirmation Toggle**: Click the Confirm row in properties to turn voice confirmation on or off, just like the Auto case switch.
 
 ### Removed
+- **Trigger Display Names**: Triggers no longer have a separate name label; the library header shows the trigger itself and the --name flag is gone.
 - **Trigger Editor Popup**: The overlay editor is gone pending a revamped editor; use the CLI to add or edit triggers for now.
 - **Home Page**: The TUI now opens directly on the library page with settings one key away; daemon start and stop remain available via the CLI and service.
 - **Side Navigation Rail**: The tab rail and its toggle are gone along with the header, footer, and page titles, leaving a borderless full-width list experience.

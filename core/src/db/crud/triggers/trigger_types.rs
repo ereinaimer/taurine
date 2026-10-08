@@ -61,7 +61,6 @@ impl TriggerType {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TriggerRow {
     pub id: String,
-    pub name: String,
     pub description: Option<String>,
     pub invocations: Vec<TriggerAliasRow>,
     pub display: String,
@@ -161,32 +160,14 @@ impl TriggerAction {
     }
 }
 
-pub const MAX_NAME_LENGTH: usize = 200;
 pub const MAX_DESCRIPTION_LENGTH: usize = 1000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TriggerLimits;
 
 impl TriggerLimits {
-    pub const MAX_NAME_LENGTH: usize = MAX_NAME_LENGTH;
     pub const MAX_DESCRIPTION_LENGTH: usize = MAX_DESCRIPTION_LENGTH;
     pub const MAX_SCRIPT_SIZE: usize = crate::engine::shell::MAX_SCRIPT_SIZE;
-
-    pub fn validate_name(name: &str) -> crate::Result<()> {
-        let trimmed = name.trim();
-        if trimmed.is_empty() {
-            return Err(crate::Error::Config(
-                "Trigger name cannot be empty".to_string(),
-            ));
-        }
-        if trimmed.chars().count() > Self::MAX_NAME_LENGTH {
-            return Err(crate::Error::Config(format!(
-                "Trigger name exceeds {} character limit",
-                Self::MAX_NAME_LENGTH
-            )));
-        }
-        Ok(())
-    }
 
     pub fn validate_description(description: Option<&str>) -> crate::Result<()> {
         if let Some(desc) = description
@@ -215,7 +196,6 @@ impl TriggerLimits {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TriggerSummary {
     pub id: String,
-    pub name: String,
     pub description: Option<String>,
     pub invocations: Vec<TriggerAliasRow>,
     pub display: String,
@@ -226,7 +206,6 @@ pub struct TriggerSummary {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct TriggerListItem {
     pub id: String,
-    pub name: String,
     pub description: Option<String>,
     pub invocations: Vec<TriggerAliasRow>,
     pub display: String,
@@ -264,13 +243,9 @@ pub fn display_alias(aliases: &[TriggerAliasRow]) -> Option<&TriggerAliasRow> {
         .or_else(|| aliases.first())
 }
 
-/// Entry display string (binding): `name` if non-empty, else first word
-/// invocation in insertion order, else first invocation of any type,
-/// else empty string.
-pub fn display_for_aliases(name: &str, aliases: &[TriggerAliasRow]) -> String {
-    if !name.is_empty() {
-        return name.to_string();
-    }
+/// Entry display string (binding): first word invocation in insertion
+/// order, else first invocation of any type, else empty string.
+pub fn display_for_aliases(aliases: &[TriggerAliasRow]) -> String {
     display_alias(aliases)
         .map(|a| a.invocation.clone())
         .unwrap_or_default()
@@ -303,7 +278,6 @@ mod tests {
     fn test_trigger_list_item_json_serializes_all_fields() {
         let item = TriggerListItem {
             id: "abc-123".to_string(),
-            name: "my trigger".to_string(),
             description: Some("does a thing".to_string()),
             invocations: vec![alias_row("ctrl+shift+g", InvocationType::Hotkey)],
             display: "ctrl+shift+g".to_string(),
@@ -340,7 +314,6 @@ mod tests {
     fn test_trigger_list_item_json_with_script_fields() {
         let item = TriggerListItem {
             id: "script-1".to_string(),
-            name: "".to_string(),
             description: None,
             invocations: vec![alias_row("deploy", InvocationType::Word)],
             display: "deploy".to_string(),
@@ -371,7 +344,6 @@ mod tests {
     fn test_trigger_list_item_empty_tag_list_serializes() {
         let item = TriggerListItem {
             id: "empty-tags".to_string(),
-            name: "".to_string(),
             description: None,
             invocations: vec![alias_row("x", InvocationType::Word)],
             display: "x".to_string(),
@@ -399,7 +371,6 @@ mod tests {
     fn test_trigger_list_item_regex_trigger_type() {
         let item = TriggerListItem {
             id: "r1".to_string(),
-            name: "".to_string(),
             description: None,
             invocations: vec![alias_row("issue-(\\d+)", InvocationType::Regex)],
             display: "issue-(\\d+)".to_string(),
@@ -473,10 +444,6 @@ mod tests {
 
     #[test]
     fn test_trigger_limits_validation() {
-        assert!(TriggerLimits::validate_name("valid name").is_ok());
-        assert!(TriggerLimits::validate_name("   ").is_err());
-        assert!(TriggerLimits::validate_name(&"a".repeat(201)).is_err());
-
         assert!(TriggerLimits::validate_description(None).is_ok());
         assert!(TriggerLimits::validate_description(Some("valid desc")).is_ok());
         assert!(TriggerLimits::validate_description(Some(&"a".repeat(1001))).is_err());

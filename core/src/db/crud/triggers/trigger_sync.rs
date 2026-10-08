@@ -15,7 +15,6 @@ pub fn get_syncable_triggers(conn: &Connection) -> Result<Vec<TriggerRow>> {
     let mut stmt = conn.prepare_cached(
         "SELECT
             a.id,
-            a.name,
             a.description,
             a.output,
             a.action_type,
@@ -42,8 +41,8 @@ pub fn get_syncable_triggers(conn: &Connection) -> Result<Vec<TriggerRow>> {
     )?;
 
     let rows = stmt.query_map([], |row| {
-        let interpreter_str: Option<String> = row.get(18)?;
-        let behavior_str: Option<String> = row.get(19)?;
+        let interpreter_str: Option<String> = row.get(17)?;
+        let behavior_str: Option<String> = row.get(18)?;
 
         let interpreter = interpreter_str
             .and_then(|s| serde_json::from_str::<ScriptInterpreter>(&format!("\"{}\"", s)).ok());
@@ -52,28 +51,27 @@ pub fn get_syncable_triggers(conn: &Connection) -> Result<Vec<TriggerRow>> {
 
         Ok(TriggerRow {
             id: row.get(0)?,
-            name: row.get(1)?,
-            description: row.get(2)?,
+            description: row.get(1)?,
             invocations: Vec::new(),
             display: String::new(),
-            output: row.get(3)?,
-            action_type: row.get(4)?,
-            target_os: row.get(5)?,
-            only_apps: row.get(6)?,
-            except_apps: row.get(7)?,
-            tags: row.get(8)?,
-            usage_count: row.get(9)?,
-            last_used_at: row.get(10)?,
-            created_at: row.get(11)?,
-            updated_at: row.get(12)?,
-            version: row.get(13)?,
-            is_deleted: row.get(14)?,
-            is_synced: row.get(15)?,
-            is_enabled: row.get(16)?,
-            auto_case: row.get(17)?,
+            output: row.get(2)?,
+            action_type: row.get(3)?,
+            target_os: row.get(4)?,
+            only_apps: row.get(5)?,
+            except_apps: row.get(6)?,
+            tags: row.get(7)?,
+            usage_count: row.get(8)?,
+            last_used_at: row.get(9)?,
+            created_at: row.get(10)?,
+            updated_at: row.get(11)?,
+            version: row.get(12)?,
+            is_deleted: row.get(13)?,
+            is_synced: row.get(14)?,
+            is_enabled: row.get(15)?,
+            auto_case: row.get(16)?,
             interpreter,
             behavior,
-            script_binary: row.get(20)?,
+            script_binary: row.get(19)?,
         })
     })?;
 
@@ -93,7 +91,7 @@ pub fn get_syncable_triggers(conn: &Connection) -> Result<Vec<TriggerRow>> {
                 Box::new(other),
             ),
         })?;
-        row.display = display_for_aliases(&row.name, &row.invocations);
+        row.display = display_for_aliases(&row.invocations);
     }
 
     Ok(results)

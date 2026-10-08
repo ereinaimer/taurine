@@ -62,7 +62,6 @@ impl LibraryKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LibraryTrigger {
     id: String,
-    name: String,
     trigger: String,
     preview: String,
     content: String,
@@ -185,7 +184,6 @@ impl LibraryTrigger {
             .unwrap_or(false);
         Self {
             id: item.id.clone(),
-            name: item.name.clone(),
             trigger,
             preview: preview_from_item(item),
             content: content_from_item(item),
@@ -215,12 +213,6 @@ impl LibraryTrigger {
 
     // honey: unreachable until the shortcut rework lands; kept with tests.
     #[allow(dead_code)]
-    pub(crate) fn name(&self) -> &str {
-        &self.name
-    }
-
-    // honey: unreachable until the shortcut rework lands; kept with tests.
-    #[allow(dead_code)]
     pub(crate) fn id(&self) -> &str {
         &self.id
     }
@@ -235,15 +227,6 @@ impl LibraryTrigger {
 
     pub(crate) fn content(&self) -> &str {
         &self.content
-    }
-
-    /// Header display: named label, else the invocation itself.
-    pub(crate) fn display_name(&self) -> &str {
-        if self.name.trim().is_empty() {
-            &self.trigger
-        } else {
-            &self.name
-        }
     }
 
     pub(crate) const fn kind_label(&self) -> &'static str {

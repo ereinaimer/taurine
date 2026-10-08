@@ -13,8 +13,8 @@ mod validate;
 pub use aliases::{
     InvocationType, ResolvedInvocation, TriggerAliasRow, add_alias, count_aliases, delete_alias,
     find_parent_by_invocation, increment_usage_count_by_id, list_aliases, normalize_voice_phrase,
-    set_alias_invocation_type, set_alias_require_confirmation, threshold_for_phrase,
-    tombstone_entry, validate_voice_phrase,
+    rename_alias_invocation, set_alias_invocation_type, set_alias_require_confirmation,
+    threshold_for_phrase, tombstone_entry, validate_voice_phrase,
 };
 pub use app_filter::AppFilterPrefix;
 
@@ -41,14 +41,14 @@ pub use overlap::{
 pub use usage::{increment_usage_count_by_trigger, record_expansion_usage};
 
 pub use trigger_set::{
-    AddOutcome, ExistingTriggerUpdate, NewEntry, NewTrigger, PreparedTrigger, add_trigger,
-    add_trigger_by_type, add_trigger_by_type_with_case, add_trigger_with_case, create_entry,
-    create_trigger, prepare_trigger, prepare_trigger_with_type, set_script_behavior,
+    AddOutcome, ExistingTriggerUpdate, MAX_TRIGGER_LENGTH, NewEntry, NewTrigger, PreparedTrigger,
+    add_trigger, add_trigger_by_type, add_trigger_by_type_with_case, add_trigger_with_case,
+    create_entry, create_trigger, prepare_trigger, prepare_trigger_with_type, set_script_behavior,
     set_script_interpreter, set_trigger_auto_case, set_trigger_content, set_trigger_description,
-    set_trigger_enabled, set_trigger_except_apps, set_trigger_name, set_trigger_only_apps,
-    set_trigger_tags, set_trigger_target_os, split_app_filters, update_existing_trigger,
-    update_trigger_app_filters, upsert_entry_full, upsert_script, upsert_trigger,
-    upsert_trigger_with_type, upsert_trigger_with_type_and_case,
+    set_trigger_enabled, set_trigger_except_apps, set_trigger_only_apps, set_trigger_tags,
+    set_trigger_target_os, split_app_filters, update_existing_trigger, update_trigger_app_filters,
+    upsert_entry_full, upsert_script, upsert_trigger, upsert_trigger_with_type,
+    upsert_trigger_with_type_and_case,
 };
 pub use trigger_sync::get_syncable_triggers;
 pub use trigger_types::{

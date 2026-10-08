@@ -72,7 +72,6 @@ pub(crate) struct PendingLibraryCreate {
     pub(crate) trigger: String,
     pub(crate) trigger_type: TriggerType,
     pub(crate) content: String,
-    pub(crate) name: String,
     pub(crate) action_type: String,
     pub(crate) target_os: String,
     pub(crate) tags: Vec<String>,
@@ -107,7 +106,6 @@ impl PendingLibraryCreate {
         let (id, _) = create_entry(
             &conn,
             NewEntry {
-                name: self.name.clone(),
                 description: None,
                 content: self.content.clone(),
                 action_type: self.action_type.clone(),
@@ -144,7 +142,7 @@ impl PendingLibraryToggle {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum EditedField {
-    Name(String),
+    Trigger(String),
     Description(Option<String>),
     Content(String),
     InvocationType(InvocationType),
@@ -214,13 +212,20 @@ pub(crate) fn write_clipboard(text: &str) {
 }
 
 impl PendingLibraryEdit {
-    /// Display names and descriptions never reach the expander, so no
+    /// Renaming an invocation changes what the expander matches, so the
+    /// daemon reloads. Descriptions never reach the expander, so no
     /// daemon reload. Content changes reload so expansion picks them up.
     pub(crate) fn apply(&self) -> taurine_core::Result<()> {
         let conn = taurine_core::db::init::setup()?;
         match &self.field {
-            EditedField::Name(name) => {
-                taurine_core::db::crud::set_trigger_name(&conn, &self.trigger_id, name)?;
+            EditedField::Trigger(trigger) => {
+                taurine_core::db::crud::rename_alias_invocation(
+                    &conn,
+                    &self.trigger_id,
+                    &self.trigger,
+                    trigger,
+                )?;
+                taurine_core::rpc::notify_daemon_reload();
             }
             EditedField::Description(description) => {
                 taurine_core::db::crud::set_trigger_description(
@@ -663,7 +668,6 @@ pub(crate) fn build_search_text(
     invocation: &str,
 ) -> String {
     let mut parts = vec![
-        item.name.as_str(),
         invocation,
         item.output.as_str(),
         kind_label,

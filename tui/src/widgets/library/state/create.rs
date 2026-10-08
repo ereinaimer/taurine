@@ -17,7 +17,6 @@ pub(crate) enum LibraryCreateModalField {
     TriggerType,
     Trigger,
     Content,
-    Name,
     Action,
     Interpreter,
     Behavior,
@@ -52,7 +51,6 @@ pub(crate) struct LibraryCreateModalState {
     trigger: TextField,
     content: TextArea,
     content_scroll: usize,
-    name: TextField,
     action: ActionType,
     interpreter: ScriptInterpreter,
     behavior: ScriptBehavior,
@@ -77,7 +75,6 @@ impl LibraryCreateModalState {
             trigger: TextField::new(""),
             content: TextArea::new(""),
             content_scroll: 0,
-            name: TextField::new(""),
             action: ActionType::Text,
             interpreter: ScriptInterpreter::Bash,
             behavior: ScriptBehavior::Inline,
@@ -125,10 +122,6 @@ impl LibraryCreateModalState {
 
     pub(crate) const fn content_scroll(&self) -> usize {
         self.content_scroll
-    }
-
-    pub(crate) fn name_field(&self) -> &TextField {
-        &self.name
     }
 
     #[cfg(test)]
@@ -226,7 +219,6 @@ impl LibraryCreateModalState {
             Field::TriggerType,
             Field::Trigger,
             Field::Content,
-            Field::Name,
             Field::Action,
         ];
         if !self.is_text_action() {
@@ -429,9 +421,7 @@ impl LibraryCreateModalState {
 
     fn handle_focused_key(&mut self, key: KeyEvent) -> CreateKeyOutcome {
         match self.focus {
-            LibraryCreateModalField::Trigger | LibraryCreateModalField::Name => {
-                self.handle_text_key(key)
-            }
+            LibraryCreateModalField::Trigger => self.handle_text_key(key),
             LibraryCreateModalField::TriggerType => {
                 self.handle_picker_key(key, HeaderMenuKind::InvocationType)
             }
@@ -518,7 +508,6 @@ impl LibraryCreateModalState {
         // never creates a trigger; only the Create button submits.
         let field = match self.focus {
             LibraryCreateModalField::Trigger => &mut self.trigger,
-            LibraryCreateModalField::Name => &mut self.name,
             _ => return CreateKeyOutcome::Handled,
         };
         match (key.code, key.modifiers) {
@@ -643,7 +632,6 @@ impl LibraryCreateModalState {
             trigger: prepared.stored_trigger,
             trigger_type: self.trigger_type,
             content: self.content.text(),
-            name: self.name.text().to_string(),
             action_type: self.action.as_str().to_string(),
             target_os: self.target_os.clone(),
             tags: self.tags.clone(),

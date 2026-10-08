@@ -357,7 +357,7 @@ pub(crate) fn render_conflict_popup(
 
     let sub_style = Style::default().fg(DARK_THEME.text_muted);
     frame.render_widget(
-        Paragraph::new(format!("  \"{}\" already exists.", incoming.name)).style(sub_style),
+        Paragraph::new(format!("  \"{}\" already exists.", incoming.trigger)).style(sub_style),
         Rect {
             x: inner.x,
             y: inner.y + 1,
@@ -464,7 +464,6 @@ mod tests {
 
     fn incoming_fixture() -> TriggerExport {
         TriggerExport {
-            name: String::new(),
             description: None,
             trigger_type: TriggerType::Word,
             trigger: "hi".to_string(),
@@ -493,7 +492,6 @@ mod tests {
     fn existing_fixture() -> ExistingTriggerConflict {
         ExistingTriggerConflict {
             id: "existing-1".to_string(),
-            name: String::new(),
             description: None,
             invocations: vec![
                 alias_row("hi", InvocationType::Word),

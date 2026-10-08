@@ -47,7 +47,7 @@ const BUTTONS_OFFSET: u16 = 4;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DetailHit {
     EnableToggle,
-    NameEditAt(usize),
+    TriggerEditAt(usize),
     DescriptionEdit,
     ContentEditAt { row: usize, col: usize },
     Button(usize),
@@ -102,7 +102,7 @@ pub(crate) fn button_layout(row_width: u16, labels: &[String]) -> Vec<ButtonCell
     cells
 }
 
-/// Which detail cell a click landed on. Toggle flips enable, name and
+/// Which detail cell a click landed on. Toggle flips enable, trigger and
 /// description open inline edits, content-box text opens the body
 /// editor; everything else is read-only preview.
 pub(crate) fn hit_test(
@@ -128,7 +128,7 @@ pub(crate) fn hit_test(
             return Some(DetailHit::EnableToggle);
         }
         if column >= content.x && column < start.saturating_sub(1) {
-            return Some(DetailHit::NameEditAt(
+            return Some(DetailHit::TriggerEditAt(
                 column.saturating_sub(content.x) as usize
             ));
         }
@@ -492,8 +492,8 @@ fn render_header_row(
     let available = row.width.saturating_sub(width).saturating_sub(1);
     // honey: editing shows the caret-anchored viewport with a real
     // caret, mirroring the search box; read mode shows the truncated
-    // display name.
-    if let Some(edit) = state.name_edit() {
+    // trigger text.
+    if let Some(edit) = state.trigger_edit() {
         let (visible, caret) = edit.field().window(available);
         let gap = available.saturating_sub(visible.chars().count() as u16);
         let mut spans = vec![
@@ -510,12 +510,12 @@ fn render_header_row(
         frame.set_cursor_position((cx, cy));
         return;
     }
-    let name = util::truncate_to_width(item.display_name(), available);
-    let name_width = name.chars().count();
-    let gap = available.saturating_sub(name_width as u16);
+    let trigger = util::truncate_to_width(item.trigger(), available);
+    let trigger_width = trigger.chars().count();
+    let gap = available.saturating_sub(trigger_width as u16);
     let mut spans = vec![
         Span::styled(
-            name,
+            trigger,
             Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
         ),
         Span::raw(" ".repeat(gap as usize + 1)),

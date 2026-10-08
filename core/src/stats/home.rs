@@ -70,7 +70,6 @@ fn fetch_most_used(
 ) -> crate::Result<Vec<MostUsedTrigger>> {
     let mut stmt = conn.prepare_cached(
         "SELECT
-            t.name,
             t.usage_count,
             (SELECT COUNT(*) FROM trigger_aliases al
               WHERE al.trigger_id = t.id),
@@ -95,31 +94,20 @@ fn fetch_most_used(
 
     let rows = stmt.query_map((trigger_type.as_db_str(), os_str, limit as i64), |row| {
         Ok((
-            row.get::<_, String>(0)?,
+            row.get::<_, i64>(0)?.max(0) as u64,
             row.get::<_, i64>(1)?.max(0) as u64,
-            row.get::<_, i64>(2)?.max(0) as u64,
+            row.get::<_, Option<String>>(2)?,
             row.get::<_, Option<String>>(3)?,
-            row.get::<_, Option<String>>(4)?,
         ))
     })?;
 
     let mut result = Vec::new();
     for row in rows {
-        let (name, uses, alias_count, first_word, first_any) = row?;
-        let named = !name.is_empty();
-        // Display rule mirrored from CLI list.rs entry_display: the base is
-        // the name when explicit, else the first word invocation, else the
+        let (uses, alias_count, first_word, first_any) = row?;
+        // Display rule: the base is the first word invocation, else the
         // first invocation; (+N) counts aliases beyond the display string.
-        let base = if named {
-            name
-        } else {
-            first_word.or(first_any).unwrap_or_default()
-        };
-        let extra = if named {
-            alias_count
-        } else {
-            alias_count.saturating_sub(1)
-        };
+        let base = first_word.or(first_any).unwrap_or_default();
+        let extra = alias_count.saturating_sub(1);
         let display = if extra == 0 {
             base
         } else {
@@ -144,9 +132,8 @@ mod tests {
     };
     use crate::testing::{init_tracing_for_tests, open_test_db};
 
-    fn text_entry(name: &str, content: &str, invocation: (InvocationType, &str)) -> NewEntry {
+    fn text_entry(content: &str, invocation: (InvocationType, &str)) -> NewEntry {
         NewEntry {
-            name: name.to_string(),
             description: None,
             content: content.to_string(),
             action_type: "text".to_string(),
@@ -214,14 +201,13 @@ mod tests {
 
         let (word_id, _) = create_entry(
             &conn,
-            text_entry("", "git status", (InvocationType::Word, "gs")),
+            text_entry("git status", (InvocationType::Word, "gs")),
         )
         .unwrap();
         set_usage(&conn, &word_id, 12);
         let (hotkey_id, _) = create_entry(
             &conn,
             text_entry(
-                "",
                 "personal email signature",
                 (InvocationType::Hotkey, "ralt+m"),
             ),
@@ -230,7 +216,7 @@ mod tests {
         set_usage(&conn, &hotkey_id, 20);
         let (deleted_id, _) = create_entry(
             &conn,
-            text_entry("", "old output", (InvocationType::Word, "old")),
+            text_entry("old output", (InvocationType::Word, "old")),
         )
         .unwrap();
         set_usage(&conn, &deleted_id, 99);
@@ -260,11 +246,7 @@ mod tests {
             let trigger = format!("t{index}");
             let (id, _) = create_entry(
                 &conn,
-                text_entry(
-                    "",
-                    &format!("Output {index}"),
-                    (InvocationType::Word, &trigger),
-                ),
+                text_entry(&format!("Output {index}"), (InvocationType::Word, &trigger)),
             )
             .unwrap();
             set_usage(&conn, &id, (10 - index) as i64);
@@ -284,17 +266,14 @@ mod tests {
 
         let (auto_id, _) = create_entry(
             &conn,
-            text_entry("", "git status", (InvocationType::Word, "gs")),
+            text_entry("git status", (InvocationType::Word, "gs")),
         )
         .unwrap();
         add_alias(&conn, &auto_id, InvocationType::Word, "gstatus", false).unwrap();
         set_usage(&conn, &auto_id, 5);
 
-        let (named_id, _) = create_entry(
-            &conn,
-            text_entry("Deploy", "deploy!", (InvocationType::Word, "dpl")),
-        )
-        .unwrap();
+        let (named_id, _) =
+            create_entry(&conn, text_entry("deploy!", (InvocationType::Word, "dpl"))).unwrap();
         add_alias(&conn, &named_id, InvocationType::Word, "dply", false).unwrap();
         set_usage(&conn, &named_id, 3);
 
@@ -304,7 +283,7 @@ mod tests {
         assert_eq!(stats.most_used_words[0].display, "gs (+1)");
         assert_eq!(stats.most_used_words[0].uses, 5);
         assert_eq!(stats.most_used_words[0].alias_count, 2);
-        assert_eq!(stats.most_used_words[1].display, "Deploy (+2)");
+        assert_eq!(stats.most_used_words[1].display, "dpl (+1)");
         assert_eq!(stats.most_used_words[1].uses, 3);
         assert_eq!(stats.most_used_words[1].alias_count, 2);
     }

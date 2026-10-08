@@ -716,7 +716,7 @@ fn handle_tui_mouse_event(
                     app.library_page_mut().activate_search_at(cursor);
                 }
                 // honey: toggle flips enable (committing any edit
-                // first); name, description, and content clicks
+                // first); trigger, description, and content clicks
                 // start editing; everything else is read-only.
                 None => {
                     let hit = {
@@ -737,8 +737,8 @@ fn handle_tui_mouse_event(
                             app.library_page_mut()
                                 .open_header_menu(library::detail::dropdown_kind_for_button(index));
                         }
-                        Some(library::detail::DetailHit::NameEditAt(cursor)) => {
-                            let interaction = app.library_page_mut().start_name_edit_at(cursor);
+                        Some(library::detail::DetailHit::TriggerEditAt(cursor)) => {
+                            let interaction = app.library_page_mut().start_trigger_edit_at(cursor);
                             apply_library_interaction(app, interaction);
                         }
                         Some(library::detail::DetailHit::DescriptionEdit) => {
@@ -1003,9 +1003,9 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
         let trigger = pending_edit.trigger.clone();
         let restore_index = pending_edit.restore_index;
         let draft = match &pending_edit.field {
-            library::EditedField::Name(name) => Some((
-                crate::widgets::library::state::EditTarget::Name,
-                name.clone(),
+            library::EditedField::Trigger(trigger) => Some((
+                crate::widgets::library::state::EditTarget::Trigger,
+                trigger.clone(),
             )),
             library::EditedField::Description(description) => Some((
                 crate::widgets::library::state::EditTarget::Description,
@@ -1038,8 +1038,17 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
             Ok(()) => {
                 refresh_library_page(app);
                 // honey: a vanished trigger closes menus with it; the
-                // tags menu otherwise reseeds from refreshed rows.
-                if !app.library_page_mut().select_row(&trigger_id, &trigger) {
+                // tags menu otherwise reseeds from refreshed rows. A
+                // renamed invocation reselects by its new text so the
+                // cursor stays on the edited row.
+                let select_trigger = match &pending_edit.field {
+                    library::EditedField::Trigger(trigger) => trigger.clone(),
+                    _ => trigger,
+                };
+                if !app
+                    .library_page_mut()
+                    .select_row(&trigger_id, &select_trigger)
+                {
                     app.library_page_mut().select_after_delete(restore_index);
                 } else if reopen_tags {
                     app.library_page_mut().sync_tags_modal(&trigger_id);
@@ -1962,7 +1971,7 @@ mod tests {
         app.library_page_mut().open_create_modal();
 
         // Cancel button of the create modal on TEST_AREA.
-        handle_tui_mouse_event(&mut app, left_click(40, 20), TEST_AREA);
+        handle_tui_mouse_event(&mut app, left_click(40, 19), TEST_AREA);
 
         assert!(!app.library_page().is_modal_open());
     }

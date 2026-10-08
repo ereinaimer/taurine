@@ -3,7 +3,7 @@ use super::trigger::LibraryTrigger;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LibraryDeleteModalState {
     trigger_id: String,
-    name: String,
+    trigger: String,
     selected_yes: bool,
     restore_index: usize,
     error: Option<String>,
@@ -13,7 +13,7 @@ impl LibraryDeleteModalState {
     pub(crate) fn from_item(item: &LibraryTrigger, restore_index: usize) -> Self {
         Self {
             trigger_id: item.id().to_string(),
-            name: item.name().to_string(),
+            trigger: item.trigger().to_string(),
             selected_yes: true,
             restore_index,
             error: None,
@@ -24,8 +24,8 @@ impl LibraryDeleteModalState {
         &self.trigger_id
     }
 
-    pub(crate) fn name(&self) -> &str {
-        &self.name
+    pub(crate) fn trigger(&self) -> &str {
+        &self.trigger
     }
 
     pub(crate) const fn selected_yes(&self) -> bool {

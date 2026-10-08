@@ -1,4 +1,4 @@
-pub mod migrate;
+pub mod schema;
 pub mod seed;
 
 use crate::error::Result;
@@ -53,7 +53,7 @@ pub fn setup_at_path(db_path: &Path) -> Result<Connection> {
 
 fn init_database(db_path: &Path) -> Result<Connection> {
     let conn = open_connection_at(db_path)?;
-    migrate::run_migrations(&conn)?;
+    schema::ensure_schema(&conn)?;
     seed::ensure_defaults(&conn)?;
 
     // Skip the rescan only when this exact file already passed it in this

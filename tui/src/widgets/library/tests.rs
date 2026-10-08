@@ -37,7 +37,6 @@ fn list_item(
 ) -> TriggerListItem {
     TriggerListItem {
         id: id.to_string(),
-        name: String::new(),
         description: description.map(str::to_string),
         invocations: vec![alias_row(id, trigger_type, trigger)],
         display: trigger.to_string(),
@@ -363,11 +362,10 @@ fn search_matches_description_when_available() {
 }
 
 #[test]
-fn search_matches_name_when_it_differs_from_trigger() {
+fn search_matches_description() {
     let mut state = LibraryPageState::default();
     state.replace_items(vec![LibraryTrigger::single(TriggerListItem {
         id: "id-alt+r".to_string(),
-        name: "Reddit opener".to_string(),
         description: Some("Open Reddit".to_string()),
         invocations: vec![alias_row("id-alt+r", TriggerType::Hotkey, "alt+r")],
         display: "alt+r".to_string(),
@@ -387,7 +385,7 @@ fn search_matches_name_when_it_differs_from_trigger() {
         behavior: None,
     })]);
     state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
-    for ch in "reddit opener".chars() {
+    for ch in "reddit".chars() {
         state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
     }
 
@@ -1115,7 +1113,6 @@ fn alias_fixture(
 fn multi_alias_list_item() -> TriggerListItem {
     TriggerListItem {
         id: "id-multi".to_string(),
-        name: String::new(),
         description: None,
         invocations: vec![
             alias_fixture("id-multi", "gs", InvocationType::Word, false),
@@ -1262,22 +1259,31 @@ fn toggle_word_reflects_enable_state() {
 }
 
 #[test]
-fn name_edit_click_places_caret_and_arrows_move_it() {
+fn trigger_edit_click_places_caret_and_arrows_move_it() {
     let mut state = sample_state();
-    state.start_name_edit_at(2);
-    assert_eq!(state.name_edit().expect("editing").field().cursor(), 2);
+    state.start_trigger_edit_at(2);
+    assert_eq!(state.trigger_edit().expect("editing").field().cursor(), 2);
 
     state.handle_key(KeyEvent::new(KeyCode::Char('X'), KeyModifiers::NONE));
-    assert_eq!(state.name_edit().expect("editing").field().text(), "alXt+r");
+    assert_eq!(
+        state.trigger_edit().expect("editing").field().text(),
+        "alXt+r"
+    );
 
     state.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
     state.handle_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE));
-    assert_eq!(state.name_edit().expect("editing").field().text(), "lXt+r");
+    assert_eq!(
+        state.trigger_edit().expect("editing").field().text(),
+        "lXt+r"
+    );
 
     state.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
     state.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
     state.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
-    assert_eq!(state.name_edit().expect("editing").field().text(), "lXtr");
+    assert_eq!(
+        state.trigger_edit().expect("editing").field().text(),
+        "lXtr"
+    );
 }
 
 #[test]
@@ -1335,7 +1341,6 @@ fn info_rows_carry_properties_and_raw_usage() {
 fn tagged_list_item(id: &str, tags_json: &str) -> TriggerListItem {
     TriggerListItem {
         id: id.to_string(),
-        name: String::new(),
         description: None,
         invocations: vec![alias_fixture(id, "tagged", InvocationType::Word, false)],
         display: "tagged".to_string(),
@@ -1790,7 +1795,7 @@ fn content_visual_cursor_round_trips_wrapped_rows() {
 }
 
 #[test]
-fn display_name_falls_back_to_trigger_when_unnamed() {
+fn header_shows_trigger_invocation() {
     let item = LibraryTrigger::single(list_item(
         "id-gm",
         None,
@@ -1802,12 +1807,10 @@ fn display_name_falls_back_to_trigger_when_unnamed() {
         9,
         None,
     ));
-    assert_eq!(item.display_name(), "gm");
+    assert_eq!(item.trigger(), "gm");
 
-    let mut named = multi_alias_list_item();
-    named.name = "Git status".to_string();
-    let row = LibraryTrigger::single(named);
-    assert_eq!(row.display_name(), "Git status");
+    let row = LibraryTrigger::single(multi_alias_list_item());
+    assert_eq!(row.trigger(), "ctrl+g");
 }
 
 #[test]
@@ -2055,10 +2058,8 @@ fn multi_alias_entry_expands_to_one_row_per_alias() {
 }
 
 #[test]
-fn named_entry_still_expands_per_alias_without_count_suffix() {
-    let mut item = multi_alias_list_item();
-    item.name = "Git status".to_string();
-    item.display = "Git status".to_string();
+fn entry_expands_per_alias_without_count_suffix() {
+    let item = multi_alias_list_item();
 
     let rows = LibraryTrigger::expand(item);
     assert_eq!(rows.len(), 3);
@@ -2564,7 +2565,6 @@ fn auto_case_toggle_flips_value() {
 fn voice_list_item(id: &str, phrase: &str, confirm: bool) -> TriggerListItem {
     TriggerListItem {
         id: id.to_string(),
-        name: String::new(),
         description: None,
         invocations: vec![alias_fixture(id, phrase, InvocationType::Voice, confirm)],
         display: phrase.to_string(),
@@ -2726,7 +2726,6 @@ fn alias_text_lines_empty_stays_border_token() {
 fn wrapped_alias_block_shifts_usage_toggle_down() {
     let item = TriggerListItem {
         id: "id-long".to_string(),
-        name: String::new(),
         description: None,
         invocations: vec![
             alias_fixture(
@@ -3844,8 +3843,8 @@ fn switching_targets_commits_and_keeps_new_session_across_refresh() {
     for ch in " hi".chars() {
         state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
     }
-    // Clicking the name commits the description, typed text intact.
-    let interaction = state.start_name_edit_at(0);
+    // Clicking the trigger commits the description, typed text intact.
+    let interaction = state.start_trigger_edit_at(0);
     let pending = interaction.pending_edit().expect("pending edit");
     assert!(matches!(
         &pending.field,
@@ -3854,7 +3853,7 @@ fn switching_targets_commits_and_keeps_new_session_across_refresh() {
     ));
     assert!(matches!(
         state.edit().map(|edit| edit.target()),
-        Some(crate::widgets::library::state::EditTarget::Name)
+        Some(crate::widgets::library::state::EditTarget::Trigger)
     ));
 
     // Simulate lib apply + refresh: the new session survives.
@@ -3864,7 +3863,7 @@ fn switching_targets_commits_and_keeps_new_session_across_refresh() {
     state.replace_items(fresh);
     assert!(matches!(
         state.edit().map(|edit| edit.target()),
-        Some(crate::widgets::library::state::EditTarget::Name)
+        Some(crate::widgets::library::state::EditTarget::Trigger)
     ));
 }
 
@@ -3919,18 +3918,21 @@ fn stale_anchor_falls_back_to_default_window() {
 }
 
 #[test]
-fn name_edit_typing_enter_esc_flow() {
+fn trigger_edit_typing_enter_esc_flow() {
     let mut state = sample_state();
-    assert!(state.name_edit().is_none());
+    assert!(state.trigger_edit().is_none());
 
-    state.start_name_edit();
+    state.start_trigger_edit();
     // Draft starts with the displayed text; clicking never erases.
-    assert_eq!(state.name_edit().expect("editing").field().text(), "alt+r");
+    assert_eq!(
+        state.trigger_edit().expect("editing").field().text(),
+        "alt+r"
+    );
 
     state.handle_key(KeyEvent::new(KeyCode::Char('!'), KeyModifiers::NONE));
     assert!(
         state
-            .name_edit()
+            .trigger_edit()
             .expect("editing")
             .field()
             .text()
@@ -3938,17 +3940,20 @@ fn name_edit_typing_enter_esc_flow() {
     );
 
     state.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
-    assert_eq!(state.name_edit().expect("editing").field().text(), "alt+r");
+    assert_eq!(
+        state.trigger_edit().expect("editing").field().text(),
+        "alt+r"
+    );
 
     // Esc cancels without persisting.
     state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-    assert!(state.name_edit().is_none());
+    assert!(state.trigger_edit().is_none());
 }
 
 #[test]
-fn name_edit_commit_persists_changed_name() {
+fn trigger_edit_commit_persists_changed_trigger() {
     let mut state = sample_state();
-    state.start_name_edit();
+    state.start_trigger_edit();
     for ch in " Jr".chars() {
         state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
     }
@@ -3956,27 +3961,27 @@ fn name_edit_commit_persists_changed_name() {
     let pending = interaction.pending_edit().expect("pending edit");
     assert!(matches!(
         &pending.field,
-        crate::widgets::library::actions::EditedField::Name(name) if name == "alt+r Jr"
+        crate::widgets::library::actions::EditedField::Trigger(name) if name == "alt+r Jr"
     ));
-    assert!(state.name_edit().is_none());
+    assert!(state.trigger_edit().is_none());
 }
 
 #[test]
-fn name_edit_enter_is_dormant() {
+fn trigger_edit_enter_is_dormant() {
     let mut state = sample_state();
-    state.start_name_edit();
+    state.start_trigger_edit();
     for ch in " Jr".chars() {
         state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
     }
     // honey: Enter stays in the field; autosave persists.
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert!(interaction.pending_edit().is_none());
-    assert!(state.name_edit().is_some());
+    assert!(state.trigger_edit().is_some());
 }
 
 #[test]
-fn name_edit_commit_without_changes_is_noop() {
-    let mut item = list_item(
+fn trigger_edit_commit_without_changes_is_noop() {
+    let item = list_item(
         "id-gm",
         None,
         TriggerType::Word,
@@ -3987,38 +3992,37 @@ fn name_edit_commit_without_changes_is_noop() {
         9,
         None,
     );
-    item.name = "Morning Greeting".to_string();
     let mut state = LibraryPageState::default();
     state.replace_items(vec![LibraryTrigger::single(item)]);
-    state.start_name_edit();
+    state.start_trigger_edit();
     let interaction = state.commit_edit();
     assert!(interaction.pending_edit().is_none());
-    assert!(state.name_edit().is_none());
+    assert!(state.trigger_edit().is_none());
 }
 
 #[test]
-fn name_edit_blank_is_silent_noop() {
+fn trigger_edit_blank_is_silent_noop() {
     let mut state = sample_state();
-    state.start_name_edit();
+    state.start_trigger_edit();
     // Clear the whole draft.
     for _ in 0..64 {
         state.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
     }
-    assert_eq!(state.name_edit().expect("editing").field().text(), "");
+    assert_eq!(state.trigger_edit().expect("editing").field().text(), "");
     // No warning, no error, no persist: session stays open, value untouched.
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert!(interaction.pending_edit().is_none());
-    assert!(state.name_edit().is_some());
+    assert!(state.trigger_edit().is_some());
     assert!(state.status_message().is_none());
     let interaction = state.commit_edit();
     assert!(interaction.pending_edit().is_none());
-    assert!(state.name_edit().is_none());
+    assert!(state.trigger_edit().is_none());
 }
 
 #[test]
 fn autosave_persists_idle_edit_and_keeps_session() {
     let mut state = sample_state();
-    state.start_name_edit();
+    state.start_trigger_edit();
     for ch in " Jr".chars() {
         state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
     }
@@ -4029,7 +4033,7 @@ fn autosave_persists_idle_edit_and_keeps_session() {
     let pending = interaction.pending_edit().expect("pending edit");
     assert!(matches!(
         &pending.field,
-        crate::widgets::library::actions::EditedField::Name(name) if name == "alt+r Jr"
+        crate::widgets::library::actions::EditedField::Trigger(name) if name == "alt+r Jr"
     ));
     // Session stays open for continued typing.
     assert!(state.edit().is_some());
@@ -4038,7 +4042,7 @@ fn autosave_persists_idle_edit_and_keeps_session() {
 #[test]
 fn autosave_waits_for_quiet_period() {
     let mut state = sample_state();
-    state.start_name_edit();
+    state.start_trigger_edit();
     state.handle_key(KeyEvent::new(KeyCode::Char('!'), KeyModifiers::NONE));
     let now = crate::widgets::library::state::now_millis();
     let interaction = state.autosave_tick_at(now);
@@ -4049,7 +4053,7 @@ fn autosave_waits_for_quiet_period() {
 #[test]
 fn autosave_silent_on_invalid_text() {
     let mut state = sample_state();
-    state.start_name_edit();
+    state.start_trigger_edit();
     for _ in 0..64 {
         state.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
     }
@@ -4064,7 +4068,7 @@ fn autosave_silent_on_invalid_text() {
 
 #[test]
 fn autosave_skips_unchanged_text() {
-    let mut item = list_item(
+    let item = list_item(
         "id-gm",
         None,
         TriggerType::Word,
@@ -4075,10 +4079,9 @@ fn autosave_skips_unchanged_text() {
         9,
         None,
     );
-    item.name = "Morning Greeting".to_string();
     let mut state = LibraryPageState::default();
     state.replace_items(vec![LibraryTrigger::single(item)]);
-    state.start_name_edit();
+    state.start_trigger_edit();
     // Type and undo: stamped, but identical to storage.
     state.handle_key(KeyEvent::new(KeyCode::Char('!'), KeyModifiers::NONE));
     state.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
@@ -4090,37 +4093,37 @@ fn autosave_skips_unchanged_text() {
 }
 
 #[test]
-fn name_edit_blank_then_navigate_moves_on() {
+fn trigger_edit_blank_then_navigate_moves_on() {
     let mut state = sample_state();
     let first = state.selected_index().unwrap();
-    state.start_name_edit();
+    state.start_trigger_edit();
     for _ in 0..64 {
         state.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
     }
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     assert!(interaction.pending_edit().is_none());
     assert_eq!(state.selected_index(), Some(first + 1));
-    assert!(state.name_edit().is_none());
+    assert!(state.trigger_edit().is_none());
 }
 
 #[test]
-fn name_edit_navigation_commits_and_moves() {
+fn trigger_edit_navigation_commits_and_moves() {
     let mut state = sample_state();
     let first = state.selected_index().unwrap();
-    state.start_name_edit();
+    state.start_trigger_edit();
     for ch in " Jr".chars() {
         state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
     }
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     assert!(interaction.pending_edit().is_some());
     assert_eq!(state.selected_index(), Some(first + 1));
-    assert!(state.name_edit().is_none());
+    assert!(state.trigger_edit().is_none());
 }
 
 #[test]
-fn name_edit_click_other_row_commits() {
+fn trigger_edit_click_other_row_commits() {
     let mut state = sample_state();
-    state.start_name_edit();
+    state.start_trigger_edit();
     for ch in " Jr".chars() {
         state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
     }
@@ -4130,31 +4133,31 @@ fn name_edit_click_other_row_commits() {
 }
 
 #[test]
-fn name_edit_click_same_row_keeps_editing() {
+fn trigger_edit_click_same_row_keeps_editing() {
     let mut state = sample_state();
     let current = state.selected_index().unwrap();
-    state.start_name_edit();
+    state.start_trigger_edit();
     let interaction = state.click_item(current, 0);
     assert!(interaction.pending_edit().is_none());
     assert_eq!(state.selected_index(), Some(current));
-    assert!(state.name_edit().is_some());
+    assert!(state.trigger_edit().is_some());
 }
 
 #[test]
-fn restore_name_edit_reselects_and_keeps_draft() {
+fn restore_trigger_edit_reselects_and_keeps_draft() {
     let mut state = sample_state();
     let id = state
         .item_at_filtered(1)
         .expect("second row")
         .id()
         .to_string();
-    assert!(state.restore_edit(&id, EditTarget::Name, "half typed".to_string()));
+    assert!(state.restore_edit(&id, EditTarget::Trigger, "half typed".to_string()));
     assert_eq!(state.selected_index(), Some(1));
     assert_eq!(
-        state.name_edit().expect("editing").field().text(),
+        state.trigger_edit().expect("editing").field().text(),
         "half typed"
     );
-    assert!(!state.restore_edit("ghost", EditTarget::Name, "x".to_string()));
+    assert!(!state.restore_edit("ghost", EditTarget::Trigger, "x".to_string()));
 }
 
 #[test]
@@ -4196,7 +4199,7 @@ fn select_by_id_clamps_to_known_rows() {
 }
 
 #[test]
-fn name_edit_hit_only_on_name_cells() {
+fn trigger_edit_hit_only_on_name_cells() {
     let state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
     // Center content at x=25 width=31: toggle owns the last 5 cells,
@@ -4211,7 +4214,7 @@ fn name_edit_hit_only_on_name_cells() {
             30,
             1
         ),
-        Some(detail::DetailHit::NameEditAt(5))
+        Some(detail::DetailHit::TriggerEditAt(5))
     );
     assert_eq!(
         detail::hit_test(
@@ -4301,9 +4304,9 @@ fn create_esc_closes_modal() {
 #[test]
 fn create_empty_trigger_submit_sets_error() {
     let mut state = open_create_state();
-    // Tab order from Trigger: Content, Name, Action, Os,
+    // Tab order from Trigger: Content, Action, Os,
     // AdvancedToggle, ActionButton.
-    for _ in 0..6 {
+    for _ in 0..5 {
         state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     }
     assert_eq!(
@@ -4323,7 +4326,7 @@ fn create_empty_trigger_submit_sets_error() {
 fn create_overlong_trigger_submit_sets_error() {
     let mut state = open_create_state();
     type_text(&mut state, &"a".repeat(201));
-    for _ in 0..6 {
+    for _ in 0..5 {
         state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     }
     // Move the cursor to Create; Enter on Cancel would close.
@@ -4340,7 +4343,7 @@ fn create_valid_text_trigger_builds_pending() {
     type_text(&mut state, "gm");
     state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     type_text(&mut state, "Good Morning");
-    for _ in 0..5 {
+    for _ in 0..4 {
         state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     }
     assert_eq!(
@@ -4412,8 +4415,8 @@ fn create_header_menu_esc_returns_draft_unchanged() {
 #[test]
 fn create_os_row_pick_applies_to_draft() {
     let mut state = open_create_state();
-    // Tab order: Trigger, Content, Name, Action, Os.
-    for _ in 0..4 {
+    // Tab order: Trigger, Content, Action, Os.
+    for _ in 0..3 {
         state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     }
     assert_eq!(create_modal(&state).focus(), LibraryCreateModalField::Os);
@@ -4435,7 +4438,7 @@ fn create_os_row_pick_applies_to_draft() {
 #[test]
 fn create_advanced_toggle_expands_and_autocase_flips() {
     let mut state = open_create_state();
-    for _ in 0..5 {
+    for _ in 0..4 {
         state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     }
     assert_eq!(
@@ -4458,7 +4461,7 @@ fn create_advanced_toggle_expands_and_autocase_flips() {
 #[test]
 fn create_action_row_cycles_to_script_and_reveals_script_rows() {
     let mut state = open_create_state();
-    for _ in 0..3 {
+    for _ in 0..2 {
         state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     }
     assert_eq!(
@@ -4483,8 +4486,7 @@ fn create_script_submit_defaults_interpreter_and_behavior() {
     type_text(&mut state, "deploy");
     state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     type_text(&mut state, "echo hi");
-    // Content, Name, then Action.
-    state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    // Content, then Action.
     state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     state.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
     // Script rows appear between Action and Os: Interpreter, Behavior,
@@ -4509,8 +4511,8 @@ fn create_script_submit_defaults_interpreter_and_behavior() {
 
 #[test]
 fn create_option_hit_selects_trigger_field_and_buttons() {
-    // Sized 76x16 popup on 100x30 centers at (12,7); body starts at
-    // (15,8): trigger row on 10, buttons row on 20 with Cancel at
+    // Sized 76x15 popup on 100x30 centers at (12,7); body starts at
+    // (15,8): trigger row on 10, buttons row on 19 with Cancel at
     // x=38..47 and Create at x=51..60.
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
 
@@ -4519,11 +4521,11 @@ fn create_option_hit_selects_trigger_field_and_buttons() {
         Some(modals::CreateHit::Field(LibraryCreateModalField::Trigger))
     );
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 40, 20),
+        modals::create_option_hit(&sample_create_modal(), area, 40, 19),
         Some(modals::CreateHit::Cancel)
     );
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 55, 20),
+        modals::create_option_hit(&sample_create_modal(), area, 55, 19),
         Some(modals::CreateHit::Create)
     );
     assert_eq!(
@@ -4582,7 +4584,7 @@ fn create_tags_esc_returns_to_draft() {
 #[test]
 fn create_tags_row_enter_opens_picker_with_draft() {
     let mut state = open_create_state();
-    for _ in 0..5 {
+    for _ in 0..4 {
         state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     }
     state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));

@@ -47,7 +47,6 @@ impl ImportConflictAction {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExistingTriggerConflict {
     pub id: String,
-    pub name: String,
     pub description: Option<String>,
     pub invocations: Vec<TriggerAliasRow>,
     pub display: String,
@@ -178,7 +177,6 @@ fn insert_imported_entry(
     let (id, _) = create_entry(
         tx,
         NewEntry {
-            name: trigger.name.clone(),
             description: trigger.description.clone(),
             content,
             action_type: trigger.action_type.clone(),
@@ -294,7 +292,7 @@ fn find_conflicting_trigger(
         InvocationType::Word | InvocationType::Regex => invocation.to_string(),
     };
     let mut stmt = tx.prepare_cached(
-        "SELECT id, name, description, output, action_type, target_os, is_enabled,
+        "SELECT id, description, output, action_type, target_os, is_enabled,
                 usage_count, last_used_at
          FROM triggers
          WHERE id IN (SELECT trigger_id FROM trigger_aliases
@@ -305,23 +303,21 @@ fn find_conflicting_trigger(
 
     let rows = stmt.query_map([invocation_type.as_db_str(), lookup.as_str()], |row| {
         let id: String = row.get(0)?;
-        let name: String = row.get(1)?;
         // N+1, fine under ~1k rows; batch with a single IN query if it grows
         let invocations = list_aliases(tx, &id).map_err(|err| {
             rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(err))
         })?;
         Ok(ExistingTriggerConflict {
-            display: display_for_aliases(&name, &invocations),
+            display: display_for_aliases(&invocations),
             id,
-            name,
-            description: row.get(2)?,
+            description: row.get(1)?,
             invocations,
-            output: row.get(3)?,
-            action_type: row.get(4)?,
-            target_os: row.get(5)?,
-            is_enabled: row.get(6)?,
-            usage_count: row.get(7)?,
-            last_used_at: row.get(8)?,
+            output: row.get(2)?,
+            action_type: row.get(3)?,
+            target_os: row.get(4)?,
+            is_enabled: row.get(5)?,
+            usage_count: row.get(6)?,
+            last_used_at: row.get(7)?,
         })
     })?;
 
