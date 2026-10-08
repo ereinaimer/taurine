@@ -225,13 +225,13 @@ impl LibraryCreateModalState {
             fields.push(Field::Interpreter);
             fields.push(Field::Behavior);
         }
-        fields.push(Field::Os);
         fields.push(Field::AdvancedToggle);
         if self.advanced_expanded {
             fields.push(Field::AutoCase);
             fields.push(Field::Tags);
             fields.push(Field::Allow);
             fields.push(Field::Block);
+            fields.push(Field::Os);
         }
         fields.push(Field::ActionButton);
         fields

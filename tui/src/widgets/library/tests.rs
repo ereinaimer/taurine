@@ -4304,9 +4304,9 @@ fn create_esc_closes_modal() {
 #[test]
 fn create_empty_trigger_submit_sets_error() {
     let mut state = open_create_state();
-    // Tab order from Trigger: Content, Action, Os,
+    // Tab order from Trigger: Content, Action,
     // AdvancedToggle, ActionButton.
-    for _ in 0..5 {
+    for _ in 0..4 {
         state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     }
     assert_eq!(
@@ -4326,7 +4326,7 @@ fn create_empty_trigger_submit_sets_error() {
 fn create_overlong_trigger_submit_sets_error() {
     let mut state = open_create_state();
     type_text(&mut state, &"a".repeat(201));
-    for _ in 0..5 {
+    for _ in 0..4 {
         state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     }
     // Move the cursor to Create; Enter on Cancel would close.
@@ -4343,7 +4343,7 @@ fn create_valid_text_trigger_builds_pending() {
     type_text(&mut state, "gm");
     state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     type_text(&mut state, "Good Morning");
-    for _ in 0..4 {
+    for _ in 0..3 {
         state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     }
     assert_eq!(
@@ -4415,8 +4415,16 @@ fn create_header_menu_esc_returns_draft_unchanged() {
 #[test]
 fn create_os_row_pick_applies_to_draft() {
     let mut state = open_create_state();
-    // Tab order: Trigger, Content, Action, Os.
+    // Os lives at the end of the expanded Advanced section.
     for _ in 0..3 {
+        state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    }
+    assert_eq!(
+        create_modal(&state).focus(),
+        LibraryCreateModalField::AdvancedToggle
+    );
+    state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    for _ in 0..5 {
         state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     }
     assert_eq!(create_modal(&state).focus(), LibraryCreateModalField::Os);
@@ -4438,7 +4446,7 @@ fn create_os_row_pick_applies_to_draft() {
 #[test]
 fn create_advanced_toggle_expands_and_autocase_flips() {
     let mut state = open_create_state();
-    for _ in 0..4 {
+    for _ in 0..3 {
         state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     }
     assert_eq!(
@@ -4489,9 +4497,9 @@ fn create_script_submit_defaults_interpreter_and_behavior() {
     // Content, then Action.
     state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     state.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
-    // Script rows appear between Action and Os: Interpreter, Behavior,
-    // Os, AdvancedToggle, ActionButton.
-    for _ in 0..5 {
+    // Script rows appear after Action: Interpreter, Behavior,
+    // AdvancedToggle, ActionButton.
+    for _ in 0..4 {
         state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     }
     assert_eq!(
@@ -4510,26 +4518,52 @@ fn create_script_submit_defaults_interpreter_and_behavior() {
 }
 
 #[test]
+fn create_split_panes_share_body_width() {
+    // 94-wide body: left 58, divider, gap, right 34.
+    let body = ratatui::layout::Rect::new(3, 9, 94, 12);
+
+    let (left, divider, right) = modals::create_split(body);
+
+    assert_eq!(left, ratatui::layout::Rect::new(3, 9, 58, 12));
+    assert_eq!(divider, 61);
+    assert_eq!(right, ratatui::layout::Rect::new(63, 9, 34, 12));
+}
+
+#[test]
 fn create_option_hit_selects_trigger_field_and_buttons() {
-    // Sized 76x15 popup on 100x30 centers at (12,7); body starts at
-    // (15,8): trigger row on 10, buttons row on 19 with Cancel at
-    // x=38..47 and Create at x=51..60.
+    // 90% popup on 100x30 is 90x27 at (5,1); body starts at
+    // (8,2): trigger field row on 4, buttons row on 25 with Cancel at
+    // x=38..47 and Create at x=51..60, divider column 56.
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
 
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 20, 10),
+        modals::create_option_hit(&sample_create_modal(), area, 20, 4),
         Some(modals::CreateHit::Field(LibraryCreateModalField::Trigger))
     );
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 40, 19),
+        modals::create_option_hit(&sample_create_modal(), area, 70, 3),
+        Some(modals::CreateHit::Field(
+            LibraryCreateModalField::TriggerType
+        ))
+    );
+    assert_eq!(
+        modals::create_option_hit(&sample_create_modal(), area, 10, 7),
+        Some(modals::CreateHit::Field(LibraryCreateModalField::Content))
+    );
+    assert_eq!(
+        modals::create_option_hit(&sample_create_modal(), area, 40, 25),
         Some(modals::CreateHit::Cancel)
     );
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 55, 19),
+        modals::create_option_hit(&sample_create_modal(), area, 55, 25),
         Some(modals::CreateHit::Create)
     );
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 20, 8),
+        modals::create_option_hit(&sample_create_modal(), area, 56, 5),
+        None
+    );
+    assert_eq!(
+        modals::create_option_hit(&sample_create_modal(), area, 20, 2),
         None
     );
     assert_eq!(
@@ -4584,7 +4618,8 @@ fn create_tags_esc_returns_to_draft() {
 #[test]
 fn create_tags_row_enter_opens_picker_with_draft() {
     let mut state = open_create_state();
-    for _ in 0..4 {
+    // Trigger, Content, Action, AdvancedToggle, then expand.
+    for _ in 0..3 {
         state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     }
     state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));

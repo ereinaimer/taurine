@@ -1948,8 +1948,8 @@ mod tests {
         seed_single_library_item(&mut app);
         app.library_page_mut().open_create_modal();
 
-        // Trigger row of the create modal on TEST_AREA.
-        handle_tui_mouse_event(&mut app, left_click(20, 10), TEST_AREA);
+        // Trigger field row of the create modal on TEST_AREA.
+        handle_tui_mouse_event(&mut app, left_click(20, 9), TEST_AREA);
 
         assert!(app.library_page().is_modal_open());
         assert!(matches!(
@@ -1966,7 +1966,7 @@ mod tests {
         app.library_page_mut().open_create_modal();
 
         // Cancel button of the create modal on TEST_AREA.
-        handle_tui_mouse_event(&mut app, left_click(40, 19), TEST_AREA);
+        handle_tui_mouse_event(&mut app, left_click(40, 21), TEST_AREA);
 
         assert!(!app.library_page().is_modal_open());
     }
