@@ -58,7 +58,40 @@ pub(crate) enum LibraryModal {
     AppFilter(LibraryAppFilterState),
 }
 
+/// Discriminant for `LibraryModal`; see `LibraryModal::kind`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LibraryModalKind {
+    Export,
+    ExportResult,
+    Import,
+    ImportResult,
+    ConfirmImportRunVariables,
+    ConfirmDelete,
+    Create,
+    HeaderMenu,
+    Tags,
+    AppFilter,
+}
+
 impl LibraryModal {
+    /// Discriminant for overlay bookkeeping (layer tracking, open
+    /// transitions): hover, scroll, and live reseed never change it, so
+    /// same-kind updates never retrigger an appear sweep.
+    pub(crate) const fn kind(&self) -> LibraryModalKind {
+        match self {
+            Self::Export(_) => LibraryModalKind::Export,
+            Self::ExportResult(_) => LibraryModalKind::ExportResult,
+            Self::Import(_) => LibraryModalKind::Import,
+            Self::ImportResult(_) => LibraryModalKind::ImportResult,
+            Self::ConfirmImportRunVariables(_) => LibraryModalKind::ConfirmImportRunVariables,
+            Self::ConfirmDelete(_) => LibraryModalKind::ConfirmDelete,
+            Self::Create(_) => LibraryModalKind::Create,
+            Self::HeaderMenu(_) => LibraryModalKind::HeaderMenu,
+            Self::Tags(_) => LibraryModalKind::Tags,
+            Self::AppFilter(_) => LibraryModalKind::AppFilter,
+        }
+    }
+
     pub(crate) fn set_error(&mut self, error: String) {
         match self {
             Self::Export(state) => state.set_error(error),

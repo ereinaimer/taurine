@@ -5757,6 +5757,7 @@ dependencies = [
  "keyring",
  "libc",
  "ratatui",
+ "serde_json",
  "tachyonfx",
  "taurine_core",
  "tokio",

@@ -475,55 +475,6 @@ fn handle_tui_mouse_event(
                 }
                 return;
             }
-            // honey: the create form owns its clicks: field rows focus
-            // (picker rows open their menus), the button pair cancels
-            // or submits, outside clicks are dead like other forms.
-            if let Some(library::LibraryModal::Create(draft)) = app.library_page().modal() {
-                let layout = terminal::mouse::frame_layout(area);
-                let full = terminal::mouse::library_full_area(layout.page);
-                match library::modals::create_option_hit(draft, full, mouse.column, mouse.row) {
-                    Some(library::modals::CreateHit::Field(field)) => {
-                        let interaction = app.library_page_mut().click_create_field(field);
-                        apply_library_interaction(app, interaction);
-                    }
-                    Some(library::modals::CreateHit::Cancel) => {
-                        app.library_page_mut().clear_modal();
-                    }
-                    Some(library::modals::CreateHit::Create) => {
-                        let interaction = app.library_page_mut().confirm_create_button();
-                        apply_library_interaction(app, interaction);
-                    }
-                    None => {}
-                }
-                return;
-            }
-            // honey: the delete confirm owns its clicks: option rows
-            // select (a click on the cursor row confirms), clicks
-            // outside the popup cancel. Other modals stay keyboard-only.
-            if let Some(library::LibraryModal::ConfirmDelete(_)) = app.library_page().modal() {
-                let layout = terminal::mouse::frame_layout(area);
-                let full = terminal::mouse::library_full_area(layout.page);
-                match library::modals::delete_option_hit(full, mouse.column, mouse.row) {
-                    Some(yes) => {
-                        if app.library_page().delete_selected_yes() == Some(yes) {
-                            let interaction = app.library_page_mut().confirm_delete();
-                            apply_library_interaction(app, interaction);
-                        } else {
-                            app.library_page_mut().set_delete_selected_yes(yes);
-                        }
-                    }
-                    None => {
-                        if !terminal::mouse::contains(
-                            library::modals::delete_popup(full),
-                            mouse.column,
-                            mouse.row,
-                        ) {
-                            app.library_page_mut().clear_modal();
-                        }
-                    }
-                }
-                return;
-            }
             if modal_open {
                 return;
             }
@@ -659,6 +610,55 @@ fn handle_tui_mouse_event(
                     app.library_page_mut()
                         .click_app_filter_menu(full, mouse.column, mouse.row);
                 apply_library_interaction(app, interaction);
+                return;
+            }
+            // honey: the create form owns its clicks: field rows focus
+            // (picker rows open their menus), the button pair cancels
+            // or submits, outside clicks are dead like other forms.
+            if let Some(library::LibraryModal::Create(draft)) = app.library_page().modal() {
+                let layout = terminal::mouse::frame_layout(area);
+                let full = terminal::mouse::library_full_area(layout.page);
+                match library::modals::create_option_hit(draft, full, mouse.column, mouse.row) {
+                    Some(library::modals::CreateHit::Field(field)) => {
+                        let interaction = app.library_page_mut().click_create_field(field);
+                        apply_library_interaction(app, interaction);
+                    }
+                    Some(library::modals::CreateHit::Cancel) => {
+                        app.library_page_mut().clear_modal();
+                    }
+                    Some(library::modals::CreateHit::Create) => {
+                        let interaction = app.library_page_mut().confirm_create_button();
+                        apply_library_interaction(app, interaction);
+                    }
+                    None => {}
+                }
+                return;
+            }
+            // honey: the delete confirm owns its clicks: option rows
+            // select (a click on the cursor row confirms), clicks
+            // outside the popup cancel. Other modals stay keyboard-only.
+            if let Some(library::LibraryModal::ConfirmDelete(_)) = app.library_page().modal() {
+                let layout = terminal::mouse::frame_layout(area);
+                let full = terminal::mouse::library_full_area(layout.page);
+                match library::modals::delete_option_hit(full, mouse.column, mouse.row) {
+                    Some(yes) => {
+                        if app.library_page().delete_selected_yes() == Some(yes) {
+                            let interaction = app.library_page_mut().confirm_delete();
+                            apply_library_interaction(app, interaction);
+                        } else {
+                            app.library_page_mut().set_delete_selected_yes(yes);
+                        }
+                    }
+                    None => {
+                        if !terminal::mouse::contains(
+                            library::modals::delete_popup(full),
+                            mouse.column,
+                            mouse.row,
+                        ) {
+                            app.library_page_mut().clear_modal();
+                        }
+                    }
+                }
                 return;
             }
             // honey: clicks outside the settings popup close it; row
@@ -1361,7 +1361,6 @@ mod tests {
         app.library_page_mut()
             .replace_items(vec![LibraryTrigger::single(TriggerListItem {
                 id: "test".to_string(),
-                name: "Test".to_string(),
                 description: None,
                 invocations: vec![hotkey_alias("test", "alt+t")],
                 display: "alt+t".to_string(),
@@ -1454,7 +1453,6 @@ mod tests {
         app.library_page_mut()
             .replace_items(vec![LibraryTrigger::single(TriggerListItem {
                 id: "test".to_string(),
-                name: "Test".to_string(),
                 description: None,
                 invocations: vec![hotkey_alias("test", "alt+t")],
                 display: "alt+t".to_string(),
@@ -1488,7 +1486,6 @@ mod tests {
         app.library_page_mut()
             .replace_items(vec![LibraryTrigger::single(TriggerListItem {
                 id: "test".to_string(),
-                name: "Test".to_string(),
                 description: None,
                 invocations: vec![hotkey_alias("test", "alt+t")],
                 display: "alt+t".to_string(),
@@ -1704,7 +1701,6 @@ mod tests {
         app.library_page_mut().replace_items(vec![
             LibraryTrigger::single(TriggerListItem {
                 id: "mouse-aaa".to_string(),
-                name: String::new(),
                 description: None,
                 invocations: vec![hotkey_alias("mouse-aaa", "aaa")],
                 display: "aaa".to_string(),
@@ -1725,7 +1721,6 @@ mod tests {
             }),
             LibraryTrigger::single(TriggerListItem {
                 id: "mouse-bbb".to_string(),
-                name: String::new(),
                 description: None,
                 invocations: vec![hotkey_alias("mouse-bbb", "bbb")],
                 display: "bbb".to_string(),
