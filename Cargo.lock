@@ -1053,36 +1053,6 @@ dependencies = [
 
 [[package]]
 name = "cpal"
-version = "0.17.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8942da362c0f0d895d7cac616263f2f9424edc5687364dfd1d25ef7eba506d7"
-dependencies = [
- "alsa",
- "coreaudio-rs",
- "dasp_sample",
- "jni 0.21.1",
- "js-sys",
- "libc",
- "mach2 0.5.0",
- "ndk",
- "ndk-context",
- "num-derive",
- "num-traits",
- "objc2",
- "objc2-audio-toolbox",
- "objc2-avf-audio",
- "objc2-core-audio",
- "objc2-core-audio-types",
- "objc2-core-foundation",
- "objc2-foundation",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
- "windows 0.62.2",
-]
-
-[[package]]
-name = "cpal"
 version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6f02e8d0327b42d3e2e4ab2119af397344eb9fc54a34bf0ddeaa1277af8681f1"
@@ -1094,7 +1064,7 @@ dependencies = [
  "jni 0.22.4",
  "js-sys",
  "libc",
- "mach2 0.6.0",
+ "mach2",
  "ndk",
  "ndk-context",
  "num-derive",
@@ -1230,12 +1200,12 @@ dependencies = [
 
 [[package]]
 name = "csscolorparser"
-version = "0.8.3"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "199f851bd3cb5004c09474252c7f74e7c047441ed0979bf3688a7106a13da952"
+checksum = "75c9db70df93ea049adaa5ef1a727079ada6ccb33d4b358f262923aef4fcac8c"
 dependencies = [
  "num-traits",
- "phf 0.13.1",
+ "phf 0.14.0",
  "serde",
  "uncased",
 ]
@@ -2946,15 +2916,6 @@ dependencies = [
 
 [[package]]
 name = "mach2"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a1b95cd5421ec55b445b5ae102f5ea0e768de1f82bd3001e11f426c269c3aea"
-dependencies = [
- "libc",
-]
-
-[[package]]
-name = "mach2"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dae608c151f68243f2b000364e1f7b186d9c29845f7d2d85bd31b9ad77ad552b"
@@ -3074,9 +3035,9 @@ dependencies = [
 
 [[package]]
 name = "muda"
-version = "0.20.0"
+version = "0.21.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cca139e57da4383727f189e43e66e84fa372347027fc996f9f1a007ec0a37996"
+checksum = "4340e89c178916e62879c5c36b7f699019369be413e496178a6983ce91b8bc03"
 dependencies = [
  "crossbeam-channel",
  "dpi",
@@ -3085,7 +3046,6 @@ dependencies = [
  "objc2-app-kit",
  "objc2-core-foundation",
  "objc2-foundation",
- "once_cell",
  "png",
  "thiserror 2.0.18",
  "windows-sys 0.61.2",
@@ -3852,7 +3812,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
- "uncased",
 ]
 
 [[package]]
@@ -3866,6 +3825,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+ "uncased",
 ]
 
 [[package]]
@@ -3884,7 +3844,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e57fef6bc5981e38c2ce2d63bfa546861309f875b8a75f092d1d54ae2d64f266"
 dependencies = [
  "siphasher",
- "uncased",
 ]
 
 [[package]]
@@ -3894,6 +3853,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c6fd9027e2d9319be6349febd1db4e8d02aa544921200c9b777720ac34a3aa89"
 dependencies = [
  "siphasher",
+ "uncased",
 ]
 
 [[package]]
@@ -4568,11 +4528,11 @@ dependencies = [
 
 [[package]]
 name = "rodio"
-version = "0.22.2"
+version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0a536bb79db59098ef71a4dd4246c02eb87b316deceb1b68e0cde7167ec01eb"
+checksum = "36e3ee0a5ca418bac59a15d5506e498ab138359edbb67257a6b8a3b93d411f39"
 dependencies = [
- "cpal 0.17.3",
+ "cpal",
  "dasp_sample",
  "num-rational",
  "symphonia",
@@ -5589,7 +5549,7 @@ name = "taurine_daemon"
 version = "1.0.0-alpha.19"
 dependencies = [
  "arboard",
- "cpal 0.18.2",
+ "cpal",
  "crossbeam-channel",
  "evdev",
  "futures",
@@ -6133,9 +6093,9 @@ dependencies = [
 
 [[package]]
 name = "tray-icon"
-version = "0.25.1"
+version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2b9c52859a94554803ccd4a24b98f74148ebc73b90676d783f3490b1bff9d72"
+checksum = "4f5cc5858ecf9574ddd8f0032a2ff7ffd6f7724d2b81e48b9374984b3fd6ddc9"
 dependencies = [
  "crossbeam-channel",
  "muda",
@@ -6309,9 +6269,9 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "uuid"
-version = "1.26.0"
+version = "1.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5772d71c9be8a8a6ac2117d949c5b224c1b72241bb611d9a3012edcf8af7812"
+checksum = "7cc1186384beb7dd8eedea376413fd654937285ea6c9cfbb928dc3043ea4b606"
 dependencies = [
  "getrandom 0.4.2",
  "js-sys",
