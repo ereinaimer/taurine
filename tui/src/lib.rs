@@ -613,8 +613,8 @@ fn handle_tui_mouse_event(
                 return;
             }
             // honey: the create form owns its clicks: field rows focus
-            // (picker rows open their menus), the button pair cancels
-            // or submits, outside clicks are dead like other forms.
+            // (picker rows open their menus), Create submits,
+            // outside clicks are dead like other forms.
             if let Some(library::LibraryModal::Create(draft)) = app.library_page().modal() {
                 let layout = terminal::mouse::frame_layout(area);
                 let full = terminal::mouse::library_full_area(layout.page);
@@ -622,9 +622,6 @@ fn handle_tui_mouse_event(
                     Some(library::modals::CreateHit::Field(field)) => {
                         let interaction = app.library_page_mut().click_create_field(field);
                         apply_library_interaction(app, interaction);
-                    }
-                    Some(library::modals::CreateHit::Cancel) => {
-                        app.library_page_mut().clear_modal();
                     }
                     Some(library::modals::CreateHit::Create) => {
                         let interaction = app.library_page_mut().confirm_create_button();
@@ -1949,7 +1946,7 @@ mod tests {
         app.library_page_mut().open_create_modal();
 
         // Trigger field row of the create modal on TEST_AREA.
-        handle_tui_mouse_event(&mut app, left_click(20, 9), TEST_AREA);
+        handle_tui_mouse_event(&mut app, left_click(20, 7), TEST_AREA);
 
         assert!(app.library_page().is_modal_open());
         assert!(matches!(
@@ -1960,15 +1957,16 @@ mod tests {
     }
 
     #[test]
-    fn clicking_create_cancel_closes_modal() {
+    fn clicking_create_submits_empty_draft_with_error() {
         let mut app = App::default();
         seed_single_library_item(&mut app);
         app.library_page_mut().open_create_modal();
 
-        // Cancel button of the create modal on TEST_AREA.
-        handle_tui_mouse_event(&mut app, left_click(40, 21), TEST_AREA);
+        // Create button of the create modal on TEST_AREA.
+        handle_tui_mouse_event(&mut app, left_click(50, 25), TEST_AREA);
 
-        assert!(!app.library_page().is_modal_open());
+        // Empty draft: modal stays open with the validation error.
+        assert!(app.library_page().is_modal_open());
     }
 
     #[test]

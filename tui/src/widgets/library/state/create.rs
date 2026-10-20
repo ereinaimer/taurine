@@ -7,7 +7,7 @@ use crate::widgets::field::TextField;
 use crate::widgets::library::actions::PendingLibraryCreate;
 use crate::widgets::textarea::TextArea;
 
-use super::{ButtonSelection, HeaderMenuKind};
+use super::HeaderMenuKind;
 
 /// Focus order in the create modal. Interpreter and Behavior only
 /// take focus for script actions; the advanced rows only when the
@@ -62,7 +62,6 @@ pub(crate) struct LibraryCreateModalState {
     block_apps: Vec<String>,
     focus: LibraryCreateModalField,
     error: Option<String>,
-    button_selection: ButtonSelection,
 }
 
 /// Visible content rows in the modal's snippet box.
@@ -86,7 +85,6 @@ impl LibraryCreateModalState {
             block_apps: Vec::new(),
             focus: LibraryCreateModalField::Trigger,
             error: None,
-            button_selection: ButtonSelection::Cancel,
         }
     }
 
@@ -191,10 +189,6 @@ impl LibraryCreateModalState {
 
     pub(crate) fn set_error(&mut self, error: String) {
         self.error = Some(error);
-    }
-
-    pub(crate) const fn button_selection(&self) -> ButtonSelection {
-        self.button_selection
     }
 
     pub(crate) fn toggle_advanced(&mut self) {
@@ -389,28 +383,17 @@ impl LibraryCreateModalState {
 
     fn handle_action_button_key(&mut self, key: KeyEvent) -> CreateKeyOutcome {
         match (key.code, key.modifiers) {
-            (KeyCode::Left | KeyCode::Char('h'), KeyModifiers::NONE) => {
-                self.button_selection = ButtonSelection::Cancel;
-                CreateKeyOutcome::Handled
-            }
-            (KeyCode::Right | KeyCode::Char('l'), KeyModifiers::NONE) => {
-                self.button_selection = ButtonSelection::Confirm;
-                CreateKeyOutcome::Handled
-            }
             (KeyCode::Up | KeyCode::Char('k') | KeyCode::BackTab, _) => {
                 self.advance_focus(false);
                 CreateKeyOutcome::Handled
             }
             (KeyCode::Enter | KeyCode::Char(' '), KeyModifiers::NONE) => {
-                match self.button_selection {
-                    ButtonSelection::Cancel => CreateKeyOutcome::Close,
-                    ButtonSelection::Confirm => match self.build_pending_create() {
-                        Ok(pending) => CreateKeyOutcome::Submit(pending),
-                        Err(error) => {
-                            self.error = Some(error.to_string());
-                            CreateKeyOutcome::Handled
-                        }
-                    },
+                match self.build_pending_create() {
+                    Ok(pending) => CreateKeyOutcome::Submit(pending),
+                    Err(error) => {
+                        self.error = Some(error.to_string());
+                        CreateKeyOutcome::Handled
+                    }
                 }
             }
             // honey: Esc on the buttons still closes the whole modal;

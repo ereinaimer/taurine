@@ -4314,8 +4314,7 @@ fn create_empty_trigger_submit_sets_error() {
         LibraryCreateModalField::ActionButton
     );
 
-    // Move the cursor to Create; Enter on Cancel would close.
-    state.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+    // Enter on the Create button submits.
     state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
     assert!(create_modal(&state).error().is_some());
@@ -4329,8 +4328,7 @@ fn create_overlong_trigger_submit_sets_error() {
     for _ in 0..4 {
         state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     }
-    // Move the cursor to Create; Enter on Cancel would close.
-    state.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+    // Enter on the Create button submits.
     state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
     assert!(create_modal(&state).error().is_some());
@@ -4351,8 +4349,7 @@ fn create_valid_text_trigger_builds_pending() {
         LibraryCreateModalField::ActionButton
     );
 
-    // Move the cursor to Create; Enter on Cancel would close.
-    state.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+    // Enter on the Create button submits.
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
     let pending = interaction.pending_create().expect("pending create");
@@ -4507,8 +4504,7 @@ fn create_script_submit_defaults_interpreter_and_behavior() {
         LibraryCreateModalField::ActionButton
     );
 
-    // Move the cursor to Create; Enter on Cancel would close.
-    state.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+    // Enter on the Create button submits.
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
     let pending = interaction.pending_create().expect("pending create");
@@ -4532,30 +4528,39 @@ fn create_split_panes_share_body_width() {
 #[test]
 fn create_option_hit_selects_trigger_field_and_buttons() {
     // 90% popup on 100x30 is 90x27 at (5,1); body starts at
-    // (8,2): trigger field row on 4, buttons row on 25 with Cancel at
-    // x=38..47 and Create at x=51..60, divider column 56.
+    // (8,2): title 0, blank 1, trigger label 2, blank 3, trigger
+    // field 4, blank 5, content label 6, box from 8; buttons row on
+    // 25 with Create at x=45..55, divider column 56.
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
 
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 20, 4),
+        modals::create_option_hit(&sample_create_modal(), area, 20, 6),
         Some(modals::CreateHit::Field(LibraryCreateModalField::Trigger))
     );
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 70, 3),
+        modals::create_option_hit(&sample_create_modal(), area, 20, 3),
+        None
+    );
+    assert_eq!(
+        modals::create_option_hit(&sample_create_modal(), area, 70, 4),
         Some(modals::CreateHit::Field(
             LibraryCreateModalField::TriggerType
         ))
     );
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 10, 7),
+        modals::create_option_hit(&sample_create_modal(), area, 70, 5),
+        None
+    );
+    assert_eq!(
+        modals::create_option_hit(&sample_create_modal(), area, 10, 10),
         Some(modals::CreateHit::Field(LibraryCreateModalField::Content))
     );
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 40, 25),
-        Some(modals::CreateHit::Cancel)
+        modals::create_option_hit(&sample_create_modal(), area, 39, 25),
+        None
     );
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 55, 25),
+        modals::create_option_hit(&sample_create_modal(), area, 50, 25),
         Some(modals::CreateHit::Create)
     );
     assert_eq!(
