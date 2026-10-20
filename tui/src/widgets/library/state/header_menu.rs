@@ -1,14 +1,16 @@
 use taurine_core::db::TargetOs;
+use taurine_core::db::crud::ActionType;
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 
 use crate::widgets::library::icons::os_icon;
 
-/// Which header button spawned the centered menu: invocation type
-/// first, then script language and run behavior for scripts, plus
+/// Which header button spawned the centered menu: invocation type,
+/// action type, script language and run behavior for scripts, plus
 /// the target platform row from the properties pane.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HeaderMenuKind {
     InvocationType,
+    ActionType,
     Interpreter,
     Behavior,
     Platform,
@@ -18,6 +20,7 @@ impl HeaderMenuKind {
     pub(crate) const fn title(self) -> &'static str {
         match self {
             Self::InvocationType => "Trigger type",
+            Self::ActionType => "Action type",
             Self::Interpreter => "Script language",
             Self::Behavior => "Run behavior",
             Self::Platform => "Target platform",
@@ -46,6 +49,10 @@ impl LibraryHeaderMenuState {
             HeaderMenuKind::InvocationType => ["word", "hotkey", "regex", "voice"]
                 .into_iter()
                 .map(str::to_string)
+                .collect(),
+            HeaderMenuKind::ActionType => ActionType::ALL
+                .iter()
+                .map(|action| action.as_str().to_string())
                 .collect(),
             HeaderMenuKind::Interpreter => ScriptInterpreter::ALL
                 .iter()
@@ -93,6 +100,10 @@ impl LibraryHeaderMenuState {
                     "regex" => "Fires when typed text matches a pattern",
                     "voice" => "Fires on a spoken phrase",
                     _ => "Expands when you type the text",
+                },
+                HeaderMenuKind::ActionType => match option.as_str() {
+                    "script" => "Runs the expansion as a script",
+                    _ => "Types the expansion as plain text",
                 },
                 HeaderMenuKind::Interpreter => match option.as_str() {
                     "powershell" => "Windows PowerShell scripts",

@@ -1015,6 +1015,7 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
             // honey: menu picks carry no typed text, so a failed
             // confirm has nothing to restore.
             library::EditedField::InvocationType(_)
+            | library::EditedField::ActionType(_)
             | library::EditedField::Interpreter(_)
             | library::EditedField::Behavior(_)
             | library::EditedField::AutoCase(_)

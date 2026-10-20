@@ -2431,6 +2431,22 @@ fn header_menu_interpreter_confirms_language() {
 }
 
 #[test]
+fn header_menu_action_type_parks_on_current_and_confirms() {
+    let mut state = script_state();
+    let menu = open_menu(&mut state, HeaderMenuKind::ActionType);
+    assert_eq!(menu.options(), &["text", "script"]);
+    assert_eq!(menu.selected_option(), Some("script"));
+    state.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let pending = interaction.pending_edit().expect("pending action type");
+    assert_eq!(
+        pending.field,
+        EditedField::ActionType(taurine_core::db::crud::ActionType::Text)
+    );
+    assert!(state.modal().is_none());
+}
+
+#[test]
 fn header_menu_behavior_parks_on_inline() {
     let mut state = script_state();
     let menu = open_menu(&mut state, HeaderMenuKind::Behavior);
@@ -2501,7 +2517,7 @@ fn header_menu_button_hit_targets_rendered_buttons() {
         ),
         Some(detail::DetailHit::Button(0))
     );
-    let labels = ["word", "bash", "inline"];
+    let labels = ["word", "script", "bash", "inline"];
     let cells = detail::button_layout(
         content.width,
         &labels

@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Richer Trigger Details**: Library detail pane now shows the description, an enable toggle, type and script option buttons, scrollable content, and tag chips. Disabled triggers stay listed (dimmed) so they can be turned back on.
 - **Arrow-Key Navigation**: The library list now moves with the Up/Down arrow keys; every letter and symbol types straight into search instead.
 - **Header Dropdowns**: The type, language, and behavior buttons above the snippet now open a centered dialog. Pick a new trigger type, script language, or run mode with the arrow keys and Enter.
+- **Action Type Toggle**: The new action button above the snippet switches a trigger between plain text and a script, carrying its body across.
 - **Target Platform Picker**: Click the Platform row in properties to choose the operating system from a centered dialog with icons.
 - **Tags Builder**: Click the Tags row to see the trigger's tags as colored chips with a `+` button. Click `+` and type the name to add a tag, hover a chip for its close icon to remove it.
 - **App Allow/Block Pickers**: Click the Allow on or Block on rows to choose from running Alt-Tab applications or type app filters manually, with opposite-list entries dimmed and unclickable. The list caps at the eight most recent apps with a search box to narrow it.

@@ -4,7 +4,7 @@ use super::aliases::{
 use super::app_filter::AppFilterPrefix;
 use super::assets::*;
 use super::overlap::*;
-use super::trigger_types::TriggerLimits;
+use super::trigger_types::{ActionType, TriggerLimits};
 use super::validate::*;
 use unicode_normalization::UnicodeNormalization;
 
@@ -1367,6 +1367,101 @@ pub fn set_trigger_content(conn: &Connection, id: &str, content: &str) -> Result
         rusqlite::params![content, now, id],
     )?;
     Ok(changed > 0)
+}
+
+/// Switches one trigger between text and script actions in place.
+///
+/// The body carries over: text output becomes the script source, and
+/// script source becomes the text output. Invocations, filters, tags,
+/// and usage counters are untouched. Scripts keep their stored language
+/// when one exists; otherwise the platform default applies. Bumps
+/// version and marks the row unsynced.
+pub fn set_trigger_action_type(
+    conn: &Connection,
+    id: &str,
+    action_type: ActionType,
+) -> Result<bool> {
+    let Some(row) = super::trigger_get::get_trigger(conn, id)? else {
+        return Ok(false);
+    };
+    if row.is_deleted {
+        return Ok(false);
+    }
+    let current = ActionType::parse_str(&row.action_type).ok_or_else(|| {
+        crate::Error::Config(format!(
+            "Unsupported action_type '{}'. Expected 'text' or 'script'.",
+            row.action_type
+        ))
+    })?;
+    if current == action_type {
+        return Ok(true);
+    }
+
+    with_transaction(conn, || {
+        let now = now_unix_secs();
+        if action_type.is_script() {
+            let content: String = row.output.nfc().collect();
+            let target_os =
+                crate::db::TargetOs::parse_str(&row.target_os).unwrap_or(crate::db::TargetOs::All);
+            let interpreter = row
+                .interpreter
+                .unwrap_or_else(|| ScriptInterpreter::default_for_target_os(target_os));
+            let behavior = row.behavior.unwrap_or(ScriptBehavior::Inline);
+            let (interpreter, behavior, script_output) =
+                resolve_script_parts(&content, Some(interpreter), Some(behavior))?;
+            upsert_script(conn, id, interpreter, behavior, &compress(&content)?)?;
+            let changed = conn.execute(
+                "UPDATE triggers
+                 SET action_type = 'script', output = ?1, version = version + 1,
+                     updated_at = ?2, is_synced = 0
+                 WHERE id = ?3 AND is_deleted = 0",
+                rusqlite::params![script_output, now, id],
+            )?;
+            if changed == 0 {
+                return Err(crate::Error::NotFound(
+                    "Trigger no longer exists.".to_string(),
+                ));
+            }
+        } else {
+            let content = match row.script_binary.as_deref() {
+                Some(compressed) => decompress(compressed)?,
+                None => row.output.clone(),
+            };
+            let content: String = content.nfc().collect();
+            validate_output(&content, Some(&row.display))?;
+            let key = row
+                .invocations
+                .iter()
+                .find(|alias| alias.invocation_type == InvocationType::Word)
+                .map(|alias| alias.invocation.as_str())
+                .unwrap_or(row.display.as_str());
+            validate_trigger_limits(conn, key, &content, action_type.as_str())?;
+            let changed = conn.execute(
+                "UPDATE triggers
+                 SET action_type = 'text', output = ?1, version = version + 1,
+                     updated_at = ?2, is_synced = 0
+                 WHERE id = ?3 AND is_deleted = 0",
+                rusqlite::params![&content, now, id],
+            )?;
+            if changed == 0 {
+                return Err(crate::Error::NotFound(
+                    "Trigger no longer exists.".to_string(),
+                ));
+            }
+            conn.execute(
+                "DELETE FROM scripts WHERE trigger_id = ?1",
+                rusqlite::params![id],
+            )?;
+            let processed_output = compile_and_save_assets(conn, id, &content)?;
+            if processed_output != content {
+                conn.execute(
+                    "UPDATE triggers SET output = ?1, updated_at = ?2 WHERE id = ?3",
+                    rusqlite::params![processed_output, now, id],
+                )?;
+            }
+        }
+        Ok(true)
+    })
 }
 
 /// Rewrites the target platform of one trigger. Only the six known

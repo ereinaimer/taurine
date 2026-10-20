@@ -254,6 +254,11 @@ impl LibraryCreateModalState {
                     self.trigger_type = trigger_type;
                 }
             }
+            HeaderMenuKind::ActionType => {
+                if let Some(action) = ActionType::parse_str(option) {
+                    self.action = action;
+                }
+            }
             HeaderMenuKind::Platform => {
                 if let Some(os) = TargetOs::parse_str(option) {
                     self.target_os = os.to_db_str().to_string();

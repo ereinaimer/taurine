@@ -474,6 +474,65 @@ fn test_set_trigger_content_text_and_script() {
 }
 
 #[test]
+fn test_set_trigger_action_type_round_trips_body() {
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let (_dir, conn) = crate::testing::open_test_db();
+
+    let (id, _) = create_entry(
+        &conn,
+        NewEntry {
+            description: Some("round trip".to_string()),
+            content: "echo hi".to_string(),
+            action_type: "text".to_string(),
+            target_os: "all".to_string(),
+            only_apps: None,
+            except_apps: None,
+            tags_json: "[]".to_string(),
+            auto_case: false,
+            interpreter: None,
+            behavior: None,
+            invocations: vec![
+                (
+                    crate::db::crud::InvocationType::Word,
+                    "roundtrip".to_string(),
+                    false,
+                ),
+                (
+                    crate::db::crud::InvocationType::Word,
+                    "roundtrip-two".to_string(),
+                    false,
+                ),
+            ],
+        },
+    )
+    .expect("create text entry");
+
+    assert!(set_trigger_action_type(&conn, &id, crate::db::crud::ActionType::Script).unwrap());
+    let script = get_trigger(&conn, &id).unwrap().expect("script row");
+    assert_eq!(script.action_type, "script");
+    assert!(script.output.starts_with("[Script: "));
+    assert!(script.interpreter.is_some());
+    assert_eq!(
+        crate::engine::shell::decompress(script.script_binary.as_deref().expect("script bytes"))
+            .unwrap(),
+        "echo hi"
+    );
+    assert_eq!(list_aliases(&conn, &id).unwrap().len(), 2);
+
+    assert!(set_trigger_action_type(&conn, &id, crate::db::crud::ActionType::Text).unwrap());
+    let text = get_trigger(&conn, &id).unwrap().expect("text row");
+    assert_eq!(text.action_type, "text");
+    assert_eq!(text.output, "echo hi");
+    assert!(text.script_binary.is_none());
+    assert!(text.interpreter.is_none());
+    assert_eq!(list_aliases(&conn, &id).unwrap().len(), 2);
+
+    assert!(!set_trigger_action_type(&conn, "ghost", crate::db::crud::ActionType::Script).unwrap());
+}
+
+#[test]
 fn test_rename_alias_invocation_rewrites_row_and_bumps() {
     let _guard = crate::testing::TEST_LOCK
         .lock()

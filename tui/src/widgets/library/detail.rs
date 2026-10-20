@@ -62,7 +62,10 @@ pub(crate) struct ButtonCell {
 }
 
 fn button_labels(item: &LibraryTrigger) -> Vec<String> {
-    let mut labels = vec![item.invocation_type_label().to_string()];
+    let mut labels = vec![
+        item.invocation_type_label().to_string(),
+        item.action_type_label().to_string(),
+    ];
     if item.is_script() {
         labels.push(
             item.interpreter()
@@ -620,13 +623,14 @@ fn render_buttons_row(
     frame.render_widget(Paragraph::new(Line::from(spans)), row);
 }
 
-/// Header button index onto its menu: type first, then script
+/// Header button index onto its menu: invocation, action, then script
 /// language and run behavior. Hit-testing only fires on rendered
 /// buttons, so trailing indices are always script menus.
 pub(crate) const fn dropdown_kind_for_button(index: usize) -> HeaderMenuKind {
     match index {
         0 => HeaderMenuKind::InvocationType,
-        1 => HeaderMenuKind::Interpreter,
+        1 => HeaderMenuKind::ActionType,
+        2 => HeaderMenuKind::Interpreter,
         _ => HeaderMenuKind::Behavior,
     }
 }

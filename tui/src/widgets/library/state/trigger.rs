@@ -242,6 +242,10 @@ impl LibraryTrigger {
         }
     }
 
+    pub(crate) const fn action_type_label(&self) -> &'static str {
+        if self.is_script() { "script" } else { "text" }
+    }
+
     pub(crate) const fn is_voice(&self) -> bool {
         matches!(self.invocation, InvocationType::Voice)
     }

@@ -432,6 +432,7 @@ impl LibraryPageState {
         let item = self.item_at_filtered(selected)?;
         Some(match kind {
             HeaderMenuKind::InvocationType => item.invocation_type_label().to_string(),
+            HeaderMenuKind::ActionType => item.action_type_label().to_string(),
             HeaderMenuKind::Interpreter => item
                 .interpreter()
                 .map(|interpreter| interpreter.as_str())
@@ -857,6 +858,7 @@ impl LibraryPageState {
         };
         let current = match menu.kind() {
             HeaderMenuKind::InvocationType => item.invocation_type_label().to_string(),
+            HeaderMenuKind::ActionType => item.action_type_label().to_string(),
             HeaderMenuKind::Interpreter => item
                 .interpreter()
                 .map(|interpreter| interpreter.as_str())
@@ -876,6 +878,9 @@ impl LibraryPageState {
             HeaderMenuKind::InvocationType => {
                 taurine_core::db::crud::InvocationType::parse_str(&option)
                     .map(EditedField::InvocationType)
+            }
+            HeaderMenuKind::ActionType => {
+                taurine_core::db::crud::ActionType::parse_str(&option).map(EditedField::ActionType)
             }
             HeaderMenuKind::Interpreter => {
                 taurine_core::engine::shell::ScriptInterpreter::parse_str(&option)
@@ -1069,6 +1074,7 @@ impl LibraryPageState {
     ) {
         let current = match kind {
             HeaderMenuKind::InvocationType => draft.type_label().to_string(),
+            HeaderMenuKind::ActionType => draft.action_label().to_string(),
             HeaderMenuKind::Platform => draft.target_os().to_string(),
             HeaderMenuKind::Interpreter => draft.interpreter_label().to_string(),
             HeaderMenuKind::Behavior => draft.behavior_label().to_string(),

@@ -146,6 +146,7 @@ pub(crate) enum EditedField {
     Description(Option<String>),
     Content(String),
     InvocationType(InvocationType),
+    ActionType(ActionType),
     Interpreter(ScriptInterpreter),
     Behavior(ScriptBehavior),
     AutoCase(bool),
@@ -238,14 +239,23 @@ impl PendingLibraryEdit {
                 taurine_core::db::crud::set_trigger_content(&conn, &self.trigger_id, body)?;
                 taurine_core::rpc::notify_daemon_reload();
             }
-            // honey: invocation, language, and behavior all change what
-            // the expander matches or runs, so the daemon reloads.
+            // honey: invocation, action type, language, and behavior all
+            // change what the expander matches or runs, so the daemon
+            // reloads.
             EditedField::InvocationType(invocation_type) => {
                 taurine_core::db::crud::set_alias_invocation_type(
                     &conn,
                     &self.trigger_id,
                     &self.trigger,
                     *invocation_type,
+                )?;
+                taurine_core::rpc::notify_daemon_reload();
+            }
+            EditedField::ActionType(action_type) => {
+                taurine_core::db::crud::set_trigger_action_type(
+                    &conn,
+                    &self.trigger_id,
+                    *action_type,
                 )?;
                 taurine_core::rpc::notify_daemon_reload();
             }
