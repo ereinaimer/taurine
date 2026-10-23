@@ -4318,37 +4318,16 @@ fn create_esc_closes_modal() {
 }
 
 #[test]
-fn create_empty_trigger_submit_sets_error() {
-    let mut state = open_create_state();
-    // Tab order from Trigger: Content, Action,
-    // AdvancedToggle, ActionButton.
-    for _ in 0..4 {
-        state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    }
-    assert_eq!(
-        create_modal(&state).focus(),
-        LibraryCreateModalField::ActionButton
-    );
-
-    // Enter on the Create button submits.
-    state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-
-    assert!(create_modal(&state).error().is_some());
-    assert!(state.modal().is_some());
+fn create_empty_trigger_build_fails() {
+    let state = open_create_state();
+    assert!(create_modal(&state).build_pending_create().is_err());
 }
 
 #[test]
-fn create_overlong_trigger_submit_sets_error() {
+fn create_overlong_trigger_build_fails() {
     let mut state = open_create_state();
     type_text(&mut state, &"a".repeat(201));
-    for _ in 0..4 {
-        state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    }
-    // Enter on the Create button submits.
-    state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-
-    assert!(create_modal(&state).error().is_some());
-    assert!(state.modal().is_some());
+    assert!(create_modal(&state).build_pending_create().is_err());
 }
 
 #[test]
@@ -4357,18 +4336,10 @@ fn create_valid_text_trigger_builds_pending() {
     type_text(&mut state, "gm");
     state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     type_text(&mut state, "Good Morning");
-    for _ in 0..3 {
-        state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    }
-    assert_eq!(
-        create_modal(&state).focus(),
-        LibraryCreateModalField::ActionButton
-    );
 
-    // Enter on the Create button submits.
-    let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-
-    let pending = interaction.pending_create().expect("pending create");
+    let pending = create_modal(&state)
+        .build_pending_create()
+        .expect("pending create");
     assert_eq!(pending.trigger, "gm");
     assert_eq!(pending.content, "Good Morning");
     assert_eq!(pending.trigger_type, TriggerType::Word);
@@ -4502,7 +4473,7 @@ fn create_action_row_cycles_to_script_and_reveals_script_rows() {
 }
 
 #[test]
-fn create_script_submit_defaults_interpreter_and_behavior() {
+fn create_script_build_defaults_interpreter_and_behavior() {
     let mut state = open_create_state();
     type_text(&mut state, "deploy");
     state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
@@ -4510,20 +4481,10 @@ fn create_script_submit_defaults_interpreter_and_behavior() {
     // Content, then Action.
     state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     state.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
-    // Script rows appear after Action: Interpreter, Behavior,
-    // AdvancedToggle, ActionButton.
-    for _ in 0..4 {
-        state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    }
-    assert_eq!(
-        create_modal(&state).focus(),
-        LibraryCreateModalField::ActionButton
-    );
 
-    // Enter on the Create button submits.
-    let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-
-    let pending = interaction.pending_create().expect("pending create");
+    let pending = create_modal(&state)
+        .build_pending_create()
+        .expect("pending create");
     assert_eq!(pending.action_type, "script");
     assert!(pending.interpreter.is_some());
     assert!(pending.behavior.is_some());
@@ -4542,15 +4503,14 @@ fn create_split_panes_share_body_width() {
 }
 
 #[test]
-fn create_option_hit_selects_trigger_field_and_buttons() {
+fn create_option_hit_selects_fields() {
     // 90% popup on 100x30 is 90x27 at (5,1); body starts at
-    // (8,2): title 0, blank 1, trigger label 2, blank 3, trigger
-    // field 4, blank 5, content label 6, box from 8; buttons row on
-    // 25 with Create at x=45..55, divider column 56.
+    // (8,2): title 0, blank 1, trigger field 2, blank 3, pills 4,
+    // blank 5, content from 6; the footer row on 25 is dead.
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
 
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 20, 6),
+        modals::create_option_hit(&sample_create_modal(), area, 20, 4),
         Some(modals::CreateHit::Field(LibraryCreateModalField::Trigger))
     );
     assert_eq!(
@@ -4558,17 +4518,23 @@ fn create_option_hit_selects_trigger_field_and_buttons() {
         None
     );
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 70, 4),
+        modals::create_option_hit(&sample_create_modal(), area, 10, 6),
         Some(modals::CreateHit::Field(
             LibraryCreateModalField::TriggerType
         ))
     );
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 70, 5),
-        None
+        modals::create_option_hit(&sample_create_modal(), area, 20, 6),
+        Some(modals::CreateHit::Field(LibraryCreateModalField::Action))
     );
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 10, 10),
+        modals::create_option_hit(&sample_create_modal(), area, 70, 4),
+        Some(modals::CreateHit::Field(
+            LibraryCreateModalField::AdvancedToggle
+        ))
+    );
+    assert_eq!(
+        modals::create_option_hit(&sample_create_modal(), area, 10, 8),
         Some(modals::CreateHit::Field(LibraryCreateModalField::Content))
     );
     assert_eq!(
@@ -4577,7 +4543,7 @@ fn create_option_hit_selects_trigger_field_and_buttons() {
     );
     assert_eq!(
         modals::create_option_hit(&sample_create_modal(), area, 50, 25),
-        Some(modals::CreateHit::Create)
+        None
     );
     assert_eq!(
         modals::create_option_hit(&sample_create_modal(), area, 56, 5),
@@ -4590,6 +4556,118 @@ fn create_option_hit_selects_trigger_field_and_buttons() {
     assert_eq!(
         modals::create_option_hit(&sample_create_modal(), area, 0, 0),
         None
+    );
+}
+
+#[test]
+fn create_action_pill_click_opens_action_menu() {
+    let mut state = open_create_state();
+
+    state.click_create_field(LibraryCreateModalField::Action);
+
+    match state.modal() {
+        Some(LibraryModal::HeaderMenu(menu)) => {
+            assert_eq!(menu.kind(), HeaderMenuKind::ActionType);
+            assert!(menu.return_to_create().is_some());
+        }
+        other => panic!("expected action menu, got {other:?}"),
+    }
+
+    state.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    let create = create_modal(&state);
+    assert_eq!(create.action_label(), "script");
+    assert_eq!(create.focus(), LibraryCreateModalField::Action);
+}
+
+#[test]
+fn create_form_renders_placeholders_and_stacked_pickers() {
+    use crate::theme::default::DARK_THEME;
+    use ratatui::{Terminal, backend::TestBackend};
+
+    fn draw(state: &LibraryPageState) -> ratatui::buffer::Buffer {
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal
+            .draw(|frame| {
+                let modal = state.modal().expect("create modal");
+                modals::render_library_modal(frame, frame.area(), &DARK_THEME, modal);
+            })
+            .expect("test draw");
+        terminal.backend().buffer().clone()
+    }
+
+    fn row(buffer: &ratatui::buffer::Buffer, y: u16) -> String {
+        (0..buffer.area.width)
+            .map(|x| buffer[(x, y)].symbol())
+            .collect()
+    }
+
+    let text_placeholder = modals::create_content_placeholder(true);
+    assert_eq!(text_placeholder, "Type your snippet here");
+    assert_eq!(
+        modals::create_content_placeholder(false),
+        "Type your script here"
+    );
+
+    let mut state = open_create_state();
+    let empty = draw(&state);
+    let trigger_row = row(&empty, 4);
+    assert!(
+        trigger_row
+            .trim_start()
+            .starts_with(modals::CREATE_TRIGGER_PLACEHOLDER)
+    );
+    assert_eq!(empty[(8, 4)].fg, DARK_THEME.text_muted);
+    assert!(row(&empty, 6).contains("word"));
+    assert!(row(&empty, 6).contains("text"));
+    assert!(row(&empty, 8).trim_start().starts_with(text_placeholder));
+    assert!(row(&empty, 25).trim().is_empty());
+
+    type_text(&mut state, "gm");
+    state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    let typed = draw(&state);
+    assert!(row(&typed, 4).trim_start().starts_with("gm"));
+    assert!(!row(&typed, 4).contains(modals::CREATE_TRIGGER_PLACEHOLDER));
+
+    // The content placeholder stays visible until typing starts.
+    assert!(row(&typed, 8).trim_start().starts_with(text_placeholder));
+    type_text(&mut state, "Good Morning");
+    let filled = draw(&state);
+    assert!(row(&filled, 8).trim_start().starts_with("Good Morning"));
+    assert!(!row(&filled, 8).contains(text_placeholder));
+
+    // The hint follows the action pill: scripts get script copy.
+    let mut script = open_create_state();
+    script.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    script.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    script.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+    let script_buffer = draw(&script);
+    assert!(
+        row(&script_buffer, 8)
+            .trim_start()
+            .starts_with(modals::create_content_placeholder(false))
+    );
+
+    // A pill picker draws over the form without replacing it.
+    let form_title_fg = empty[(8, 2)].fg;
+    let mut menu = open_create_state();
+    menu.click_create_field(LibraryCreateModalField::TriggerType);
+    let menu_buffer = draw(&menu);
+    let screen: String = (0..menu_buffer.area.height)
+        .map(|y| row(&menu_buffer, y))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(screen.contains("New Trigger"));
+    assert!(screen.contains("Trigger type"));
+    // The form behind the picker is dimmed like any other backdrop.
+    assert_ne!(menu_buffer[(8, 2)].fg, form_title_fg);
+    // The picker itself keeps the normal bright title and dark fill.
+    assert_eq!(menu_buffer[(25, 9)].fg, DARK_THEME.text);
+    assert_eq!(
+        menu_buffer[(22, 8)].bg,
+        ratatui::style::Color::Rgb(0x14, 0x14, 0x14)
     );
 }
 

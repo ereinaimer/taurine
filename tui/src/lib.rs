@@ -266,27 +266,11 @@ fn play_overlay_close(
 }
 
 fn dim_frame(frame: &mut ratatui::Frame) {
-    dim_frame_factor(frame, 0.4);
+    dim_frame_factor(frame, overlay_fx::OVERLAY_SCRIM_FACTOR);
 }
 
 fn dim_frame_factor(frame: &mut ratatui::Frame, factor: f32) {
-    use ratatui::style::{Color, Modifier};
-
-    let factor = factor.clamp(0.0, 1.0);
-    if factor >= 0.999 {
-        return;
-    }
-    let scale = |channel: u8| (channel as f32 * factor) as u8;
-    for cell in frame.buffer_mut().content.iter_mut() {
-        if let Color::Rgb(red, green, blue) = cell.bg {
-            cell.set_bg(Color::Rgb(scale(red), scale(green), scale(blue)));
-        }
-        if let Color::Rgb(red, green, blue) = cell.fg {
-            cell.set_fg(Color::Rgb(scale(red), scale(green), scale(blue)));
-        } else {
-            cell.modifier.insert(Modifier::DIM);
-        }
-    }
+    overlay_fx::dim_rect(frame, frame.area(), factor);
 }
 
 fn render_page_content(
@@ -621,10 +605,6 @@ fn handle_tui_mouse_event(
                 match library::modals::create_option_hit(draft, full, mouse.column, mouse.row) {
                     Some(library::modals::CreateHit::Field(field)) => {
                         let interaction = app.library_page_mut().click_create_field(field);
-                        apply_library_interaction(app, interaction);
-                    }
-                    Some(library::modals::CreateHit::Create) => {
-                        let interaction = app.library_page_mut().confirm_create_button();
                         apply_library_interaction(app, interaction);
                     }
                     None => {}
@@ -1945,9 +1925,18 @@ mod tests {
         let mut app = App::default();
         seed_single_library_item(&mut app);
         app.library_page_mut().open_create_modal();
+        // Move focus off the trigger so the click has to bring it back.
+        handle_tui_key_event(&mut app, KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(
+            match app.library_page().modal() {
+                Some(library::LibraryModal::Create(draft)) => draft.focus(),
+                other => panic!("expected create modal, got {other:?}"),
+            },
+            library::LibraryCreateModalField::Content
+        );
 
         // Trigger field row of the create modal on TEST_AREA.
-        handle_tui_mouse_event(&mut app, left_click(20, 7), TEST_AREA);
+        handle_tui_mouse_event(&mut app, left_click(20, 5), TEST_AREA);
 
         assert!(app.library_page().is_modal_open());
         assert!(matches!(
@@ -1958,16 +1947,18 @@ mod tests {
     }
 
     #[test]
-    fn clicking_create_submits_empty_draft_with_error() {
+    fn clicking_create_footer_does_nothing() {
         let mut app = App::default();
         seed_single_library_item(&mut app);
         app.library_page_mut().open_create_modal();
 
-        // Create button of the create modal on TEST_AREA.
+        // The old Create button row is now an inert footer.
         handle_tui_mouse_event(&mut app, left_click(50, 25), TEST_AREA);
 
-        // Empty draft: modal stays open with the validation error.
-        assert!(app.library_page().is_modal_open());
+        assert!(matches!(
+            app.library_page().modal(),
+            Some(library::LibraryModal::Create(draft)) if draft.error().is_none()
+        ));
     }
 
     #[test]

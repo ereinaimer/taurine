@@ -499,6 +499,9 @@ impl LibraryInteraction {
         }
     }
 
+    // honey: the submit UI is temporarily buttonless; keep the
+    // constructor ready for the replacement affordance.
+    #[allow(dead_code)]
     pub(crate) fn create(pending_create: PendingLibraryCreate) -> Self {
         Self {
             pending_delete: None,

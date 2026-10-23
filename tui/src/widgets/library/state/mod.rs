@@ -1012,34 +1012,15 @@ impl LibraryPageState {
                 self.modal = Some(LibraryModal::Create(draft));
             }
             Field::Action => {
-                draft.toggle_action();
-                self.modal = Some(LibraryModal::Create(draft));
+                self.open_header_menu_for_create(*draft, HeaderMenuKind::ActionType);
             }
-            Field::Trigger | Field::Content | Field::ActionButton => {
+            Field::Trigger | Field::Content => {
                 self.modal = Some(LibraryModal::Create(draft));
             }
         }
         LibraryInteraction::handled()
     }
 
-    /// The Create button commits like Enter on it: a click is explicit
-    /// intent, so it submits regardless of the button cursor.
-    pub(crate) fn confirm_create_button(&mut self) -> LibraryInteraction {
-        let Some(LibraryModal::Create(mut draft)) = self.modal.take() else {
-            return LibraryInteraction::handled();
-        };
-        match draft.build_pending_create() {
-            Ok(pending) => {
-                self.modal = Some(LibraryModal::Create(draft));
-                LibraryInteraction::create(pending)
-            }
-            Err(error) => {
-                draft.set_error(error.to_string());
-                self.modal = Some(LibraryModal::Create(draft));
-                LibraryInteraction::handled()
-            }
-        }
-    }
     /// Confirm the open delete modal, mirroring the Enter key: Yes
     /// yields the pending delete, No closes the modal.
     pub(crate) fn confirm_delete(&mut self) -> LibraryInteraction {
@@ -1724,10 +1705,6 @@ impl LibraryPageState {
                     LibraryInteraction::handled()
                 }
                 CreateKeyOutcome::Close => LibraryInteraction::close(),
-                CreateKeyOutcome::Submit(pending) => {
-                    self.modal = Some(LibraryModal::Create(state));
-                    LibraryInteraction::create(pending)
-                }
                 CreateKeyOutcome::OpenHeaderMenu(kind) => {
                     self.open_header_menu_for_create(*state, kind);
                     LibraryInteraction::handled()

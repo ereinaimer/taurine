@@ -4,7 +4,11 @@
 //! those rects whenever a layer appears or dismisses. Pure state tracking
 //! lives here so it stays unit-testable without a terminal.
 
-use ratatui::layout::Rect;
+use ratatui::{
+    Frame,
+    layout::Rect,
+    style::{Color, Modifier},
+};
 use tachyonfx::{Effect, EffectTimer, Interpolation, fx::fade_from};
 
 use crate::terminal::app::App;
@@ -41,6 +45,38 @@ impl Drop for CursorSuppressGuard {
 
 /// Shared overlay transition length: fast 200ms alpha fade for both open and close.
 pub(crate) const OVERLAY_FX_MS: u32 = 200;
+
+/// How much the backdrop darkens behind an overlay.
+pub(crate) const OVERLAY_SCRIM_FACTOR: f32 = 0.4;
+
+/// Darken one rect in place, matching the app-wide overlay scrim.
+pub(crate) fn dim_rect(frame: &mut Frame, area: Rect, factor: f32) {
+    let factor = factor.clamp(0.0, 1.0);
+    if factor >= 0.999 {
+        return;
+    }
+    let area = area.intersection(frame.area());
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let scale = |channel: u8| (channel as f32 * factor) as u8;
+    let buffer = frame.buffer_mut();
+    for y in area.y..area.bottom() {
+        for x in area.x..area.right() {
+            let Some(cell) = buffer.cell_mut((x, y)) else {
+                continue;
+            };
+            if let Color::Rgb(red, green, blue) = cell.bg {
+                cell.set_bg(Color::Rgb(scale(red), scale(green), scale(blue)));
+            }
+            if let Color::Rgb(red, green, blue) = cell.fg {
+                cell.set_fg(Color::Rgb(scale(red), scale(green), scale(blue)));
+            } else {
+                cell.modifier.insert(Modifier::DIM);
+            }
+        }
+    }
+}
 
 /// Geometry both an overlay render and its sweep agree on.
 pub(crate) struct FxAreas {
@@ -135,7 +171,11 @@ pub(crate) fn appeared(previous: &OverlayLayers, next: &OverlayLayers) -> bool {
     if next == previous {
         return false;
     }
-    (next.library.is_some() && previous.library != next.library)
+    // honey: a create picker keeps the form painted behind it; returning
+    // must not re-sweep the form the user was already looking at.
+    let returning_to_create = next.library == Some(LibraryModalKind::Create)
+        && previous.library == Some(LibraryModalKind::HeaderMenu);
+    (next.library.is_some() && previous.library != next.library && !returning_to_create)
         || (next.settings && !previous.settings)
         || (next.settings_editor.is_some() && previous.settings_editor != next.settings_editor)
 }
@@ -256,6 +296,20 @@ mod tests {
             ..closed()
         };
         assert!(appeared(&tags, &apps));
+    }
+
+    #[test]
+    fn create_picker_return_does_not_sweep_the_form() {
+        let form = OverlayLayers {
+            library: Some(LibraryModalKind::Create),
+            ..closed()
+        };
+        let menu = OverlayLayers {
+            library: Some(LibraryModalKind::HeaderMenu),
+            ..closed()
+        };
+        assert!(appeared(&form, &menu));
+        assert!(!appeared(&menu, &form));
     }
 
     #[test]

@@ -143,7 +143,8 @@ impl LibraryHeaderMenuState {
         self
     }
 
-    #[cfg(test)]
+    /// Borrow the parked draft so rendering can keep the create form
+    /// visible behind this menu.
     pub(crate) fn return_to_create(&self) -> Option<&super::create::LibraryCreateModalState> {
         self.return_to_create.as_deref()
     }

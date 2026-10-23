@@ -26,7 +26,6 @@ pub(crate) enum LibraryCreateModalField {
     Tags,
     Allow,
     Block,
-    ActionButton,
 }
 
 /// Outcome of a key handled by the create modal. Picker rows delegate
@@ -36,7 +35,6 @@ pub(crate) enum LibraryCreateModalField {
 pub(crate) enum CreateKeyOutcome {
     Handled,
     Close,
-    Submit(PendingLibraryCreate),
     OpenHeaderMenu(HeaderMenuKind),
     OpenTags,
     OpenAppFilter(crate::widgets::library::state::AppFilterSide),
@@ -227,7 +225,6 @@ impl LibraryCreateModalState {
             fields.push(Field::Block);
             fields.push(Field::Os);
         }
-        fields.push(Field::ActionButton);
         fields
     }
 
@@ -364,9 +361,6 @@ impl LibraryCreateModalState {
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> CreateKeyOutcome {
         self.error = None;
 
-        if self.focus == LibraryCreateModalField::ActionButton {
-            return self.handle_action_button_key(key);
-        }
         if self.focus == LibraryCreateModalField::Content {
             return self.handle_content_key(key);
         }
@@ -386,27 +380,6 @@ impl LibraryCreateModalState {
         }
     }
 
-    fn handle_action_button_key(&mut self, key: KeyEvent) -> CreateKeyOutcome {
-        match (key.code, key.modifiers) {
-            (KeyCode::Up | KeyCode::Char('k') | KeyCode::BackTab, _) => {
-                self.advance_focus(false);
-                CreateKeyOutcome::Handled
-            }
-            (KeyCode::Enter | KeyCode::Char(' '), KeyModifiers::NONE) => {
-                match self.build_pending_create() {
-                    Ok(pending) => CreateKeyOutcome::Submit(pending),
-                    Err(error) => {
-                        self.error = Some(error.to_string());
-                        CreateKeyOutcome::Handled
-                    }
-                }
-            }
-            // honey: Esc on the buttons still closes the whole modal;
-            // typing never starts here.
-            _ => CreateKeyOutcome::Handled,
-        }
-    }
-
     fn handle_focused_key(&mut self, key: KeyEvent) -> CreateKeyOutcome {
         match self.focus {
             LibraryCreateModalField::Trigger => self.handle_text_key(key),
@@ -421,8 +394,10 @@ impl LibraryCreateModalState {
                 self.handle_picker_key(key, HeaderMenuKind::Behavior)
             }
             LibraryCreateModalField::Action => match (key.code, key.modifiers) {
-                (KeyCode::Enter | KeyCode::Char(' '), KeyModifiers::NONE)
-                | (KeyCode::Left | KeyCode::Right, KeyModifiers::NONE) => {
+                (KeyCode::Enter | KeyCode::Char(' '), KeyModifiers::NONE) => {
+                    CreateKeyOutcome::OpenHeaderMenu(HeaderMenuKind::ActionType)
+                }
+                (KeyCode::Left | KeyCode::Right, KeyModifiers::NONE) => {
                     self.toggle_action();
                     CreateKeyOutcome::Handled
                 }
@@ -466,9 +441,7 @@ impl LibraryCreateModalState {
                 }
                 _ => CreateKeyOutcome::Handled,
             },
-            LibraryCreateModalField::Content | LibraryCreateModalField::ActionButton => {
-                CreateKeyOutcome::Handled
-            }
+            LibraryCreateModalField::Content => CreateKeyOutcome::Handled,
         }
     }
 
@@ -493,7 +466,7 @@ impl LibraryCreateModalState {
 
     fn handle_text_key(&mut self, key: KeyEvent) -> CreateKeyOutcome {
         // honey: Enter advances instead of submitting so a stray key
-        // never creates a trigger; only the Create button submits.
+        // never creates a trigger; the submit affordance returns later.
         let field = match self.focus {
             LibraryCreateModalField::Trigger => &mut self.trigger,
             _ => return CreateKeyOutcome::Handled,
@@ -604,6 +577,9 @@ impl LibraryCreateModalState {
         }
     }
 
+    // honey: the create action is temporarily buttonless; keep the
+    // pending builder ready for the submit affordance that replaces it.
+    #[allow(dead_code)]
     pub(crate) fn build_pending_create(&self) -> taurine_core::Result<PendingLibraryCreate> {
         // honey: core validates the trigger rules and canonicalizes
         // hotkeys; the stored form is what gets created. No database
