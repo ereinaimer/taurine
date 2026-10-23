@@ -6,11 +6,7 @@ pub mod tier;
 pub mod triggers;
 pub mod workspaces;
 
-pub use tier::{
-    FREE_TIER_MAX_SNIPPETS, FREE_TIER_MAX_WORKSPACES, UserTier, check_snippet_creation_allowed,
-    check_snippet_enable_allowed, check_workspace_creation_allowed, enforce_free_tier_snippet_cap,
-    get_user_tier, set_trigger_enabled, set_user_tier,
-};
+pub use tier::{UserTier, get_user_tier, set_trigger_enabled, set_user_tier};
 
 pub use quota::{
     QuotaLedgerRow, calculate_week_start_epoch, compute_quota_hmac, get_or_init_quota_ledger,

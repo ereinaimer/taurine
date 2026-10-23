@@ -394,6 +394,10 @@ impl DaemonControl for DaemonService {
                 *lock = settings.spinner_style;
             }
 
+            // Update user tier and QuotaGuard unlimited status
+            let tier = taurine_core::db::crud::tier::get_user_tier(&conn);
+            crate::engine::quota_guard::QuotaGuard::global().set_unlimited(tier.is_unlimited());
+
             settings
         };
 

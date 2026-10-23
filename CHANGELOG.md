@@ -8,7 +8,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Free Tier Snippet Capping**: Automatically keep the top 30 most-used snippets active on Free tier while safely pausing excess snippets on startup or downgrade.
 - **Snippet Enable and Disable**: Toggle individual snippets directly with `taurine enable` and `taurine disable`.
 - **Cloud Authentication**: Sign in and out of Taurine Cloud with `taurine login` and `taurine logout`.
 - **Cloud Quota & Tier Status**: View subscription tier, weekly quota balance, and usage limits in `taurine status`.
@@ -22,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Cleaner Trigger List**: Listing shows one line per trigger with just the trigger and result, plus multi-tag filtering.
 - **Trigger Usage History**: Record daily per-trigger expansion stats and active application context in the local database.
 - **Settings & Stats Sync**: Synchronize allowed user preferences and daily trigger statistics across authorized cloud devices.
+
+### Changed
+- **Monetization Simplification**: Free tier now includes unlimited snippets, workspaces, and devices, gating exclusively on weekly expansion quota.
 
 ### Fixed
 - **Cloud Login Defaults**: Sign in to Taurine Cloud directly without configuring manual environment variables.

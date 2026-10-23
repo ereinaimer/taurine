@@ -277,3 +277,23 @@ fn test_quota_guard_set_global_and_init_global() {
 
     QuotaGuard::global().set_balance(original);
 }
+
+#[test]
+fn test_quota_guard_unlimited_mode_bypasses_depletion() {
+    let guard = QuotaGuard::new_with_balance(0.0);
+    assert!(!guard.can_expand());
+    assert!(guard.is_depleted());
+
+    guard.set_unlimited(true);
+    assert!(guard.is_unlimited());
+    assert!(guard.can_expand());
+    assert!(!guard.is_depleted());
+    assert!(!guard.is_warning());
+
+    // Depletions must always succeed without burning balance or accumulating delta
+    assert!(guard.deplete(ExpansionType::Text));
+    assert!(guard.deplete(ExpansionType::Dynamic));
+    assert!(guard.deplete(ExpansionType::VoiceTrigger));
+    assert_eq!(guard.balance(), 0.0);
+    assert_eq!(guard.unflushed_delta(), 0.0);
+}

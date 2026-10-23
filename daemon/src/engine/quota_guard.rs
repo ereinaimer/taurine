@@ -29,6 +29,7 @@ impl ExpansionType {
 struct QuotaInner {
     balance: f64,
     unflushed_delta: f64,
+    is_unlimited: bool,
 }
 
 /// In-memory fast-path guard that monitors and depletes weekly countdown quota.
@@ -61,6 +62,7 @@ impl QuotaGuard {
             inner: Mutex::new(QuotaInner {
                 balance: initial_balance.clamp(0.0, 100.0),
                 unflushed_delta: 0.0,
+                is_unlimited: false,
             }),
         }
     }
@@ -86,19 +88,36 @@ impl QuotaGuard {
         Self::global().set_balance(initial_balance);
     }
 
+    /// Sets whether the quota guard operates in unlimited mode (bypassing quota depletion).
+    pub fn set_unlimited(&self, unlimited: bool) {
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        inner.is_unlimited = unlimited;
+    }
+
+    /// Returns whether the quota guard operates in unlimited mode.
+    pub fn is_unlimited(&self) -> bool {
+        self.inner
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_unlimited
+    }
+
     /// Checks if expansions are permitted (< 0.1ms hot-path check).
     pub fn can_expand(&self) -> bool {
-        self.balance() > 0.0
+        let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        inner.is_unlimited || inner.balance > 0.0
     }
 
     /// Checks if quota is fully depleted (<= 0.0%).
     pub fn is_depleted(&self) -> bool {
-        self.balance() <= 0.0
+        let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        !inner.is_unlimited && inner.balance <= 0.0
     }
 
     /// Checks if quota is in warning zone (<= 10.0%).
     pub fn is_warning(&self) -> bool {
-        self.balance() <= 10.0
+        let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        !inner.is_unlimited && inner.balance <= 10.0
     }
 
     /// Returns the current balance percentage (0.0 to 100.0).
@@ -124,6 +143,10 @@ impl QuotaGuard {
         }
 
         let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        if inner.is_unlimited {
+            return true;
+        }
+
         if inner.balance <= 0.0 {
             return false;
         }

@@ -684,6 +684,7 @@ mod tests {
             is_synced: true,
             is_enabled: true,
             auto_case: false,
+            workspace_id: "default".to_string(),
             interpreter: Some(ScriptInterpreter::PowerShell),
             behavior: Some(ScriptBehavior::Silent),
             script_binary: Some(compress("Start-Process https://reddit.com").unwrap()),

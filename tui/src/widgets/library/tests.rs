@@ -93,6 +93,7 @@ fn trigger_row(
         is_synced: true,
         is_enabled: true,
         auto_case: false,
+        workspace_id: "default".to_string(),
         interpreter: Some(ScriptInterpreter::PowerShell),
         behavior: Some(ScriptBehavior::Silent),
         script_binary: script_content
@@ -1895,6 +1896,7 @@ fn multi_alias_trigger_row() -> TriggerRow {
         is_synced: true,
         is_enabled: true,
         auto_case: false,
+        workspace_id: "default".to_string(),
         interpreter: None,
         behavior: None,
         script_binary: None,

@@ -1,6 +1,4 @@
-use taurine_core::db::crud::{
-    FREE_TIER_MAX_SNIPPETS, FREE_TIER_MAX_WORKSPACES, get_user_tier, get_workspaces,
-};
+use taurine_core::db::crud::{get_user_tier, get_workspaces};
 use taurine_core::db::init;
 use taurine_core::error::Result;
 
@@ -86,20 +84,20 @@ pub fn execute_status(json: bool) -> Result<()> {
             "user_id": user_id,
             "tier": format!("{:?}", tier),
             "weekly_quota": {
-                "remaining_percentage": quota_remaining,
+                "remaining_percentage": if tier.is_unlimited() { serde_json::Value::Null } else { serde_json::json!(quota_remaining) },
                 "rollover_epoch": rollover_epoch,
             },
             "active_snippets": {
                 "count": snippet_count,
-                "limit": if tier.is_unlimited() { serde_json::Value::Null } else { serde_json::json!(FREE_TIER_MAX_SNIPPETS) },
+                "limit": serde_json::Value::Null,
             },
             "active_workspaces": {
                 "count": workspace_count,
-                "limit": if tier.is_unlimited() { serde_json::Value::Null } else { serde_json::json!(FREE_TIER_MAX_WORKSPACES) },
+                "limit": serde_json::Value::Null,
             },
             "active_devices": {
                 "count": 1,
-                "limit": if tier.is_unlimited() { serde_json::Value::Null } else { serde_json::json!(1) },
+                "limit": serde_json::Value::Null,
                 "current_device": {
                     "name": device_name,
                     "hardware_id": device_hw_id,
@@ -117,29 +115,17 @@ pub fn execute_status(json: bool) -> Result<()> {
             println!("  Account ID:       Not logged in (run 'taurine login')");
         }
         println!("  Tier:             {:?}", tier);
+        println!("  Active Devices:   1 active ({}, Unlimited)", device_name);
         if tier.is_unlimited() {
-            println!("  Active Devices:   1 active ({}, Unlimited)", device_name);
-            println!(
-                "  Weekly Quota:     {:.1}% remaining (rollover epoch: {})",
-                quota_remaining, rollover_epoch
-            );
-            println!("  Active Snippets:  {} active (Unlimited)", snippet_count);
-            println!("  Workspaces:       {} active (Unlimited)", workspace_count);
+            println!("  Weekly Quota:     Unlimited");
         } else {
-            println!("  Active Devices:   1 / 1 active ({})", device_name);
             println!(
                 "  Weekly Quota:     {:.1}% remaining (rollover epoch: {})",
                 quota_remaining, rollover_epoch
-            );
-            println!(
-                "  Active Snippets:  {} / {} active",
-                snippet_count, FREE_TIER_MAX_SNIPPETS
-            );
-            println!(
-                "  Workspaces:       {} / {} active",
-                workspace_count, FREE_TIER_MAX_WORKSPACES
             );
         }
+        println!("  Active Snippets:  {} active (Unlimited)", snippet_count);
+        println!("  Workspaces:       {} active (Unlimited)", workspace_count);
     }
 
     Ok(())
