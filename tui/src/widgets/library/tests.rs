@@ -4538,35 +4538,35 @@ fn create_option_hit_selects_fields() {
         Some(modals::CreateHit::Field(LibraryCreateModalField::Action))
     );
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 70, 4),
+        modals::create_option_hit(&sample_create_modal(), area, 70, 6),
         Some(modals::CreateHit::Field(LibraryCreateModalField::AutoCase))
     );
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 70, 6),
+        modals::create_option_hit(&sample_create_modal(), area, 70, 8),
         Some(modals::CreateHit::Field(LibraryCreateModalField::Allow))
     );
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 70, 8),
+        modals::create_option_hit(&sample_create_modal(), area, 70, 10),
         Some(modals::CreateHit::Field(LibraryCreateModalField::Block))
     );
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 70, 12),
+        modals::create_option_hit(&sample_create_modal(), area, 70, 14),
         Some(modals::CreateHit::Field(LibraryCreateModalField::Os))
     );
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 70, 14),
+        modals::create_option_hit(&sample_create_modal(), area, 70, 16),
         Some(modals::CreateHit::Field(LibraryCreateModalField::Tags))
     );
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 70, 16),
+        modals::create_option_hit(&sample_create_modal(), area, 70, 18),
         Some(modals::CreateHit::UsageToggle)
     );
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 70, 10),
+        modals::create_option_hit(&sample_create_modal(), area, 70, 12),
         None
     );
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 70, 18),
+        modals::create_option_hit(&sample_create_modal(), area, 70, 20),
         None
     );
     assert_eq!(
@@ -4672,13 +4672,17 @@ fn create_form_renders_placeholders_and_stacked_pickers() {
             .starts_with(modals::CREATE_TRIGGER_PLACEHOLDER)
     );
     assert_eq!(empty[(8, 4)].fg, DARK_THEME.text_muted);
-    assert!(row(&empty, 2).contains("Properties"));
-    assert!(row(&empty, 4).contains("Auto case"));
+    assert!(row(&empty, 2).contains("New Trigger"));
+    assert!(row(&empty, 2).contains("Esc"));
+    assert!(!row(&empty, 2).contains("Properties"));
+    assert!(row(&empty, 3).trim().is_empty());
+    assert!(row(&empty, 4).contains("Properties"));
+    assert!(row(&empty, 6).contains("Auto case"));
     assert!(row(&empty, 6).contains("word"));
     assert!(row(&empty, 6).contains("text"));
     assert!(row(&empty, 8).trim_start().starts_with(text_placeholder));
-    assert!(row(&empty, 14).contains("Tags"));
-    assert!(row(&empty, 16).contains("Usage"));
+    assert!(row(&empty, 16).contains("Tags"));
+    assert!(row(&empty, 18).contains("Usage"));
     assert!(row(&empty, 25).trim().is_empty());
 
     type_text(&mut state, "gm");

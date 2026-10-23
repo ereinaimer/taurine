@@ -395,15 +395,14 @@ pub(crate) enum CreateHit {
     UsageToggle,
 }
 
-/// Properties content inside the create body. The split already
-/// supplies the left gutter, so only the right padding and the error
-/// row stay clear, matching the saved-trigger pane.
+/// Properties content inside the create body. Skip the header row and
+/// its one-line gap, and keep the right padding and error row clear.
 pub(crate) fn create_props_content(right: Rect) -> Rect {
     Rect {
         x: right.x,
-        y: right.y,
+        y: right.y.saturating_add(2),
         width: right.width.saturating_sub(3),
-        height: right.height.saturating_sub(1),
+        height: right.height.saturating_sub(3),
     }
 }
 
@@ -638,14 +637,14 @@ fn render_library_create_modal(
         );
     }
 
-    // Divider between the panes; never through the title row.
+    // Divider between the panes; start below the title and its gap.
     if left.width > 0
         && right.width > 0
         && divider > body.x
         && divider < body.x.saturating_add(body.width)
     {
-        let top = body.y.saturating_add(1);
-        let height = layout.footer.saturating_sub(1);
+        let top = body.y.saturating_add(2);
+        let height = layout.footer.saturating_sub(2);
         if height > 0 && top < bottom {
             let glyphs = vec![Line::from("│"); height as usize];
             frame.render_widget(
