@@ -30,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Snippet Syntax Highlighting**: The snippet body now colors script code and Taurine variables, transformers, and directives in both preview and editing, with mistakes shown in red.
 - **Full Script Language Highlighting**: Bash, PowerShell, Python, Node, and Cmd snippets all highlight accurately, including PowerShell cmdlets and variables.
 - **Delete Triggers**: Select a trigger and press Delete, then confirm Yes or No in the dialog. Clicking the buttons or pressing Esc works too.
-- **New Trigger Form**: Press Ctrl+N to create a trigger without leaving the library, with type/action pills under the trigger, in-field placeholders, script options, and a collapsible Advanced section for platform, tags, app filters, and auto-case.
+- **New Trigger Form**: Press Ctrl+N to create a trigger without leaving the library, with type/action pills under the trigger, in-field placeholders, script options, and the same configurable Properties pane as saved triggers.
 
 ### Changed
 - **Inline Renaming**: Click the trigger at the top of the detail pane to edit the actual trigger text in place. Enter saves, switching triggers saves automatically.

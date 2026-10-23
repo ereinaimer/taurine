@@ -269,7 +269,7 @@ pub(crate) const CREATE_RIGHT_WIDTH: u16 = 34;
 /// Gap between the divider and the right pane.
 const CREATE_GUTTER_WIDTH: u16 = 2;
 
-/// Split a create body into left content and right options with a
+/// Split a create body into left content and right properties with a
 /// static divider column between them. Returns the left rect, the
 /// absolute divider column, and the right rect; render, hover, and
 /// hit-testing all run off this.
@@ -299,60 +299,40 @@ pub(crate) fn create_split(body: Rect) -> (Rect, u16, Rect) {
 }
 
 /// Body-relative rows of the split create form. Left holds the
-/// trigger field, the type/action pills, and a flex content box; right
-/// holds script rows, the advanced toggle, and the advanced rows. The
-/// footer row stays reserved until the submit affordance returns;
-/// errors pin to the body bottom.
+/// trigger field, the type/action pills, optional script pills, and a
+/// flex content box; right is the shared properties pane. The footer
+/// row stays reserved until the submit affordance returns; errors pin
+/// to the body bottom.
 pub(crate) struct CreateLayout {
     pub(crate) box_first: u16,
     pub(crate) box_last: u16,
     pub(crate) footer: u16,
-    pub(crate) right_rows: Vec<(LibraryCreateModalField, u16)>,
 }
 
-pub(crate) fn create_layout(is_script: bool, expanded: bool, body_height: u16) -> CreateLayout {
-    use LibraryCreateModalField as Field;
-    // honey: type and action live in the pills under the trigger, so
-    // the right pane starts with script rows or the advanced toggle.
-    let mut right_rows = Vec::new();
-    let mut next = 2u16;
-    if is_script {
-        right_rows.push((Field::Interpreter, next));
-        next += 2;
-        right_rows.push((Field::Behavior, next));
-        next += 2;
-    }
-    right_rows.push((Field::AdvancedToggle, next));
-    next += 2;
-    if expanded {
-        for field in [
-            Field::AutoCase,
-            Field::Tags,
-            Field::Allow,
-            Field::Block,
-            Field::Os,
-        ] {
-            right_rows.push((field, next));
-            next += 2;
-        }
-    }
+pub(crate) fn create_layout(is_script: bool, body_height: u16) -> CreateLayout {
     // honey: the old button row stays reserved; the content box flexes
     // between the pills and that footer row.
     let footer = body_height.saturating_sub(2);
+    let box_first = if is_script {
+        CREATE_SCRIPT_CONTENT_FIRST_ROW
+    } else {
+        CREATE_CONTENT_FIRST_ROW
+    };
     CreateLayout {
-        box_first: CREATE_CONTENT_FIRST_ROW,
+        box_first,
         box_last: footer.saturating_sub(2),
         footer,
-        right_rows,
     }
 }
 
 /// Left-pane rows, shared by rendering and hit-testing: title, blank,
 /// trigger field, blank, type/action pills, blank, then the flex
-/// content box.
+/// content box. Scripts add a second pill row and push the box down.
 pub(crate) const CREATE_TRIGGER_FIELD_ROW: u16 = 2;
 pub(crate) const CREATE_PILLS_ROW: u16 = 4;
 pub(crate) const CREATE_CONTENT_FIRST_ROW: u16 = 6;
+pub(crate) const CREATE_SCRIPT_PILLS_ROW: u16 = 6;
+pub(crate) const CREATE_SCRIPT_CONTENT_FIRST_ROW: u16 = 8;
 
 /// Placeholder copy shown inside the empty create fields.
 pub(crate) const CREATE_TRIGGER_PLACEHOLDER: &str = "Trigger";
@@ -378,6 +358,30 @@ fn create_pill_labels(state: &LibraryCreateModalState) -> Vec<String> {
     ]
 }
 
+/// Script pills under the type/action pair: interpreter and behavior.
+fn create_script_pill_labels(state: &LibraryCreateModalState) -> Vec<String> {
+    vec![
+        state.interpreter_label().to_string(),
+        state.behavior_label().to_string(),
+    ]
+}
+
+fn create_pill_focus(state: &LibraryCreateModalState) -> Option<usize> {
+    match state.focus() {
+        LibraryCreateModalField::TriggerType => Some(0),
+        LibraryCreateModalField::Action => Some(1),
+        _ => None,
+    }
+}
+
+fn create_script_pill_focus(state: &LibraryCreateModalState) -> Option<usize> {
+    match state.focus() {
+        LibraryCreateModalField::Interpreter => Some(0),
+        LibraryCreateModalField::Behavior => Some(1),
+        _ => None,
+    }
+}
+
 /// Create popup at 90% of the terminal, like the settings overlay.
 /// Multiply-first math keeps the full 90% on sizes that truncate
 /// under divide-first integer math.
@@ -388,11 +392,44 @@ pub(crate) fn create_popup(area: Rect) -> Rect {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CreateHit {
     Field(LibraryCreateModalField),
+    UsageToggle,
+}
+
+/// Properties content inside the create body. The split already
+/// supplies the left gutter, so only the right padding and the error
+/// row stay clear, matching the saved-trigger pane.
+pub(crate) fn create_props_content(right: Rect) -> Rect {
+    Rect {
+        x: right.x,
+        y: right.y,
+        width: right.width.saturating_sub(3),
+        height: right.height.saturating_sub(1),
+    }
+}
+
+fn pill_hit(left: Rect, labels: &[String], column: u16) -> Option<usize> {
+    let rel_column = column.saturating_sub(left.x);
+    super::detail::button_layout(left.width, labels)
+        .into_iter()
+        .find(|cell| rel_column >= cell.x && rel_column < cell.x.saturating_add(cell.width))
+        .map(|cell| cell.index)
+}
+
+fn create_props_focus(field: LibraryCreateModalField) -> Option<super::props::PropsHit> {
+    use LibraryCreateModalField as Field;
+    match field {
+        Field::AutoCase => Some(super::props::PropsHit::AutoCase),
+        Field::Allow => Some(super::props::PropsHit::Allow),
+        Field::Block => Some(super::props::PropsHit::Block),
+        Field::Os => Some(super::props::PropsHit::Platform),
+        Field::Tags => Some(super::props::PropsHit::Tags),
+        _ => None,
+    }
 }
 
 /// Click on the create modal: field rows focus (picker rows also
-/// open), everything else is dead. Takes the draft since rows depend
-/// on its shape.
+/// open), properties rows open their pickers or flip in place, and the
+/// usage toggle expands. Takes the draft since rows depend on it.
 pub(crate) fn create_option_hit(
     draft: &LibraryCreateModalState,
     area: Rect,
@@ -411,30 +448,31 @@ pub(crate) fn create_option_hit(
     if column < body.x || column >= body.x.saturating_add(body.width) {
         return None;
     }
-    let layout = create_layout(is_script, draft.advanced_expanded(), body.height);
+    let layout = create_layout(is_script, body.height);
     let (left, divider, right) = create_split(body);
     let rel = row.saturating_sub(body.y);
     if column == divider {
         return None;
     }
     // honey: the trigger field and every content box row focus their
-    // editor; the pill row opens the type/action pickers. Blank gap
-    // rows stay dead.
+    // editor; the pill rows open their pickers. Blank gap rows stay
+    // dead.
     if column >= left.x && column < left.x.saturating_add(left.width) {
         return match rel {
             CREATE_TRIGGER_FIELD_ROW => Some(CreateHit::Field(LibraryCreateModalField::Trigger)),
             CREATE_PILLS_ROW => {
                 let labels = create_pill_labels(draft);
-                let rel_column = column.saturating_sub(left.x);
-                super::detail::button_layout(left.width, &labels)
-                    .into_iter()
-                    .find(|cell| {
-                        rel_column >= cell.x && rel_column < cell.x.saturating_add(cell.width)
-                    })
-                    .map(|cell| match cell.index {
-                        0 => CreateHit::Field(LibraryCreateModalField::TriggerType),
-                        _ => CreateHit::Field(LibraryCreateModalField::Action),
-                    })
+                pill_hit(left, &labels, column).map(|index| match index {
+                    0 => CreateHit::Field(LibraryCreateModalField::TriggerType),
+                    _ => CreateHit::Field(LibraryCreateModalField::Action),
+                })
+            }
+            CREATE_SCRIPT_PILLS_ROW if is_script => {
+                let labels = create_script_pill_labels(draft);
+                pill_hit(left, &labels, column).map(|index| match index {
+                    0 => CreateHit::Field(LibraryCreateModalField::Interpreter),
+                    _ => CreateHit::Field(LibraryCreateModalField::Behavior),
+                })
             }
             _ if rel >= layout.box_first && rel <= layout.box_last => {
                 Some(CreateHit::Field(LibraryCreateModalField::Content))
@@ -443,84 +481,53 @@ pub(crate) fn create_option_hit(
         };
     }
     if column >= right.x && column < right.x.saturating_add(right.width) {
-        return layout
-            .right_rows
-            .iter()
-            .find(|(_, y)| *y == rel)
-            .map(|(field, _)| CreateHit::Field(*field));
+        let item = draft.props_item();
+        return match super::props::hit_test_content(
+            create_props_content(right),
+            &item,
+            column,
+            row,
+        )? {
+            super::props::PropsHit::AutoCase => {
+                Some(CreateHit::Field(LibraryCreateModalField::AutoCase))
+            }
+            super::props::PropsHit::Allow => Some(CreateHit::Field(LibraryCreateModalField::Allow)),
+            super::props::PropsHit::Block => Some(CreateHit::Field(LibraryCreateModalField::Block)),
+            super::props::PropsHit::Platform => Some(CreateHit::Field(LibraryCreateModalField::Os)),
+            super::props::PropsHit::Tags => Some(CreateHit::Field(LibraryCreateModalField::Tags)),
+            super::props::PropsHit::UsageToggle => Some(CreateHit::UsageToggle),
+            super::props::PropsHit::Confirm => None,
+        };
     }
     None
 }
 
-/// Right-pane option row: dimmed label flush left, value flush
-/// right and bold on focus. No backgrounds anywhere; the caret and
-/// bold text carry the focus.
-fn render_create_option_row(
-    frame: &mut Frame,
-    row: Rect,
-    label: &str,
-    value: &str,
-    focused: bool,
-    theme: &Theme,
-) {
-    if row.width == 0 || row.height == 0 {
-        return;
-    }
-    let value_style = if focused {
-        Style::default().fg(theme.text).add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(theme.text)
-    };
-    let label_width = (label.chars().count() as u16).min(row.width);
-    let value_text = util::truncate_to_width(
-        value,
-        row.width.saturating_sub(label_width).saturating_sub(1),
-    );
-    let value_width = value_text.chars().count() as u16;
-    let gap = row
-        .width
-        .saturating_sub(label_width)
-        .saturating_sub(value_width);
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(label, Style::default().fg(theme.text_muted)),
-            Span::raw(" ".repeat(gap as usize)),
-            Span::styled(value_text, value_style),
-        ])),
-        row,
-    );
-}
-
-/// Type and action pills under the trigger, matching the saved-trigger
-/// header. The focused pill is bold; clicking either opens its picker.
-fn render_create_pills(
+/// One pill row under the trigger, matching the saved-trigger header.
+/// The focused pill is bold; clicking either opens its picker.
+fn render_create_pill_row(
     frame: &mut Frame,
     left: Rect,
-    body: Rect,
+    y: u16,
+    bottom: u16,
     theme: &Theme,
-    state: &LibraryCreateModalState,
+    labels: &[String],
+    focused: Option<usize>,
 ) {
-    let y = body.y.saturating_add(CREATE_PILLS_ROW);
-    if left.width == 0 || y >= body.y.saturating_add(body.height) {
+    if left.width == 0 || y >= bottom {
         return;
     }
-    let labels = create_pill_labels(state);
     let mut spans: Vec<Span<'static>> = Vec::new();
     let mut cursor = 0u16;
-    for cell in super::detail::button_layout(left.width, &labels) {
+    for cell in super::detail::button_layout(left.width, labels) {
         if cell.x > cursor {
             spans.push(Span::raw(
                 " ".repeat(cell.x.saturating_sub(cursor) as usize),
             ));
         }
-        let focused = match cell.index {
-            0 => state.focus() == LibraryCreateModalField::TriggerType,
-            _ => state.focus() == LibraryCreateModalField::Action,
-        };
         let mut style = Style::default()
             .fg(theme.button.text)
             .bg(theme.button.inactive_bg);
-        if focused {
+        if focused == Some(cell.index) {
             style = style.add_modifier(Modifier::BOLD);
         }
         spans.push(Span::styled(
@@ -549,7 +556,6 @@ fn render_library_create_modal(
     use ratatui::style::Color::Rgb;
 
     let is_script = !state.is_text_action();
-    let expanded = state.advanced_expanded();
     let popup = create_popup(area);
     frame.render_widget(Clear, popup);
     // honey: flat borderless fill, the shared overlay language.
@@ -562,13 +568,14 @@ fn render_library_create_modal(
         return;
     }
     util::render_overlay_title(frame, body, theme, "New Trigger");
-    let layout = create_layout(is_script, expanded, body.height);
+    let layout = create_layout(is_script, body.height);
     let bottom = body.y.saturating_add(body.height);
     let focused = state.focus();
     let (left, divider, right) = create_split(body);
 
-    // Left pane: trigger field, type/action pills, then the content
-    // box. Empty fields show their prompt in place.
+    // Left pane: trigger field, type/action pills, optional script
+    // pills, then the content box. Empty fields show their prompt in
+    // place.
     if left.width > 0 {
         let input_y = body.y.saturating_add(CREATE_TRIGGER_FIELD_ROW);
         if input_y < bottom {
@@ -596,104 +603,39 @@ fn render_library_create_modal(
                 frame.set_cursor_position((cx, cy));
             }
         }
-        render_create_pills(frame, left, body, theme, state);
+        render_create_pill_row(
+            frame,
+            left,
+            body.y.saturating_add(CREATE_PILLS_ROW),
+            bottom,
+            theme,
+            &create_pill_labels(state),
+            create_pill_focus(state),
+        );
+        if is_script {
+            render_create_pill_row(
+                frame,
+                left,
+                body.y.saturating_add(CREATE_SCRIPT_PILLS_ROW),
+                bottom,
+                theme,
+                &create_script_pill_labels(state),
+                create_script_pill_focus(state),
+            );
+        }
     }
-    // Right pane: script rows, advanced toggle, and advanced rows
-    // share one row rect each.
-    for (field, rel_y) in &layout.right_rows {
-        let y = body.y.saturating_add(*rel_y);
-        if y >= bottom || right.width == 0 {
-            continue;
-        }
-        let row = Rect {
-            x: right.x,
-            y,
-            width: right.width,
-            height: 1,
-        };
-        let is_focused = focused == *field;
-        match field {
-            LibraryCreateModalField::Interpreter => {
-                render_create_option_row(
-                    frame,
-                    row,
-                    "Language",
-                    state.interpreter_label(),
-                    is_focused,
-                    theme,
-                );
-            }
-            LibraryCreateModalField::Behavior => {
-                render_create_option_row(
-                    frame,
-                    row,
-                    "Behavior",
-                    state.behavior_label(),
-                    is_focused,
-                    theme,
-                );
-            }
-            LibraryCreateModalField::Os => {
-                render_create_option_row(frame, row, "OS", state.target_os(), is_focused, theme);
-            }
-            LibraryCreateModalField::AdvancedToggle => {
-                let chevron = if expanded {
-                    super::icons::CHEVRON_UP
-                } else {
-                    super::icons::CHEVRON_DOWN
-                };
-                let style = if is_focused {
-                    Style::default().fg(theme.text).add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(theme.text_muted)
-                };
-                frame.render_widget(
-                    Paragraph::new(Line::from(vec![Span::styled(
-                        format!("{chevron} Advanced Options"),
-                        style,
-                    )])),
-                    row,
-                );
-            }
-            LibraryCreateModalField::AutoCase => {
-                render_create_option_row(
-                    frame,
-                    row,
-                    "Auto case",
-                    if state.auto_case() { "on" } else { "off" },
-                    is_focused,
-                    theme,
-                );
-            }
-            LibraryCreateModalField::Tags => {
-                let summary = if state.tags().is_empty() {
-                    super::detail::EMPTY_TOKEN.to_string()
-                } else {
-                    state.tags().join(", ")
-                };
-                render_create_option_row(frame, row, "Tags", &summary, is_focused, theme);
-            }
-            LibraryCreateModalField::Allow => {
-                let summary = if state.allow_apps().is_empty() {
-                    super::detail::EMPTY_TOKEN.to_string()
-                } else {
-                    state.allow_apps().join(", ")
-                };
-                render_create_option_row(frame, row, "Allow on", &summary, is_focused, theme);
-            }
-            LibraryCreateModalField::Block => {
-                let summary = if state.block_apps().is_empty() {
-                    super::detail::EMPTY_TOKEN.to_string()
-                } else {
-                    state.block_apps().join(", ")
-                };
-                render_create_option_row(frame, row, "Block on", &summary, is_focused, theme);
-            }
-            LibraryCreateModalField::Trigger
-            | LibraryCreateModalField::Content
-            | LibraryCreateModalField::TriggerType
-            | LibraryCreateModalField::Action => {}
-        }
+    // Right pane: the same properties renderer the saved-trigger
+    // detail view uses, fed by the draft view model.
+    if right.width > 0 {
+        let item = state.props_item();
+        super::props::render_props_content(
+            frame,
+            create_props_content(right),
+            theme,
+            &item,
+            state.usage_expanded(),
+            create_props_focus(focused),
+        );
     }
 
     // Divider between the panes; never through the title row.

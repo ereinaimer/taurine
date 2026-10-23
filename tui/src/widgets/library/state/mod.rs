@@ -1003,10 +1003,6 @@ impl LibraryPageState {
             Field::Tags => self.open_tags_for_create(*draft),
             Field::Allow => self.open_app_filter_for_create(*draft, AppFilterSide::Allow),
             Field::Block => self.open_app_filter_for_create(*draft, AppFilterSide::Block),
-            Field::AdvancedToggle => {
-                draft.toggle_advanced();
-                self.modal = Some(LibraryModal::Create(draft));
-            }
             Field::AutoCase => {
                 draft.toggle_auto_case();
                 self.modal = Some(LibraryModal::Create(draft));
@@ -1019,6 +1015,14 @@ impl LibraryPageState {
             }
         }
         LibraryInteraction::handled()
+    }
+
+    /// Expand or collapse the draft's usage section without leaving
+    /// the create form.
+    pub(crate) fn toggle_create_usage(&mut self) {
+        if let Some(LibraryModal::Create(draft)) = self.modal.as_mut() {
+            draft.toggle_usage();
+        }
     }
 
     /// Confirm the open delete modal, mirroring the Enter key: Yes

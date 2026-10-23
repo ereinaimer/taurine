@@ -4284,7 +4284,7 @@ fn create_modal_opens_with_sane_defaults() {
     assert_eq!(create.trigger_type(), TriggerType::Word);
     assert!(create.is_text_action());
     assert_eq!(create.target_os(), "all");
-    assert!(!create.advanced_expanded());
+    assert!(!create.usage_expanded());
     assert!(!create.auto_case());
     assert!(create.tags().is_empty());
     assert!(create.allow_apps().is_empty());
@@ -4399,16 +4399,8 @@ fn create_header_menu_esc_returns_draft_unchanged() {
 #[test]
 fn create_os_row_pick_applies_to_draft() {
     let mut state = open_create_state();
-    // Os lives at the end of the expanded Advanced section.
-    for _ in 0..3 {
-        state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    }
-    assert_eq!(
-        create_modal(&state).focus(),
-        LibraryCreateModalField::AdvancedToggle
-    );
-    state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    for _ in 0..5 {
+    // Trigger, Content, Action, Auto case, Allow, Block, then Platform.
+    for _ in 0..6 {
         state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     }
     assert_eq!(create_modal(&state).focus(), LibraryCreateModalField::Os);
@@ -4428,26 +4420,43 @@ fn create_os_row_pick_applies_to_draft() {
 }
 
 #[test]
-fn create_advanced_toggle_expands_and_autocase_flips() {
+fn create_autocase_property_flips_in_place() {
     let mut state = open_create_state();
+    // Trigger, Content, Action, then Auto case.
     for _ in 0..3 {
         state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     }
     assert_eq!(
         create_modal(&state).focus(),
-        LibraryCreateModalField::AdvancedToggle
-    );
-
-    state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    assert!(create_modal(&state).advanced_expanded());
-
-    state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    assert_eq!(
-        create_modal(&state).focus(),
         LibraryCreateModalField::AutoCase
     );
+
     state.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
     assert!(create_modal(&state).auto_case());
+}
+
+#[test]
+fn create_properties_view_reflects_draft_values() {
+    let mut state = open_create_state();
+    type_text(&mut state, "gm");
+    state.click_create_field(LibraryCreateModalField::AutoCase);
+
+    let item = create_modal(&state).props_item();
+    assert_eq!(item.trigger(), "gm");
+    assert!(item.auto_case());
+    assert_eq!(item.target_os, "all");
+    assert!(item.tags().is_empty());
+    assert!(item.only_apps().is_none());
+    assert!(item.except_apps().is_none());
+}
+
+#[test]
+fn create_usage_toggle_expands_draft_history() {
+    let mut state = open_create_state();
+    state.toggle_create_usage();
+    assert!(create_modal(&state).usage_expanded());
+    state.toggle_create_usage();
+    assert!(!create_modal(&state).usage_expanded());
 }
 
 #[test]
@@ -4506,7 +4515,8 @@ fn create_split_panes_share_body_width() {
 fn create_option_hit_selects_fields() {
     // 90% popup on 100x30 is 90x27 at (5,1); body starts at
     // (8,2): title 0, blank 1, trigger field 2, blank 3, pills 4,
-    // blank 5, content from 6; the footer row on 25 is dead.
+    // blank 5, content from 6; the footer row on 25 is dead. The right
+    // pane is the properties list, starting at x=58.
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
 
     assert_eq!(
@@ -4529,12 +4539,54 @@ fn create_option_hit_selects_fields() {
     );
     assert_eq!(
         modals::create_option_hit(&sample_create_modal(), area, 70, 4),
-        Some(modals::CreateHit::Field(
-            LibraryCreateModalField::AdvancedToggle
-        ))
+        Some(modals::CreateHit::Field(LibraryCreateModalField::AutoCase))
+    );
+    assert_eq!(
+        modals::create_option_hit(&sample_create_modal(), area, 70, 6),
+        Some(modals::CreateHit::Field(LibraryCreateModalField::Allow))
+    );
+    assert_eq!(
+        modals::create_option_hit(&sample_create_modal(), area, 70, 8),
+        Some(modals::CreateHit::Field(LibraryCreateModalField::Block))
+    );
+    assert_eq!(
+        modals::create_option_hit(&sample_create_modal(), area, 70, 12),
+        Some(modals::CreateHit::Field(LibraryCreateModalField::Os))
+    );
+    assert_eq!(
+        modals::create_option_hit(&sample_create_modal(), area, 70, 14),
+        Some(modals::CreateHit::Field(LibraryCreateModalField::Tags))
+    );
+    assert_eq!(
+        modals::create_option_hit(&sample_create_modal(), area, 70, 16),
+        Some(modals::CreateHit::UsageToggle)
+    );
+    assert_eq!(
+        modals::create_option_hit(&sample_create_modal(), area, 70, 10),
+        None
+    );
+    assert_eq!(
+        modals::create_option_hit(&sample_create_modal(), area, 70, 18),
+        None
     );
     assert_eq!(
         modals::create_option_hit(&sample_create_modal(), area, 10, 8),
+        Some(modals::CreateHit::Field(LibraryCreateModalField::Content))
+    );
+    let mut script = sample_create_modal();
+    script.toggle_action();
+    assert_eq!(
+        modals::create_option_hit(&script, area, 10, 8),
+        Some(modals::CreateHit::Field(
+            LibraryCreateModalField::Interpreter
+        ))
+    );
+    assert_eq!(
+        modals::create_option_hit(&script, area, 20, 8),
+        Some(modals::CreateHit::Field(LibraryCreateModalField::Behavior))
+    );
+    assert_eq!(
+        modals::create_option_hit(&script, area, 10, 10),
         Some(modals::CreateHit::Field(LibraryCreateModalField::Content))
     );
     assert_eq!(
@@ -4620,9 +4672,13 @@ fn create_form_renders_placeholders_and_stacked_pickers() {
             .starts_with(modals::CREATE_TRIGGER_PLACEHOLDER)
     );
     assert_eq!(empty[(8, 4)].fg, DARK_THEME.text_muted);
+    assert!(row(&empty, 2).contains("Properties"));
+    assert!(row(&empty, 4).contains("Auto case"));
     assert!(row(&empty, 6).contains("word"));
     assert!(row(&empty, 6).contains("text"));
     assert!(row(&empty, 8).trim_start().starts_with(text_placeholder));
+    assert!(row(&empty, 14).contains("Tags"));
+    assert!(row(&empty, 16).contains("Usage"));
     assert!(row(&empty, 25).trim().is_empty());
 
     type_text(&mut state, "gm");
@@ -4644,8 +4700,10 @@ fn create_form_renders_placeholders_and_stacked_pickers() {
     script.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     script.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
     let script_buffer = draw(&script);
+    assert!(row(&script_buffer, 8).contains("bash"));
+    assert!(row(&script_buffer, 8).contains("inline"));
     assert!(
-        row(&script_buffer, 8)
+        row(&script_buffer, 10)
             .trim_start()
             .starts_with(modals::create_content_placeholder(false))
     );
@@ -4717,13 +4775,11 @@ fn create_tags_esc_returns_to_draft() {
 #[test]
 fn create_tags_row_enter_opens_picker_with_draft() {
     let mut state = open_create_state();
-    // Trigger, Content, Action, AdvancedToggle, then expand.
-    for _ in 0..3 {
+    // Trigger, Content, Action, Auto case, Allow, Block, Platform, then
+    // Tags.
+    for _ in 0..7 {
         state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     }
-    state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     assert_eq!(create_modal(&state).focus(), LibraryCreateModalField::Tags);
 
     state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));

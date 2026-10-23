@@ -30,15 +30,29 @@ pub(crate) fn render_props(
     state: &crate::widgets::library::state::LibraryPageState,
 ) {
     let content = props_content(area, state.split_ratio(), state.detail_ratio());
-    if content.width == 0 || content.height == 0 {
-        return;
-    }
     let Some(index) = state.selected_index() else {
         return;
     };
     let Some(item) = state.item_at_filtered(index) else {
         return;
     };
+    render_props_content(frame, content, theme, item, state.usage_expanded(), None);
+}
+
+/// Render the properties pane for an explicit item and content rect.
+/// The create form reuses this with a draft view model so both panes
+/// stay identical.
+pub(crate) fn render_props_content(
+    frame: &mut Frame,
+    content: Rect,
+    theme: &Theme,
+    item: &LibraryTrigger,
+    usage_expanded: bool,
+    focused: Option<PropsHit>,
+) {
+    if content.width == 0 || content.height == 0 {
+        return;
+    }
 
     frame.render_widget(
         Paragraph::new(Span::styled(
@@ -76,7 +90,8 @@ pub(crate) fn render_props(
         if offset >= content.height {
             break;
         }
-        render_row(frame, content, theme, offset, label, value);
+        let is_focused = row_focus(label).is_some_and(|hit| focused == Some(hit));
+        render_row(frame, content, theme, offset, label, value, is_focused);
     }
     let tags_at = usage_toggle_offset(item)
         .saturating_add(alias_extra)
@@ -89,15 +104,30 @@ pub(crate) fn render_props(
     // honey: wrapped tag lines push the usage toggle down, mirroring aliases.
     let tag_extra = tag_text.len().saturating_sub(1) as u16;
     if tags_at < content.height {
-        render_tag_block(frame, content, theme, item, &tag_text, tags_at);
+        render_tag_block(
+            frame,
+            content,
+            theme,
+            item,
+            &tag_text,
+            tags_at,
+            focused == Some(PropsHit::Tags),
+        );
     }
     let toggle_at = usage_toggle_offset(item)
         .saturating_add(alias_extra)
         .saturating_add(tag_extra);
     if toggle_at < content.height {
-        render_toggle(frame, content, theme, toggle_at, state.usage_expanded());
+        render_toggle(
+            frame,
+            content,
+            theme,
+            toggle_at,
+            usage_expanded,
+            focused == Some(PropsHit::UsageToggle),
+        );
     }
-    if state.usage_expanded() {
+    if usage_expanded {
         for (position, (label, value)) in rows.iter().skip(split_at).enumerate() {
             let offset = toggle_at
                 .saturating_add(2)
@@ -105,8 +135,20 @@ pub(crate) fn render_props(
             if offset >= content.height {
                 break;
             }
-            render_row(frame, content, theme, offset, label, value);
+            render_row(frame, content, theme, offset, label, value, false);
         }
+    }
+}
+
+/// Which property row a focused create-form field points at.
+fn row_focus(label: &str) -> Option<PropsHit> {
+    match label {
+        "Auto case" => Some(PropsHit::AutoCase),
+        "Confirm" => Some(PropsHit::Confirm),
+        "Allow on" => Some(PropsHit::Allow),
+        "Block on" => Some(PropsHit::Block),
+        "Platform" => Some(PropsHit::Platform),
+        _ => None,
     }
 }
 
@@ -182,6 +224,7 @@ fn render_tag_block(
     item: &LibraryTrigger,
     lines: &[String],
     offset: u16,
+    focused: bool,
 ) {
     // honey: color follows the tag's position, matching the tags
     // overlay; the empty token and the overflow marker stay neutral.
@@ -204,12 +247,16 @@ fn render_tag_block(
         } else {
             tag_color(theme, index)
         };
+        let mut style = Style::default().fg(color);
+        if focused {
+            style = style.add_modifier(Modifier::BOLD);
+        }
         if index == 0 {
             let width = line.chars().count();
             frame.render_widget(
                 Paragraph::new(edge_line(
                     "Tags",
-                    vec![Span::styled(line.clone(), Style::default().fg(color))],
+                    vec![Span::styled(line.clone(), style)],
                     width,
                     row.width,
                     theme,
@@ -221,20 +268,31 @@ fn render_tag_block(
             // mirroring the alias block.
             let pad = content.width.saturating_sub(line.chars().count() as u16) as usize;
             frame.render_widget(
-                Paragraph::new(Line::from(format!("{}{}", " ".repeat(pad), line)))
-                    .style(Style::default().fg(color)),
+                Paragraph::new(Line::from(format!("{}{}", " ".repeat(pad), line))).style(style),
                 row,
             );
         }
     }
 }
 
-fn render_toggle(frame: &mut Frame, content: Rect, theme: &Theme, offset: u16, expanded: bool) {
+fn render_toggle(
+    frame: &mut Frame,
+    content: Rect,
+    theme: &Theme,
+    offset: u16,
+    expanded: bool,
+    focused: bool,
+) {
     use crate::widgets::library::icons::{CHEVRON_DOWN, CHEVRON_UP};
     let chevron = if expanded { CHEVRON_UP } else { CHEVRON_DOWN };
     let label = format!("Usage {chevron}");
+    let style = if focused {
+        Style::default().fg(theme.text).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme.text)
+    };
     frame.render_widget(
-        Paragraph::new(label).style(Style::default().fg(theme.text)),
+        Paragraph::new(label).style(style),
         Rect {
             x: content.x,
             y: content.y.saturating_add(offset),
@@ -251,6 +309,7 @@ fn render_row(
     offset: u16,
     label: &str,
     value: &str,
+    focused: bool,
 ) {
     let row = Rect {
         x: content.x,
@@ -260,10 +319,14 @@ fn render_row(
     };
     let value = util::truncate_to_width(value, edge_value_width(label, row.width));
     let width = value.chars().count();
+    let mut style = Style::default().fg(theme.text);
+    if focused {
+        style = style.add_modifier(Modifier::BOLD);
+    }
     frame.render_widget(
         Paragraph::new(edge_line(
             label,
-            vec![Span::styled(value, Style::default().fg(theme.text))],
+            vec![Span::styled(value, style)],
             width,
             row.width,
             theme,
@@ -300,14 +363,25 @@ pub(crate) fn hit_test(
     row: u16,
 ) -> Option<PropsHit> {
     let content = props_content(area, list_ratio, props_ratio);
+    let selected = state.selected_index()?;
+    let item = state.item_at_filtered(selected)?;
+    hit_test_content(content, item, column, row)
+}
+
+/// Hit-test an explicit properties content rect, shared with the
+/// create form's draft view.
+pub(crate) fn hit_test_content(
+    content: Rect,
+    item: &LibraryTrigger,
+    column: u16,
+    row: u16,
+) -> Option<PropsHit> {
     if content.width == 0 || content.height == 0 {
         return None;
     }
     if column < content.x || column >= content.x.saturating_add(content.width) {
         return None;
     }
-    let selected = state.selected_index()?;
-    let item = state.item_at_filtered(selected)?;
     let extra = alias_extra_lines(item, content.width);
     for (label, hit) in [
         ("Auto case", PropsHit::AutoCase),

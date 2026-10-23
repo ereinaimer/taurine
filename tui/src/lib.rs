@@ -597,8 +597,8 @@ fn handle_tui_mouse_event(
                 return;
             }
             // honey: the create form owns its clicks: field rows focus
-            // (picker rows open their menus), Create submits,
-            // outside clicks are dead like other forms.
+            // (picker rows open their menus), properties rows configure
+            // the draft, and outside clicks are dead like other forms.
             if let Some(library::LibraryModal::Create(draft)) = app.library_page().modal() {
                 let layout = terminal::mouse::frame_layout(area);
                 let full = terminal::mouse::library_full_area(layout.page);
@@ -606,6 +606,9 @@ fn handle_tui_mouse_event(
                     Some(library::modals::CreateHit::Field(field)) => {
                         let interaction = app.library_page_mut().click_create_field(field);
                         apply_library_interaction(app, interaction);
+                    }
+                    Some(library::modals::CreateHit::UsageToggle) => {
+                        app.library_page_mut().toggle_create_usage();
                     }
                     None => {}
                 }

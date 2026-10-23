@@ -4,14 +4,13 @@ use taurine_core::db::crud::{ActionType, TriggerType, prepare_trigger_with_type}
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 
 use crate::widgets::field::TextField;
-use crate::widgets::library::actions::PendingLibraryCreate;
+use crate::widgets::library::actions::{PendingLibraryCreate, join_app_filters};
 use crate::widgets::textarea::TextArea;
 
 use super::HeaderMenuKind;
 
 /// Focus order in the create modal. Interpreter and Behavior only
-/// take focus for script actions; the advanced rows only when the
-/// advanced section is expanded.
+/// take focus for script actions; the properties rows always do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LibraryCreateModalField {
     TriggerType,
@@ -21,7 +20,6 @@ pub(crate) enum LibraryCreateModalField {
     Interpreter,
     Behavior,
     Os,
-    AdvancedToggle,
     AutoCase,
     Tags,
     Allow,
@@ -53,7 +51,7 @@ pub(crate) struct LibraryCreateModalState {
     interpreter: ScriptInterpreter,
     behavior: ScriptBehavior,
     target_os: String,
-    advanced_expanded: bool,
+    usage_expanded: bool,
     auto_case: bool,
     tags: Vec<String>,
     allow_apps: Vec<String>,
@@ -76,7 +74,7 @@ impl LibraryCreateModalState {
             interpreter: ScriptInterpreter::Bash,
             behavior: ScriptBehavior::Inline,
             target_os: TargetOs::All.to_db_str().to_string(),
-            advanced_expanded: false,
+            usage_expanded: false,
             auto_case: false,
             tags: Vec::new(),
             allow_apps: Vec::new(),
@@ -149,10 +147,11 @@ impl LibraryCreateModalState {
         &self.target_os
     }
 
-    pub(crate) const fn advanced_expanded(&self) -> bool {
-        self.advanced_expanded
+    pub(crate) const fn usage_expanded(&self) -> bool {
+        self.usage_expanded
     }
 
+    #[cfg(test)]
     pub(crate) const fn auto_case(&self) -> bool {
         self.auto_case
     }
@@ -189,8 +188,8 @@ impl LibraryCreateModalState {
         self.error = Some(error);
     }
 
-    pub(crate) fn toggle_advanced(&mut self) {
-        self.advanced_expanded = !self.advanced_expanded;
+    pub(crate) fn toggle_usage(&mut self) {
+        self.usage_expanded = !self.usage_expanded;
         self.error = None;
     }
 
@@ -199,12 +198,27 @@ impl LibraryCreateModalState {
         self.error = None;
     }
 
+    /// View model for the shared properties pane. Draft values feed
+    /// the same rows saved triggers use; history stays empty until the
+    /// trigger is created.
+    pub(crate) fn props_item(&self) -> super::LibraryTrigger {
+        super::LibraryTrigger::props_draft(
+            self.trigger.text().to_string(),
+            self.target_os.clone(),
+            self.tags.clone(),
+            (!self.allow_apps.is_empty()).then(|| join_app_filters(&self.allow_apps)),
+            (!self.block_apps.is_empty()).then(|| join_app_filters(&self.block_apps)),
+            self.auto_case,
+            !self.is_text_action(),
+        )
+    }
+
     pub(crate) fn toggle_action(&mut self) {
         self.cycle_action();
     }
 
-    /// Focusable rows right now: script rows only for scripts, the
-    /// advanced rows only while expanded.
+    /// Focusable rows right now: script rows only for scripts; the
+    /// properties rows always, in pane order.
     pub(crate) fn visible_fields(&self) -> Vec<LibraryCreateModalField> {
         use LibraryCreateModalField as Field;
         let mut fields = vec![
@@ -217,14 +231,13 @@ impl LibraryCreateModalState {
             fields.push(Field::Interpreter);
             fields.push(Field::Behavior);
         }
-        fields.push(Field::AdvancedToggle);
-        if self.advanced_expanded {
-            fields.push(Field::AutoCase);
-            fields.push(Field::Tags);
-            fields.push(Field::Allow);
-            fields.push(Field::Block);
-            fields.push(Field::Os);
-        }
+        fields.extend([
+            Field::AutoCase,
+            Field::Allow,
+            Field::Block,
+            Field::Os,
+            Field::Tags,
+        ]);
         fields
     }
 
@@ -399,13 +412,6 @@ impl LibraryCreateModalState {
                 }
                 (KeyCode::Left | KeyCode::Right, KeyModifiers::NONE) => {
                     self.toggle_action();
-                    CreateKeyOutcome::Handled
-                }
-                _ => CreateKeyOutcome::Handled,
-            },
-            LibraryCreateModalField::AdvancedToggle => match (key.code, key.modifiers) {
-                (KeyCode::Enter | KeyCode::Char(' '), KeyModifiers::NONE) => {
-                    self.toggle_advanced();
                     CreateKeyOutcome::Handled
                 }
                 _ => CreateKeyOutcome::Handled,

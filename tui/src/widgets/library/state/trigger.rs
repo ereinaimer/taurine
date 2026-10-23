@@ -211,6 +211,46 @@ impl LibraryTrigger {
         }
     }
 
+    /// Lightweight view model for the properties pane. A draft has no
+    /// stored history or aliases, so those fields stay empty.
+    pub(crate) fn props_draft(
+        trigger: String,
+        target_os: String,
+        tags: Vec<String>,
+        only_apps: Option<String>,
+        except_apps: Option<String>,
+        auto_case: bool,
+        is_script: bool,
+    ) -> Self {
+        Self {
+            id: String::new(),
+            trigger,
+            preview: String::new(),
+            content: String::new(),
+            kind: if is_script {
+                LibraryKind::TextScript
+            } else {
+                LibraryKind::TextTrigger
+            },
+            target_os,
+            invocation: InvocationType::Word,
+            aliases: Vec::new(),
+            description: None,
+            tags,
+            only_apps,
+            except_apps,
+            auto_case,
+            is_enabled: true,
+            require_confirmation: false,
+            usage_count: 0,
+            last_used_at: None,
+            created_at: 0,
+            interpreter: None,
+            behavior: None,
+            search_text: String::new(),
+        }
+    }
+
     // honey: unreachable until the shortcut rework lands; kept with tests.
     #[allow(dead_code)]
     pub(crate) fn id(&self) -> &str {
