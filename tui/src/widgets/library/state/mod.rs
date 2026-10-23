@@ -1017,14 +1017,6 @@ impl LibraryPageState {
         LibraryInteraction::handled()
     }
 
-    /// Expand or collapse the draft's usage section without leaving
-    /// the create form.
-    pub(crate) fn toggle_create_usage(&mut self) {
-        if let Some(LibraryModal::Create(draft)) = self.modal.as_mut() {
-            draft.toggle_usage();
-        }
-    }
-
     /// Confirm the open delete modal, mirroring the Enter key: Yes
     /// yields the pending delete, No closes the modal.
     pub(crate) fn confirm_delete(&mut self) -> LibraryInteraction {

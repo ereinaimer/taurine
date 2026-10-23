@@ -4284,7 +4284,6 @@ fn create_modal_opens_with_sane_defaults() {
     assert_eq!(create.trigger_type(), TriggerType::Word);
     assert!(create.is_text_action());
     assert_eq!(create.target_os(), "all");
-    assert!(!create.usage_expanded());
     assert!(!create.auto_case());
     assert!(create.tags().is_empty());
     assert!(create.allow_apps().is_empty());
@@ -4451,15 +4450,6 @@ fn create_properties_view_reflects_draft_values() {
 }
 
 #[test]
-fn create_usage_toggle_expands_draft_history() {
-    let mut state = open_create_state();
-    state.toggle_create_usage();
-    assert!(create_modal(&state).usage_expanded());
-    state.toggle_create_usage();
-    assert!(!create_modal(&state).usage_expanded());
-}
-
-#[test]
 fn create_action_row_cycles_to_script_and_reveals_script_rows() {
     let mut state = open_create_state();
     for _ in 0..2 {
@@ -4500,15 +4490,15 @@ fn create_script_build_defaults_interpreter_and_behavior() {
 }
 
 #[test]
-fn create_split_panes_share_body_width() {
-    // 94-wide body: left 58, divider, gap, right 34.
+fn create_split_panes_split_evenly() {
+    // 94-wide body: 47 columns each side, with the divider on the split.
     let body = ratatui::layout::Rect::new(3, 9, 94, 12);
 
     let (left, divider, right) = modals::create_split(body);
 
-    assert_eq!(left, ratatui::layout::Rect::new(3, 9, 58, 12));
-    assert_eq!(divider, 61);
-    assert_eq!(right, ratatui::layout::Rect::new(63, 9, 34, 12));
+    assert_eq!(left, ratatui::layout::Rect::new(3, 9, 47, 12));
+    assert_eq!(divider, 50);
+    assert_eq!(right, ratatui::layout::Rect::new(50, 9, 47, 12));
 }
 
 #[test]
@@ -4516,7 +4506,7 @@ fn create_option_hit_selects_fields() {
     // 90% popup on 100x30 is 90x27 at (5,1); body starts at
     // (8,2): title 0, blank 1, trigger field 2, blank 3, pills 4,
     // blank 5, content from 6; the footer row on 25 is dead. The right
-    // pane is the properties list, starting at x=58.
+    // pane is the properties list, starting at x=50.
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
 
     assert_eq!(
@@ -4558,11 +4548,11 @@ fn create_option_hit_selects_fields() {
         Some(modals::CreateHit::Field(LibraryCreateModalField::Tags))
     );
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 70, 18),
-        Some(modals::CreateHit::UsageToggle)
+        modals::create_option_hit(&sample_create_modal(), area, 70, 12),
+        None
     );
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 70, 12),
+        modals::create_option_hit(&sample_create_modal(), area, 70, 18),
         None
     );
     assert_eq!(
@@ -4682,8 +4672,9 @@ fn create_form_renders_placeholders_and_stacked_pickers() {
     assert!(row(&empty, 6).contains("text"));
     assert!(row(&empty, 8).trim_start().starts_with(text_placeholder));
     assert!(row(&empty, 16).contains("Tags"));
-    assert!(row(&empty, 18).contains("Usage"));
-    assert!(row(&empty, 25).trim().is_empty());
+    assert!(!row(&empty, 18).contains("Usage"));
+    // The pane divider reaches the bottom edge of the overlay.
+    assert_eq!(empty[(50, 27)].symbol(), "│");
 
     type_text(&mut state, "gm");
     state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));

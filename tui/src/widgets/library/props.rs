@@ -36,18 +36,25 @@ pub(crate) fn render_props(
     let Some(item) = state.item_at_filtered(index) else {
         return;
     };
-    render_props_content(frame, content, theme, item, state.usage_expanded(), None);
+    render_props_content(
+        frame,
+        content,
+        theme,
+        item,
+        Some(state.usage_expanded()),
+        None,
+    );
 }
 
 /// Render the properties pane for an explicit item and content rect.
-/// The create form reuses this with a draft view model so both panes
-/// stay identical.
+/// The create form reuses this with a draft view model, hiding the
+/// usage section until the trigger exists.
 pub(crate) fn render_props_content(
     frame: &mut Frame,
     content: Rect,
     theme: &Theme,
     item: &LibraryTrigger,
-    usage_expanded: bool,
+    usage: Option<bool>,
     focused: Option<PropsHit>,
 ) {
     if content.width == 0 || content.height == 0 {
@@ -114,28 +121,30 @@ pub(crate) fn render_props_content(
             focused == Some(PropsHit::Tags),
         );
     }
-    let toggle_at = usage_toggle_offset(item)
-        .saturating_add(alias_extra)
-        .saturating_add(tag_extra);
-    if toggle_at < content.height {
-        render_toggle(
-            frame,
-            content,
-            theme,
-            toggle_at,
-            usage_expanded,
-            focused == Some(PropsHit::UsageToggle),
-        );
-    }
-    if usage_expanded {
-        for (position, (label, value)) in rows.iter().skip(split_at).enumerate() {
-            let offset = toggle_at
-                .saturating_add(2)
-                .saturating_add((position as u16).saturating_mul(2));
-            if offset >= content.height {
-                break;
+    if let Some(expanded) = usage {
+        let toggle_at = usage_toggle_offset(item)
+            .saturating_add(alias_extra)
+            .saturating_add(tag_extra);
+        if toggle_at < content.height {
+            render_toggle(
+                frame,
+                content,
+                theme,
+                toggle_at,
+                expanded,
+                focused == Some(PropsHit::UsageToggle),
+            );
+        }
+        if expanded {
+            for (position, (label, value)) in rows.iter().skip(split_at).enumerate() {
+                let offset = toggle_at
+                    .saturating_add(2)
+                    .saturating_add((position as u16).saturating_mul(2));
+                if offset >= content.height {
+                    break;
+                }
+                render_row(frame, content, theme, offset, label, value, false);
             }
-            render_row(frame, content, theme, offset, label, value, false);
         }
     }
 }
@@ -365,16 +374,18 @@ pub(crate) fn hit_test(
     let content = props_content(area, list_ratio, props_ratio);
     let selected = state.selected_index()?;
     let item = state.item_at_filtered(selected)?;
-    hit_test_content(content, item, column, row)
+    hit_test_content(content, item, column, row, true)
 }
 
 /// Hit-test an explicit properties content rect, shared with the
-/// create form's draft view.
+/// create form's draft view. The create form hides usage, so its
+/// toggle row stays dead.
 pub(crate) fn hit_test_content(
     content: Rect,
     item: &LibraryTrigger,
     column: u16,
     row: u16,
+    show_usage: bool,
 ) -> Option<PropsHit> {
     if content.width == 0 || content.height == 0 {
         return None;
@@ -417,13 +428,15 @@ pub(crate) fn hit_test_content(
     if row >= tags_base && row <= tags_end && row < content.y.saturating_add(content.height) {
         return Some(PropsHit::Tags);
     }
-    let toggle = content
-        .y
-        .saturating_add(usage_toggle_offset(item))
-        .saturating_add(extra)
-        .saturating_add(tag_extra_lines(item, content.width));
-    if row == toggle && row < content.y.saturating_add(content.height) {
-        return Some(PropsHit::UsageToggle);
+    if show_usage {
+        let toggle = content
+            .y
+            .saturating_add(usage_toggle_offset(item))
+            .saturating_add(extra)
+            .saturating_add(tag_extra_lines(item, content.width));
+        if row == toggle && row < content.y.saturating_add(content.height) {
+            return Some(PropsHit::UsageToggle);
+        }
     }
     None
 }

@@ -263,36 +263,23 @@ fn render_library_delete_modal(
 /// Tags cloud fallback width for keyboard-opened pickers, which
 /// never see a real body rect.
 pub(crate) const CREATE_BODY_WIDTH: u16 = 80;
-/// Left option column keeps this share when the body shrinks; the
-/// right column keeps a fixed readable width instead.
-pub(crate) const CREATE_RIGHT_WIDTH: u16 = 34;
-/// Gap between the divider and the right pane.
-const CREATE_GUTTER_WIDTH: u16 = 2;
 
-/// Split a create body into left content and right properties with a
-/// static divider column between them. Returns the left rect, the
-/// absolute divider column, and the right rect; render, hover, and
-/// hit-testing all run off this.
+/// Split a create body into equal left and right halves with the
+/// divider column on the middle line. Returns the left rect, the
+/// absolute divider column, and the right rect; render and hit-testing
+/// both run off this.
 pub(crate) fn create_split(body: Rect) -> (Rect, u16, Rect) {
-    let right_width = CREATE_RIGHT_WIDTH.min(body.width);
-    let left_width = body
-        .width
-        .saturating_sub(right_width)
-        .saturating_sub(CREATE_GUTTER_WIDTH);
+    let divider = body.x.saturating_add(body.width / 2);
     let left = Rect {
         x: body.x,
         y: body.y,
-        width: left_width,
+        width: divider.saturating_sub(body.x),
         height: body.height,
     };
-    let divider = body.x.saturating_add(left_width);
     let right = Rect {
-        x: divider.saturating_add(CREATE_GUTTER_WIDTH),
+        x: divider,
         y: body.y,
-        width: body
-            .width
-            .saturating_sub(left_width)
-            .saturating_sub(CREATE_GUTTER_WIDTH),
+        width: body.x.saturating_add(body.width).saturating_sub(divider),
         height: body.height,
     };
     (left, divider, right)
@@ -300,13 +287,11 @@ pub(crate) fn create_split(body: Rect) -> (Rect, u16, Rect) {
 
 /// Body-relative rows of the split create form. Left holds the
 /// trigger field, the type/action pills, optional script pills, and a
-/// flex content box; right is the shared properties pane. The footer
-/// row stays reserved until the submit affordance returns; errors pin
-/// to the body bottom.
+/// flex content box; right is the shared properties pane. The old
+/// submit row stays reserved; errors pin to the body bottom.
 pub(crate) struct CreateLayout {
     pub(crate) box_first: u16,
     pub(crate) box_last: u16,
-    pub(crate) footer: u16,
 }
 
 pub(crate) fn create_layout(is_script: bool, body_height: u16) -> CreateLayout {
@@ -321,7 +306,6 @@ pub(crate) fn create_layout(is_script: bool, body_height: u16) -> CreateLayout {
     CreateLayout {
         box_first,
         box_last: footer.saturating_sub(2),
-        footer,
     }
 }
 
@@ -389,19 +373,29 @@ pub(crate) fn create_popup(area: Rect) -> Rect {
     util::overlay_popup_sized(area.width * 9 / 10, area.height * 9 / 10, area)
 }
 
+/// Clicks on the scrim or the title's Esc hint dismiss the create form,
+/// matching the other overlays.
+pub(crate) fn create_dismiss_hit(area: Rect, column: u16, row: u16) -> bool {
+    let popup = create_popup(area);
+    if !crate::terminal::mouse::contains(popup, column, row) {
+        return true;
+    }
+    util::overlay_title_esc_hit(util::overlay_body(popup), column, row)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CreateHit {
     Field(LibraryCreateModalField),
-    UsageToggle,
 }
 
 /// Properties content inside the create body. Skip the header row and
-/// its one-line gap, and keep the right padding and error row clear.
+/// its one-line gap, and keep the same inner padding as the
+/// saved-trigger pane while clearing the error row.
 pub(crate) fn create_props_content(right: Rect) -> Rect {
     Rect {
-        x: right.x,
+        x: right.x.saturating_add(2),
         y: right.y.saturating_add(2),
-        width: right.width.saturating_sub(3),
+        width: right.width.saturating_sub(5),
         height: right.height.saturating_sub(3),
     }
 }
@@ -427,8 +421,8 @@ fn create_props_focus(field: LibraryCreateModalField) -> Option<super::props::Pr
 }
 
 /// Click on the create modal: field rows focus (picker rows also
-/// open), properties rows open their pickers or flip in place, and the
-/// usage toggle expands. Takes the draft since rows depend on it.
+/// open), and properties rows open their pickers or flip in place.
+/// Takes the draft since rows depend on it.
 pub(crate) fn create_option_hit(
     draft: &LibraryCreateModalState,
     area: Rect,
@@ -486,6 +480,7 @@ pub(crate) fn create_option_hit(
             &item,
             column,
             row,
+            false,
         )? {
             super::props::PropsHit::AutoCase => {
                 Some(CreateHit::Field(LibraryCreateModalField::AutoCase))
@@ -494,7 +489,7 @@ pub(crate) fn create_option_hit(
             super::props::PropsHit::Block => Some(CreateHit::Field(LibraryCreateModalField::Block)),
             super::props::PropsHit::Platform => Some(CreateHit::Field(LibraryCreateModalField::Os)),
             super::props::PropsHit::Tags => Some(CreateHit::Field(LibraryCreateModalField::Tags)),
-            super::props::PropsHit::UsageToggle => Some(CreateHit::UsageToggle),
+            super::props::PropsHit::UsageToggle => None,
             super::props::PropsHit::Confirm => None,
         };
     }
@@ -632,20 +627,22 @@ fn render_library_create_modal(
             create_props_content(right),
             theme,
             &item,
-            state.usage_expanded(),
+            None,
             create_props_focus(focused),
         );
     }
 
-    // Divider between the panes; start below the title and its gap.
+    // Divider between the panes; start below the title and its gap,
+    // and run to the bottom edge of the overlay.
     if left.width > 0
         && right.width > 0
         && divider > body.x
         && divider < body.x.saturating_add(body.width)
     {
         let top = body.y.saturating_add(2);
-        let height = layout.footer.saturating_sub(2);
-        if height > 0 && top < bottom {
+        let overlay_bottom = popup.y.saturating_add(popup.height);
+        let height = overlay_bottom.saturating_sub(top);
+        if height > 0 {
             let glyphs = vec![Line::from("│"); height as usize];
             frame.render_widget(
                 Paragraph::new(glyphs).style(Style::default().fg(theme.border)),
@@ -653,7 +650,7 @@ fn render_library_create_modal(
                     x: divider,
                     y: top,
                     width: 1,
-                    height: height.min(bottom.saturating_sub(top)),
+                    height,
                 },
             );
         }

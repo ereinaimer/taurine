@@ -596,19 +596,20 @@ fn handle_tui_mouse_event(
                 apply_library_interaction(app, interaction);
                 return;
             }
-            // honey: the create form owns its clicks: field rows focus
-            // (picker rows open their menus), properties rows configure
-            // the draft, and outside clicks are dead like other forms.
+            // honey: the create form owns its clicks: the scrim and Esc
+            // hint dismiss it, field rows focus (picker rows open their
+            // menus), and properties rows configure the draft.
             if let Some(library::LibraryModal::Create(draft)) = app.library_page().modal() {
                 let layout = terminal::mouse::frame_layout(area);
                 let full = terminal::mouse::library_full_area(layout.page);
+                if library::modals::create_dismiss_hit(full, mouse.column, mouse.row) {
+                    app.library_page_mut().clear_modal();
+                    return;
+                }
                 match library::modals::create_option_hit(draft, full, mouse.column, mouse.row) {
                     Some(library::modals::CreateHit::Field(field)) => {
                         let interaction = app.library_page_mut().click_create_field(field);
                         apply_library_interaction(app, interaction);
-                    }
-                    Some(library::modals::CreateHit::UsageToggle) => {
-                        app.library_page_mut().toggle_create_usage();
                     }
                     None => {}
                 }
@@ -1956,12 +1957,49 @@ mod tests {
         app.library_page_mut().open_create_modal();
 
         // The old Create button row is now an inert footer.
-        handle_tui_mouse_event(&mut app, left_click(50, 25), TEST_AREA);
+        handle_tui_mouse_event(&mut app, left_click(20, 25), TEST_AREA);
 
         assert!(matches!(
             app.library_page().modal(),
             Some(library::LibraryModal::Create(draft)) if draft.error().is_none()
         ));
+    }
+
+    #[test]
+    fn escape_closes_create_modal() {
+        let mut app = App::default();
+        seed_single_library_item(&mut app);
+        app.library_page_mut().open_create_modal();
+
+        handle_tui_key_event(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+        assert!(!app.library_page().is_modal_open());
+    }
+
+    #[test]
+    fn clicking_create_scrim_closes_modal() {
+        let mut app = App::default();
+        seed_single_library_item(&mut app);
+        app.library_page_mut().open_create_modal();
+
+        handle_tui_mouse_event(&mut app, left_click(0, 0), TEST_AREA);
+
+        assert!(!app.library_page().is_modal_open());
+    }
+
+    #[test]
+    fn clicking_create_esc_hint_closes_modal() {
+        let mut app = App::default();
+        seed_single_library_item(&mut app);
+        app.library_page_mut().open_create_modal();
+        let layout = terminal::mouse::frame_layout(TEST_AREA);
+        let full = terminal::mouse::library_full_area(layout.page);
+        let body = crate::widgets::util::overlay_body(library::modals::create_popup(full));
+        let column = body.x.saturating_add(body.width).saturating_sub(1);
+
+        handle_tui_mouse_event(&mut app, left_click(column, body.y), TEST_AREA);
+
+        assert!(!app.library_page().is_modal_open());
     }
 
     #[test]

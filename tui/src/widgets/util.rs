@@ -162,13 +162,15 @@ pub(crate) fn overlay_option_hit(
     None
 }
 
+pub(crate) const OVERLAY_TITLE_HINT: &str = "Esc";
+
 /// Overlay title row shared by every overlay: bold title left,
 /// dimmed Esc hint flush right.
 pub(crate) fn render_overlay_title(frame: &mut Frame, body: Rect, theme: &Theme, title: &str) {
     if body.height == 0 {
         return;
     }
-    let hint = "Esc";
+    let hint = OVERLAY_TITLE_HINT;
     let gap = body
         .width
         .saturating_sub(title.chars().count() as u16)
@@ -194,6 +196,18 @@ pub(crate) fn render_overlay_title(frame: &mut Frame, body: Rect, theme: &Theme,
             height: 1,
         },
     );
+}
+
+/// Whether a cell lands on the rendered Esc hint in the title row.
+pub(crate) fn overlay_title_esc_hit(body: Rect, column: u16, row: u16) -> bool {
+    if body.height == 0 || row != body.y {
+        return false;
+    }
+    let hint_start = body.x.saturating_add(
+        body.width
+            .saturating_sub(OVERLAY_TITLE_HINT.chars().count() as u16),
+    );
+    column >= hint_start && column < body.x.saturating_add(body.width)
 }
 
 pub(crate) fn render_overlay_select(

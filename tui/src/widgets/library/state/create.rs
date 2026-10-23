@@ -51,7 +51,6 @@ pub(crate) struct LibraryCreateModalState {
     interpreter: ScriptInterpreter,
     behavior: ScriptBehavior,
     target_os: String,
-    usage_expanded: bool,
     auto_case: bool,
     tags: Vec<String>,
     allow_apps: Vec<String>,
@@ -74,7 +73,6 @@ impl LibraryCreateModalState {
             interpreter: ScriptInterpreter::Bash,
             behavior: ScriptBehavior::Inline,
             target_os: TargetOs::All.to_db_str().to_string(),
-            usage_expanded: false,
             auto_case: false,
             tags: Vec::new(),
             allow_apps: Vec::new(),
@@ -147,10 +145,6 @@ impl LibraryCreateModalState {
         &self.target_os
     }
 
-    pub(crate) const fn usage_expanded(&self) -> bool {
-        self.usage_expanded
-    }
-
     #[cfg(test)]
     pub(crate) const fn auto_case(&self) -> bool {
         self.auto_case
@@ -188,18 +182,13 @@ impl LibraryCreateModalState {
         self.error = Some(error);
     }
 
-    pub(crate) fn toggle_usage(&mut self) {
-        self.usage_expanded = !self.usage_expanded;
-        self.error = None;
-    }
-
     pub(crate) fn toggle_auto_case(&mut self) {
         self.auto_case = !self.auto_case;
         self.error = None;
     }
 
     /// View model for the shared properties pane. Draft values feed
-    /// the same rows saved triggers use; history stays empty until the
+    /// the same rows saved triggers use; usage stays hidden until the
     /// trigger is created.
     pub(crate) fn props_item(&self) -> super::LibraryTrigger {
         super::LibraryTrigger::props_draft(
