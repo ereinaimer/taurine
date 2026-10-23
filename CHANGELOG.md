@@ -66,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **Visible Variable Defaults**: Template highlighting now shows the `=` between a variable and its default value instead of hiding it.
+- **New Trigger Alignment**: Properties values now line up with the Esc hint.
 
 ## [1.0.0-alpha.19] - 2026-09-27
 

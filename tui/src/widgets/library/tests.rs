@@ -4524,14 +4524,14 @@ fn create_split_drag_clamps_both_panes_visible() {
 }
 
 #[test]
-fn create_props_content_leaves_two_right_cells() {
+fn create_props_content_aligns_with_title_hint() {
     let right = ratatui::layout::Rect::new(50, 9, 47, 12);
 
     let content = modals::create_props_content(right);
 
     assert_eq!(content.x, 52);
-    assert_eq!(content.width, 43);
-    assert_eq!(content.x + content.width + 2, right.x + right.width);
+    assert_eq!(content.width, 45);
+    assert_eq!(content.x + content.width, right.x + right.width);
 }
 
 #[test]

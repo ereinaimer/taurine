@@ -409,13 +409,13 @@ pub(crate) enum CreateHit {
 }
 
 /// Properties content inside the create body. Skip the header row and
-/// its one-line gap, leave two cells of right padding, and clear the
-/// error row.
+/// its one-line gap, run values to the overlay's right edge so they
+/// align with the title's Esc hint, and clear the error row.
 pub(crate) fn create_props_content(right: Rect) -> Rect {
     Rect {
         x: right.x.saturating_add(2),
         y: right.y.saturating_add(2),
-        width: right.width.saturating_sub(4),
+        width: right.width.saturating_sub(2),
         height: right.height.saturating_sub(3),
     }
 }
