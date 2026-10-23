@@ -210,6 +210,13 @@ pub(crate) fn overlay_title_esc_hit(body: Rect, column: u16, row: u16) -> bool {
     column >= hint_start && column < body.x.saturating_add(body.width)
 }
 
+/// Shared dismissal rule for standard overlays: a click on the scrim
+/// outside the popup, or on the title's Esc hint, dismisses it.
+pub(crate) fn overlay_dismiss_hit(popup: Rect, column: u16, row: u16) -> bool {
+    !crate::terminal::mouse::contains(popup, column, row)
+        || overlay_title_esc_hit(overlay_body(popup), column, row)
+}
+
 pub(crate) fn render_overlay_select(
     frame: &mut Frame,
     area: Rect,
@@ -643,7 +650,26 @@ mod tests {
 
     use crate::widgets::field::TextField;
 
-    use super::confirm_button_cells;
+    use super::{confirm_button_cells, overlay_body, overlay_dismiss_hit};
+
+    #[test]
+    fn overlay_dismiss_hit_covers_scrim_and_title_hint() {
+        let popup = Rect::new(10, 5, 40, 12);
+        let body = overlay_body(popup);
+
+        assert!(overlay_dismiss_hit(popup, 0, 0));
+        assert!(overlay_dismiss_hit(
+            popup,
+            body.x.saturating_add(body.width).saturating_sub(1),
+            body.y
+        ));
+        assert!(!overlay_dismiss_hit(popup, body.x, body.y));
+        assert!(!overlay_dismiss_hit(
+            popup,
+            body.x,
+            body.y.saturating_add(1)
+        ));
+    }
 
     #[test]
     fn confirm_button_cells_center_yes_no_pair() {

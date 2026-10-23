@@ -4502,6 +4502,17 @@ fn create_split_panes_split_evenly() {
 }
 
 #[test]
+fn create_props_content_leaves_one_extra_right_cell() {
+    let right = ratatui::layout::Rect::new(50, 9, 47, 12);
+
+    let content = modals::create_props_content(right);
+
+    assert_eq!(content.x, 52);
+    assert_eq!(content.width, 44);
+    assert_eq!(content.x + content.width + 1, right.x + right.width);
+}
+
+#[test]
 fn create_option_hit_selects_fields() {
     // 90% popup on 100x30 is 90x27 at (5,1); body starts at
     // (8,2): title 0, blank 1, trigger field 2, blank 3, pills 4,
@@ -4665,7 +4676,7 @@ fn create_form_renders_placeholders_and_stacked_pickers() {
     assert!(row(&empty, 2).contains("New Trigger"));
     assert!(row(&empty, 2).contains("Esc"));
     assert!(!row(&empty, 2).contains("Properties"));
-    assert!(row(&empty, 3).trim().is_empty());
+    assert!(row(&empty, 3).replace('│', "").trim().is_empty());
     assert!(row(&empty, 4).contains("Properties"));
     assert!(row(&empty, 6).contains("Auto case"));
     assert!(row(&empty, 6).contains("word"));
@@ -4673,8 +4684,11 @@ fn create_form_renders_placeholders_and_stacked_pickers() {
     assert!(row(&empty, 8).trim_start().starts_with(text_placeholder));
     assert!(row(&empty, 16).contains("Tags"));
     assert!(!row(&empty, 18).contains("Usage"));
-    // The pane divider reaches the bottom edge of the overlay.
+    // The pane divider runs from the top edge to the bottom edge.
+    assert_eq!(empty[(50, 1)].symbol(), "│");
     assert_eq!(empty[(50, 27)].symbol(), "│");
+    // The empty error row must not restyle the divider's last cell.
+    assert_eq!(empty[(50, 26)].fg, DARK_THEME.border);
 
     type_text(&mut state, "gm");
     state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));

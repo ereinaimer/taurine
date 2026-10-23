@@ -20,6 +20,7 @@ use crate::overlay_fx::OverlayTransition;
 use crate::theme::Theme;
 use crate::widgets::library;
 use crate::widgets::settings;
+use crate::widgets::util;
 use crossterm::{
     cursor::Show,
     event::{DisableMouseCapture, EnableMouseCapture},
@@ -596,13 +597,15 @@ fn handle_tui_mouse_event(
                 apply_library_interaction(app, interaction);
                 return;
             }
-            // honey: the create form owns its clicks: the scrim and Esc
-            // hint dismiss it, field rows focus (picker rows open their
-            // menus), and properties rows configure the draft.
+            // honey: the create form owns its clicks: the shared
+            // scrim/Esc-hint rule dismisses it, field rows focus
+            // (picker rows open their menus), and properties rows
+            // configure the draft.
             if let Some(library::LibraryModal::Create(draft)) = app.library_page().modal() {
                 let layout = terminal::mouse::frame_layout(area);
                 let full = terminal::mouse::library_full_area(layout.page);
-                if library::modals::create_dismiss_hit(full, mouse.column, mouse.row) {
+                let popup = library::modals::create_popup(full);
+                if util::overlay_dismiss_hit(popup, mouse.column, mouse.row) {
                     app.library_page_mut().clear_modal();
                     return;
                 }
@@ -616,34 +619,31 @@ fn handle_tui_mouse_event(
                 return;
             }
             // honey: the delete confirm owns its clicks: option rows
-            // select (a click on the cursor row confirms), clicks
-            // outside the popup cancel. Other modals stay keyboard-only.
+            // select (a click on the cursor row confirms), while the
+            // shared scrim/Esc-hint rule cancels. Other modals stay
+            // keyboard-only.
             if let Some(library::LibraryModal::ConfirmDelete(_)) = app.library_page().modal() {
                 let layout = terminal::mouse::frame_layout(area);
                 let full = terminal::mouse::library_full_area(layout.page);
-                match library::modals::delete_option_hit(full, mouse.column, mouse.row) {
-                    Some(yes) => {
-                        if app.library_page().delete_selected_yes() == Some(yes) {
-                            let interaction = app.library_page_mut().confirm_delete();
-                            apply_library_interaction(app, interaction);
-                        } else {
-                            app.library_page_mut().set_delete_selected_yes(yes);
-                        }
-                    }
-                    None => {
-                        if !terminal::mouse::contains(
-                            library::modals::delete_popup(full),
-                            mouse.column,
-                            mouse.row,
-                        ) {
-                            app.library_page_mut().clear_modal();
-                        }
+                let popup = library::modals::delete_popup(full);
+                if util::overlay_dismiss_hit(popup, mouse.column, mouse.row) {
+                    app.library_page_mut().clear_modal();
+                    return;
+                }
+                if let Some(yes) = library::modals::delete_option_hit(full, mouse.column, mouse.row)
+                {
+                    if app.library_page().delete_selected_yes() == Some(yes) {
+                        let interaction = app.library_page_mut().confirm_delete();
+                        apply_library_interaction(app, interaction);
+                    } else {
+                        app.library_page_mut().set_delete_selected_yes(yes);
                     }
                 }
                 return;
             }
-            // honey: clicks outside the settings popup close it; row
-            // and search clicks reuse the page hit path on the body.
+            // honey: the shared scrim/Esc-hint rule dismisses the
+            // settings overlay and any editor modal above it; row and
+            // search clicks reuse the page hit path on the body.
             if app.is_settings_overlay_open() {
                 if let Some(modal) = app.settings_page().modal() {
                     let areas = overlay_fx::FxAreas {
@@ -651,14 +651,14 @@ fn handle_tui_mouse_event(
                         library_full: area,
                     };
                     if let Some(modal_popup) = modal.transition_rect(&areas)
-                        && !terminal::mouse::contains(modal_popup, mouse.column, mouse.row)
+                        && util::overlay_dismiss_hit(modal_popup, mouse.column, mouse.row)
                     {
                         app.settings_page_mut().clear_modal();
                         return;
                     }
                 }
                 let popup = settings::overlay_popup(area, app.settings_page());
-                if !terminal::mouse::contains(popup, mouse.column, mouse.row) {
+                if util::overlay_dismiss_hit(popup, mouse.column, mouse.row) {
                     app.close_settings_overlay();
                     return;
                 }

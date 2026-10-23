@@ -319,7 +319,7 @@ pub(crate) const CREATE_SCRIPT_PILLS_ROW: u16 = 6;
 pub(crate) const CREATE_SCRIPT_CONTENT_FIRST_ROW: u16 = 8;
 
 /// Placeholder copy shown inside the empty create fields.
-pub(crate) const CREATE_TRIGGER_PLACEHOLDER: &str = "Trigger";
+pub(crate) const CREATE_TRIGGER_PLACEHOLDER: &str = "Type your trigger here";
 pub(crate) const CREATE_TEXT_PLACEHOLDER: &str = "Type your snippet here";
 pub(crate) const CREATE_SCRIPT_PLACEHOLDER: &str = "Type your script here";
 
@@ -373,29 +373,19 @@ pub(crate) fn create_popup(area: Rect) -> Rect {
     util::overlay_popup_sized(area.width * 9 / 10, area.height * 9 / 10, area)
 }
 
-/// Clicks on the scrim or the title's Esc hint dismiss the create form,
-/// matching the other overlays.
-pub(crate) fn create_dismiss_hit(area: Rect, column: u16, row: u16) -> bool {
-    let popup = create_popup(area);
-    if !crate::terminal::mouse::contains(popup, column, row) {
-        return true;
-    }
-    util::overlay_title_esc_hit(util::overlay_body(popup), column, row)
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CreateHit {
     Field(LibraryCreateModalField),
 }
 
 /// Properties content inside the create body. Skip the header row and
-/// its one-line gap, and keep the same inner padding as the
-/// saved-trigger pane while clearing the error row.
+/// its one-line gap, leave one extra cell of right padding, and clear
+/// the error row.
 pub(crate) fn create_props_content(right: Rect) -> Rect {
     Rect {
         x: right.x.saturating_add(2),
         y: right.y.saturating_add(2),
-        width: right.width.saturating_sub(5),
+        width: right.width.saturating_sub(3),
         height: right.height.saturating_sub(3),
     }
 }
@@ -632,23 +622,21 @@ fn render_library_create_modal(
         );
     }
 
-    // Divider between the panes; start below the title and its gap,
-    // and run to the bottom edge of the overlay.
+    // Divider between the panes; run edge to edge so it reads as part
+    // of the overlay frame.
     if left.width > 0
         && right.width > 0
         && divider > body.x
         && divider < body.x.saturating_add(body.width)
     {
-        let top = body.y.saturating_add(2);
-        let overlay_bottom = popup.y.saturating_add(popup.height);
-        let height = overlay_bottom.saturating_sub(top);
+        let height = popup.height;
         if height > 0 {
             let glyphs = vec![Line::from("│"); height as usize];
             frame.render_widget(
                 Paragraph::new(glyphs).style(Style::default().fg(theme.border)),
                 Rect {
                     x: divider,
-                    y: top,
+                    y: popup.y,
                     width: 1,
                     height,
                 },
@@ -714,18 +702,16 @@ fn render_library_create_modal(
     }
 
     let error_y = body.y.saturating_add(body.height).saturating_sub(1);
-    let feedback_style = if state.error().is_some() {
-        Style::default()
-            .fg(theme.error)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default()
-            .fg(theme.text_muted)
-            .add_modifier(Modifier::DIM)
-    };
-    if error_y < bottom {
+    if let Some(error) = state.error()
+        && error_y < bottom
+    {
         frame.render_widget(
-            Paragraph::new(state.error().unwrap_or("")).style(feedback_style),
+            Paragraph::new(Span::styled(
+                error,
+                Style::default()
+                    .fg(theme.error)
+                    .add_modifier(Modifier::BOLD),
+            )),
             Rect {
                 x: body.x,
                 y: error_y,

@@ -30,9 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Snippet Syntax Highlighting**: The snippet body now colors script code and Taurine variables, transformers, and directives in both preview and editing, with mistakes shown in red.
 - **Full Script Language Highlighting**: Bash, PowerShell, Python, Node, and Cmd snippets all highlight accurately, including PowerShell cmdlets and variables.
 - **Delete Triggers**: Select a trigger and press Delete, then confirm Yes or No in the dialog. Clicking the buttons or pressing Esc works too.
-- **New Trigger Form**: Press Ctrl+N to create a trigger without leaving the library, with type/action pills under the trigger, in-field placeholders, script options, an evenly split Properties pane without usage history, and the same click-outside or Esc dismissal as other overlays.
+- **New Trigger Form**: Press Ctrl+N to create a trigger without leaving the library, with type/action pills under the trigger, actionable in-field placeholders, script options, an evenly split Properties pane without usage history, a full-height pane divider, and the same click-outside or Esc dismissal as other overlays.
 
 ### Changed
+- **Overlay Dismissal**: The New Trigger, delete, and settings overlays close from the dimmed backdrop or the Esc hint.
 - **Inline Renaming**: Click the trigger at the top of the detail pane to edit the actual trigger text in place. Enter saves, switching triggers saves automatically.
 - **Editable Description and Content**: Click the description or the snippet body to edit in place with a real caret. Long paragraphs wrap while editing exactly like they display. Tab commits content, Esc discards, leaving the trigger auto-saves.
 - **Autosave While Typing**: Edits save themselves after a one-second pause, so Enter stays free for newlines and quitting never loses typed text.
