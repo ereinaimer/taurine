@@ -4494,7 +4494,7 @@ fn create_split_panes_split_evenly() {
     // 94-wide body: 47 columns each side, with the divider on the split.
     let body = ratatui::layout::Rect::new(3, 9, 94, 12);
 
-    let (left, divider, right) = modals::create_split(body);
+    let (left, divider, right) = modals::create_split(body, 0.5);
 
     assert_eq!(left, ratatui::layout::Rect::new(3, 9, 47, 12));
     assert_eq!(divider, 50);
@@ -4502,14 +4502,36 @@ fn create_split_panes_split_evenly() {
 }
 
 #[test]
-fn create_props_content_leaves_one_extra_right_cell() {
+fn create_split_follows_dragged_ratio() {
+    let body = ratatui::layout::Rect::new(3, 9, 100, 12);
+
+    let (left, divider, right) = modals::create_split(body, 0.25);
+
+    assert_eq!(left.width, 25);
+    assert_eq!(divider, 28);
+    assert_eq!(right.width, 75);
+}
+
+#[test]
+fn create_split_drag_clamps_both_panes_visible() {
+    let mut draft = LibraryCreateModalState::new();
+
+    draft.set_split_from_column(8, 84, 0);
+    assert!((draft.split() - 0.25).abs() < f32::EPSILON);
+
+    draft.set_split_from_column(8, 84, 200);
+    assert!((draft.split() - 0.75).abs() < f32::EPSILON);
+}
+
+#[test]
+fn create_props_content_leaves_two_right_cells() {
     let right = ratatui::layout::Rect::new(50, 9, 47, 12);
 
     let content = modals::create_props_content(right);
 
     assert_eq!(content.x, 52);
-    assert_eq!(content.width, 44);
-    assert_eq!(content.x + content.width + 1, right.x + right.width);
+    assert_eq!(content.width, 43);
+    assert_eq!(content.x + content.width + 2, right.x + right.width);
 }
 
 #[test]

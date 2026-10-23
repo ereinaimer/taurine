@@ -32,7 +32,7 @@ impl HeaderMenuKind {
 /// cursor and a one-line description of what each option does.
 /// Options are plain labels; the caller maps the confirmed label
 /// back onto its domain value.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct LibraryHeaderMenuState {
     kind: HeaderMenuKind,
     options: Vec<String>,

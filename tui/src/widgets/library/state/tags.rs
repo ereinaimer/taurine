@@ -44,7 +44,7 @@ pub(crate) enum InputConfirm {
 /// (`#` plus caret); Enter saves it, creating the tag when new. The
 /// focused chip swaps its `#` for the close icon; the icon cell or
 /// the Delete key removes it. Every write hits the database live.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct LibraryTagsModalState {
     trigger_id: String,
     restore_index: usize,

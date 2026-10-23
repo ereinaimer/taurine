@@ -41,7 +41,7 @@ pub(crate) enum CreateKeyOutcome {
 /// In-memory new-trigger draft: every field of the form, typed text
 /// included. Nothing reaches the database until submit builds the
 /// pending create.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct LibraryCreateModalState {
     trigger_type: TriggerType,
     trigger: TextField,
@@ -57,10 +57,20 @@ pub(crate) struct LibraryCreateModalState {
     block_apps: Vec<String>,
     focus: LibraryCreateModalField,
     error: Option<String>,
+    split: f32,
+    divider_hover: bool,
+    divider_drag: bool,
 }
 
 /// Visible content rows in the modal's snippet box.
 pub(crate) const CREATE_CONTENT_ROWS: usize = 4;
+
+/// Default split matches the original half-and-half form.
+pub(crate) const CREATE_DEFAULT_SPLIT: f32 = 0.5;
+/// Keep both panes readable while dragging; the divider stays visible
+/// and grabbable at either end.
+pub(crate) const CREATE_MIN_SPLIT: f32 = 0.25;
+pub(crate) const CREATE_MAX_SPLIT: f32 = 0.75;
 
 impl LibraryCreateModalState {
     pub(crate) fn new() -> Self {
@@ -79,11 +89,45 @@ impl LibraryCreateModalState {
             block_apps: Vec::new(),
             focus: LibraryCreateModalField::Trigger,
             error: None,
+            split: CREATE_DEFAULT_SPLIT,
+            divider_hover: false,
+            divider_drag: false,
         }
     }
 
     pub(crate) const fn focus(&self) -> LibraryCreateModalField {
         self.focus
+    }
+
+    /// Left pane's share of the body width.
+    pub(crate) const fn split(&self) -> f32 {
+        self.split
+    }
+
+    pub(crate) const fn divider_hover(&self) -> bool {
+        self.divider_hover
+    }
+
+    pub(crate) const fn divider_drag(&self) -> bool {
+        self.divider_drag
+    }
+
+    pub(crate) fn set_divider_hover(&mut self, hover: bool) {
+        self.divider_hover = hover;
+    }
+
+    pub(crate) fn set_divider_drag(&mut self, drag: bool) {
+        self.divider_drag = drag;
+        if drag {
+            self.divider_hover = true;
+        }
+    }
+
+    /// Resize from a drag column, clamped so neither pane collapses.
+    pub(crate) fn set_split_from_column(&mut self, body_x: u16, body_width: u16, column: u16) {
+        let span = body_width.max(1) as f32;
+        self.split = ((column.saturating_sub(body_x)) as f32 / span)
+            .clamp(CREATE_MIN_SPLIT, CREATE_MAX_SPLIT);
     }
 
     pub(crate) fn set_focus(&mut self, focus: LibraryCreateModalField) {

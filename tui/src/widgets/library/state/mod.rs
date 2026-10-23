@@ -671,6 +671,57 @@ impl LibraryPageState {
         }
     }
 
+    /// Grabbing the create divider starts a resize drag. The line runs
+    /// the full popup height, so any row on its column grabs it.
+    pub(crate) fn grab_create_divider(
+        &mut self,
+        area: ratatui::layout::Rect,
+        column: u16,
+        row: u16,
+    ) -> bool {
+        let Some(LibraryModal::Create(draft)) = self.modal.as_mut() else {
+            return false;
+        };
+        if !super::modals::create_divider_hit(draft, area, column, row) {
+            return false;
+        }
+        draft.set_divider_drag(true);
+        true
+    }
+
+    /// Pointer motion while grabbed resizes the create panes.
+    pub(crate) fn drag_create_divider(&mut self, area: ratatui::layout::Rect, column: u16) {
+        let Some(LibraryModal::Create(draft)) = self.modal.as_mut() else {
+            return;
+        };
+        if !draft.divider_drag() {
+            return;
+        }
+        let body = super::modals::create_body(area);
+        draft.set_split_from_column(body.x, body.width, column);
+    }
+
+    /// Hover highlight for the create divider.
+    pub(crate) fn hover_create_divider(
+        &mut self,
+        area: ratatui::layout::Rect,
+        column: u16,
+        row: u16,
+    ) {
+        let Some(LibraryModal::Create(draft)) = self.modal.as_mut() else {
+            return;
+        };
+        let hover = super::modals::create_divider_hit(draft, area, column, row);
+        draft.set_divider_hover(hover);
+    }
+
+    /// Pointer release ends the create divider drag.
+    pub(crate) fn release_create_divider(&mut self) {
+        if let Some(LibraryModal::Create(draft)) = self.modal.as_mut() {
+            draft.set_divider_drag(false);
+        }
+    }
+
     /// Clicks on an open tags menu: the delete icon removes that
     /// chip, chip bodies and the `+` row focus and act, outside
     /// closes the menu. The menu stays open across live writes.

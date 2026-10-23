@@ -264,25 +264,55 @@ fn render_library_delete_modal(
 /// never see a real body rect.
 pub(crate) const CREATE_BODY_WIDTH: u16 = 80;
 
-/// Split a create body into equal left and right halves with the
-/// divider column on the middle line. Returns the left rect, the
-/// absolute divider column, and the right rect; render and hit-testing
-/// both run off this.
-pub(crate) fn create_split(body: Rect) -> (Rect, u16, Rect) {
-    let divider = body.x.saturating_add(body.width / 2);
+/// Split a create body at the draft's left-pane share. Returns the
+/// left rect, the absolute divider column, and the right rect; render
+/// and hit-testing both run off this.
+pub(crate) fn create_split(body: Rect, split: f32) -> (Rect, u16, Rect) {
+    let offset = if body.width < 2 {
+        0
+    } else {
+        ((body.width as f32 * split.clamp(0.0, 1.0)).floor() as u16)
+            .clamp(1, body.width.saturating_sub(1))
+    };
+    let divider = body.x.saturating_add(offset);
     let left = Rect {
         x: body.x,
         y: body.y,
-        width: divider.saturating_sub(body.x),
+        width: offset,
         height: body.height,
     };
     let right = Rect {
         x: divider,
         y: body.y,
-        width: body.x.saturating_add(body.width).saturating_sub(divider),
+        width: body.width.saturating_sub(offset),
         height: body.height,
     };
     (left, divider, right)
+}
+
+/// Body rect shared by create rendering and divider hit-testing.
+pub(crate) fn create_body(area: Rect) -> Rect {
+    util::overlay_body(create_popup(area))
+}
+
+/// The divider spans the whole popup, so any row on that column grabs
+/// it. The body check keeps tiny popups from reporting a phantom line.
+pub(crate) fn create_divider_hit(
+    draft: &LibraryCreateModalState,
+    area: Rect,
+    column: u16,
+    row: u16,
+) -> bool {
+    let popup = create_popup(area);
+    if !crate::terminal::mouse::contains(popup, column, row) {
+        return false;
+    }
+    let body = util::overlay_body(popup);
+    if body.width < 2 {
+        return false;
+    }
+    let (_, divider, _) = create_split(body, draft.split());
+    column == divider
 }
 
 /// Body-relative rows of the split create form. Left holds the
@@ -379,13 +409,13 @@ pub(crate) enum CreateHit {
 }
 
 /// Properties content inside the create body. Skip the header row and
-/// its one-line gap, leave one extra cell of right padding, and clear
-/// the error row.
+/// its one-line gap, leave two cells of right padding, and clear the
+/// error row.
 pub(crate) fn create_props_content(right: Rect) -> Rect {
     Rect {
         x: right.x.saturating_add(2),
         y: right.y.saturating_add(2),
-        width: right.width.saturating_sub(3),
+        width: right.width.saturating_sub(4),
         height: right.height.saturating_sub(3),
     }
 }
@@ -432,7 +462,7 @@ pub(crate) fn create_option_hit(
         return None;
     }
     let layout = create_layout(is_script, body.height);
-    let (left, divider, right) = create_split(body);
+    let (left, divider, right) = create_split(body, draft.split());
     let rel = row.saturating_sub(body.y);
     if column == divider {
         return None;
@@ -555,7 +585,7 @@ fn render_library_create_modal(
     let layout = create_layout(is_script, body.height);
     let bottom = body.y.saturating_add(body.height);
     let focused = state.focus();
-    let (left, divider, right) = create_split(body);
+    let (left, divider, right) = create_split(body, state.split());
 
     // Left pane: trigger field, type/action pills, optional script
     // pills, then the content box. Empty fields show their prompt in
@@ -631,9 +661,14 @@ fn render_library_create_modal(
     {
         let height = popup.height;
         if height > 0 {
+            let color = if state.divider_drag() || state.divider_hover() {
+                super::DIVIDER_HOVER_COLOR
+            } else {
+                theme.border
+            };
             let glyphs = vec![Line::from("│"); height as usize];
             frame.render_widget(
-                Paragraph::new(glyphs).style(Style::default().fg(theme.border)),
+                Paragraph::new(glyphs).style(Style::default().fg(color)),
                 Rect {
                     x: divider,
                     y: popup.y,

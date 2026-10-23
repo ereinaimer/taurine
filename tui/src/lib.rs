@@ -506,6 +506,18 @@ fn handle_tui_mouse_event(
                     .hover_app_filter_menu(full, mouse.column, mouse.row);
                 return;
             }
+            if matches!(
+                app.library_page().modal(),
+                Some(library::LibraryModal::Create(_))
+            ) {
+                let layout = terminal::mouse::frame_layout(area);
+                let full = terminal::mouse::library_full_area(layout.page);
+                app.library_page_mut()
+                    .hover_create_divider(full, mouse.column, mouse.row);
+                app.library_page_mut()
+                    .drag_create_divider(full, mouse.column);
+                return;
+            }
             if modal_open {
                 return;
             }
@@ -531,6 +543,16 @@ fn handle_tui_mouse_event(
                 let full = terminal::mouse::library_full_area(layout.page);
                 app.library_page_mut()
                     .drag_app_filter_divider(full, mouse.column);
+                return;
+            }
+            if matches!(
+                app.library_page().modal(),
+                Some(library::LibraryModal::Create(_))
+            ) {
+                let layout = terminal::mouse::frame_layout(area);
+                let full = terminal::mouse::library_full_area(layout.page);
+                app.library_page_mut()
+                    .drag_create_divider(full, mouse.column);
                 return;
             }
             if modal_open {
@@ -560,6 +582,7 @@ fn handle_tui_mouse_event(
         MouseEventKind::Up(_) => {
             app.library_page_mut().set_divider_drag(None);
             app.library_page_mut().release_app_filter_divider();
+            app.library_page_mut().release_create_divider();
         }
         MouseEventKind::Down(MouseButton::Left) => {
             if app.library_page().header_menu_open() {
@@ -601,7 +624,10 @@ fn handle_tui_mouse_event(
             // scrim/Esc-hint rule dismisses it, field rows focus
             // (picker rows open their menus), and properties rows
             // configure the draft.
-            if let Some(library::LibraryModal::Create(draft)) = app.library_page().modal() {
+            if matches!(
+                app.library_page().modal(),
+                Some(library::LibraryModal::Create(_))
+            ) {
                 let layout = terminal::mouse::frame_layout(area);
                 let full = terminal::mouse::library_full_area(layout.page);
                 let popup = library::modals::create_popup(full);
@@ -609,12 +635,20 @@ fn handle_tui_mouse_event(
                     app.library_page_mut().clear_modal();
                     return;
                 }
-                match library::modals::create_option_hit(draft, full, mouse.column, mouse.row) {
-                    Some(library::modals::CreateHit::Field(field)) => {
-                        let interaction = app.library_page_mut().click_create_field(field);
-                        apply_library_interaction(app, interaction);
+                if app
+                    .library_page_mut()
+                    .grab_create_divider(full, mouse.column, mouse.row)
+                {
+                    return;
+                }
+                if let Some(library::LibraryModal::Create(draft)) = app.library_page().modal() {
+                    match library::modals::create_option_hit(draft, full, mouse.column, mouse.row) {
+                        Some(library::modals::CreateHit::Field(field)) => {
+                            let interaction = app.library_page_mut().click_create_field(field);
+                            apply_library_interaction(app, interaction);
+                        }
+                        None => {}
                     }
-                    None => {}
                 }
                 return;
             }
@@ -1777,6 +1811,80 @@ mod tests {
 
         handle_tui_mouse_event(&mut app, mouse_at(10, 10, MouseEventKind::Moved), TEST_AREA);
         assert!(app.library_page().divider_hover().is_none());
+    }
+
+    #[test]
+    fn create_divider_hover_tracks_the_line() {
+        let mut app = App::default();
+        seed_single_library_item(&mut app);
+        app.library_page_mut().open_create_modal();
+        let body = library::modals::create_body(TEST_AREA);
+        let (_, divider, _) = library::modals::create_split(body, 0.5);
+
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(divider, body.y, MouseEventKind::Moved),
+            TEST_AREA,
+        );
+        assert!(matches!(
+            app.library_page().modal(),
+            Some(library::LibraryModal::Create(draft)) if draft.divider_hover()
+        ));
+
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(divider + 1, body.y, MouseEventKind::Moved),
+            TEST_AREA,
+        );
+        assert!(matches!(
+            app.library_page().modal(),
+            Some(library::LibraryModal::Create(draft)) if !draft.divider_hover()
+        ));
+    }
+
+    #[test]
+    fn dragging_create_divider_resizes_panes_and_release_ends_it() {
+        let mut app = App::default();
+        seed_single_library_item(&mut app);
+        app.library_page_mut().open_create_modal();
+        let body = library::modals::create_body(TEST_AREA);
+        let (_, divider, _) = library::modals::create_split(body, 0.5);
+
+        handle_tui_mouse_event(&mut app, left_click(divider, body.y), TEST_AREA);
+        assert!(matches!(
+            app.library_page().modal(),
+            Some(library::LibraryModal::Create(draft)) if draft.divider_drag()
+        ));
+
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(
+                divider + 10,
+                body.y,
+                MouseEventKind::Drag(MouseButton::Left),
+            ),
+            TEST_AREA,
+        );
+
+        let split = match app.library_page().modal() {
+            Some(library::LibraryModal::Create(draft)) => draft.split(),
+            _ => panic!("create modal closed"),
+        };
+        assert!(split > 0.5);
+        let (left, moved_divider, right) = library::modals::create_split(body, split);
+        assert!(left.width > 42);
+        assert_eq!(moved_divider, divider + 10);
+        assert!(right.width < 42);
+
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(divider + 10, body.y, MouseEventKind::Up(MouseButton::Left)),
+            TEST_AREA,
+        );
+        assert!(matches!(
+            app.library_page().modal(),
+            Some(library::LibraryModal::Create(draft)) if !draft.divider_drag()
+        ));
     }
 
     #[test]
