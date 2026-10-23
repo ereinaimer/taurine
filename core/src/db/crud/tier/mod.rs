@@ -33,9 +33,12 @@ pub fn get_user_tier(conn: &Connection) -> UserTier {
 }
 
 /// Sets the user tier in the local database settings.
+///
+/// Notifies the daemon to hot-reload tier and quota status if the service is running.
 pub fn set_user_tier(conn: &Connection, tier: UserTier) -> Result<()> {
     let value_json = serde_json::to_string(&tier)?;
     upsert_setting(conn, SETTING_KEY_USER_TIER, &value_json)?;
+    crate::system::rpc::notify_daemon_reload();
     Ok(())
 }
 

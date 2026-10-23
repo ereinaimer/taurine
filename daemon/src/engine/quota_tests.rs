@@ -297,3 +297,146 @@ fn test_quota_guard_unlimited_mode_bypasses_depletion() {
     assert_eq!(guard.balance(), 0.0);
     assert_eq!(guard.unflushed_delta(), 0.0);
 }
+
+#[test]
+fn test_quota_guard_voice_dictation_always_free_even_at_zero_balance() {
+    let guard = QuotaGuard::new_with_balance(0.0);
+    assert!(!guard.can_expand());
+    assert!(guard.is_depleted());
+
+    // Voice dictation is free & unlimited on all tiers
+    assert!(guard.deplete(ExpansionType::VoiceDictation));
+    assert_eq!(guard.balance(), 0.0);
+    assert_eq!(guard.unflushed_delta(), 0.0);
+
+    // Paid/typed triggers are still blocked at zero balance on Free tier
+    assert!(!guard.deplete(ExpansionType::Text));
+    assert!(!guard.deplete(ExpansionType::Dynamic));
+    assert!(!guard.deplete(ExpansionType::VoiceTrigger));
+}
+
+#[test]
+fn test_quota_guard_mode_switching_preserves_balance() {
+    let guard = QuotaGuard::new_with_balance(75.0);
+
+    // Free tier depletion
+    assert!(guard.deplete(ExpansionType::Text));
+    assert!((guard.balance() - 74.70).abs() < 1e-6);
+    let delta_before = guard.unflushed_delta();
+    assert!((delta_before - 0.30).abs() < 1e-6);
+
+    // Upgrade to Paid (Unlimited)
+    guard.set_unlimited(true);
+    assert!(guard.deplete(ExpansionType::Text));
+    assert!(guard.deplete(ExpansionType::Dynamic));
+    assert!(guard.deplete(ExpansionType::VoiceTrigger));
+    // Balance and delta remain frozen
+    assert!((guard.balance() - 74.70).abs() < 1e-6);
+    assert!((guard.unflushed_delta() - delta_before).abs() < 1e-6);
+
+    // Downgrade back to Free tier
+    guard.set_unlimited(false);
+    assert!(guard.deplete(ExpansionType::Text));
+    assert!((guard.balance() - 74.40).abs() < 1e-6);
+    assert!((guard.unflushed_delta() - 0.60).abs() < 1e-6);
+}
+
+#[test]
+fn test_expansion_dispatches_when_unlimited_even_at_zero_balance() {
+    let _lock = taurine_core::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let original_balance = QuotaGuard::global().balance();
+    let original_unlimited = QuotaGuard::global().is_unlimited();
+
+    QuotaGuard::global().set_balance(0.0);
+    QuotaGuard::global().set_unlimited(true);
+
+    let expansion = ExpansionResult {
+        delete_count: 2,
+        steps: vec![ExpansionStep::Text("hello paid user".to_string())],
+        trigger: "hi".to_string(),
+        undo_trigger: None,
+        is_calculation: false,
+        stat_kind: TriggerStatKind::Snippet,
+        track_usage: false,
+        follow_up: None,
+    };
+
+    let injected = Arc::new(AtomicBool::new(false));
+    let injected_clone = Arc::clone(&injected);
+    let state = Arc::new(taurine_core::engine::EngineState::new());
+
+    dispatch_expansion_with(
+        expansion,
+        SpinnerStyle::default(),
+        state.clone(),
+        move |_steps, _delete_count, _spinner| {
+            injected_clone.store(true, Ordering::SeqCst);
+            crate::injector::InjectionReport {
+                completed: true,
+                successful_chars: 15,
+            }
+        },
+        |_follow_up, _spinner| {},
+    );
+
+    assert!(
+        injected.load(Ordering::SeqCst),
+        "Expansion must be injected even at 0.0% balance when tier is unlimited"
+    );
+
+    // Restore state
+    QuotaGuard::global().set_balance(original_balance);
+    QuotaGuard::global().set_unlimited(original_unlimited);
+}
+
+#[test]
+fn test_voice_trigger_dispatches_when_unlimited_even_at_zero_balance() {
+    let _lock = taurine_core::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let original_balance = QuotaGuard::global().balance();
+    let original_unlimited = QuotaGuard::global().is_unlimited();
+
+    QuotaGuard::global().set_balance(0.0);
+    QuotaGuard::global().set_unlimited(true);
+
+    let conn = create_test_db();
+    let inv = taurine_core::db::crud::ResolvedInvocation {
+        trigger_id: "paid-voice-test".to_string(),
+        invocation: "hello voice".to_string(),
+        invocation_type: taurine_core::db::crud::InvocationType::Voice,
+        action: taurine_core::db::crud::TriggerAction {
+            output: "unlimited voice output".to_string(),
+            action_type: "text".to_string(),
+            only_apps: None,
+            except_apps: None,
+            auto_case: false,
+            parent_id: "paid-voice-test".to_string(),
+            interpreter: None,
+            behavior: None,
+            script_binary: None,
+        },
+        require_confirmation: false,
+        strict_threshold: 0.5,
+    };
+
+    let result = fire_voice_trigger_with_args(
+        inv,
+        &ArgMap::default(),
+        "hello voice",
+        &conn,
+        None,
+        SpinnerStyle::default(),
+    );
+
+    assert!(
+        result.is_some(),
+        "Voice trigger must succeed even at 0.0% balance when tier is unlimited"
+    );
+
+    // Restore state
+    QuotaGuard::global().set_balance(original_balance);
+    QuotaGuard::global().set_unlimited(original_unlimited);
+}
