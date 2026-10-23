@@ -510,16 +510,37 @@ fn paint_user_or_invalid(
         return;
     }
     if let Some(relative) = segment.find(key) {
+        let key_end = relative + key.len();
         runs.push(Run {
             start: to_char(offset + relative),
-            end: to_char(offset + relative + key.len()),
+            end: to_char(offset + key_end),
             style: styles.plain,
         });
-    }
-    if let Some(default) = default
-        && let Some(relative) = segment.find(default)
-    {
-        paint_args(default, offset + relative, styles, runs, to_char);
+        // Keep the `=` separator visible: `split_key_default` trims it out
+        // of both halves, so paint the bytes between the key and the value.
+        let default_start = default.and_then(|value| {
+            if value.is_empty() {
+                Some(segment.len())
+            } else {
+                segment[key_end..]
+                    .find(value)
+                    .map(|relative| key_end + relative)
+            }
+        });
+        let separator_end = default_start.unwrap_or(segment.len());
+        if separator_end > key_end {
+            runs.push(Run {
+                start: to_char(offset + key_end),
+                end: to_char(offset + separator_end),
+                style: styles.punct,
+            });
+        }
+        if let Some(default) = default
+            && let Some(relative) = default_start
+            && !default.is_empty()
+        {
+            paint_args(default, offset + relative, styles, runs, to_char);
+        }
     }
 }
 
@@ -891,6 +912,26 @@ mod tests {
                 .all(|run| run.style.fg != Some(DARK_THEME.error)),
             "user var must not error, got {runs:?}"
         );
+    }
+
+    #[test]
+    fn user_variable_defaults_render_every_character() {
+        for line in [
+            "git log --oneline -n [n=10]",
+            "git log --oneline -n [n==10]",
+            "empty [n=] tag",
+        ] {
+            let runs = &plain_runs(line)[0];
+            assert_tiles(line, runs);
+            let full = spans_for_range(line, runs, 0..line.chars().count(), None);
+            assert_eq!(
+                full.iter()
+                    .map(|span| span.content.clone())
+                    .collect::<String>(),
+                line,
+                "rendered spans must match the saved line"
+            );
+        }
     }
 
     #[test]

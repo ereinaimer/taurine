@@ -60,6 +60,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Side Navigation Rail**: The tab rail and its toggle are gone along with the header, footer, and page titles, leaving a borderless full-width list experience.
 - **Type to Filter**: Typing anywhere on the library or settings page starts filtering immediately with no need to press slash first, and arrow keys keep moving while search is focused.
 
+### Fixed
+- **Visible Variable Defaults**: Template highlighting now shows the `=` between a variable and its default value instead of hiding it.
+
 ## [1.0.0-alpha.19] - 2026-09-27
 
 ### Added
