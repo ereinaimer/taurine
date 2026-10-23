@@ -1818,12 +1818,26 @@ mod tests {
         let mut app = App::default();
         seed_single_library_item(&mut app);
         app.library_page_mut().open_create_modal();
-        let body = library::modals::create_body(TEST_AREA);
+        let layout = terminal::mouse::frame_layout(TEST_AREA);
+        let full = terminal::mouse::library_full_area(layout.page);
+        let body = library::modals::create_body(full);
         let (_, divider, _) = library::modals::create_split(body, 0.5);
+        let content_row = body.y + library::modals::CREATE_TRIGGER_FIELD_ROW;
 
+        // The header band and its gap do not grab the divider.
         handle_tui_mouse_event(
             &mut app,
             mouse_at(divider, body.y, MouseEventKind::Moved),
+            TEST_AREA,
+        );
+        assert!(matches!(
+            app.library_page().modal(),
+            Some(library::LibraryModal::Create(draft)) if !draft.divider_hover()
+        ));
+
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(divider, content_row, MouseEventKind::Moved),
             TEST_AREA,
         );
         assert!(matches!(
@@ -1833,7 +1847,7 @@ mod tests {
 
         handle_tui_mouse_event(
             &mut app,
-            mouse_at(divider + 1, body.y, MouseEventKind::Moved),
+            mouse_at(divider + 1, content_row, MouseEventKind::Moved),
             TEST_AREA,
         );
         assert!(matches!(
@@ -1847,10 +1861,13 @@ mod tests {
         let mut app = App::default();
         seed_single_library_item(&mut app);
         app.library_page_mut().open_create_modal();
-        let body = library::modals::create_body(TEST_AREA);
+        let layout = terminal::mouse::frame_layout(TEST_AREA);
+        let full = terminal::mouse::library_full_area(layout.page);
+        let body = library::modals::create_body(full);
         let (_, divider, _) = library::modals::create_split(body, 0.5);
+        let content_row = body.y + library::modals::CREATE_TRIGGER_FIELD_ROW;
 
-        handle_tui_mouse_event(&mut app, left_click(divider, body.y), TEST_AREA);
+        handle_tui_mouse_event(&mut app, left_click(divider, content_row), TEST_AREA);
         assert!(matches!(
             app.library_page().modal(),
             Some(library::LibraryModal::Create(draft)) if draft.divider_drag()
@@ -1860,7 +1877,7 @@ mod tests {
             &mut app,
             mouse_at(
                 divider + 10,
-                body.y,
+                content_row,
                 MouseEventKind::Drag(MouseButton::Left),
             ),
             TEST_AREA,
@@ -1878,7 +1895,11 @@ mod tests {
 
         handle_tui_mouse_event(
             &mut app,
-            mouse_at(divider + 10, body.y, MouseEventKind::Up(MouseButton::Left)),
+            mouse_at(
+                divider + 10,
+                content_row,
+                MouseEventKind::Up(MouseButton::Left),
+            ),
             TEST_AREA,
         );
         assert!(matches!(
@@ -2048,7 +2069,11 @@ mod tests {
         );
 
         // Trigger field row of the create modal on TEST_AREA.
-        handle_tui_mouse_event(&mut app, left_click(20, 5), TEST_AREA);
+        let layout = terminal::mouse::frame_layout(TEST_AREA);
+        let full = terminal::mouse::library_full_area(layout.page);
+        let body = crate::widgets::util::overlay_body(library::modals::create_popup(full));
+        let trigger_row = body.y + library::modals::CREATE_TRIGGER_FIELD_ROW;
+        handle_tui_mouse_event(&mut app, left_click(20, trigger_row), TEST_AREA);
 
         assert!(app.library_page().is_modal_open());
         assert!(matches!(

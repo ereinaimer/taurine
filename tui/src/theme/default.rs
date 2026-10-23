@@ -27,7 +27,8 @@ pub const DARK_THEME: Theme = Theme {
     syntax_type: Color::Rgb(0xE5, 0xC0, 0x7B),
     syntax_variable: Color::Rgb(0xE0, 0x6C, 0x75),
     header: HeaderTheme {
-        bg: Color::Rgb(0x1E, 0x1E, 0x1E),
+        // Neutral default header band; themes can override this later.
+        bg: Color::Rgb(0x24, 0x24, 0x24),
         text: Color::Rgb(0xCF, 0xCF, 0xCF),
     },
     button: ButtonTheme {

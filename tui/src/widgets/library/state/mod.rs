@@ -672,7 +672,7 @@ impl LibraryPageState {
     }
 
     /// Grabbing the create divider starts a resize drag. The line runs
-    /// the full popup height, so any row on its column grabs it.
+    /// the content height, starting below the header band and its gap.
     pub(crate) fn grab_create_divider(
         &mut self,
         area: ratatui::layout::Rect,

@@ -264,6 +264,16 @@ fn render_library_delete_modal(
 /// never see a real body rect.
 pub(crate) const CREATE_BODY_WIDTH: u16 = 80;
 
+/// Top popup rows covered by the create header band: top margin,
+/// title row, and the band's trailing blank row.
+pub(crate) const CREATE_HEADER_ROWS: u16 = 3;
+
+/// Blank row between the header band and the form.
+pub(crate) const CREATE_HEADER_GAP_ROWS: u16 = 1;
+
+/// First content row, popup-relative: header band plus its gap.
+pub(crate) const CREATE_CONTENT_TOP: u16 = CREATE_HEADER_ROWS + CREATE_HEADER_GAP_ROWS;
+
 /// Split a create body at the draft's left-pane share. Returns the
 /// left rect, the absolute divider column, and the right rect; render
 /// and hit-testing both run off this.
@@ -295,8 +305,9 @@ pub(crate) fn create_body(area: Rect) -> Rect {
     util::overlay_body(create_popup(area))
 }
 
-/// The divider spans the whole popup, so any row on that column grabs
-/// it. The body check keeps tiny popups from reporting a phantom line.
+/// The divider spans the content area only, so the header band and its
+/// gap stay clean. The body check keeps tiny popups from reporting a
+/// phantom line.
 pub(crate) fn create_divider_hit(
     draft: &LibraryCreateModalState,
     area: Rect,
@@ -304,7 +315,9 @@ pub(crate) fn create_divider_hit(
     row: u16,
 ) -> bool {
     let popup = create_popup(area);
-    if !crate::terminal::mouse::contains(popup, column, row) {
+    if !crate::terminal::mouse::contains(popup, column, row)
+        || row < popup.y.saturating_add(CREATE_CONTENT_TOP)
+    {
         return false;
     }
     let body = util::overlay_body(popup);
@@ -340,13 +353,14 @@ pub(crate) fn create_layout(is_script: bool, body_height: u16) -> CreateLayout {
 }
 
 /// Left-pane rows, shared by rendering and hit-testing: title, blank,
-/// trigger field, blank, type/action pills, blank, then the flex
-/// content box. Scripts add a second pill row and push the box down.
-pub(crate) const CREATE_TRIGGER_FIELD_ROW: u16 = 2;
-pub(crate) const CREATE_PILLS_ROW: u16 = 4;
-pub(crate) const CREATE_CONTENT_FIRST_ROW: u16 = 6;
-pub(crate) const CREATE_SCRIPT_PILLS_ROW: u16 = 6;
-pub(crate) const CREATE_SCRIPT_CONTENT_FIRST_ROW: u16 = 8;
+/// header gap, trigger field, blank, type/action pills, blank, then the
+/// flex content box. Scripts add a second pill row and push the box
+/// down.
+pub(crate) const CREATE_TRIGGER_FIELD_ROW: u16 = 3;
+pub(crate) const CREATE_PILLS_ROW: u16 = 5;
+pub(crate) const CREATE_CONTENT_FIRST_ROW: u16 = 7;
+pub(crate) const CREATE_SCRIPT_PILLS_ROW: u16 = 7;
+pub(crate) const CREATE_SCRIPT_CONTENT_FIRST_ROW: u16 = 9;
 
 /// Placeholder copy shown inside the empty create fields.
 pub(crate) const CREATE_TRIGGER_PLACEHOLDER: &str = "Type your trigger here";
@@ -408,15 +422,15 @@ pub(crate) enum CreateHit {
     Field(LibraryCreateModalField),
 }
 
-/// Properties content inside the create body. Skip the header row and
-/// its one-line gap, run values to the overlay's right edge so they
-/// align with the title's Esc hint, and clear the error row.
+/// Properties content inside the create body. Skip the header band and
+/// its gap, run values to the overlay's right edge so they align with
+/// the title's Esc hint, and clear the error row.
 pub(crate) fn create_props_content(right: Rect) -> Rect {
     Rect {
         x: right.x.saturating_add(2),
-        y: right.y.saturating_add(2),
+        y: right.y.saturating_add(3),
         width: right.width.saturating_sub(2),
-        height: right.height.saturating_sub(3),
+        height: right.height.saturating_sub(4),
     }
 }
 
@@ -577,6 +591,18 @@ fn render_library_create_modal(
         Block::default().style(Style::default().bg(Rgb(0x14, 0x14, 0x14))),
         popup,
     );
+    let header_height = CREATE_HEADER_ROWS.min(popup.height);
+    if header_height > 0 {
+        frame.render_widget(
+            Block::default().style(Style::default().bg(theme.header.bg)),
+            Rect {
+                x: popup.x,
+                y: popup.y,
+                width: popup.width,
+                height: header_height,
+            },
+        );
+    }
     let body = util::overlay_body(popup);
     if body.width == 0 || body.height == 0 {
         return;
@@ -652,14 +678,14 @@ fn render_library_create_modal(
         );
     }
 
-    // Divider between the panes; run edge to edge so it reads as part
-    // of the overlay frame.
+    // Divider between the panes; start below the header band and its
+    // gap so the header stays visually whole.
     if left.width > 0
         && right.width > 0
         && divider > body.x
         && divider < body.x.saturating_add(body.width)
     {
-        let height = popup.height;
+        let height = popup.height.saturating_sub(CREATE_CONTENT_TOP);
         if height > 0 {
             let color = if state.divider_drag() || state.divider_hover() {
                 super::DIVIDER_HOVER_COLOR
@@ -671,7 +697,7 @@ fn render_library_create_modal(
                 Paragraph::new(glyphs).style(Style::default().fg(color)),
                 Rect {
                     x: divider,
-                    y: popup.y,
+                    y: popup.y.saturating_add(CREATE_CONTENT_TOP),
                     width: 1,
                     height,
                 },
