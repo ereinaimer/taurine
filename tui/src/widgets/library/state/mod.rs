@@ -1061,7 +1061,7 @@ impl LibraryPageState {
             Field::Action => {
                 self.open_header_menu_for_create(*draft, HeaderMenuKind::ActionType);
             }
-            Field::Trigger | Field::Content => {
+            Field::Trigger | Field::Description | Field::Content => {
                 self.modal = Some(LibraryModal::Create(draft));
             }
         }

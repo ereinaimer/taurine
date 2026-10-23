@@ -1,6 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use taurine_core::db::TargetOs;
-use taurine_core::db::crud::{ActionType, TriggerType, prepare_trigger_with_type};
+use taurine_core::db::crud::{ActionType, TriggerLimits, TriggerType, prepare_trigger_with_type};
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 
 use crate::widgets::field::TextField;
@@ -15,6 +15,7 @@ use super::HeaderMenuKind;
 pub(crate) enum LibraryCreateModalField {
     TriggerType,
     Trigger,
+    Description,
     Content,
     Action,
     Interpreter,
@@ -45,6 +46,7 @@ pub(crate) enum CreateKeyOutcome {
 pub(crate) struct LibraryCreateModalState {
     trigger_type: TriggerType,
     trigger: TextField,
+    description: TextField,
     content: TextArea,
     content_scroll: usize,
     action: ActionType,
@@ -77,6 +79,7 @@ impl LibraryCreateModalState {
         Self {
             trigger_type: TriggerType::Word,
             trigger: TextField::new(""),
+            description: TextField::new(""),
             content: TextArea::new(""),
             content_scroll: 0,
             action: ActionType::Text,
@@ -145,6 +148,15 @@ impl LibraryCreateModalState {
 
     pub(crate) fn trigger_field(&self) -> &TextField {
         &self.trigger
+    }
+
+    #[cfg(test)]
+    pub(crate) fn description_text(&self) -> &str {
+        self.description.text()
+    }
+
+    pub(crate) fn description_field(&self) -> &TextField {
+        &self.description
     }
 
     #[cfg(test)]
@@ -257,6 +269,7 @@ impl LibraryCreateModalState {
         let mut fields = vec![
             Field::TriggerType,
             Field::Trigger,
+            Field::Description,
             Field::Content,
             Field::Action,
         ];
@@ -411,14 +424,27 @@ impl LibraryCreateModalState {
             return self.handle_content_key(key);
         }
 
+        // honey: j/k navigate only outside the single-line editors, so
+        // both text fields can still type those letters.
+        let text_focus = matches!(
+            self.focus,
+            LibraryCreateModalField::Trigger | LibraryCreateModalField::Description
+        );
         match (key.code, key.modifiers) {
             (KeyCode::Esc, KeyModifiers::NONE) => CreateKeyOutcome::Close,
-            (KeyCode::Down | KeyCode::Char('j'), KeyModifiers::NONE)
-            | (KeyCode::Tab, KeyModifiers::NONE) => {
+            (KeyCode::Down, KeyModifiers::NONE) | (KeyCode::Tab, KeyModifiers::NONE) => {
                 self.advance_focus(true);
                 CreateKeyOutcome::Handled
             }
-            (KeyCode::Up | KeyCode::Char('k'), KeyModifiers::NONE) | (KeyCode::BackTab, _) => {
+            (KeyCode::Char('j'), KeyModifiers::NONE) if !text_focus => {
+                self.advance_focus(true);
+                CreateKeyOutcome::Handled
+            }
+            (KeyCode::Up, KeyModifiers::NONE) | (KeyCode::BackTab, _) => {
+                self.advance_focus(false);
+                CreateKeyOutcome::Handled
+            }
+            (KeyCode::Char('k'), KeyModifiers::NONE) if !text_focus => {
                 self.advance_focus(false);
                 CreateKeyOutcome::Handled
             }
@@ -428,7 +454,9 @@ impl LibraryCreateModalState {
 
     fn handle_focused_key(&mut self, key: KeyEvent) -> CreateKeyOutcome {
         match self.focus {
-            LibraryCreateModalField::Trigger => self.handle_text_key(key),
+            LibraryCreateModalField::Trigger | LibraryCreateModalField::Description => {
+                self.handle_text_key(key)
+            }
             LibraryCreateModalField::TriggerType => {
                 self.handle_picker_key(key, HeaderMenuKind::InvocationType)
             }
@@ -508,6 +536,7 @@ impl LibraryCreateModalState {
         // never creates a trigger; the submit affordance returns later.
         let field = match self.focus {
             LibraryCreateModalField::Trigger => &mut self.trigger,
+            LibraryCreateModalField::Description => &mut self.description,
             _ => return CreateKeyOutcome::Handled,
         };
         match (key.code, key.modifiers) {
@@ -626,6 +655,9 @@ impl LibraryCreateModalState {
         // the draft still open.
         let prepared =
             prepare_trigger_with_type(self.trigger.text(), self.trigger_type, &self.target_os)?;
+        let description = self.description.text().trim();
+        let description = (!description.is_empty()).then(|| description.to_string());
+        TriggerLimits::validate_description(description.as_deref())?;
         let (interpreter, behavior) = if self.is_text_action() {
             (None, None)
         } else {
@@ -634,6 +666,7 @@ impl LibraryCreateModalState {
         Ok(PendingLibraryCreate {
             trigger: prepared.stored_trigger,
             trigger_type: self.trigger_type,
+            description,
             content: self.content.text(),
             action_type: self.action.as_str().to_string(),
             target_os: self.target_os.clone(),

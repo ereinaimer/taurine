@@ -4282,6 +4282,7 @@ fn create_modal_opens_with_sane_defaults() {
     let create = create_modal(&state);
     assert_eq!(create.focus(), LibraryCreateModalField::Trigger);
     assert_eq!(create.trigger_type(), TriggerType::Word);
+    assert!(create.description_text().is_empty());
     assert!(create.is_text_action());
     assert_eq!(create.target_os(), "all");
     assert!(!create.auto_case());
@@ -4301,10 +4302,29 @@ fn create_typing_and_tab_navigation() {
     state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     assert_eq!(
         create_modal(&state).focus(),
+        LibraryCreateModalField::Description
+    );
+    type_text(&mut state, "Morning greeting");
+    assert_eq!(create_modal(&state).description_text(), "Morning greeting");
+
+    state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert_eq!(
+        create_modal(&state).focus(),
         LibraryCreateModalField::Content
     );
     type_text(&mut state, "Good Morning");
     assert_eq!(create_modal(&state).content_text(), "Good Morning");
+}
+
+#[test]
+fn create_text_fields_accept_j_and_k() {
+    let mut state = open_create_state();
+    type_text(&mut state, "jk");
+    assert_eq!(create_modal(&state).trigger_text(), "jk");
+
+    state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    type_text(&mut state, "jk");
+    assert_eq!(create_modal(&state).description_text(), "jk");
 }
 
 #[test]
@@ -4330,9 +4350,21 @@ fn create_overlong_trigger_build_fails() {
 }
 
 #[test]
+fn create_overlong_description_build_fails() {
+    let mut state = open_create_state();
+    type_text(&mut state, "gm");
+    state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    type_text(&mut state, &"d".repeat(1001));
+
+    assert!(create_modal(&state).build_pending_create().is_err());
+}
+
+#[test]
 fn create_valid_text_trigger_builds_pending() {
     let mut state = open_create_state();
     type_text(&mut state, "gm");
+    state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    type_text(&mut state, "Morning greeting");
     state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     type_text(&mut state, "Good Morning");
 
@@ -4340,6 +4372,7 @@ fn create_valid_text_trigger_builds_pending() {
         .build_pending_create()
         .expect("pending create");
     assert_eq!(pending.trigger, "gm");
+    assert_eq!(pending.description.as_deref(), Some("Morning greeting"));
     assert_eq!(pending.content, "Good Morning");
     assert_eq!(pending.trigger_type, TriggerType::Word);
     assert_eq!(pending.action_type, "text");
@@ -4398,8 +4431,9 @@ fn create_header_menu_esc_returns_draft_unchanged() {
 #[test]
 fn create_os_row_pick_applies_to_draft() {
     let mut state = open_create_state();
-    // Trigger, Content, Action, Auto case, Allow, Block, then Platform.
-    for _ in 0..6 {
+    // Trigger, Description, Content, Action, Auto case, Allow, Block,
+    // then Platform.
+    for _ in 0..7 {
         state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     }
     assert_eq!(create_modal(&state).focus(), LibraryCreateModalField::Os);
@@ -4421,8 +4455,8 @@ fn create_os_row_pick_applies_to_draft() {
 #[test]
 fn create_autocase_property_flips_in_place() {
     let mut state = open_create_state();
-    // Trigger, Content, Action, then Auto case.
-    for _ in 0..3 {
+    // Trigger, Description, Content, Action, then Auto case.
+    for _ in 0..4 {
         state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     }
     assert_eq!(
@@ -4452,7 +4486,7 @@ fn create_properties_view_reflects_draft_values() {
 #[test]
 fn create_action_row_cycles_to_script_and_reveals_script_rows() {
     let mut state = open_create_state();
-    for _ in 0..2 {
+    for _ in 0..3 {
         state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     }
     assert_eq!(
@@ -4475,9 +4509,10 @@ fn create_action_row_cycles_to_script_and_reveals_script_rows() {
 fn create_script_build_defaults_interpreter_and_behavior() {
     let mut state = open_create_state();
     type_text(&mut state, "deploy");
+    // Description, then Content.
+    state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     type_text(&mut state, "echo hi");
-    // Content, then Action.
     state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     state.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
 
@@ -4539,101 +4574,82 @@ fn create_props_content_aligns_with_title_hint() {
 #[test]
 fn create_option_hit_selects_fields() {
     // 90% popup on 100x30 is 90x27 at (5,1); body starts at
-    // (8,2): title 0, blank 1, header gap 2, trigger field 3, blank 4,
-    // pills 5, blank 6, content from 7; the footer row on 25 is dead.
-    // The right pane is the properties list, starting at x=50.
+    // (8,2): title 0, blank 1, header gap 2, trigger 3, description 4,
+    // blank 5, pills 6, blank 7, content from 8; the footer row on 25
+    // is dead. The right pane is the properties list, starting at x=50.
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let draft = sample_create_modal();
 
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 20, 5),
+        modals::create_option_hit(&draft, area, 20, 5),
         Some(modals::CreateHit::Field(LibraryCreateModalField::Trigger))
     );
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 20, 4),
-        None
+        modals::create_option_hit(&draft, area, 20, 6),
+        Some(modals::CreateHit::Field(
+            LibraryCreateModalField::Description
+        ))
     );
+    assert_eq!(modals::create_option_hit(&draft, area, 20, 4), None);
+    assert_eq!(modals::create_option_hit(&draft, area, 20, 7), None);
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 10, 7),
+        modals::create_option_hit(&draft, area, 10, 8),
         Some(modals::CreateHit::Field(
             LibraryCreateModalField::TriggerType
         ))
     );
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 20, 7),
+        modals::create_option_hit(&draft, area, 20, 8),
         Some(modals::CreateHit::Field(LibraryCreateModalField::Action))
     );
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 70, 7),
+        modals::create_option_hit(&draft, area, 70, 7),
         Some(modals::CreateHit::Field(LibraryCreateModalField::AutoCase))
     );
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 70, 9),
+        modals::create_option_hit(&draft, area, 70, 9),
         Some(modals::CreateHit::Field(LibraryCreateModalField::Allow))
     );
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 70, 11),
+        modals::create_option_hit(&draft, area, 70, 11),
         Some(modals::CreateHit::Field(LibraryCreateModalField::Block))
     );
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 70, 15),
+        modals::create_option_hit(&draft, area, 70, 15),
         Some(modals::CreateHit::Field(LibraryCreateModalField::Os))
     );
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 70, 17),
+        modals::create_option_hit(&draft, area, 70, 17),
         Some(modals::CreateHit::Field(LibraryCreateModalField::Tags))
     );
+    assert_eq!(modals::create_option_hit(&draft, area, 70, 13), None);
+    assert_eq!(modals::create_option_hit(&draft, area, 70, 19), None);
+    assert_eq!(modals::create_option_hit(&draft, area, 70, 21), None);
     assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 70, 13),
-        None
-    );
-    assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 70, 19),
-        None
-    );
-    assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 70, 21),
-        None
-    );
-    assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 10, 9),
+        modals::create_option_hit(&draft, area, 10, 10),
         Some(modals::CreateHit::Field(LibraryCreateModalField::Content))
     );
     let mut script = sample_create_modal();
     script.toggle_action();
     assert_eq!(
-        modals::create_option_hit(&script, area, 10, 9),
+        modals::create_option_hit(&script, area, 10, 10),
         Some(modals::CreateHit::Field(
             LibraryCreateModalField::Interpreter
         ))
     );
     assert_eq!(
-        modals::create_option_hit(&script, area, 20, 9),
+        modals::create_option_hit(&script, area, 20, 10),
         Some(modals::CreateHit::Field(LibraryCreateModalField::Behavior))
     );
     assert_eq!(
-        modals::create_option_hit(&script, area, 10, 11),
+        modals::create_option_hit(&script, area, 10, 12),
         Some(modals::CreateHit::Field(LibraryCreateModalField::Content))
     );
-    assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 39, 25),
-        None
-    );
-    assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 50, 25),
-        None
-    );
-    assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 56, 5),
-        None
-    );
-    assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 20, 2),
-        None
-    );
-    assert_eq!(
-        modals::create_option_hit(&sample_create_modal(), area, 0, 0),
-        None
-    );
+    assert_eq!(modals::create_option_hit(&draft, area, 39, 25), None);
+    assert_eq!(modals::create_option_hit(&draft, area, 50, 25), None);
+    assert_eq!(modals::create_option_hit(&draft, area, 56, 5), None);
+    assert_eq!(modals::create_option_hit(&draft, area, 20, 2), None);
+    assert_eq!(modals::create_option_hit(&draft, area, 0, 0), None);
 }
 
 #[test]
@@ -4707,15 +4723,22 @@ fn create_form_renders_placeholders_and_stacked_pickers() {
             .starts_with(modals::CREATE_TRIGGER_PLACEHOLDER)
     );
     assert_eq!(empty[(8, 5)].fg, DARK_THEME.text_muted);
+    let description_row = row(&empty, 6);
+    assert!(
+        description_row
+            .trim_start()
+            .starts_with(modals::CREATE_DESCRIPTION_PLACEHOLDER)
+    );
+    assert_eq!(empty[(8, 6)].fg, DARK_THEME.text_muted);
     assert!(row(&empty, 2).contains("New Trigger"));
     assert!(row(&empty, 2).contains("Esc"));
     assert!(!row(&empty, 2).contains("Properties"));
     assert!(row(&empty, 3).trim().is_empty());
     assert!(row(&empty, 5).contains("Properties"));
     assert!(row(&empty, 7).contains("Auto case"));
-    assert!(row(&empty, 7).contains("word"));
-    assert!(row(&empty, 7).contains("text"));
-    assert!(row(&empty, 9).trim_start().starts_with(text_placeholder));
+    assert!(row(&empty, 8).contains("word"));
+    assert!(row(&empty, 8).contains("text"));
+    assert!(row(&empty, 10).trim_start().starts_with(text_placeholder));
     assert!(row(&empty, 17).contains("Tags"));
     assert!(!row(&empty, 19).contains("Usage"));
     // The pane divider starts below the header band and its gap.
@@ -4732,24 +4755,39 @@ fn create_form_renders_placeholders_and_stacked_pickers() {
     let typed = draw(&state);
     assert!(row(&typed, 5).trim_start().starts_with("gm"));
     assert!(!row(&typed, 5).contains(modals::CREATE_TRIGGER_PLACEHOLDER));
+    assert!(
+        row(&typed, 6)
+            .trim_start()
+            .starts_with(modals::CREATE_DESCRIPTION_PLACEHOLDER)
+    );
 
     // The content placeholder stays visible until typing starts.
-    assert!(row(&typed, 9).trim_start().starts_with(text_placeholder));
+    assert!(row(&typed, 10).trim_start().starts_with(text_placeholder));
+    type_text(&mut state, "Morning greeting");
+    let described = draw(&state);
+    assert!(
+        row(&described, 6)
+            .trim_start()
+            .starts_with("Morning greeting")
+    );
+    assert!(!row(&described, 6).contains(modals::CREATE_DESCRIPTION_PLACEHOLDER));
+    state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     type_text(&mut state, "Good Morning");
     let filled = draw(&state);
-    assert!(row(&filled, 9).trim_start().starts_with("Good Morning"));
-    assert!(!row(&filled, 9).contains(text_placeholder));
+    assert!(row(&filled, 10).trim_start().starts_with("Good Morning"));
+    assert!(!row(&filled, 10).contains(text_placeholder));
 
     // The hint follows the action pill: scripts get script copy.
     let mut script = open_create_state();
-    script.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    script.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    for _ in 0..3 {
+        script.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    }
     script.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
     let script_buffer = draw(&script);
-    assert!(row(&script_buffer, 9).contains("bash"));
-    assert!(row(&script_buffer, 9).contains("inline"));
+    assert!(row(&script_buffer, 10).contains("bash"));
+    assert!(row(&script_buffer, 10).contains("inline"));
     assert!(
-        row(&script_buffer, 11)
+        row(&script_buffer, 12)
             .trim_start()
             .starts_with(modals::create_content_placeholder(false))
     );
@@ -4821,9 +4859,9 @@ fn create_tags_esc_returns_to_draft() {
 #[test]
 fn create_tags_row_enter_opens_picker_with_draft() {
     let mut state = open_create_state();
-    // Trigger, Content, Action, Auto case, Allow, Block, Platform, then
-    // Tags.
-    for _ in 0..7 {
+    // Trigger, Description, Content, Action, Auto case, Allow, Block,
+    // Platform, then Tags.
+    for _ in 0..8 {
         state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     }
     assert_eq!(create_modal(&state).focus(), LibraryCreateModalField::Tags);

@@ -7,6 +7,7 @@ use ratatui::{
 };
 
 use crate::theme::Theme;
+use crate::widgets::field::TextField;
 use crate::widgets::library::state::{
     LibraryAppFilterState, LibraryCreateModalField, LibraryCreateModalState,
     LibraryDeleteModalState, LibraryExportModalField, LibraryExportModalState,
@@ -353,17 +354,19 @@ pub(crate) fn create_layout(is_script: bool, body_height: u16) -> CreateLayout {
 }
 
 /// Left-pane rows, shared by rendering and hit-testing: title, blank,
-/// header gap, trigger field, blank, type/action pills, blank, then the
-/// flex content box. Scripts add a second pill row and push the box
-/// down.
+/// header gap, trigger field, description field, blank, type/action
+/// pills, blank, then the flex content box. Scripts add a second pill
+/// row and push the box down.
 pub(crate) const CREATE_TRIGGER_FIELD_ROW: u16 = 3;
-pub(crate) const CREATE_PILLS_ROW: u16 = 5;
-pub(crate) const CREATE_CONTENT_FIRST_ROW: u16 = 7;
-pub(crate) const CREATE_SCRIPT_PILLS_ROW: u16 = 7;
-pub(crate) const CREATE_SCRIPT_CONTENT_FIRST_ROW: u16 = 9;
+pub(crate) const CREATE_DESCRIPTION_FIELD_ROW: u16 = 4;
+pub(crate) const CREATE_PILLS_ROW: u16 = 6;
+pub(crate) const CREATE_CONTENT_FIRST_ROW: u16 = 8;
+pub(crate) const CREATE_SCRIPT_PILLS_ROW: u16 = 8;
+pub(crate) const CREATE_SCRIPT_CONTENT_FIRST_ROW: u16 = 10;
 
 /// Placeholder copy shown inside the empty create fields.
 pub(crate) const CREATE_TRIGGER_PLACEHOLDER: &str = "Type your trigger here";
+pub(crate) const CREATE_DESCRIPTION_PLACEHOLDER: &str = "Add a description (optional)";
 pub(crate) const CREATE_TEXT_PLACEHOLDER: &str = "Type your snippet here";
 pub(crate) const CREATE_SCRIPT_PLACEHOLDER: &str = "Type your script here";
 
@@ -487,6 +490,9 @@ pub(crate) fn create_option_hit(
     if column >= left.x && column < left.x.saturating_add(left.width) {
         return match rel {
             CREATE_TRIGGER_FIELD_ROW => Some(CreateHit::Field(LibraryCreateModalField::Trigger)),
+            CREATE_DESCRIPTION_FIELD_ROW => {
+                Some(CreateHit::Field(LibraryCreateModalField::Description))
+            }
             CREATE_PILLS_ROW => {
                 let labels = create_pill_labels(draft);
                 pill_hit(left, &labels, column).map(|index| match index {
@@ -575,6 +581,44 @@ fn render_create_pill_row(
     );
 }
 
+/// One single-line create field: prompt while empty, caret when focused.
+fn render_create_text_field(
+    frame: &mut Frame,
+    left: Rect,
+    y: u16,
+    theme: &Theme,
+    field: &TextField,
+    placeholder: &str,
+    focused: bool,
+) {
+    let bottom = left.y.saturating_add(left.height);
+    if left.width == 0 || y >= bottom {
+        return;
+    }
+    let (visible, caret) = field.window(left.width);
+    let (shown, style) = if field.is_empty() {
+        (
+            placeholder.to_string(),
+            Style::default().fg(theme.text_muted),
+        )
+    } else {
+        (visible.to_string(), Style::default().fg(theme.text))
+    };
+    frame.render_widget(
+        Paragraph::new(shown).style(style),
+        Rect {
+            x: left.x,
+            y,
+            width: left.width,
+            height: 1,
+        },
+    );
+    if focused {
+        let (cx, cy) = util::caret_position(left.x, y, caret, left.width);
+        frame.set_cursor_position((cx, cy));
+    }
+}
+
 fn render_library_create_modal(
     frame: &mut Frame,
     area: Rect,
@@ -613,36 +657,28 @@ fn render_library_create_modal(
     let focused = state.focus();
     let (left, divider, right) = create_split(body, state.split());
 
-    // Left pane: trigger field, type/action pills, optional script
-    // pills, then the content box. Empty fields show their prompt in
-    // place.
+    // Left pane: trigger and description fields, type/action pills,
+    // optional script pills, then the content box. Empty fields show
+    // their prompt in place.
     if left.width > 0 {
-        let input_y = body.y.saturating_add(CREATE_TRIGGER_FIELD_ROW);
-        if input_y < bottom {
-            let empty = state.trigger_field().text().is_empty();
-            let (visible, caret) = state.trigger_field().window(left.width);
-            let (shown, style) = if empty {
-                (
-                    CREATE_TRIGGER_PLACEHOLDER.to_string(),
-                    Style::default().fg(theme.text_muted),
-                )
-            } else {
-                (visible.to_string(), Style::default().fg(theme.text))
-            };
-            frame.render_widget(
-                Paragraph::new(shown).style(style),
-                Rect {
-                    x: left.x,
-                    y: input_y,
-                    width: left.width,
-                    height: 1,
-                },
-            );
-            if focused == LibraryCreateModalField::Trigger {
-                let (cx, cy) = util::caret_position(left.x, input_y, caret, left.width);
-                frame.set_cursor_position((cx, cy));
-            }
-        }
+        render_create_text_field(
+            frame,
+            left,
+            body.y.saturating_add(CREATE_TRIGGER_FIELD_ROW),
+            theme,
+            state.trigger_field(),
+            CREATE_TRIGGER_PLACEHOLDER,
+            focused == LibraryCreateModalField::Trigger,
+        );
+        render_create_text_field(
+            frame,
+            left,
+            body.y.saturating_add(CREATE_DESCRIPTION_FIELD_ROW),
+            theme,
+            state.description_field(),
+            CREATE_DESCRIPTION_PLACEHOLDER,
+            focused == LibraryCreateModalField::Description,
+        );
         render_create_pill_row(
             frame,
             left,

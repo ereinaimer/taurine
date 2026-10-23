@@ -71,6 +71,7 @@ impl PendingLibraryDelete {
 pub(crate) struct PendingLibraryCreate {
     pub(crate) trigger: String,
     pub(crate) trigger_type: TriggerType,
+    pub(crate) description: Option<String>,
     pub(crate) content: String,
     pub(crate) action_type: String,
     pub(crate) target_os: String,
@@ -106,7 +107,7 @@ impl PendingLibraryCreate {
         let (id, _) = create_entry(
             &conn,
             NewEntry {
-                description: None,
+                description: self.description.clone(),
                 content: self.content.clone(),
                 action_type: self.action_type.clone(),
                 target_os: self.target_os.clone(),

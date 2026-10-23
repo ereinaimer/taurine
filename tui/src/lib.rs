@@ -2065,7 +2065,7 @@ mod tests {
                 Some(library::LibraryModal::Create(draft)) => draft.focus(),
                 other => panic!("expected create modal, got {other:?}"),
             },
-            library::LibraryCreateModalField::Content
+            library::LibraryCreateModalField::Description
         );
 
         // Trigger field row of the create modal on TEST_AREA.
@@ -2080,6 +2080,36 @@ mod tests {
             app.library_page().modal(),
             Some(library::LibraryModal::Create(draft))
                 if draft.focus() == library::LibraryCreateModalField::Trigger
+        ));
+    }
+
+    #[test]
+    fn clicking_create_description_field_focuses_it() {
+        let mut app = App::default();
+        seed_single_library_item(&mut app);
+        app.library_page_mut().open_create_modal();
+        // Move focus to Content so the click has to bring it back.
+        for _ in 0..2 {
+            handle_tui_key_event(&mut app, KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        }
+        assert_eq!(
+            match app.library_page().modal() {
+                Some(library::LibraryModal::Create(draft)) => draft.focus(),
+                other => panic!("expected create modal, got {other:?}"),
+            },
+            library::LibraryCreateModalField::Content
+        );
+
+        let layout = terminal::mouse::frame_layout(TEST_AREA);
+        let full = terminal::mouse::library_full_area(layout.page);
+        let body = crate::widgets::util::overlay_body(library::modals::create_popup(full));
+        let description_row = body.y + library::modals::CREATE_DESCRIPTION_FIELD_ROW;
+        handle_tui_mouse_event(&mut app, left_click(20, description_row), TEST_AREA);
+
+        assert!(matches!(
+            app.library_page().modal(),
+            Some(library::LibraryModal::Create(draft))
+                if draft.focus() == library::LibraryCreateModalField::Description
         ));
     }
 
