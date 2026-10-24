@@ -102,7 +102,8 @@ impl OverlayTransition for LibraryModal {
             | Self::ImportResult(_)
             | Self::ConfirmImportRunVariables(_)
             | Self::ConfirmDelete(_) => None,
-            Self::HeaderMenu(_) | Self::Tags(_) | Self::Create(_) => {
+            Self::HeaderMenu(menu) => Some(menu.popup(areas.library_full)),
+            Self::Tags(_) | Self::Create(_) => {
                 Some(crate::widgets::util::overlay_popup(areas.library_full))
             }
             Self::AppFilter(menu) => Some(app_filter_geometry(areas.library_full, menu).0),

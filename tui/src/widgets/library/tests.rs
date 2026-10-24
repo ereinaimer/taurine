@@ -2290,20 +2290,21 @@ fn header_menu_options_carry_descriptions() {
 
 #[test]
 fn overlay_option_hit_maps_two_line_rows() {
-    use crate::widgets::util::overlay_option_hit;
+    use crate::widgets::util::{overlay_option_hit_in, overlay_popup};
 
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let popup = overlay_popup(area);
     let counts = [2u16, 2];
-    // Popup 56x14 centered: rows run full-bleed from column 22,
+    // Popup 56x15 centered: rows run full-bleed from column 22,
     // options start at row 11.
-    assert_eq!(overlay_option_hit(area, &counts, 25, 9), None);
-    assert_eq!(overlay_option_hit(area, &counts, 25, 10), None);
-    assert_eq!(overlay_option_hit(area, &counts, 25, 11), Some(0));
-    assert_eq!(overlay_option_hit(area, &counts, 25, 12), Some(0));
-    assert_eq!(overlay_option_hit(area, &counts, 25, 13), Some(1));
-    assert_eq!(overlay_option_hit(area, &counts, 22, 11), Some(0));
-    assert_eq!(overlay_option_hit(area, &counts, 21, 11), None);
-    assert_eq!(overlay_option_hit(area, &counts, 25, 15), None);
+    assert_eq!(overlay_option_hit_in(popup, &counts, 25, 9), None);
+    assert_eq!(overlay_option_hit_in(popup, &counts, 25, 10), None);
+    assert_eq!(overlay_option_hit_in(popup, &counts, 25, 11), Some(0));
+    assert_eq!(overlay_option_hit_in(popup, &counts, 25, 12), Some(0));
+    assert_eq!(overlay_option_hit_in(popup, &counts, 25, 13), Some(1));
+    assert_eq!(overlay_option_hit_in(popup, &counts, 22, 11), Some(0));
+    assert_eq!(overlay_option_hit_in(popup, &counts, 21, 11), None);
+    assert_eq!(overlay_option_hit_in(popup, &counts, 25, 15), None);
 }
 
 #[test]
@@ -2844,6 +2845,38 @@ fn platform_menu_confirm_persists_db_value() {
     let pending = interaction.pending_edit().expect("pending platform");
     assert_eq!(pending.trigger_id, "id-alt+r");
     assert_eq!(pending.field, EditedField::TargetOs("all".to_string()));
+    assert!(state.modal().is_none());
+}
+
+#[test]
+fn platform_menu_items_have_one_blank_row_above_and_below() {
+    let mut state = sample_state();
+    let menu = open_menu(&mut state, HeaderMenuKind::Platform);
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let popup = menu.popup(area);
+    assert_eq!(popup, ratatui::layout::Rect::new(22, 3, 56, 23));
+    assert_eq!(menu.line_counts(), vec![3; 6]);
+
+    let buffer = render_modal_buffer(&LibraryModal::HeaderMenu(menu));
+    let labels = ["All", "Windows", "macOS", "Linux", "Android", "iOS"];
+    for (index, label) in labels.iter().enumerate() {
+        let label_y = popup.y + 5 + (index as u16) * 3;
+        assert!(buffer_row(&buffer, label_y).contains(label));
+        assert!(buffer_row(&buffer, label_y - 1).trim().is_empty());
+        assert!(buffer_row(&buffer, label_y + 1).trim().is_empty());
+    }
+}
+
+#[test]
+fn platform_menu_click_uses_padded_item_rows() {
+    let mut state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    open_menu(&mut state, HeaderMenuKind::Platform);
+    // macOS spans rows 13-15; row 15 is its bottom padding.
+    let interaction = state.click_header_menu(area, 30, 15);
+    let pending = interaction.pending_edit().expect("pending platform");
+    assert_eq!(pending.trigger_id, "id-alt+r");
+    assert_eq!(pending.field, EditedField::TargetOs("mac".to_string()));
     assert!(state.modal().is_none());
 }
 

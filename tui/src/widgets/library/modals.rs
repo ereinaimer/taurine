@@ -1123,13 +1123,14 @@ fn render_library_header_menu_modal(
             icon: icon.clone(),
         })
         .collect();
-    util::render_overlay_select(
+    util::render_overlay_select_in(
         frame,
-        area,
+        state.popup(area),
         theme,
         state.kind().title(),
         &entries,
         state.selected(),
+        state.item_padding(),
     );
 }
 

@@ -1,8 +1,10 @@
+use ratatui::layout::Rect;
 use taurine_core::db::TargetOs;
 use taurine_core::db::crud::ActionType;
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 
 use crate::widgets::library::icons::os_icon;
+use crate::widgets::util;
 
 /// Which header button spawned the centered menu: invocation type,
 /// action type, script language and run behavior for scripts, plus
@@ -165,6 +167,35 @@ impl LibraryHeaderMenuState {
 
     pub(crate) fn details(&self) -> &[String] {
         &self.details
+    }
+
+    /// Blank rows above and below each option. Only the platform menu
+    /// spaces its icon rows out.
+    pub(crate) fn item_padding(&self) -> u16 {
+        u16::from(self.kind == HeaderMenuKind::Platform)
+    }
+
+    /// Rendered row height per option, mirroring the list item lines.
+    pub(crate) fn line_counts(&self) -> Vec<u16> {
+        let padding = self.item_padding().saturating_mul(2);
+        self.details
+            .iter()
+            .map(|detail| {
+                let base: u16 = if detail.is_empty() { 1 } else { 2 };
+                base.saturating_add(padding)
+            })
+            .collect()
+    }
+
+    /// Popup rect shared by rendering and click hit-testing. The
+    /// platform menu grows to fit its padded rows.
+    pub(crate) fn popup(&self, area: Rect) -> Rect {
+        if self.kind == HeaderMenuKind::Platform {
+            let lines: u16 = self.line_counts().iter().sum();
+            util::overlay_popup_for_lines(area, lines)
+        } else {
+            util::overlay_popup(area)
+        }
     }
 
     /// Nerd-font glyph per option, blank for menus without icons.
