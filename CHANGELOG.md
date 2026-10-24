@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Search Bar**: Shortened the placeholder to Search.
+- **Wrapped Search Queries**: Long search queries now wrap across up to three lines and scroll vertically instead of sliding sideways.
 - **Unified Popup Headers**: Every TUI popup now uses the New Trigger header band and spacing.
 - **Connected Content Divider**: The center content divider now meets the vertical pane dividers.
 - **Graphical Enable Toggle**: The center pane now uses a wider, full-height switch to enable or disable the selected trigger.

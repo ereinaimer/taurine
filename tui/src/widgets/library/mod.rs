@@ -248,8 +248,16 @@ pub(crate) fn left_content(area: Rect, list_ratio: f32, props_ratio: f32) -> Rec
 }
 
 /// Split the page into list and search areas, shared by rendering and
-/// mouse hit-testing so clicks land where rows are drawn.
-pub(crate) fn content_sections(area: Rect, has_status: bool) -> (Rect, Rect) {
+/// mouse hit-testing so clicks land where rows are drawn. The search
+/// block grows with the wrapped query up to its cap.
+pub(crate) fn content_sections(
+    area: Rect,
+    has_status: bool,
+    field: &crate::widgets::field::TextField,
+    is_active: bool,
+) -> (Rect, Rect) {
+    let search_height = crate::widgets::util::search_block_height(field, is_active, area.width)
+        .min(max_search_height(area.height, has_status));
     let sections = if has_status {
         Layout::default()
             .direction(Direction::Vertical)
@@ -257,7 +265,7 @@ pub(crate) fn content_sections(area: Rect, has_status: bool) -> (Rect, Rect) {
                 Constraint::Length(1),
                 Constraint::Min(0),
                 Constraint::Length(1),
-                Constraint::Length(3),
+                Constraint::Length(search_height),
             ])
             .split(area)
     } else {
@@ -266,7 +274,7 @@ pub(crate) fn content_sections(area: Rect, has_status: bool) -> (Rect, Rect) {
             .constraints([
                 Constraint::Min(0),
                 Constraint::Length(1),
-                Constraint::Length(3),
+                Constraint::Length(search_height),
             ])
             .split(area)
     };
@@ -274,6 +282,13 @@ pub(crate) fn content_sections(area: Rect, has_status: bool) -> (Rect, Rect) {
         sections[if has_status { 1 } else { 0 }],
         sections[sections.len() - 1],
     )
+}
+
+/// Cap the search block so a long query never eats the list above it.
+fn max_search_height(area_height: u16, has_status: bool) -> u16 {
+    const MIN_LIST_HEIGHT: u16 = 3;
+    let reserved = u16::from(has_status) + 1 + MIN_LIST_HEIGHT;
+    area_height.saturating_sub(reserved).max(3)
 }
 
 pub fn render_library_content(
@@ -299,7 +314,12 @@ pub fn render_library_content(
     }
 
     let has_status = state.status_message().is_some();
-    let (list_area, search_area) = content_sections(content, has_status);
+    let (list_area, search_area) = content_sections(
+        content,
+        has_status,
+        state.search_field(),
+        state.is_search_active(),
+    );
 
     if has_status && let Some(message) = state.status_message() {
         frame.render_widget(

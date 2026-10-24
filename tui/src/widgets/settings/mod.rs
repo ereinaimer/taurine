@@ -25,7 +25,14 @@ pub(crate) enum SettingsHit {
     SearchAt(usize),
 }
 
-fn content_sections(area: Rect, has_status: bool) -> (Rect, Rect) {
+fn content_sections(
+    area: Rect,
+    has_status: bool,
+    field: &crate::widgets::field::TextField,
+    is_active: bool,
+) -> (Rect, Rect) {
+    let search_height = crate::widgets::util::search_block_height(field, is_active, area.width)
+        .min(max_search_height(area.height, has_status));
     let sections = if has_status {
         Layout::default()
             .direction(Direction::Vertical)
@@ -33,7 +40,7 @@ fn content_sections(area: Rect, has_status: bool) -> (Rect, Rect) {
                 Constraint::Length(1),
                 Constraint::Min(0),
                 Constraint::Length(1),
-                Constraint::Length(3),
+                Constraint::Length(search_height),
             ])
             .split(area)
     } else {
@@ -42,7 +49,7 @@ fn content_sections(area: Rect, has_status: bool) -> (Rect, Rect) {
             .constraints([
                 Constraint::Min(0),
                 Constraint::Length(1),
-                Constraint::Length(3),
+                Constraint::Length(search_height),
             ])
             .split(area)
     };
@@ -50,6 +57,13 @@ fn content_sections(area: Rect, has_status: bool) -> (Rect, Rect) {
         sections[if has_status { 1 } else { 0 }],
         sections[sections.len() - 1],
     )
+}
+
+/// Cap the search block so a long query never eats the list above it.
+fn max_search_height(area_height: u16, has_status: bool) -> u16 {
+    const MIN_LIST_HEIGHT: u16 = 3;
+    let reserved = u16::from(has_status) + 1 + MIN_LIST_HEIGHT;
+    area_height.saturating_sub(reserved).max(3)
 }
 
 struct SettingsRows {
@@ -101,7 +115,12 @@ pub(crate) fn visible_window_start(area: Rect, state: &SettingsPageState) -> usi
     if area.width == 0 || area.height == 0 {
         return 0;
     }
-    let (list_area, _) = content_sections(area, state.status_message().is_some());
+    let (list_area, _) = content_sections(
+        area,
+        state.status_message().is_some(),
+        state.search_field(),
+        state.is_search_active(),
+    );
     compute_rows(list_area, state).start
 }
 
@@ -141,12 +160,21 @@ pub(crate) fn hit_test(
     if area.width == 0 || area.height == 0 {
         return None;
     }
-    let (list_area, search_area) = content_sections(area, state.status_message().is_some());
+    let (list_area, search_area) = content_sections(
+        area,
+        state.status_message().is_some(),
+        state.search_field(),
+        state.is_search_active(),
+    );
     if mouse::contains(search_area, column, row) {
-        // honey: border plus one padding cell before the text starts.
-        let offset = column.saturating_sub(search_area.x.saturating_add(2));
         return Some(SettingsHit::SearchAt(
-            state.search_field().index_at(offset as usize),
+            crate::widgets::util::search_block_index_at(
+                state.search_field(),
+                state.is_search_active(),
+                search_area,
+                column,
+                row,
+            ),
         ));
     }
     if !mouse::contains(list_area, column, row) {
@@ -295,7 +323,12 @@ pub fn render_settings_content(
     let status_message = state.status_message();
     let has_status = status_message.is_some();
 
-    let (list_area, search_area) = content_sections(area, has_status);
+    let (list_area, search_area) = content_sections(
+        area,
+        has_status,
+        state.search_field(),
+        state.is_search_active(),
+    );
 
     let status_area = Rect {
         x: area.x,
@@ -504,7 +537,8 @@ mod tests {
     fn switch_hit_returns_toggle_on_boolean_row() {
         let area = ratatui::layout::Rect::new(26, 2, 71, 24);
         let state = SettingsPageState::default();
-        let (list_area, _) = content_sections(area, false);
+        let (list_area, _) =
+            content_sections(area, false, state.search_field(), state.is_search_active());
         let rows = compute_rows(list_area, &state);
         let all_keys = state.visible_keys();
         let mut row_y = rows_origin(list_area, &rows.heights, rows.start, rows.end);

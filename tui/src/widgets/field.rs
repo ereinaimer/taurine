@@ -152,6 +152,12 @@ impl TextField {
     pub(crate) fn index_at(&self, column: usize) -> usize {
         column.min(self.len_chars())
     }
+
+    /// Wrapped layout at `width` cells. `include_caret` adds the trailing
+    /// line a caret needs when it sits past a full last line.
+    pub(crate) fn wrapped(&self, width: u16, include_caret: bool) -> WrappedField {
+        wrap(self.text(), self.cursor(), width, include_caret)
+    }
 }
 
 /// Window math over raw display text plus a caret index, for masked
@@ -181,6 +187,127 @@ fn byte_index(value: &str, char_index: usize) -> usize {
         .nth(char_index)
         .map(|(byte_index, _)| byte_index)
         .unwrap_or(value.len())
+}
+
+/// Visual layout of a field wrapped to a cell width: the text split into
+/// display lines plus the caret's visual row and column. `lines` carries
+/// an empty trailing line when the caret sits past a full last line.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct WrappedField {
+    lines: Vec<String>,
+    starts: Vec<usize>,
+    ends: Vec<usize>,
+    caret_row: usize,
+    caret_col: usize,
+}
+
+impl WrappedField {
+    pub(crate) fn lines(&self) -> &[String] {
+        &self.lines
+    }
+
+    pub(crate) const fn caret(&self) -> (usize, usize) {
+        (self.caret_row, self.caret_col)
+    }
+
+    /// Row offset that keeps the caret inside `visible_rows`.
+    pub(crate) fn scroll(&self, visible_rows: usize) -> usize {
+        if visible_rows == 0 || self.lines.len() <= visible_rows {
+            0
+        } else {
+            self.caret_row.saturating_sub(visible_rows - 1)
+        }
+    }
+
+    /// Char index for a click at visual `(row, column)`.
+    pub(crate) fn index_at(&self, row: usize, column: usize) -> usize {
+        let row = row.min(self.lines.len().saturating_sub(1));
+        let start = self.starts[row];
+        start + column.min(self.ends[row].saturating_sub(start))
+    }
+}
+
+/// Greedy word wrap at `width` cells. Breaks at the last space that keeps
+/// a word whole, hard-breaks words longer than the line, and skips the
+/// space a break lands on so wrapped lines do not start with padding.
+fn wrap(text: &str, cursor: usize, width: u16, include_caret: bool) -> WrappedField {
+    let chars: Vec<char> = text.chars().collect();
+    let width = usize::from(width.max(1));
+    let mut starts = Vec::new();
+    let mut ends = Vec::new();
+    let mut start = 0;
+    while start < chars.len() {
+        // honey: wrap points collapse the space they land on, so wrapped
+        // lines start at the first glyph instead of a blank cell.
+        while start < chars.len() && start > 0 && chars[start] == ' ' {
+            start += 1;
+        }
+        if start >= chars.len() {
+            break;
+        }
+        let mut end = start;
+        let mut last_space = None;
+        while end < chars.len() && end - start < width {
+            if chars[end] == ' ' {
+                last_space = Some(end);
+            }
+            end += 1;
+        }
+        if end == chars.len() {
+            starts.push(start);
+            ends.push(end);
+            break;
+        }
+        let (line_end, next_start) = match last_space {
+            Some(space) if space > start => (space, space + 1),
+            _ => (end, end),
+        };
+        starts.push(start);
+        ends.push(line_end);
+        start = next_start;
+    }
+    if starts.is_empty() {
+        starts.push(0);
+        ends.push(0);
+    }
+
+    let mut lines: Vec<String> = starts
+        .iter()
+        .zip(&ends)
+        .map(|(&start, &end)| chars[start..end].iter().collect())
+        .collect();
+
+    let mut row = starts
+        .partition_point(|&line_start| line_start <= cursor)
+        .saturating_sub(1);
+    let mut col = cursor
+        .saturating_sub(starts[row])
+        .min(ends[row].saturating_sub(starts[row]));
+    if col == width {
+        // Caret at the end of a full line belongs at the start of the next.
+        row += 1;
+        col = 0;
+    }
+    if row >= lines.len() {
+        if include_caret {
+            // A caret past a full last line needs a line of its own so the
+            // block grows and the terminal cursor stays on screen.
+            starts.push(chars.len());
+            ends.push(chars.len());
+            lines.push(String::new());
+        } else {
+            row = lines.len().saturating_sub(1);
+            col = ends[row].saturating_sub(starts[row]).saturating_sub(1);
+        }
+    }
+
+    WrappedField {
+        lines,
+        starts,
+        ends,
+        caret_row: row,
+        caret_col: col,
+    }
 }
 
 #[cfg(test)]
@@ -307,5 +434,48 @@ mod tests {
         assert!(field.delete_word_after());
         assert_eq!(field.text(), "");
         assert!(!field.delete_word_after());
+    }
+
+    #[test]
+    fn wrap_keeps_words_whole() {
+        let field = TextField::new("hello world again");
+        assert_eq!(field.wrapped(10, true).lines(), ["hello", "world", "again"]);
+    }
+
+    #[test]
+    fn wrap_hard_breaks_words_longer_than_the_line() {
+        let field = TextField::new("abcdefgh");
+        assert_eq!(field.wrapped(3, true).lines(), ["abc", "def", "gh"]);
+    }
+
+    #[test]
+    fn wrap_collapses_the_space_it_breaks_on() {
+        let field = TextField::new("aa bb");
+        assert_eq!(field.wrapped(2, false).lines(), ["aa", "bb"]);
+    }
+
+    #[test]
+    fn caret_moves_to_a_new_line_at_exact_width() {
+        let field = TextField::new("abcd");
+        let wrapped = field.wrapped(4, true);
+        assert_eq!(wrapped.lines(), ["abcd", ""]);
+        assert_eq!(wrapped.caret(), (1, 0));
+    }
+
+    #[test]
+    fn click_maps_to_the_wrapped_line_and_column() {
+        let field = TextField::new("hello world");
+        let wrapped = field.wrapped(5, true);
+        assert_eq!(wrapped.index_at(1, 2), 8);
+        assert_eq!(wrapped.index_at(0, 99), 5);
+    }
+
+    #[test]
+    fn scroll_follows_the_caret_through_wrapped_lines() {
+        let field = TextField::new("aa bb cc d");
+        let wrapped = field.wrapped(2, true);
+        assert_eq!(wrapped.lines(), ["aa", "bb", "cc", "d"]);
+        assert_eq!(wrapped.caret(), (3, 1));
+        assert_eq!(wrapped.scroll(2), 2);
     }
 }

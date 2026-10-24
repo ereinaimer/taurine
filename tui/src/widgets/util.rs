@@ -621,9 +621,53 @@ pub(crate) fn render_modal_key_value_row(
     );
 }
 
-/// Shared bottom search box: rounded border, three lines total including
-/// the border. No background fill. `placeholder` shows when the query is
-/// empty and inactive. The caret-anchored viewport keeps typing visible.
+/// Cells the search block spends on chrome: one border and one padding
+/// cell on each side.
+const SEARCH_BLOCK_CHROME_WIDTH: u16 = 4;
+/// Content lines the block grows to before it scrolls.
+pub(crate) const SEARCH_BLOCK_MAX_LINES: usize = 3;
+const SEARCH_BLOCK_MIN_HEIGHT: u16 = 3;
+
+/// Block height for a wrapped query: content lines plus the two border
+/// rows, capped so the list above keeps its space.
+pub(crate) fn search_block_height(
+    field: &super::field::TextField,
+    is_active: bool,
+    width: u16,
+) -> u16 {
+    let text_width = width.saturating_sub(SEARCH_BLOCK_CHROME_WIDTH);
+    if text_width == 0 {
+        return SEARCH_BLOCK_MIN_HEIGHT;
+    }
+    let lines = field.wrapped(text_width, is_active).lines().len();
+    (lines.clamp(1, SEARCH_BLOCK_MAX_LINES) as u16).saturating_add(2)
+}
+
+/// Char index under a click inside the search block, accounting for the
+/// wrapped lines and the scroll that keeps the caret visible.
+pub(crate) fn search_block_index_at(
+    field: &super::field::TextField,
+    is_active: bool,
+    area: Rect,
+    column: u16,
+    row: u16,
+) -> usize {
+    let text_width = area.width.saturating_sub(SEARCH_BLOCK_CHROME_WIDTH);
+    if text_width == 0 {
+        return 0;
+    }
+    let wrapped = field.wrapped(text_width, is_active);
+    let visible_rows = usize::from(area.height.saturating_sub(2)).max(1);
+    let scroll = wrapped.scroll(visible_rows);
+    let line = scroll + usize::from(row.saturating_sub(area.y.saturating_add(1)));
+    let col = usize::from(column.saturating_sub(area.x.saturating_add(2)));
+    wrapped.index_at(line, col)
+}
+
+/// Shared bottom search box: rounded border, one to three wrapped text
+/// lines, and a caret-anchored viewport that scrolls once the query is
+/// taller than the block. No background fill. `placeholder` shows when
+/// the query is empty and inactive.
 pub(crate) fn render_search_block(
     frame: &mut Frame,
     area: Rect,
@@ -660,20 +704,34 @@ pub(crate) fn render_search_block(
         x: inner.x.saturating_add(1),
         y: inner.y,
         width: inner.width.saturating_sub(2),
-        height: 1,
+        height: inner.height,
     };
     if line_area.width == 0 {
         return;
     }
-    let (visible, caret) = field.window(line_area.width);
-    let title = if is_active || !field.is_empty() {
-        Line::from(visible.to_string())
+    let wrapped = field.wrapped(line_area.width, is_active);
+    let scroll = wrapped.scroll(usize::from(line_area.height));
+    let title: Vec<Line> = if !is_active && field.is_empty() {
+        vec![Line::from(placeholder.to_string())]
     } else {
-        Line::from(placeholder.to_string())
+        wrapped
+            .lines()
+            .iter()
+            .skip(scroll)
+            .take(usize::from(line_area.height))
+            .map(|line| Line::from(line.clone()))
+            .collect()
     };
     frame.render_widget(Paragraph::new(title).style(title_style), line_area);
     if is_active && !crate::overlay_fx::is_cursor_suppressed() {
-        let (cx, cy) = caret_position(line_area.x, line_area.y, caret, line_area.width);
+        let (row, col) = wrapped.caret();
+        let row = row.saturating_sub(scroll) as u16;
+        let (cx, cy) = caret_position(
+            line_area.x,
+            line_area.y.saturating_add(row),
+            col,
+            line_area.width,
+        );
         frame.set_cursor_position((cx, cy));
     }
 }
@@ -825,5 +883,80 @@ mod tests {
 
         let cursor = terminal.backend().cursor_position();
         assert_eq!((cursor.x, cursor.y), (2, 1));
+    }
+
+    #[test]
+    fn search_block_height_grows_then_caps() {
+        let short = TextField::new("gm");
+        assert_eq!(super::search_block_height(&short, true, 20), 3);
+
+        let two_lines = TextField::new("hello world again");
+        assert_eq!(super::search_block_height(&two_lines, true, 20), 4);
+
+        let many_lines = TextField::new("a".repeat(100));
+        assert_eq!(super::search_block_height(&many_lines, true, 20), 5);
+    }
+
+    #[test]
+    fn search_block_wraps_long_query_onto_following_rows() {
+        use ratatui::{Terminal, backend::TestBackend};
+
+        use crate::theme::default::DARK_THEME;
+
+        // 20 wide leaves 16 text cells, so the query wraps after "hello world".
+        let area = Rect::new(0, 0, 20, 5);
+        let field = TextField::new("hello world again");
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+
+        terminal
+            .draw(|frame| {
+                super::render_search_block(frame, area, &DARK_THEME, &field, true, "Search");
+                let buffer = frame.buffer_mut();
+                let row_text = |y: u16| -> String {
+                    (0..area.width)
+                        .map(|x| {
+                            buffer.content[(y * area.width + x) as usize]
+                                .symbol()
+                                .to_string()
+                        })
+                        .collect()
+                };
+                assert!(row_text(1).contains("hello world"));
+                assert!(row_text(2).contains("again"));
+            })
+            .expect("test draw");
+    }
+
+    #[test]
+    fn search_block_scrolls_to_keep_the_caret_visible() {
+        use ratatui::{Terminal, backend::TestBackend};
+
+        use crate::theme::default::DARK_THEME;
+
+        // 12 wide leaves 8 text cells: four wrapped lines in three rows.
+        let area = Rect::new(0, 0, 12, 5);
+        let field = TextField::new("aa bb cc dd ee ff gg hh");
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+
+        terminal
+            .draw(|frame| {
+                super::render_search_block(frame, area, &DARK_THEME, &field, true, "Search");
+                let buffer = frame.buffer_mut();
+                let row_text = |y: u16| -> String {
+                    (0..area.width)
+                        .map(|x| {
+                            buffer.content[(y * area.width + x) as usize]
+                                .symbol()
+                                .to_string()
+                        })
+                        .collect()
+                };
+                assert!(!row_text(1).contains("aa"));
+                assert!(row_text(1).contains("cc"));
+                assert!(row_text(3).contains("gg"));
+            })
+            .expect("test draw");
     }
 }

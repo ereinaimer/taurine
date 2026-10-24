@@ -1319,7 +1319,12 @@ fn select_first_visible_library_row(app: &mut App, terminal: &mut TerminalGuard)
     let full = terminal::mouse::library_full_area(page);
     let state = app.library_page();
     let content = library::left_content(full, state.split_ratio(), state.detail_ratio());
-    let (list_area, _) = library::content_sections(content, false);
+    let (list_area, _) = library::content_sections(
+        content,
+        false,
+        state.search_field(),
+        state.is_search_active(),
+    );
     let capacity = widgets::util::visible_library_item_capacity(list_area.height);
     app.library_page_mut().select_first_window_bottom(capacity);
 }

@@ -2463,10 +2463,15 @@ fn search_bar_click_places_caret() {
     for ch in "gm".chars() {
         state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
     }
-    // Search box line starts at the search area plus border and padding.
+    // Search text starts at the search area plus border and padding.
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
     let content = left_content(area, state.split_ratio(), state.detail_ratio());
-    let (_, search_area) = content_sections(content, false);
+    let (_, search_area) = content_sections(
+        content,
+        false,
+        state.search_field(),
+        state.is_search_active(),
+    );
     let line_x = search_area.x + 2;
     assert_eq!(
         list::hit_test(area, &state, line_x, search_area.y),
@@ -2480,6 +2485,76 @@ fn search_bar_click_places_caret() {
         list::hit_test(area, &state, line_x + 10, search_area.y),
         Some(list::LibraryHit::SearchAt(2))
     );
+}
+
+#[test]
+fn search_bar_grows_when_the_query_wraps() {
+    let mut state = LibraryPageState::default();
+    state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+    for ch in "a query long enough to wrap".chars() {
+        state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    let area = ratatui::layout::Rect::new(0, 0, 80, 30);
+    let content = left_content(area, state.split_ratio(), state.detail_ratio());
+    let (_, search_area) = content_sections(
+        content,
+        false,
+        state.search_field(),
+        state.is_search_active(),
+    );
+
+    assert!(
+        search_area.height > 3,
+        "search height {}",
+        search_area.height
+    );
+    assert!(
+        search_area.height <= 5,
+        "search height {}",
+        search_area.height
+    );
+}
+
+#[test]
+fn search_bar_renders_wrapped_query_inside_the_left_pane() {
+    use ratatui::{Terminal, backend::TestBackend};
+
+    let mut state = sample_state();
+    state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+    for ch in "hello world again and again".chars() {
+        state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let backend = TestBackend::new(area.width, area.height);
+    let mut terminal = Terminal::new(backend).expect("test terminal");
+    terminal
+        .draw(|frame| {
+            render_library_content(
+                frame,
+                frame.area(),
+                &crate::theme::default::DARK_THEME,
+                &state,
+                &crate::widgets::toggle::ToggleAnimations::default(),
+                None,
+            );
+        })
+        .expect("test draw");
+
+    let content = left_content(area, state.split_ratio(), state.detail_ratio());
+    let (_, search_area) = content_sections(
+        content,
+        false,
+        state.search_field(),
+        state.is_search_active(),
+    );
+    let buffer = terminal.backend().buffer();
+    let row_text = |y: u16| -> String {
+        (search_area.x..search_area.x.saturating_add(search_area.width))
+            .map(|x| buffer[(x, y)].symbol().to_string())
+            .collect()
+    };
+    assert!(row_text(search_area.y + 1).contains("hello world again"));
+    assert!(row_text(search_area.y + 2).contains("and again"));
 }
 
 #[test]

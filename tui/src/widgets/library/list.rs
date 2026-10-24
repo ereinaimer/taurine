@@ -49,13 +49,20 @@ pub(crate) fn hit_test(
     if content.width == 0 || content.height == 0 {
         return None;
     }
-    let (list_area, search_area) = content_sections(content, state.status_message().is_some());
+    let (list_area, search_area) = content_sections(
+        content,
+        state.status_message().is_some(),
+        state.search_field(),
+        state.is_search_active(),
+    );
     if mouse::contains(search_area, column, row) {
-        // honey: border plus one padding cell before the text starts.
-        let offset = column.saturating_sub(search_area.x.saturating_add(2));
-        return Some(LibraryHit::SearchAt(
-            state.search_field().index_at(offset as usize),
-        ));
+        return Some(LibraryHit::SearchAt(util::search_block_index_at(
+            state.search_field(),
+            state.is_search_active(),
+            search_area,
+            column,
+            row,
+        )));
     }
     if !mouse::contains(list_area, column, row) {
         return None;
@@ -79,7 +86,12 @@ pub(crate) fn window_start(area: Rect, state: &LibraryPageState) -> usize {
     if content.width == 0 || content.height == 0 {
         return 0;
     }
-    let (list_area, _) = content_sections(content, state.status_message().is_some());
+    let (list_area, _) = content_sections(
+        content,
+        state.status_message().is_some(),
+        state.search_field(),
+        state.is_search_active(),
+    );
     let visible_count = util::visible_library_item_capacity(list_area.height);
     state.visible_window(visible_count).0
 }
