@@ -1822,9 +1822,10 @@ mod tests {
         let full = terminal::mouse::library_full_area(layout.page);
         let body = library::modals::create_body(full);
         let (_, divider, _) = library::modals::create_split(body, 0.5);
-        let content_row = body.y + library::modals::CREATE_TRIGGER_FIELD_ROW;
+        let divider_top = body.y + library::modals::CREATE_HEADER_ROWS - 1;
 
-        // The header band and its gap do not grab the divider.
+        // The header band does not grab the divider, but the row directly
+        // below it does.
         handle_tui_mouse_event(
             &mut app,
             mouse_at(divider, body.y, MouseEventKind::Moved),
@@ -1837,7 +1838,7 @@ mod tests {
 
         handle_tui_mouse_event(
             &mut app,
-            mouse_at(divider, content_row, MouseEventKind::Moved),
+            mouse_at(divider, divider_top, MouseEventKind::Moved),
             TEST_AREA,
         );
         assert!(matches!(
@@ -1847,7 +1848,7 @@ mod tests {
 
         handle_tui_mouse_event(
             &mut app,
-            mouse_at(divider + 1, content_row, MouseEventKind::Moved),
+            mouse_at(divider + 1, divider_top, MouseEventKind::Moved),
             TEST_AREA,
         );
         assert!(matches!(

@@ -266,14 +266,9 @@ fn render_library_delete_modal(
 pub(crate) const CREATE_BODY_WIDTH: u16 = 80;
 
 /// Top popup rows covered by the create header band: top margin,
-/// title row, and the band's trailing blank row.
+/// title row, and the band's trailing blank row. The divider starts on
+/// the first row below the band.
 pub(crate) const CREATE_HEADER_ROWS: u16 = 3;
-
-/// Blank row between the header band and the form.
-pub(crate) const CREATE_HEADER_GAP_ROWS: u16 = 1;
-
-/// First content row, popup-relative: header band plus its gap.
-pub(crate) const CREATE_CONTENT_TOP: u16 = CREATE_HEADER_ROWS + CREATE_HEADER_GAP_ROWS;
 
 /// Split a create body at the draft's left-pane share. Returns the
 /// left rect, the absolute divider column, and the right rect; render
@@ -306,9 +301,9 @@ pub(crate) fn create_body(area: Rect) -> Rect {
     util::overlay_body(create_popup(area))
 }
 
-/// The divider spans the content area only, so the header band and its
-/// gap stay clean. The body check keeps tiny popups from reporting a
-/// phantom line.
+/// The divider starts at the header band's bottom edge and runs to the
+/// popup bottom, so only the band itself stays clean. The body check
+/// keeps tiny popups from reporting a phantom line.
 pub(crate) fn create_divider_hit(
     draft: &LibraryCreateModalState,
     area: Rect,
@@ -317,7 +312,7 @@ pub(crate) fn create_divider_hit(
 ) -> bool {
     let popup = create_popup(area);
     if !crate::terminal::mouse::contains(popup, column, row)
-        || row < popup.y.saturating_add(CREATE_CONTENT_TOP)
+        || row < popup.y.saturating_add(CREATE_HEADER_ROWS)
     {
         return false;
     }
@@ -714,14 +709,14 @@ fn render_library_create_modal(
         );
     }
 
-    // Divider between the panes; start below the header band and its
-    // gap so the header stays visually whole.
+    // Divider between the panes; start at the header band's bottom edge
+    // so the ribbon stays visually whole.
     if left.width > 0
         && right.width > 0
         && divider > body.x
         && divider < body.x.saturating_add(body.width)
     {
-        let height = popup.height.saturating_sub(CREATE_CONTENT_TOP);
+        let height = popup.height.saturating_sub(CREATE_HEADER_ROWS);
         if height > 0 {
             let color = if state.divider_drag() || state.divider_hover() {
                 super::DIVIDER_HOVER_COLOR
@@ -733,7 +728,7 @@ fn render_library_create_modal(
                 Paragraph::new(glyphs).style(Style::default().fg(color)),
                 Rect {
                     x: divider,
-                    y: popup.y.saturating_add(CREATE_CONTENT_TOP),
+                    y: popup.y.saturating_add(CREATE_HEADER_ROWS),
                     width: 1,
                     height,
                 },

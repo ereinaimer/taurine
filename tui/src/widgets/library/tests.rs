@@ -4717,7 +4717,7 @@ fn create_form_renders_placeholders_and_stacked_pickers() {
         empty[(5, 4)].bg,
         ratatui::style::Color::Rgb(0x14, 0x14, 0x14)
     );
-    assert!(row(&empty, 4).trim().is_empty());
+    assert!((8..50).all(|x| empty[(x, 4)].symbol() == " "));
     let trigger_row = row(&empty, 5);
     assert!(
         trigger_row
@@ -4745,11 +4745,11 @@ fn create_form_renders_placeholders_and_stacked_pickers() {
     assert!(row(&empty, 11).trim_start().starts_with(text_placeholder));
     assert!(row(&empty, 17).contains("Tags"));
     assert!(!row(&empty, 19).contains("Usage"));
-    // The pane divider starts below the header band and its gap.
-    for y in 1..=4 {
+    // The pane divider starts at the header band's bottom edge.
+    for y in 1..=3 {
         assert_ne!(empty[(50, y)].symbol(), "│");
     }
-    assert_eq!(empty[(50, 5)].symbol(), "│");
+    assert_eq!(empty[(50, 4)].symbol(), "│");
     assert_eq!(empty[(50, 27)].symbol(), "│");
     // The empty error row must not restyle the divider's last cell.
     assert_eq!(empty[(50, 26)].fg, DARK_THEME.border);
