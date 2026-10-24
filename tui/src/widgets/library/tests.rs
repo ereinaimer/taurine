@@ -3922,6 +3922,77 @@ fn custom_split_moves_divider_and_clamps() {
 }
 
 #[test]
+fn create_split_ratio_defaults_and_clamps() {
+    let mut state = LibraryPageState::default();
+    assert_eq!(state.create_split_ratio(), CREATE_DEFAULT_SPLIT);
+
+    state.set_create_split_ratio(0.0);
+    assert_eq!(state.create_split_ratio(), CREATE_MIN_SPLIT);
+
+    state.set_create_split_ratio(9.0);
+    assert_eq!(state.create_split_ratio(), CREATE_MAX_SPLIT);
+}
+
+#[test]
+fn create_modal_opens_with_saved_split() {
+    let mut state = sample_state();
+    state.set_create_split_ratio(0.7);
+
+    state.open_create_modal();
+
+    assert!((create_modal(&state).split() - 0.7).abs() < f32::EPSILON);
+}
+
+#[test]
+fn create_split_drag_updates_page_split() {
+    let mut state = sample_state();
+    state.open_create_modal();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let body = modals::create_body(area);
+    let (_, divider, _) = modals::create_split(body, create_modal(&state).split());
+    assert!(state.grab_create_divider(area, divider, body.y.saturating_add(2)));
+
+    state.drag_create_divider(area, divider.saturating_add(20));
+
+    let draft_split = create_modal(&state).split();
+    assert!(draft_split > 0.5);
+    assert!((state.create_split_ratio() - draft_split).abs() < f32::EPSILON);
+}
+
+#[test]
+fn create_split_survives_close_and_reopen() {
+    let mut state = sample_state();
+    state.open_create_modal();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let body = modals::create_body(area);
+    let (_, divider, _) = modals::create_split(body, create_modal(&state).split());
+    assert!(state.grab_create_divider(area, divider, body.y.saturating_add(2)));
+    state.drag_create_divider(area, divider.saturating_add(20));
+    let dragged = create_modal(&state).split();
+
+    state.clear_modal();
+    state.open_create_modal();
+
+    assert!((create_modal(&state).split() - dragged).abs() < f32::EPSILON);
+}
+
+#[test]
+fn create_drag_counts_as_layout_drag() {
+    let mut state = sample_state();
+    state.open_create_modal();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let body = modals::create_body(area);
+    let (_, divider, _) = modals::create_split(body, create_modal(&state).split());
+    assert!(!state.is_dragging_layout());
+
+    assert!(state.grab_create_divider(area, divider, body.y.saturating_add(2)));
+    assert!(state.is_dragging_layout());
+
+    state.release_create_divider();
+    assert!(!state.is_dragging_layout());
+}
+
+#[test]
 fn narrow_page_collapses_to_list_only() {
     let state = LibraryPageState::default();
 

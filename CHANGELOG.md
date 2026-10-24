@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **No More Footer**: Removed the bottom hints bar and its text machinery so content uses the full terminal height.
 - **Library Split View**: The library page now shows the trigger list beside a read-only detail preview with labeled trigger, type, alias, and content rows plus a collapsible advanced section for platform, tags, auto-case, and more, covering all eight trigger and script types.
 - **Draggable Divider**: Hover the center line to highlight it, then drag to resize the library list and detail panes.
+- **Remembered Pane Layout**: Your library pane widths and New Trigger form divider now stay put across launches.
 - **Responsive Library**: Narrow terminals show the trigger list alone, restoring the detail preview once there is room for it.
 - **Bottom-Anchored Lists**: Library and settings rows now stack directly above the search bar with no dead gap, opening on the row that touches it.
 - **Rounded Search Box**: The bottom search bar is now a compact bordered box instead of a filled gray block.

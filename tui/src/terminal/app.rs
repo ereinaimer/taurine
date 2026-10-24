@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use crate::layout_store::TuiLayout;
 use crate::theme::Theme;
 use crate::theme::default::DARK_THEME;
 use crate::widgets::library::LibraryPageState;
@@ -16,6 +17,7 @@ pub(crate) struct App {
     current_theme: &'static Theme,
     toggle_animations: ToggleAnimations,
     toggle_hover: Option<ToggleId>,
+    saved_layout: TuiLayout,
 }
 
 impl Default for App {
@@ -29,6 +31,7 @@ impl Default for App {
             current_theme: &DARK_THEME,
             toggle_animations: ToggleAnimations::default(),
             toggle_hover: None,
+            saved_layout: TuiLayout::default(),
         }
     }
 }
@@ -85,6 +88,37 @@ impl App {
 
     pub(crate) fn set_toggle_hover(&mut self, hover: Option<ToggleId>) {
         self.toggle_hover = hover;
+    }
+
+    /// Current pane layout, normalized so a stray non-finite ratio can
+    /// never make the page look permanently dirty.
+    pub(crate) fn layout(&self) -> TuiLayout {
+        TuiLayout {
+            list_ratio: self.library_page.split_ratio(),
+            detail_ratio: self.library_page.detail_ratio(),
+            create_split: self.library_page.create_split_ratio(),
+        }
+        .sanitized()
+    }
+
+    /// Restores a stored layout, clamped first so a corrupt row can never
+    /// park a pane; the saved copy is the clamped one so the page does not
+    /// immediately look dirty.
+    pub(crate) fn apply_layout(&mut self, layout: TuiLayout) {
+        let layout = layout.sanitized();
+        self.library_page.set_split_ratio(layout.list_ratio);
+        self.library_page.set_detail_ratio(layout.detail_ratio);
+        self.library_page
+            .set_create_split_ratio(layout.create_split);
+        self.saved_layout = layout;
+    }
+
+    pub(crate) fn layout_needs_save(&self) -> bool {
+        self.layout() != self.saved_layout
+    }
+
+    pub(crate) fn mark_layout_saved(&mut self) {
+        self.saved_layout = self.layout();
     }
 
     pub(crate) const fn settings_page(&self) -> &SettingsPageState {
@@ -177,5 +211,92 @@ mod tests {
             app.library_page().empty_state_message(),
             Some("No triggers yet.")
         );
+    }
+
+    fn sample_layout() -> TuiLayout {
+        TuiLayout {
+            list_ratio: 0.31,
+            detail_ratio: 0.82,
+            create_split: 0.63,
+        }
+    }
+
+    #[test]
+    fn app_default_layout_matches_page_defaults() {
+        let app = App::default();
+
+        assert_eq!(app.layout(), TuiLayout::default());
+        assert!(!app.layout_needs_save());
+    }
+
+    #[test]
+    fn apply_layout_sets_all_main_ratios_and_marks_clean() {
+        let mut app = App::default();
+
+        app.apply_layout(sample_layout());
+
+        assert_eq!(app.library_page().split_ratio(), 0.31);
+        assert_eq!(app.library_page().detail_ratio(), 0.82);
+        assert_eq!(app.library_page().create_split_ratio(), 0.63);
+        assert_eq!(app.layout(), sample_layout());
+        assert!(!app.layout_needs_save());
+    }
+
+    #[test]
+    fn apply_layout_clamps_saved_values() {
+        let mut app = App::default();
+
+        app.apply_layout(TuiLayout {
+            list_ratio: 9.0,
+            detail_ratio: -1.0,
+            create_split: 5.0,
+        });
+
+        let clamped = TuiLayout {
+            list_ratio: crate::widgets::library::MAX_SPLIT_RATIO,
+            detail_ratio: crate::widgets::library::MIN_DETAIL_RATIO,
+            create_split: crate::widgets::library::CREATE_MAX_SPLIT,
+        };
+        assert_eq!(app.layout(), clamped);
+        assert!(!app.layout_needs_save());
+    }
+
+    #[test]
+    fn main_divider_change_marks_layout_dirty() {
+        let mut app = App::default();
+        assert!(!app.layout_needs_save());
+
+        app.library_page_mut().set_split_ratio(0.5);
+
+        assert!(app.layout_needs_save());
+    }
+
+    #[test]
+    fn mark_layout_saved_clears_dirty() {
+        let mut app = App::default();
+        app.library_page_mut().set_detail_ratio(0.9);
+        assert!(app.layout_needs_save());
+
+        app.mark_layout_saved();
+
+        assert!(!app.layout_needs_save());
+    }
+
+    #[test]
+    fn apply_layout_sets_create_split_for_next_modal() {
+        let mut app = App::default();
+        app.apply_layout(TuiLayout {
+            create_split: 0.7,
+            ..TuiLayout::default()
+        });
+
+        app.library_page_mut().open_create_modal();
+
+        match app.library_page().modal() {
+            Some(crate::widgets::library::LibraryModal::Create(draft)) => {
+                assert!((draft.split() - 0.7).abs() < f32::EPSILON);
+            }
+            other => panic!("expected create modal, got {other:?}"),
+        }
     }
 }

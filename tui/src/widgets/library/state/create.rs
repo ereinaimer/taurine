@@ -98,6 +98,13 @@ impl LibraryCreateModalState {
         }
     }
 
+    /// New draft seeded with the page's remembered create-pane split.
+    pub(crate) fn with_split(split: f32) -> Self {
+        let mut state = Self::new();
+        state.split = split.clamp(CREATE_MIN_SPLIT, CREATE_MAX_SPLIT);
+        state
+    }
+
     pub(crate) const fn focus(&self) -> LibraryCreateModalField {
         self.focus
     }

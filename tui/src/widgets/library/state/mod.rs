@@ -123,6 +123,7 @@ pub(crate) struct LibraryPageState {
     load_error: Option<String>,
     split_ratio: f32,
     detail_ratio: f32,
+    create_split_ratio: f32,
     divider_hover: Option<super::DividerSide>,
     divider_drag: Option<super::DividerSide>,
     detail_scroll: usize,
@@ -161,6 +162,7 @@ impl Default for LibraryPageState {
             load_error: None,
             split_ratio: super::DEFAULT_SPLIT_RATIO,
             detail_ratio: super::DEFAULT_DETAIL_RATIO,
+            create_split_ratio: CREATE_DEFAULT_SPLIT,
             divider_hover: None,
             divider_drag: None,
             detail_scroll: 0,
@@ -253,6 +255,28 @@ impl LibraryPageState {
 
     pub(crate) fn set_detail_ratio(&mut self, ratio: f32) {
         self.detail_ratio = ratio.clamp(super::MIN_DETAIL_RATIO, super::MAX_DETAIL_RATIO);
+    }
+
+    /// Left pane's share of the create popup body, shared across opens so
+    /// the form keeps the width it was last dragged to.
+    pub(crate) fn create_split_ratio(&self) -> f32 {
+        self.create_split_ratio
+            .clamp(super::CREATE_MIN_SPLIT, super::CREATE_MAX_SPLIT)
+    }
+
+    pub(crate) fn set_create_split_ratio(&mut self, ratio: f32) {
+        self.create_split_ratio = ratio.clamp(super::CREATE_MIN_SPLIT, super::CREATE_MAX_SPLIT);
+    }
+
+    /// True while a divider drag is in flight; saving mid-drag would
+    /// persist a width the user has not settled on yet. Covers both the
+    /// main three-pane dividers and the create-popup divider.
+    pub(crate) fn is_dragging_layout(&self) -> bool {
+        self.divider_drag.is_some()
+            || matches!(
+                self.modal.as_ref(),
+                Some(LibraryModal::Create(draft)) if draft.divider_drag()
+            )
     }
 
     pub(crate) const fn divider_hover(&self) -> Option<super::DividerSide> {
@@ -698,14 +722,18 @@ impl LibraryPageState {
 
     /// Pointer motion while grabbed resizes the create panes.
     pub(crate) fn drag_create_divider(&mut self, area: ratatui::layout::Rect, column: u16) {
-        let Some(LibraryModal::Create(draft)) = self.modal.as_mut() else {
-            return;
+        let split = {
+            let Some(LibraryModal::Create(draft)) = self.modal.as_mut() else {
+                return;
+            };
+            if !draft.divider_drag() {
+                return;
+            }
+            let body = super::modals::create_body(area);
+            draft.set_split_from_column(body.x, body.width, column);
+            draft.split()
         };
-        if !draft.divider_drag() {
-            return;
-        }
-        let body = super::modals::create_body(area);
-        draft.set_split_from_column(body.x, body.width, column);
+        self.set_create_split_ratio(split);
     }
 
     /// Hover highlight for the create divider.
@@ -1098,7 +1126,7 @@ impl LibraryPageState {
 
     pub(crate) fn open_create_modal(&mut self) {
         self.modal = Some(LibraryModal::Create(Box::new(
-            LibraryCreateModalState::new(),
+            LibraryCreateModalState::with_split(self.create_split_ratio()),
         )));
     }
 

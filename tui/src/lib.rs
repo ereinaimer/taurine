@@ -1,6 +1,7 @@
 // Licensed under the Aimer Software License (ASL).
 // See LICENSE for details.
 
+mod layout_store;
 mod overlay;
 mod overlay_fx;
 pub mod terminal;
@@ -16,6 +17,7 @@ mod widgets;
 use std::io;
 use std::time::{Duration, Instant};
 
+use crate::layout_store::TuiLayout;
 use crate::overlay_fx::OverlayTransition;
 use crate::theme::Theme;
 use crate::widgets::library;
@@ -24,7 +26,7 @@ use crate::widgets::toggle::{TOGGLE_ANIM_FRAME, ToggleId};
 use crate::widgets::util;
 use crossterm::{
     cursor::Show,
-    event::{DisableMouseCapture, EnableMouseCapture},
+    event::{DisableMouseCapture, EnableMouseCapture, MouseEventKind},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -38,6 +40,11 @@ const EVENT_TICK_RATE: Duration = Duration::from_millis(250);
 
 pub fn run() -> taurine_core::Result<()> {
     let mut app = App::default();
+    // honey: the saved layout lands before the first draw so the panes
+    // open at their stored widths instead of flashing the defaults.
+    if let Some(layout) = layout_store::load() {
+        app.apply_layout(layout);
+    }
     refresh_library_page(&mut app);
     refresh_settings_page(&mut app);
     // honey: bottom-anchored lists open on the row touching the search bar.
@@ -69,6 +76,10 @@ pub fn run() -> taurine_core::Result<()> {
         } else {
             events.next()?
         };
+        let layout_released = matches!(
+            &event,
+            Event::Mouse(mouse) if matches!(mouse.kind, MouseEventKind::Up(_))
+        );
         match event {
             Event::Key(key) => {
                 let layout = terminal::mouse::frame_layout(last_area);
@@ -88,6 +99,12 @@ pub fn run() -> taurine_core::Result<()> {
             }
         }
 
+        // honey: a release ends any divider drag, so the settled width is
+        // written once here instead of on every drag tick.
+        if layout_released {
+            persist_layout_if_needed(&mut app, false);
+        }
+
         // honey: a newly appeared overlay sweeps in; closes fade out smoothly.
         let next_layers = overlay_fx::layers(&app);
         if overlay_fx::appeared(&previous_layers, &next_layers) {
@@ -100,6 +117,8 @@ pub fn run() -> taurine_core::Result<()> {
         previous_layers = next_layers;
 
         if app.should_quit() {
+            // honey: the current width must survive a quit mid-drag.
+            persist_layout_if_needed(&mut app, true);
             break;
         }
     }
@@ -1236,6 +1255,27 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
     }
 }
 
+/// Layout worth writing, or `None` when nothing changed. A drag still in
+/// flight is skipped unless `force`, so only settled widths persist.
+fn layout_to_save(app: &App, force: bool) -> Option<TuiLayout> {
+    if app.library_page().is_dragging_layout() && !force {
+        return None;
+    }
+    app.layout_needs_save().then(|| app.layout())
+}
+
+/// Writes the pane layout only when it changed. A failed write stays dirty
+/// so the next release or quit retries, and the TUI keeps running.
+fn persist_layout_if_needed(app: &mut App, force: bool) {
+    let Some(layout) = layout_to_save(app, force) else {
+        return;
+    };
+    match layout_store::save(layout) {
+        Ok(()) => app.mark_layout_saved(),
+        Err(error) => error!(error = %error, "Failed to save the TUI pane layout"),
+    }
+}
+
 fn refresh_library_page(app: &mut App) {
     match taurine_core::db::init::setup()
         .and_then(|conn| taurine_core::db::crud::get_library_triggers(&conn).map_err(Into::into))
@@ -1960,6 +2000,94 @@ mod tests {
 
         assert!(app.library_page().divider_drag().is_none());
         assert!((app.library_page().split_ratio() - 58.0 / 95.0).abs() < 0.01);
+    }
+
+    /// App parked mid-drag with a split that differs from the saved one.
+    fn dragging_app(ratio: f32) -> App {
+        let mut app = App::default();
+        app.library_page_mut()
+            .set_divider_drag(Some(library::DividerSide::List));
+        app.library_page_mut().set_split_ratio(ratio);
+        app
+    }
+
+    #[test]
+    fn layout_to_save_skips_while_main_drag_is_active() {
+        let app = dragging_app(0.5);
+
+        assert!(app.library_page().is_dragging_layout());
+        assert_eq!(layout_to_save(&app, false), None);
+    }
+
+    #[test]
+    fn layout_to_save_returns_changed_layout_after_main_release() {
+        let mut app = dragging_app(0.5);
+        app.library_page_mut().set_divider_drag(None);
+
+        assert_eq!(layout_to_save(&app, false), Some(app.layout()));
+    }
+
+    #[test]
+    fn layout_to_save_returns_none_when_unchanged() {
+        let app = App::default();
+
+        assert_eq!(layout_to_save(&app, false), None);
+    }
+
+    #[test]
+    fn layout_to_save_force_returns_layout_while_dragging() {
+        let app = dragging_app(0.5);
+
+        assert_eq!(layout_to_save(&app, true), Some(app.layout()));
+    }
+
+    #[test]
+    fn layout_to_save_includes_create_split() {
+        let mut app = App::default();
+        app.library_page_mut().set_create_split_ratio(0.7);
+
+        let layout = layout_to_save(&app, false).expect("changed layout");
+
+        assert_eq!(layout.create_split, 0.7);
+    }
+
+    fn create_dragging_app() -> App {
+        let mut app = App::default();
+        app.library_page_mut().open_create_modal();
+        let body = library::modals::create_body(TEST_AREA);
+        let split = match app.library_page().modal() {
+            Some(library::LibraryModal::Create(draft)) => draft.split(),
+            other => panic!("expected create modal, got {other:?}"),
+        };
+        let (_, divider, _) = library::modals::create_split(body, split);
+        assert!(app.library_page_mut().grab_create_divider(
+            TEST_AREA,
+            divider,
+            body.y.saturating_add(2)
+        ));
+        app.library_page_mut()
+            .drag_create_divider(TEST_AREA, divider.saturating_add(20));
+        app
+    }
+
+    #[test]
+    fn layout_to_save_skips_while_create_drag_is_active() {
+        let app = create_dragging_app();
+
+        assert!(app.library_page().is_dragging_layout());
+        assert_eq!(layout_to_save(&app, false), None);
+        assert!(layout_to_save(&app, true).is_some());
+    }
+
+    #[test]
+    fn layout_to_save_returns_changed_create_split_after_release() {
+        let mut app = create_dragging_app();
+        app.library_page_mut().release_create_divider();
+
+        let layout = layout_to_save(&app, false).expect("changed layout");
+
+        assert!(layout.create_split > 0.5);
+        assert_eq!(layout.create_split, app.library_page().create_split_ratio());
     }
 
     #[test]
