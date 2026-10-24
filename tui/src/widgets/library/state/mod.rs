@@ -125,6 +125,7 @@ pub(crate) struct LibraryPageState {
     detail_ratio: f32,
     divider_hover: Option<super::DividerSide>,
     divider_drag: Option<super::DividerSide>,
+    toggle_hover: bool,
     detail_scroll: usize,
     usage_expanded: bool,
     edit: Option<ActiveEdit>,
@@ -163,6 +164,7 @@ impl Default for LibraryPageState {
             detail_ratio: super::DEFAULT_DETAIL_RATIO,
             divider_hover: None,
             divider_drag: None,
+            toggle_hover: false,
             detail_scroll: 0,
             usage_expanded: false,
             edit: None,
@@ -261,6 +263,14 @@ impl LibraryPageState {
 
     pub(crate) fn set_divider_hover(&mut self, hover: Option<super::DividerSide>) {
         self.divider_hover = hover;
+    }
+
+    pub(crate) const fn toggle_hover(&self) -> bool {
+        self.toggle_hover
+    }
+
+    pub(crate) fn set_toggle_hover(&mut self, hover: bool) {
+        self.toggle_hover = hover;
     }
 
     pub(crate) const fn divider_drag(&self) -> Option<super::DividerSide> {

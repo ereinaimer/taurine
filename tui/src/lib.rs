@@ -556,10 +556,22 @@ fn handle_tui_mouse_event(
                 mouse.column,
                 mouse.row,
             );
-            if page.divider_drag().is_some() {
+            let dragging = page.divider_drag();
+            let toggle_hover = dragging.is_none()
+                && library::detail::hit_test(
+                    full,
+                    page.split_ratio(),
+                    page.detail_ratio(),
+                    page,
+                    mouse.column,
+                    mouse.row,
+                ) == Some(library::detail::DetailHit::EnableToggle);
+            if dragging.is_some() {
                 drag_divider_to(app, full, mouse.column);
+                app.library_page_mut().set_toggle_hover(false);
             } else {
                 app.library_page_mut().set_divider_hover(hover);
+                app.library_page_mut().set_toggle_hover(toggle_hover);
             }
         }
         MouseEventKind::Drag(MouseButton::Left) => {
@@ -1845,6 +1857,32 @@ mod tests {
 
         handle_tui_mouse_event(&mut app, mouse_at(10, 10, MouseEventKind::Moved), TEST_AREA);
         assert!(app.library_page().divider_hover().is_none());
+    }
+
+    #[test]
+    fn hovering_header_toggle_sets_and_clears_hover() {
+        let mut app = App::default();
+        seed_single_library_item(&mut app);
+
+        let layout = terminal::mouse::frame_layout(TEST_AREA);
+        let full = terminal::mouse::library_full_area(layout.page);
+        let page = app.library_page();
+        let content =
+            library::detail::center_content(full, page.split_ratio(), page.detail_ratio());
+        let x = content
+            .x
+            .saturating_add(content.width.saturating_sub(library::detail::TOGGLE_WIDTH));
+        let y = content.y;
+
+        handle_tui_mouse_event(&mut app, mouse_at(x, y, MouseEventKind::Moved), TEST_AREA);
+        assert!(app.library_page().toggle_hover());
+
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(content.x, y, MouseEventKind::Moved),
+            TEST_AREA,
+        );
+        assert!(!app.library_page().toggle_hover());
     }
 
     #[test]

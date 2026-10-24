@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
 };
@@ -23,20 +23,53 @@ pub(crate) const CONTENT_INNER_HEIGHT: usize = 16;
 /// Empty-state token: three ROUNDED-border horizontals, matching the pane
 /// border glyph set.
 pub(crate) const EMPTY_TOKEN: &str = "───";
-// honey: fixed 5-cell status word; the word alone carries the state,
-// so flipping never shifts the header layout.
+// honey: fixed 5-cell graphic switch; a 3-cell track and 2-cell knob
+// keep the pill rectangular against the terminal's tall cells.
 pub(crate) const TOGGLE_WIDTH: u16 = 5;
+const TOGGLE_ENABLED_TRACK: Color = Color::Rgb(27, 56, 36);
+const TOGGLE_ENABLED_KNOB: Color = Color::Rgb(62, 207, 102);
+const TOGGLE_DISABLED_TRACK: Color = Color::Rgb(36, 36, 40);
+const TOGGLE_DISABLED_KNOB: Color = Color::Rgb(128, 128, 136);
 
-/// Plain status word, padded to the fixed width: ON or OFF with no
-/// colors, no brackets, no dot. The padding sits on the left so the
-/// word ends flush with the pane edge. Shared by rendering, so the
-/// painted switch always matches the hit box.
-pub(crate) fn toggle_spans(item: &LibraryTrigger, _theme: &Theme) -> Vec<Span<'static>> {
+/// Full-cell background fills keep the switch at text height.
+fn toggle_cell(color: Color) -> Span<'static> {
+    Span::styled(" ", Style::default().bg(color))
+}
+
+/// Brighten a knob by roughly twelve percent when the pointer is over it.
+fn toggle_knob(color: Color, hovered: bool) -> Color {
+    if !hovered {
+        return color;
+    }
+    let Color::Rgb(red, green, blue) = color else {
+        return color;
+    };
+    let lift = |channel: u8| channel.saturating_add((u16::from(channel) * 12 / 100) as u8);
+    Color::Rgb(lift(red), lift(green), lift(blue))
+}
+
+/// Five-cell switch: a 3-cell track and a 2-cell knob. Enabled puts the
+/// knob on the right, disabled on the left. Shared by rendering so the
+/// painted cells always match the hit box.
+pub(crate) fn toggle_spans(item: &LibraryTrigger, hovered: bool) -> Vec<Span<'static>> {
     if item.is_enabled() {
-        // honey: leading spaces right-align ON in the fixed width.
-        vec![Span::raw("   ON".to_string())]
+        let knob = toggle_knob(TOGGLE_ENABLED_KNOB, hovered);
+        vec![
+            toggle_cell(TOGGLE_ENABLED_TRACK),
+            toggle_cell(TOGGLE_ENABLED_TRACK),
+            toggle_cell(TOGGLE_ENABLED_TRACK),
+            toggle_cell(knob),
+            toggle_cell(knob),
+        ]
     } else {
-        vec![Span::raw("  OFF".to_string())]
+        let knob = toggle_knob(TOGGLE_DISABLED_KNOB, hovered);
+        vec![
+            toggle_cell(knob),
+            toggle_cell(knob),
+            toggle_cell(TOGGLE_DISABLED_TRACK),
+            toggle_cell(TOGGLE_DISABLED_TRACK),
+            toggle_cell(TOGGLE_DISABLED_TRACK),
+        ]
     }
 }
 
@@ -123,7 +156,7 @@ pub(crate) fn hit_test(
     let selected = state.selected_index()?;
     let item = state.item_at_filtered(selected)?;
     if row == content.y {
-        let width = toggle_width();
+        let width = TOGGLE_WIDTH;
         let start = content
             .x
             .saturating_add(content.width.saturating_sub(width));
@@ -498,10 +531,6 @@ pub(crate) fn edge_value_width(label: &str, row_width: u16) -> u16 {
     row_width.saturating_sub(label.chars().count() as u16 + 1)
 }
 
-fn toggle_width() -> u16 {
-    TOGGLE_WIDTH
-}
-
 fn render_header_row(
     frame: &mut Frame,
     area: Rect,
@@ -513,7 +542,7 @@ fn render_header_row(
     if row.width == 0 {
         return;
     }
-    let width = toggle_width();
+    let width = TOGGLE_WIDTH;
     let available = row.width.saturating_sub(width).saturating_sub(1);
     // honey: editing shows the caret-anchored viewport with a real
     // caret, mirroring the search box; read mode shows the truncated
@@ -528,7 +557,7 @@ fn render_header_row(
             ),
             Span::raw(" ".repeat(gap as usize + 1)),
         ];
-        spans.extend(toggle_spans(item, theme));
+        spans.extend(toggle_spans(item, state.toggle_hover()));
         let line = Line::from(spans);
         frame.render_widget(Paragraph::new(line), row);
         let (cx, cy) = util::caret_position(row.x, row.y, caret, available);
@@ -545,7 +574,7 @@ fn render_header_row(
         ),
         Span::raw(" ".repeat(gap as usize + 1)),
     ];
-    spans.extend(toggle_spans(item, theme));
+    spans.extend(toggle_spans(item, state.toggle_hover()));
     let line = Line::from(spans);
     frame.render_widget(Paragraph::new(line), row);
 }

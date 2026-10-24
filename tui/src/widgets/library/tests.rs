@@ -1194,34 +1194,40 @@ fn parse_tags_handles_stored_shapes() {
 fn header_hit_region_for_toggle() {
     let state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
-    // Center content at x=25 width=31: status toggle owns the last 5 cells.
-    assert_eq!(
-        detail::hit_test(
-            area,
-            state.split_ratio(),
-            state.detail_ratio(),
-            &state,
-            51,
-            1
-        ),
-        Some(detail::DetailHit::EnableToggle)
-    );
-    assert_eq!(
-        detail::hit_test(
-            area,
-            state.split_ratio(),
-            state.detail_ratio(),
-            &state,
-            50,
-            1
-        ),
-        None
-    );
+    // Center content at x=25 width=31: the switch owns cells 51..=55.
+    for column in 51..=55 {
+        assert_eq!(
+            detail::hit_test(
+                area,
+                state.split_ratio(),
+                state.detail_ratio(),
+                &state,
+                column,
+                1
+            ),
+            Some(detail::DetailHit::EnableToggle),
+            "column {column}"
+        );
+    }
+    for column in [50, 56] {
+        assert_eq!(
+            detail::hit_test(
+                area,
+                state.split_ratio(),
+                state.detail_ratio(),
+                &state,
+                column,
+                1
+            ),
+            None,
+            "column {column}"
+        );
+    }
 }
 
 #[test]
-fn toggle_word_reflects_enable_state() {
-    use crate::theme::default::DARK_THEME;
+fn toggle_cells_reflect_enable_state() {
+    use ratatui::style::Color;
 
     let enabled = LibraryTrigger::single(list_item(
         "id-on",
@@ -1234,11 +1240,26 @@ fn toggle_word_reflects_enable_state() {
         0,
         None,
     ));
-    let spans = detail::toggle_spans(&enabled, &DARK_THEME);
+    let spans = detail::toggle_spans(&enabled, false);
     let text: String = spans.iter().map(|span| span.content.as_ref()).collect();
-    // honey: plain words, fixed width, flush right, no styling either way.
-    assert_eq!(text, "   ON");
-    assert_eq!(spans.len(), 1);
+    assert_eq!(text, "     ");
+    assert_eq!(spans.len(), 5);
+    for span in &spans[..3] {
+        assert_eq!(span.style.fg, None);
+        assert_eq!(span.style.bg, Some(Color::Rgb(27, 56, 36)));
+    }
+    for span in &spans[3..] {
+        assert_eq!(span.style.fg, None);
+        assert_eq!(span.style.bg, Some(Color::Rgb(62, 207, 102)));
+    }
+
+    let hovered = detail::toggle_spans(&enabled, true);
+    for span in &hovered[..3] {
+        assert_eq!(span.style.bg, Some(Color::Rgb(27, 56, 36)));
+    }
+    for span in &hovered[3..] {
+        assert_eq!(span.style.bg, Some(Color::Rgb(69, 231, 114)));
+    }
 
     let mut raw = list_item(
         "id-off",
@@ -1253,10 +1274,130 @@ fn toggle_word_reflects_enable_state() {
     );
     raw.is_enabled = false;
     let disabled = LibraryTrigger::single(raw);
-    let spans = detail::toggle_spans(&disabled, &DARK_THEME);
+    let spans = detail::toggle_spans(&disabled, false);
     let text: String = spans.iter().map(|span| span.content.as_ref()).collect();
-    assert_eq!(text, "  OFF");
-    assert_eq!(spans.len(), 1);
+    assert_eq!(text, "     ");
+    assert_eq!(spans.len(), 5);
+    for span in &spans[..2] {
+        assert_eq!(span.style.fg, None);
+        assert_eq!(span.style.bg, Some(Color::Rgb(128, 128, 136)));
+    }
+    for span in &spans[2..] {
+        assert_eq!(span.style.fg, None);
+        assert_eq!(span.style.bg, Some(Color::Rgb(36, 36, 40)));
+    }
+
+    let hovered = detail::toggle_spans(&disabled, true);
+    for span in &hovered[..2] {
+        assert_eq!(span.style.bg, Some(Color::Rgb(143, 143, 152)));
+    }
+    for span in &hovered[2..] {
+        assert_eq!(span.style.bg, Some(Color::Rgb(36, 36, 40)));
+    }
+}
+
+#[test]
+fn header_toggle_renders_five_cells_and_hover_brightens_knob() {
+    use crate::theme::default::DARK_THEME;
+    use ratatui::{
+        Terminal,
+        backend::TestBackend,
+        style::{Color, Style},
+        widgets::Block,
+    };
+
+    let mut state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 80, 30);
+    let pane_bg = Color::Rgb(12, 12, 12);
+    let backend = TestBackend::new(area.width, area.height);
+    let mut terminal = Terminal::new(backend).expect("test terminal");
+    terminal
+        .draw(|frame| {
+            frame.render_widget(
+                Block::default().style(Style::default().bg(pane_bg)),
+                frame.area(),
+            );
+            detail::render_detail(frame, frame.area(), &DARK_THEME, &state);
+        })
+        .expect("test draw");
+
+    let content = detail::center_content(area, state.split_ratio(), state.detail_ratio());
+    let x = content
+        .x
+        .saturating_add(content.width.saturating_sub(detail::TOGGLE_WIDTH));
+    let y = content.y;
+    let buffer = terminal.backend().buffer();
+    for offset in 0..3 {
+        assert_eq!(buffer[(x + offset, y)].symbol(), " ");
+        assert_eq!(buffer[(x + offset, y)].bg, Color::Rgb(27, 56, 36));
+    }
+    for offset in 3..5 {
+        assert_eq!(buffer[(x + offset, y)].symbol(), " ");
+        assert_eq!(buffer[(x + offset, y)].bg, Color::Rgb(62, 207, 102));
+    }
+
+    state.set_toggle_hover(true);
+    terminal
+        .draw(|frame| {
+            frame.render_widget(
+                Block::default().style(Style::default().bg(pane_bg)),
+                frame.area(),
+            );
+            detail::render_detail(frame, frame.area(), &DARK_THEME, &state);
+        })
+        .expect("test draw");
+    let buffer = terminal.backend().buffer();
+    for offset in 0..3 {
+        assert_eq!(buffer[(x + offset, y)].bg, Color::Rgb(27, 56, 36));
+    }
+    for offset in 3..5 {
+        assert_eq!(buffer[(x + offset, y)].bg, Color::Rgb(69, 231, 114));
+    }
+}
+
+#[test]
+fn header_toggle_renders_disabled_cells() {
+    use crate::theme::default::DARK_THEME;
+    use ratatui::{Terminal, backend::TestBackend, style::Color};
+
+    let mut state = sample_state();
+    let mut raw = list_item(
+        "id-off",
+        None,
+        TriggerType::Word,
+        "off",
+        "output",
+        "text",
+        "all",
+        0,
+        None,
+    );
+    raw.is_enabled = false;
+    state.replace_items(vec![LibraryTrigger::single(raw)]);
+
+    let area = ratatui::layout::Rect::new(0, 0, 80, 30);
+    let backend = TestBackend::new(area.width, area.height);
+    let mut terminal = Terminal::new(backend).expect("test terminal");
+    terminal
+        .draw(|frame| {
+            detail::render_detail(frame, frame.area(), &DARK_THEME, &state);
+        })
+        .expect("test draw");
+
+    let content = detail::center_content(area, state.split_ratio(), state.detail_ratio());
+    let x = content
+        .x
+        .saturating_add(content.width.saturating_sub(detail::TOGGLE_WIDTH));
+    let y = content.y;
+    let buffer = terminal.backend().buffer();
+    for offset in 0..2 {
+        assert_eq!(buffer[(x + offset, y)].symbol(), " ");
+        assert_eq!(buffer[(x + offset, y)].bg, Color::Rgb(128, 128, 136));
+    }
+    for offset in 2..5 {
+        assert_eq!(buffer[(x + offset, y)].symbol(), " ");
+        assert_eq!(buffer[(x + offset, y)].bg, Color::Rgb(36, 36, 40));
+    }
 }
 
 #[test]
@@ -1308,7 +1449,7 @@ fn header_toggle_hit_for_text_trigger_row() {
             state.split_ratio(),
             state.detail_ratio(),
             &state,
-            52,
+            55,
             1
         ),
         Some(detail::DetailHit::EnableToggle)
@@ -1489,7 +1630,7 @@ fn usage_toggle_hit_only_on_toggle_row() {
             state.split_ratio(),
             state.detail_ratio(),
             &state,
-            66,
+            69,
             1
         ),
         Some(detail::DetailHit::EnableToggle)
@@ -4293,9 +4434,9 @@ fn select_by_id_clamps_to_known_rows() {
 fn trigger_edit_hit_only_on_name_cells() {
     let state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
-    // Center content at x=25 width=31: toggle owns the last 5 cells,
-    // the cell before it is a gap, everything left of it edits with
-    // the click column carried through.
+    // Center content at x=25 width=31: the switch owns cells 51..=55,
+    // cell 50 is a gap, and everything left of it edits with the click
+    // column carried through.
     assert_eq!(
         detail::hit_test(
             area,
@@ -4313,7 +4454,18 @@ fn trigger_edit_hit_only_on_name_cells() {
             state.split_ratio(),
             state.detail_ratio(),
             &state,
-            56,
+            49,
+            1
+        ),
+        Some(detail::DetailHit::TriggerEditAt(24))
+    );
+    assert_eq!(
+        detail::hit_test(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            50,
             1
         ),
         None
@@ -4324,10 +4476,32 @@ fn trigger_edit_hit_only_on_name_cells() {
             state.split_ratio(),
             state.detail_ratio(),
             &state,
-            52,
+            51,
             1
         ),
         Some(detail::DetailHit::EnableToggle)
+    );
+    assert_eq!(
+        detail::hit_test(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            55,
+            1
+        ),
+        Some(detail::DetailHit::EnableToggle)
+    );
+    assert_eq!(
+        detail::hit_test(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            56,
+            1
+        ),
+        None
     );
 }
 
