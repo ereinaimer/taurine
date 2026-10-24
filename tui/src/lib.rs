@@ -94,6 +94,23 @@ pub fn run() -> taurine_core::Result<()> {
     Ok(())
 }
 
+/// Vertical divider glyph for one row. On the content-rule row the
+/// divider grows an arm toward the center pane so the two lines meet.
+fn divider_glyph(
+    side: library::DividerSide,
+    row: u16,
+    content_divider_row: Option<u16>,
+) -> &'static str {
+    if content_divider_row == Some(row) {
+        match side {
+            library::DividerSide::List => "├",
+            library::DividerSide::Props => "┤",
+        }
+    } else {
+        "│"
+    }
+}
+
 /// Full frame paint, shared by the main loop and the overlay open sweep
 /// so the transition starts from exactly what is on screen.
 fn render_app(frame: &mut ratatui::Frame, app: &App, area: ratatui::layout::Rect) {
@@ -117,6 +134,12 @@ fn render_app(frame: &mut ratatui::Frame, app: &App, area: ratatui::layout::Rect
         // one line while staying grabbable.
         let full = terminal::mouse::library_full_area(layout.page);
         let page = app.library_page();
+        let content_divider_row = library::detail::content_divider_row(
+            full,
+            page.split_ratio(),
+            page.detail_ratio(),
+            page,
+        );
         for (side, column) in
             library::visible_divider_columns(full, page.split_ratio(), page.detail_ratio())
         {
@@ -125,7 +148,9 @@ fn render_app(frame: &mut ratatui::Frame, app: &App, area: ratatui::layout::Rect
             } else {
                 theme.border
             };
-            let glyphs = vec![Line::from("│"); area.height as usize];
+            let glyphs = (area.y..area.y.saturating_add(area.height))
+                .map(|row| Line::from(divider_glyph(side, row, content_divider_row)))
+                .collect::<Vec<_>>();
             frame.render_widget(
                 ratatui::widgets::Paragraph::new(glyphs)
                     .style(ratatui::style::Style::default().fg(color)),
@@ -1283,6 +1308,15 @@ fn restore_terminal() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn divider_glyphs_join_the_content_rule() {
+        use super::library::DividerSide;
+
+        assert_eq!(super::divider_glyph(DividerSide::List, 7, Some(7)), "├");
+        assert_eq!(super::divider_glyph(DividerSide::Props, 7, Some(7)), "┤");
+        assert_eq!(super::divider_glyph(DividerSide::List, 8, Some(7)), "│");
+    }
+
     #[test]
     fn dim_frame_scales_rgb_and_marks_non_rgb() {
         use ratatui::{

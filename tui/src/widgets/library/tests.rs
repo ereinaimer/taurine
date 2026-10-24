@@ -1679,6 +1679,47 @@ fn content_edit_hit_maps_wrapped_rows_to_source() {
 }
 
 #[test]
+fn content_divider_spans_the_center_pane() {
+    use ratatui::{Terminal, backend::TestBackend};
+
+    let state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let backend = TestBackend::new(area.width, area.height);
+    let mut terminal = Terminal::new(backend).expect("test terminal");
+    terminal
+        .draw(|frame| {
+            detail::render_detail(
+                frame,
+                frame.area(),
+                &crate::theme::default::DARK_THEME,
+                &state,
+            );
+        })
+        .expect("test draw");
+
+    let split = split_panes(area, state.split_ratio(), state.detail_ratio());
+    assert_eq!(split.dividers[0].saturating_add(1), split.center.x);
+    assert_eq!(
+        split.dividers[1],
+        split.center.x.saturating_add(split.center.width)
+    );
+    let content = detail::center_content(area, state.split_ratio(), state.detail_ratio());
+    let divider_y = content.y.saturating_add(6);
+    assert_eq!(
+        detail::content_divider_row(area, state.split_ratio(), state.detail_ratio(), &state),
+        Some(divider_y)
+    );
+    let buffer = terminal.backend().buffer();
+    for x in split.center.x..split.center.x.saturating_add(split.center.width) {
+        assert_eq!(
+            buffer[(x, divider_y)].symbol(),
+            "─",
+            "missing rule at column {x}"
+        );
+    }
+}
+
+#[test]
 fn content_click_anchors_and_double_click_selects_word() {
     let mut state = sample_state();
     // "Good Morning" body on the gm row.

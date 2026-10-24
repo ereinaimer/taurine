@@ -388,6 +388,27 @@ pub(crate) fn content_scroll_max(height: u16, width: u16, item: &LibraryTrigger)
     layout.rest
 }
 
+/// Row where the center content rule is painted, when the detail pane
+/// has enough room and a selected trigger. Shared with the vertical
+/// divider renderer so its glyph can become a T-junction on that row.
+pub(crate) fn content_divider_row(
+    area: Rect,
+    list_ratio: f32,
+    props_ratio: f32,
+    state: &LibraryPageState,
+) -> Option<u16> {
+    let content = center_content(area, list_ratio, props_ratio);
+    if content.width < 5
+        || CONTENT_BOX_TOP.saturating_add(CONTENT_BOX_HEIGHT) > content.height
+        || state.load_error().is_some()
+    {
+        return None;
+    }
+    let index = state.selected_index()?;
+    state.item_at_filtered(index)?;
+    Some(content.y.saturating_add(CONTENT_BOX_TOP))
+}
+
 /// Center-pane content: two cells of padding on the left, one on the
 /// right. Shared by rendering and mouse hit-testing.
 pub(crate) fn center_content(area: Rect, list_ratio: f32, props_ratio: f32) -> Rect {
@@ -435,7 +456,8 @@ pub(crate) fn render_detail(
     render_description_row(frame, content, theme, state, item);
     render_buttons_row(frame, content, theme, state, item);
     if let Some(layout) = detail_layout(content.height, content.width, item, scroll) {
-        render_content_rows(frame, content, theme, state, item, &layout);
+        let center = split_panes(area, state.split_ratio(), state.detail_ratio()).center;
+        render_content_rows(frame, content, center, theme, state, item, &layout);
     }
 }
 
@@ -685,6 +707,7 @@ pub(crate) fn property_rows(item: &LibraryTrigger) -> Vec<(&'static str, String)
 fn render_content_rows(
     frame: &mut Frame,
     area: Rect,
+    center: Rect,
     theme: &Theme,
     state: &LibraryPageState,
     item: &LibraryTrigger,
@@ -692,13 +715,15 @@ fn render_content_rows(
 ) {
     let divider_y = area.y.saturating_add(CONTENT_BOX_TOP);
     if divider_y < frame.area().height {
+        // honey: run the rule across the full center pane so it meets
+        // the vertical dividers instead of stopping at the text inset.
         let divider = Rect {
-            x: area.x,
+            x: center.x,
             y: divider_y,
-            width: area.width,
+            width: center.width,
             height: 1,
         };
-        let line = "─".repeat(area.width as usize);
+        let line = "─".repeat(center.width as usize);
         frame.render_widget(
             Paragraph::new(Line::from(line)).style(Style::default().fg(theme.border)),
             divider,
