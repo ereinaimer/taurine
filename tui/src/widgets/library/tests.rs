@@ -4574,9 +4574,10 @@ fn create_props_content_aligns_with_title_hint() {
 #[test]
 fn create_option_hit_selects_fields() {
     // 90% popup on 100x30 is 90x27 at (5,1); body starts at
-    // (8,2): title 0, blank 1, header gap 2, trigger 3, description 4,
-    // blank 5, pills 6, blank 7, content from 8; the footer row on 25
-    // is dead. The right pane is the properties list, starting at x=50.
+    // (8,2): title 0, blank 1, header gap 2, trigger 3, blank 4,
+    // description 5, blank 6, pills 7, blank 8, content from 9; the
+    // footer row on 25 is dead. The right pane is the properties list,
+    // starting at x=50.
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
     let draft = sample_create_modal();
 
@@ -4585,21 +4586,22 @@ fn create_option_hit_selects_fields() {
         Some(modals::CreateHit::Field(LibraryCreateModalField::Trigger))
     );
     assert_eq!(
-        modals::create_option_hit(&draft, area, 20, 6),
+        modals::create_option_hit(&draft, area, 20, 7),
         Some(modals::CreateHit::Field(
             LibraryCreateModalField::Description
         ))
     );
     assert_eq!(modals::create_option_hit(&draft, area, 20, 4), None);
-    assert_eq!(modals::create_option_hit(&draft, area, 20, 7), None);
+    assert_eq!(modals::create_option_hit(&draft, area, 20, 6), None);
+    assert_eq!(modals::create_option_hit(&draft, area, 20, 8), None);
     assert_eq!(
-        modals::create_option_hit(&draft, area, 10, 8),
+        modals::create_option_hit(&draft, area, 10, 9),
         Some(modals::CreateHit::Field(
             LibraryCreateModalField::TriggerType
         ))
     );
     assert_eq!(
-        modals::create_option_hit(&draft, area, 20, 8),
+        modals::create_option_hit(&draft, area, 20, 9),
         Some(modals::CreateHit::Field(LibraryCreateModalField::Action))
     );
     assert_eq!(
@@ -4626,23 +4628,23 @@ fn create_option_hit_selects_fields() {
     assert_eq!(modals::create_option_hit(&draft, area, 70, 19), None);
     assert_eq!(modals::create_option_hit(&draft, area, 70, 21), None);
     assert_eq!(
-        modals::create_option_hit(&draft, area, 10, 10),
+        modals::create_option_hit(&draft, area, 10, 11),
         Some(modals::CreateHit::Field(LibraryCreateModalField::Content))
     );
     let mut script = sample_create_modal();
     script.toggle_action();
     assert_eq!(
-        modals::create_option_hit(&script, area, 10, 10),
+        modals::create_option_hit(&script, area, 10, 11),
         Some(modals::CreateHit::Field(
             LibraryCreateModalField::Interpreter
         ))
     );
     assert_eq!(
-        modals::create_option_hit(&script, area, 20, 10),
+        modals::create_option_hit(&script, area, 20, 11),
         Some(modals::CreateHit::Field(LibraryCreateModalField::Behavior))
     );
     assert_eq!(
-        modals::create_option_hit(&script, area, 10, 12),
+        modals::create_option_hit(&script, area, 10, 13),
         Some(modals::CreateHit::Field(LibraryCreateModalField::Content))
     );
     assert_eq!(modals::create_option_hit(&draft, area, 39, 25), None);
@@ -4723,22 +4725,24 @@ fn create_form_renders_placeholders_and_stacked_pickers() {
             .starts_with(modals::CREATE_TRIGGER_PLACEHOLDER)
     );
     assert_eq!(empty[(8, 5)].fg, DARK_THEME.text_muted);
-    let description_row = row(&empty, 6);
+    // A blank row separates the trigger and description fields.
+    assert!((8..50).all(|x| empty[(x, 6)].symbol() == " "));
+    let description_row = row(&empty, 7);
     assert!(
         description_row
             .trim_start()
             .starts_with(modals::CREATE_DESCRIPTION_PLACEHOLDER)
     );
-    assert_eq!(empty[(8, 6)].fg, DARK_THEME.text_muted);
+    assert_eq!(empty[(8, 7)].fg, DARK_THEME.text_muted);
     assert!(row(&empty, 2).contains("New Trigger"));
     assert!(row(&empty, 2).contains("Esc"));
     assert!(!row(&empty, 2).contains("Properties"));
     assert!(row(&empty, 3).trim().is_empty());
     assert!(row(&empty, 5).contains("Properties"));
     assert!(row(&empty, 7).contains("Auto case"));
-    assert!(row(&empty, 8).contains("word"));
-    assert!(row(&empty, 8).contains("text"));
-    assert!(row(&empty, 10).trim_start().starts_with(text_placeholder));
+    assert!(row(&empty, 9).contains("word"));
+    assert!(row(&empty, 9).contains("text"));
+    assert!(row(&empty, 11).trim_start().starts_with(text_placeholder));
     assert!(row(&empty, 17).contains("Tags"));
     assert!(!row(&empty, 19).contains("Usage"));
     // The pane divider starts below the header band and its gap.
@@ -4756,26 +4760,26 @@ fn create_form_renders_placeholders_and_stacked_pickers() {
     assert!(row(&typed, 5).trim_start().starts_with("gm"));
     assert!(!row(&typed, 5).contains(modals::CREATE_TRIGGER_PLACEHOLDER));
     assert!(
-        row(&typed, 6)
+        row(&typed, 7)
             .trim_start()
             .starts_with(modals::CREATE_DESCRIPTION_PLACEHOLDER)
     );
 
     // The content placeholder stays visible until typing starts.
-    assert!(row(&typed, 10).trim_start().starts_with(text_placeholder));
+    assert!(row(&typed, 11).trim_start().starts_with(text_placeholder));
     type_text(&mut state, "Morning greeting");
     let described = draw(&state);
     assert!(
-        row(&described, 6)
+        row(&described, 7)
             .trim_start()
             .starts_with("Morning greeting")
     );
-    assert!(!row(&described, 6).contains(modals::CREATE_DESCRIPTION_PLACEHOLDER));
+    assert!(!row(&described, 7).contains(modals::CREATE_DESCRIPTION_PLACEHOLDER));
     state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     type_text(&mut state, "Good Morning");
     let filled = draw(&state);
-    assert!(row(&filled, 10).trim_start().starts_with("Good Morning"));
-    assert!(!row(&filled, 10).contains(text_placeholder));
+    assert!(row(&filled, 11).trim_start().starts_with("Good Morning"));
+    assert!(!row(&filled, 11).contains(text_placeholder));
 
     // The hint follows the action pill: scripts get script copy.
     let mut script = open_create_state();
@@ -4784,10 +4788,10 @@ fn create_form_renders_placeholders_and_stacked_pickers() {
     }
     script.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
     let script_buffer = draw(&script);
-    assert!(row(&script_buffer, 10).contains("bash"));
-    assert!(row(&script_buffer, 10).contains("inline"));
+    assert!(row(&script_buffer, 11).contains("bash"));
+    assert!(row(&script_buffer, 11).contains("inline"));
     assert!(
-        row(&script_buffer, 12)
+        row(&script_buffer, 13)
             .trim_start()
             .starts_with(modals::create_content_placeholder(false))
     );

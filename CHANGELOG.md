@@ -31,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Full Script Language Highlighting**: Bash, PowerShell, Python, Node, and Cmd snippets all highlight accurately, including PowerShell cmdlets and variables.
 - **Delete Triggers**: Select a trigger and press Delete, then confirm Yes or No in the dialog. Clicking the buttons or pressing Esc works too.
 - **New Trigger Form**: Press Ctrl+N to create a trigger without leaving the library, with type/action pills under the trigger, actionable in-field placeholders, script options, a Properties pane without usage history, a draggable pane divider, and the same click-outside or Esc dismissal as other overlays.
-- **New Trigger Description**: Add an optional description directly under the trigger field when creating a trigger.
+- **New Trigger Description**: Add an optional description below the trigger field, separated by a blank row, when creating a trigger.
 - **New Trigger Header**: The New Trigger overlay now separates its title from the form with a neutral grey header band, a one-line gap, and a divider that starts below the header.
 
 ### Changed

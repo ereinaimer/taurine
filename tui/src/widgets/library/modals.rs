@@ -354,19 +354,19 @@ pub(crate) fn create_layout(is_script: bool, body_height: u16) -> CreateLayout {
 }
 
 /// Left-pane rows, shared by rendering and hit-testing: title, blank,
-/// header gap, trigger field, description field, blank, type/action
-/// pills, blank, then the flex content box. Scripts add a second pill
-/// row and push the box down.
+/// header gap, trigger field, blank, description field, blank,
+/// type/action pills, blank, then the flex content box. Scripts add a
+/// second pill row and push the box down.
 pub(crate) const CREATE_TRIGGER_FIELD_ROW: u16 = 3;
-pub(crate) const CREATE_DESCRIPTION_FIELD_ROW: u16 = 4;
-pub(crate) const CREATE_PILLS_ROW: u16 = 6;
-pub(crate) const CREATE_CONTENT_FIRST_ROW: u16 = 8;
-pub(crate) const CREATE_SCRIPT_PILLS_ROW: u16 = 8;
-pub(crate) const CREATE_SCRIPT_CONTENT_FIRST_ROW: u16 = 10;
+pub(crate) const CREATE_DESCRIPTION_FIELD_ROW: u16 = 5;
+pub(crate) const CREATE_PILLS_ROW: u16 = 7;
+pub(crate) const CREATE_CONTENT_FIRST_ROW: u16 = 9;
+pub(crate) const CREATE_SCRIPT_PILLS_ROW: u16 = 9;
+pub(crate) const CREATE_SCRIPT_CONTENT_FIRST_ROW: u16 = 11;
 
 /// Placeholder copy shown inside the empty create fields.
 pub(crate) const CREATE_TRIGGER_PLACEHOLDER: &str = "Type your trigger here";
-pub(crate) const CREATE_DESCRIPTION_PLACEHOLDER: &str = "Add a description (optional)";
+pub(crate) const CREATE_DESCRIPTION_PLACEHOLDER: &str = "Add a description";
 pub(crate) const CREATE_TEXT_PLACEHOLDER: &str = "Type your snippet here";
 pub(crate) const CREATE_SCRIPT_PLACEHOLDER: &str = "Type your script here";
 
