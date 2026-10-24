@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Unified Popup Headers**: Every TUI popup now uses the New Trigger header band and spacing.
 - **Connected Content Divider**: The center content divider now meets the vertical pane dividers.
 - **Graphical Enable Toggle**: The center pane now uses a wider, full-height switch to enable or disable the selected trigger.
+- **Animated Enable Toggle**: The center pane switch now glides and fades between states instead of snapping.
 - **Target Platform Menu**: Added a blank row above and below each option, widened the overlay, and increased icon-to-label spacing.
 - **Overlay Dismissal**: The New Trigger, delete, and settings overlays close from the dimmed backdrop or the Esc hint.
 - **Inline Renaming**: Click the trigger at the top of the detail pane to edit the actual trigger text in place. Enter saves, switching triggers saves automatically.

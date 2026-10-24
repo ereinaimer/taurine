@@ -1,4 +1,4 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use ratatui::{
     Frame,
@@ -36,6 +36,26 @@ fn toggle_cell(color: Color) -> Span<'static> {
     Span::styled(" ", Style::default().bg(color))
 }
 
+fn toggle_half_cell(symbol: &'static str, knob: Color, track: Color) -> Span<'static> {
+    Span::styled(symbol, Style::default().fg(knob).bg(track))
+}
+
+fn lerp_color(from: Color, to: Color, t: f32) -> Color {
+    let (Color::Rgb(from_red, from_green, from_blue), Color::Rgb(to_red, to_green, to_blue)) =
+        (from, to)
+    else {
+        return to;
+    };
+    let t = t.clamp(0.0, 1.0);
+    let mix =
+        |from: u8, to: u8| (f32::from(from) + (f32::from(to) - f32::from(from)) * t).round() as u8;
+    Color::Rgb(
+        mix(from_red, to_red),
+        mix(from_green, to_green),
+        mix(from_blue, to_blue),
+    )
+}
+
 /// Brighten a knob by roughly twelve percent when the pointer is over it.
 fn toggle_knob(color: Color, hovered: bool) -> Color {
     if !hovered {
@@ -48,29 +68,40 @@ fn toggle_knob(color: Color, hovered: bool) -> Color {
     Color::Rgb(lift(red), lift(green), lift(blue))
 }
 
-/// Five-cell switch: a 3-cell track and a 2-cell knob. Enabled puts the
-/// knob on the right, disabled on the left. Shared by rendering so the
-/// painted cells always match the hit box.
-pub(crate) fn toggle_spans(item: &LibraryTrigger, hovered: bool) -> Vec<Span<'static>> {
-    if item.is_enabled() {
-        let knob = toggle_knob(TOGGLE_ENABLED_KNOB, hovered);
-        vec![
-            toggle_cell(TOGGLE_ENABLED_TRACK),
-            toggle_cell(TOGGLE_ENABLED_TRACK),
-            toggle_cell(TOGGLE_ENABLED_TRACK),
-            toggle_cell(knob),
-            toggle_cell(knob),
-        ]
-    } else {
-        let knob = toggle_knob(TOGGLE_DISABLED_KNOB, hovered);
-        vec![
-            toggle_cell(knob),
-            toggle_cell(knob),
-            toggle_cell(TOGGLE_DISABLED_TRACK),
-            toggle_cell(TOGGLE_DISABLED_TRACK),
-            toggle_cell(TOGGLE_DISABLED_TRACK),
-        ]
-    }
+/// Five-cell switch with a 3-cell track and 2-cell knob. Animation slides
+/// the knob across ten half-cells while lerping the track and knob colors.
+/// `anim` carries `(normalized progress, state before the click)`.
+pub(crate) fn toggle_spans(
+    item: &LibraryTrigger,
+    hovered: bool,
+    anim: Option<(f32, bool)>,
+) -> Vec<Span<'static>> {
+    let (t, target_is_on) = match anim {
+        Some((t, from_on)) => (t.clamp(0.0, 1.0), !from_on),
+        None => (1.0, item.is_enabled()),
+    };
+    let pos = if target_is_on { t } else { 1.0 - t };
+    let track = lerp_color(TOGGLE_DISABLED_TRACK, TOGGLE_ENABLED_TRACK, pos);
+    let knob = toggle_knob(
+        lerp_color(TOGGLE_DISABLED_KNOB, TOGGLE_ENABLED_KNOB, pos),
+        hovered,
+    );
+    let start_half = (pos * 6.0).round() as usize;
+    let end_half = start_half + 4;
+    (0..5)
+        .map(|cell_idx| {
+            let left = cell_idx * 2;
+            let right = left + 1;
+            let left_in_knob = left >= start_half && left < end_half;
+            let right_in_knob = right >= start_half && right < end_half;
+            match (left_in_knob, right_in_knob) {
+                (true, true) => toggle_cell(knob),
+                (false, false) => toggle_cell(track),
+                (true, false) => toggle_half_cell("▌", knob, track),
+                (false, true) => toggle_half_cell("▐", knob, track),
+            }
+        })
+        .collect()
 }
 
 /// Fixed single-row offsets above the content section.
@@ -543,6 +574,7 @@ fn render_header_row(
         return;
     }
     let width = TOGGLE_WIDTH;
+    let anim = state.toggle_anim_progress(Instant::now());
     let available = row.width.saturating_sub(width).saturating_sub(1);
     // honey: editing shows the caret-anchored viewport with a real
     // caret, mirroring the search box; read mode shows the truncated
@@ -557,7 +589,7 @@ fn render_header_row(
             ),
             Span::raw(" ".repeat(gap as usize + 1)),
         ];
-        spans.extend(toggle_spans(item, state.toggle_hover()));
+        spans.extend(toggle_spans(item, state.toggle_hover(), anim));
         let line = Line::from(spans);
         frame.render_widget(Paragraph::new(line), row);
         let (cx, cy) = util::caret_position(row.x, row.y, caret, available);
@@ -574,7 +606,7 @@ fn render_header_row(
         ),
         Span::raw(" ".repeat(gap as usize + 1)),
     ];
-    spans.extend(toggle_spans(item, state.toggle_hover()));
+    spans.extend(toggle_spans(item, state.toggle_hover(), anim));
     let line = Line::from(spans);
     frame.render_widget(Paragraph::new(line), row);
 }

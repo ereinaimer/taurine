@@ -14,7 +14,7 @@ pub use overlay::{
 mod widgets;
 
 use std::io;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::overlay_fx::OverlayTransition;
 use crate::theme::Theme;
@@ -34,6 +34,7 @@ use tracing::error;
 use widgets::notification;
 
 const EVENT_TICK_RATE: Duration = Duration::from_millis(250);
+const TOGGLE_ANIM_FRAME: Duration = Duration::from_millis(16);
 
 pub fn run() -> taurine_core::Result<()> {
     let mut app = App::default();
@@ -50,6 +51,7 @@ pub fn run() -> taurine_core::Result<()> {
     let mut previous_layers = overlay_fx::layers(&app);
     let mut previous_rects = Vec::new();
     loop {
+        let animating = app.library_page_mut().advance_toggle_anim(Instant::now());
         terminal.terminal.draw(|frame| {
             let area = frame.area();
             last_area = area;
@@ -62,7 +64,12 @@ pub fn run() -> taurine_core::Result<()> {
             previous_rects = overlay_fx::transition_rects(&app, last_area, full);
         }
 
-        match events.next()? {
+        let event = if animating {
+            events.next_with_timeout(TOGGLE_ANIM_FRAME)?
+        } else {
+            events.next()?
+        };
+        match event {
             Event::Key(key) => {
                 let layout = terminal::mouse::frame_layout(last_area);
                 track_content_width(&mut app, terminal::mouse::library_full_area(layout.page));
@@ -845,8 +852,14 @@ fn handle_tui_mouse_event(
                         Some(library::detail::DetailHit::EnableToggle) => {
                             let flush = app.library_page_mut().commit_edit();
                             apply_library_interaction(app, flush);
+                            let from_on = app.library_page().selected_enabled();
                             let interaction = app.library_page_mut().toggle_selected_enabled();
                             apply_library_interaction(app, interaction);
+                            if let Some(from_on) = from_on
+                                && app.library_page().selected_enabled() == Some(!from_on)
+                            {
+                                app.library_page_mut().start_toggle_anim(from_on);
+                            }
                         }
                         None => {}
                     }

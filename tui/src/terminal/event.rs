@@ -24,6 +24,11 @@ impl EventHandler {
 
     pub(crate) fn next(&mut self) -> io::Result<Event> {
         let timeout = self.tick_rate.saturating_sub(self.last_tick.elapsed());
+        self.next_with_timeout(timeout)
+    }
+
+    pub(crate) fn next_with_timeout(&mut self, timeout: Duration) -> io::Result<Event> {
+        let timeout = timeout.min(self.tick_rate.saturating_sub(self.last_tick.elapsed()));
 
         if event::poll(timeout)? {
             match event::read()? {

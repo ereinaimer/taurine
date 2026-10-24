@@ -1240,7 +1240,7 @@ fn toggle_cells_reflect_enable_state() {
         0,
         None,
     ));
-    let spans = detail::toggle_spans(&enabled, false);
+    let spans = detail::toggle_spans(&enabled, false, None);
     let text: String = spans.iter().map(|span| span.content.as_ref()).collect();
     assert_eq!(text, "     ");
     assert_eq!(spans.len(), 5);
@@ -1253,7 +1253,7 @@ fn toggle_cells_reflect_enable_state() {
         assert_eq!(span.style.bg, Some(Color::Rgb(62, 207, 102)));
     }
 
-    let hovered = detail::toggle_spans(&enabled, true);
+    let hovered = detail::toggle_spans(&enabled, true, None);
     for span in &hovered[..3] {
         assert_eq!(span.style.bg, Some(Color::Rgb(27, 56, 36)));
     }
@@ -1274,7 +1274,7 @@ fn toggle_cells_reflect_enable_state() {
     );
     raw.is_enabled = false;
     let disabled = LibraryTrigger::single(raw);
-    let spans = detail::toggle_spans(&disabled, false);
+    let spans = detail::toggle_spans(&disabled, false, None);
     let text: String = spans.iter().map(|span| span.content.as_ref()).collect();
     assert_eq!(text, "     ");
     assert_eq!(spans.len(), 5);
@@ -1287,13 +1287,92 @@ fn toggle_cells_reflect_enable_state() {
         assert_eq!(span.style.bg, Some(Color::Rgb(36, 36, 40)));
     }
 
-    let hovered = detail::toggle_spans(&disabled, true);
+    let hovered = detail::toggle_spans(&disabled, true, None);
     for span in &hovered[..2] {
         assert_eq!(span.style.bg, Some(Color::Rgb(143, 143, 152)));
     }
     for span in &hovered[2..] {
         assert_eq!(span.style.bg, Some(Color::Rgb(36, 36, 40)));
     }
+}
+
+#[test]
+fn toggle_animation_glides_knob_and_lerps_colors() {
+    use ratatui::style::Color;
+
+    let enabled = LibraryTrigger::single(list_item(
+        "id-on",
+        None,
+        TriggerType::Word,
+        "on",
+        "output",
+        "text",
+        "all",
+        0,
+        None,
+    ));
+
+    let start = detail::toggle_spans(&enabled, false, Some((0.0, false)));
+    for span in &start[..2] {
+        assert_eq!(span.content.as_ref(), " ");
+        assert_eq!(span.style.bg, Some(Color::Rgb(128, 128, 136)));
+    }
+    for span in &start[2..] {
+        assert_eq!(span.content.as_ref(), " ");
+        assert_eq!(span.style.bg, Some(Color::Rgb(36, 36, 40)));
+    }
+
+    let mid = detail::toggle_spans(&enabled, false, Some((0.5, false)));
+    let track = Some(Color::Rgb(32, 46, 38));
+    let knob = Some(Color::Rgb(95, 168, 119));
+    assert_eq!(mid[0].content.as_ref(), " ");
+    assert_eq!(mid[0].style.bg, track);
+    assert_eq!(mid[1].content.as_ref(), "▐");
+    assert_eq!(mid[1].style.fg, knob);
+    assert_eq!(mid[1].style.bg, track);
+    assert_eq!(mid[2].content.as_ref(), " ");
+    assert_eq!(mid[2].style.bg, knob);
+    assert_eq!(mid[3].content.as_ref(), "▌");
+    assert_eq!(mid[3].style.fg, knob);
+    assert_eq!(mid[3].style.bg, track);
+    assert_eq!(mid[4].content.as_ref(), " ");
+    assert_eq!(mid[4].style.bg, track);
+
+    let end = detail::toggle_spans(&enabled, false, Some((1.0, false)));
+    for span in &end[..3] {
+        assert_eq!(span.style.bg, Some(Color::Rgb(27, 56, 36)));
+    }
+    for span in &end[3..] {
+        assert_eq!(span.style.bg, Some(Color::Rgb(62, 207, 102)));
+    }
+
+    let reverse_start = detail::toggle_spans(&enabled, false, Some((0.0, true)));
+    for span in &reverse_start[..3] {
+        assert_eq!(span.style.bg, Some(Color::Rgb(27, 56, 36)));
+    }
+    for span in &reverse_start[3..] {
+        assert_eq!(span.style.bg, Some(Color::Rgb(62, 207, 102)));
+    }
+}
+
+#[test]
+fn toggle_animation_finishes_after_its_duration() {
+    use std::time::Instant;
+
+    let mut state = LibraryPageState::default();
+    let start = Instant::now();
+    state.start_toggle_anim_at(false, start);
+    assert_eq!(state.toggle_anim_progress(start), Some((0.0, false)));
+
+    let half = start + TOGGLE_ANIM_DURATION / 2;
+    let (progress, from_on) = state.toggle_anim_progress(half).expect("animating");
+    assert!((progress - 0.5).abs() < 0.01);
+    assert!(!from_on);
+    assert!(state.advance_toggle_anim(half));
+
+    let end = start + TOGGLE_ANIM_DURATION;
+    assert!(!state.advance_toggle_anim(end));
+    assert!(state.toggle_anim_progress(end).is_none());
 }
 
 #[test]
