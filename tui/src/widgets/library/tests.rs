@@ -2854,7 +2854,7 @@ fn platform_menu_items_have_one_blank_row_above_and_below() {
     let menu = open_menu(&mut state, HeaderMenuKind::Platform);
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
     let popup = menu.popup(area);
-    assert_eq!(popup, ratatui::layout::Rect::new(22, 3, 56, 23));
+    assert_eq!(popup, ratatui::layout::Rect::new(10, 3, 80, 23));
     assert_eq!(menu.line_counts(), vec![3; 6]);
 
     let buffer = render_modal_buffer(&LibraryModal::HeaderMenu(menu));

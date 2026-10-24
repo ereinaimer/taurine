@@ -6,6 +6,10 @@ use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 use crate::widgets::library::icons::os_icon;
 use crate::widgets::util;
 
+/// The platform menu carries icon rows and needs a little more width
+/// than the shared option overlay.
+const PLATFORM_MENU_WIDTH: u16 = 80;
+
 /// Which header button spawned the centered menu: invocation type,
 /// action type, script language and run behavior for scripts, plus
 /// the target platform row from the properties pane.
@@ -192,7 +196,7 @@ impl LibraryHeaderMenuState {
     pub(crate) fn popup(&self, area: Rect) -> Rect {
         if self.kind == HeaderMenuKind::Platform {
             let lines: u16 = self.line_counts().iter().sum();
-            util::overlay_popup_for_lines(area, lines)
+            util::overlay_popup_for_lines(area, PLATFORM_MENU_WIDTH, lines)
         } else {
             util::overlay_popup(area)
         }

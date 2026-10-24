@@ -85,13 +85,14 @@ pub(crate) struct OverlayEntry {
     pub(crate) icon: String,
 }
 
-/// Label prefix: the icon tucked against the label, or three spaces
-/// when there is no icon, so text always starts inside the padding.
+/// Label prefix: the icon followed by two spaces before the label, or
+/// three spaces when there is no icon, so text always starts inside the
+/// padding.
 fn overlay_label_prefix(icon: &str) -> String {
     if icon.is_empty() {
         "   ".to_string()
     } else {
-        format!("   {icon} ")
+        format!("   {icon}  ")
     }
 }
 
@@ -109,9 +110,9 @@ pub(crate) fn overlay_popup_sized(width: u16, height: u16, area: Rect) -> Rect {
 
 /// Popup rect sized to fit `lines` content rows plus the shared chrome:
 /// header band, gap row, and bottom margin.
-pub(crate) fn overlay_popup_for_lines(area: Rect, lines: u16) -> Rect {
+pub(crate) fn overlay_popup_for_lines(area: Rect, width: u16, lines: u16) -> Rect {
     let height = lines.saturating_add(OVERLAY_HEADER_ROWS).saturating_add(2);
-    overlay_popup_sized(56, height, area)
+    overlay_popup_sized(width, height, area)
 }
 
 /// Content rect inside an overlay popup, shared by overlay renders
