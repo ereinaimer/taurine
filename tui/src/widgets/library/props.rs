@@ -7,8 +7,13 @@ use ratatui::{
 };
 
 use crate::theme::Theme;
-use crate::widgets::library::detail::{EMPTY_TOKEN, edge_line, edge_value_width, relative_time};
+use crate::widgets::library::detail::{
+    EMPTY_TOKEN, PropertyValue, edge_line, edge_value_width, relative_time,
+};
 use crate::widgets::library::state::LibraryTrigger;
+use crate::widgets::toggle::{
+    TOGGLE_WIDTH, ToggleAnimations, ToggleId, toggle_contains, toggle_rect, toggle_spans,
+};
 use crate::widgets::util;
 
 /// Right-pane content: two cells of padding on each side, mirroring
@@ -28,6 +33,8 @@ pub(crate) fn render_props(
     area: Rect,
     theme: &Theme,
     state: &crate::widgets::library::state::LibraryPageState,
+    animations: &ToggleAnimations,
+    hovered: Option<ToggleId>,
 ) {
     let content = props_content(area, state.split_ratio(), state.detail_ratio());
     let Some(index) = state.selected_index() else {
@@ -43,12 +50,16 @@ pub(crate) fn render_props(
         item,
         Some(state.usage_expanded()),
         None,
+        animations,
+        hovered,
+        ToggleId::PropAutoCase,
     );
 }
 
 /// Render the properties pane for an explicit item and content rect.
 /// The create form reuses this with a draft view model, hiding the
 /// usage section until the trigger exists.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_props_content(
     frame: &mut Frame,
     content: Rect,
@@ -56,6 +67,9 @@ pub(crate) fn render_props_content(
     item: &LibraryTrigger,
     usage: Option<bool>,
     focused: Option<PropsHit>,
+    animations: &ToggleAnimations,
+    hovered: Option<ToggleId>,
+    auto_case_id: ToggleId,
 ) {
     if content.width == 0 || content.height == 0 {
         return;
@@ -98,7 +112,22 @@ pub(crate) fn render_props_content(
             break;
         }
         let is_focused = row_focus(label).is_some_and(|hit| focused == Some(hit));
-        render_row(frame, content, theme, offset, label, value, is_focused);
+        match value {
+            PropertyValue::Toggle(is_on) => {
+                let id = if *label == "Auto case" {
+                    auto_case_id
+                } else {
+                    ToggleId::PropConfirm
+                };
+                render_toggle_row(
+                    frame, content, theme, offset, label, *is_on, id, animations, hovered,
+                    is_focused,
+                );
+            }
+            PropertyValue::Text(value) => {
+                render_row(frame, content, theme, offset, label, value, is_focused);
+            }
+        }
     }
     let tags_at = usage_toggle_offset(item)
         .saturating_add(alias_extra)
@@ -143,6 +172,9 @@ pub(crate) fn render_props_content(
                 if offset >= content.height {
                     break;
                 }
+                let PropertyValue::Text(value) = value else {
+                    continue;
+                };
                 render_row(frame, content, theme, offset, label, value, false);
             }
         }
@@ -344,6 +376,46 @@ fn render_row(
     );
 }
 
+#[allow(clippy::too_many_arguments)]
+fn render_toggle_row(
+    frame: &mut Frame,
+    content: Rect,
+    theme: &Theme,
+    offset: u16,
+    label: &str,
+    is_on: bool,
+    id: ToggleId,
+    animations: &ToggleAnimations,
+    hovered: Option<ToggleId>,
+    focused: bool,
+) {
+    let row = Rect {
+        x: content.x,
+        y: content.y.saturating_add(offset),
+        width: content.width,
+        height: 1,
+    };
+    let label_style = if focused {
+        Style::default().fg(theme.text).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme.text).add_modifier(Modifier::DIM)
+    };
+    let gap = row
+        .width
+        .saturating_sub(label.chars().count() as u16)
+        .saturating_sub(toggle_rect(row).width);
+    let mut spans = vec![
+        Span::styled(label.to_string(), label_style),
+        Span::raw(" ".repeat(gap as usize)),
+    ];
+    spans.extend(toggle_spans(
+        is_on,
+        hovered == Some(id),
+        animations.progress_now(id),
+    ));
+    frame.render_widget(Paragraph::new(Line::from(spans)), row);
+}
+
 /// Toggle offset for the usage section, shared by rendering and
 /// hit-testing. Caller checks it against the pane height.
 pub(crate) fn usage_toggle_offset(item: &LibraryTrigger) -> u16 {
@@ -375,6 +447,51 @@ pub(crate) fn hit_test(
     let selected = state.selected_index()?;
     let item = state.item_at_filtered(selected)?;
     hit_test_content(content, item, column, row, true)
+}
+
+/// Hover hit-test for the 5-cell switch itself, shared by the saved
+/// properties pane and the create form draft.
+pub(crate) fn toggle_hit_test(
+    area: Rect,
+    list_ratio: f32,
+    props_ratio: f32,
+    state: &crate::widgets::library::state::LibraryPageState,
+    column: u16,
+    row: u16,
+) -> Option<ToggleId> {
+    let content = props_content(area, list_ratio, props_ratio);
+    let selected = state.selected_index()?;
+    let item = state.item_at_filtered(selected)?;
+    toggle_hit_test_content(content, item, ToggleId::PropAutoCase, column, row)
+}
+
+pub(crate) fn toggle_hit_test_content(
+    content: Rect,
+    item: &LibraryTrigger,
+    auto_case_id: ToggleId,
+    column: u16,
+    row: u16,
+) -> Option<ToggleId> {
+    if content.width < TOGGLE_WIDTH || content.height == 0 {
+        return None;
+    }
+    for (label, id) in [
+        ("Auto case", auto_case_id),
+        ("Confirm", ToggleId::PropConfirm),
+    ] {
+        if let Some(offset) = label_offset(item, content.width, label) {
+            let toggle = toggle_rect(Rect {
+                x: content.x,
+                y: content.y.saturating_add(offset),
+                width: content.width,
+                height: 1,
+            });
+            if toggle_contains(toggle, column, row) {
+                return Some(id);
+            }
+        }
+    }
+    None
 }
 
 /// Hit-test an explicit properties content rect, shared with the
@@ -463,7 +580,7 @@ fn label_offset(item: &LibraryTrigger, width: u16, label: &str) -> Option<u16> {
 }
 
 /// Position of the Alias row within `info_rows`, if present.
-fn alias_position(rows: &[(&str, String)]) -> Option<u16> {
+fn alias_position(rows: &[(&str, PropertyValue)]) -> Option<u16> {
     rows.iter()
         .position(|(label, _)| *label == "Alias")
         .map(|position| position as u16)
@@ -572,11 +689,15 @@ fn render_alias_block(
 
 /// Pane rows: base properties plus the raw usage history (totals only,
 /// no computed savings). The usage section folds behind a toggle.
-pub(crate) fn info_rows(item: &LibraryTrigger) -> Vec<(&'static str, String)> {
+pub(crate) fn info_rows(item: &LibraryTrigger) -> Vec<(&'static str, PropertyValue)> {
     use crate::widgets::library::detail::property_rows;
 
     let mut rows = property_rows(item);
-    rows.extend(usage_rows(item));
+    rows.extend(
+        usage_rows(item)
+            .into_iter()
+            .map(|(label, value)| (label, PropertyValue::Text(value))),
+    );
     rows
 }
 

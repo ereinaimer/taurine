@@ -1,9 +1,9 @@
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
 };
@@ -14,7 +14,10 @@ use crate::widgets::library::icons::{CHEVRON_DOWN, CHEVRON_UP, os_icon};
 use crate::widgets::library::state::{
     EditTarget, HeaderMenuKind, LibraryModal, LibraryPageState, LibraryTrigger,
 };
+use crate::widgets::toggle::{ToggleAnimations, ToggleId, toggle_contains, toggle_rect};
 use crate::widgets::util;
+
+pub(crate) use crate::widgets::toggle::toggle_spans;
 
 use super::highlight;
 use super::split_panes;
@@ -23,87 +26,6 @@ pub(crate) const CONTENT_INNER_HEIGHT: usize = 16;
 /// Empty-state token: three ROUNDED-border horizontals, matching the pane
 /// border glyph set.
 pub(crate) const EMPTY_TOKEN: &str = "───";
-// honey: fixed 5-cell graphic switch; a 3-cell track and 2-cell knob
-// keep the pill rectangular against the terminal's tall cells.
-pub(crate) const TOGGLE_WIDTH: u16 = 5;
-const TOGGLE_ENABLED_TRACK: Color = Color::Rgb(27, 56, 36);
-const TOGGLE_ENABLED_KNOB: Color = Color::Rgb(62, 207, 102);
-const TOGGLE_DISABLED_TRACK: Color = Color::Rgb(36, 36, 40);
-const TOGGLE_DISABLED_KNOB: Color = Color::Rgb(128, 128, 136);
-
-/// Full-cell background fills keep the switch at text height.
-fn toggle_cell(color: Color) -> Span<'static> {
-    Span::styled(" ", Style::default().bg(color))
-}
-
-fn toggle_half_cell(symbol: &'static str, knob: Color, track: Color) -> Span<'static> {
-    Span::styled(symbol, Style::default().fg(knob).bg(track))
-}
-
-fn lerp_color(from: Color, to: Color, t: f32) -> Color {
-    let (Color::Rgb(from_red, from_green, from_blue), Color::Rgb(to_red, to_green, to_blue)) =
-        (from, to)
-    else {
-        return to;
-    };
-    let t = t.clamp(0.0, 1.0);
-    let mix =
-        |from: u8, to: u8| (f32::from(from) + (f32::from(to) - f32::from(from)) * t).round() as u8;
-    Color::Rgb(
-        mix(from_red, to_red),
-        mix(from_green, to_green),
-        mix(from_blue, to_blue),
-    )
-}
-
-/// Brighten a knob by roughly twelve percent when the pointer is over it.
-fn toggle_knob(color: Color, hovered: bool) -> Color {
-    if !hovered {
-        return color;
-    }
-    let Color::Rgb(red, green, blue) = color else {
-        return color;
-    };
-    let lift = |channel: u8| channel.saturating_add((u16::from(channel) * 12 / 100) as u8);
-    Color::Rgb(lift(red), lift(green), lift(blue))
-}
-
-/// Five-cell switch with a 3-cell track and 2-cell knob. Animation slides
-/// the knob across ten half-cells while lerping the track and knob colors.
-/// `anim` carries `(normalized progress, state before the click)`.
-pub(crate) fn toggle_spans(
-    item: &LibraryTrigger,
-    hovered: bool,
-    anim: Option<(f32, bool)>,
-) -> Vec<Span<'static>> {
-    let (t, target_is_on) = match anim {
-        Some((t, from_on)) => (t.clamp(0.0, 1.0), !from_on),
-        None => (1.0, item.is_enabled()),
-    };
-    let pos = if target_is_on { t } else { 1.0 - t };
-    let track = lerp_color(TOGGLE_DISABLED_TRACK, TOGGLE_ENABLED_TRACK, pos);
-    let knob = toggle_knob(
-        lerp_color(TOGGLE_DISABLED_KNOB, TOGGLE_ENABLED_KNOB, pos),
-        hovered,
-    );
-    let start_half = (pos * 6.0).round() as usize;
-    let end_half = start_half + 4;
-    (0..5)
-        .map(|cell_idx| {
-            let left = cell_idx * 2;
-            let right = left + 1;
-            let left_in_knob = left >= start_half && left < end_half;
-            let right_in_knob = right >= start_half && right < end_half;
-            match (left_in_knob, right_in_knob) {
-                (true, true) => toggle_cell(knob),
-                (false, false) => toggle_cell(track),
-                (true, false) => toggle_half_cell("▌", knob, track),
-                (false, true) => toggle_half_cell("▐", knob, track),
-            }
-        })
-        .collect()
-}
-
 /// Fixed single-row offsets above the content section.
 const DESCRIPTION_OFFSET: u16 = 2;
 const BUTTONS_OFFSET: u16 = 4;
@@ -187,14 +109,16 @@ pub(crate) fn hit_test(
     let selected = state.selected_index()?;
     let item = state.item_at_filtered(selected)?;
     if row == content.y {
-        let width = TOGGLE_WIDTH;
-        let start = content
-            .x
-            .saturating_add(content.width.saturating_sub(width));
-        if column >= start && column < start.saturating_add(width) {
+        let toggle = toggle_rect(Rect {
+            x: content.x,
+            y: content.y,
+            width: content.width,
+            height: 1,
+        });
+        if toggle_contains(toggle, column, row) {
             return Some(DetailHit::EnableToggle);
         }
-        if column >= content.x && column < start.saturating_sub(1) {
+        if column >= content.x && column < toggle.x.saturating_sub(1) {
             return Some(DetailHit::TriggerEditAt(
                 column.saturating_sub(content.x) as usize
             ));
@@ -490,6 +414,8 @@ pub(crate) fn render_detail(
     area: Rect,
     theme: &Theme,
     state: &LibraryPageState,
+    animations: &ToggleAnimations,
+    hovered: Option<ToggleId>,
 ) {
     let content = center_content(area, state.split_ratio(), state.detail_ratio());
     if content.width == 0 || content.height == 0 {
@@ -516,7 +442,7 @@ pub(crate) fn render_detail(
     };
 
     let scroll = state.detail_scroll();
-    render_header_row(frame, content, theme, state, item);
+    render_header_row(frame, content, theme, state, item, animations, hovered);
     render_description_row(frame, content, theme, state, item);
     render_buttons_row(frame, content, theme, state, item);
     if let Some(layout) = detail_layout(content.height, content.width, item, scroll) {
@@ -568,13 +494,17 @@ fn render_header_row(
     theme: &Theme,
     state: &LibraryPageState,
     item: &LibraryTrigger,
+    animations: &ToggleAnimations,
+    hovered: Option<ToggleId>,
 ) {
     let row = row_area(area, 0);
     if row.width == 0 {
         return;
     }
-    let width = TOGGLE_WIDTH;
-    let anim = state.toggle_anim_progress(Instant::now());
+    let width = toggle_rect(row).width;
+    let is_on = item.is_enabled();
+    let is_hovered = hovered == Some(ToggleId::TriggerEnabled);
+    let anim = animations.progress_now(ToggleId::TriggerEnabled);
     let available = row.width.saturating_sub(width).saturating_sub(1);
     // honey: editing shows the caret-anchored viewport with a real
     // caret, mirroring the search box; read mode shows the truncated
@@ -589,7 +519,7 @@ fn render_header_row(
             ),
             Span::raw(" ".repeat(gap as usize + 1)),
         ];
-        spans.extend(toggle_spans(item, state.toggle_hover(), anim));
+        spans.extend(toggle_spans(is_on, is_hovered, anim));
         let line = Line::from(spans);
         frame.render_widget(Paragraph::new(line), row);
         let (cx, cy) = util::caret_position(row.x, row.y, caret, available);
@@ -606,7 +536,7 @@ fn render_header_row(
         ),
         Span::raw(" ".repeat(gap as usize + 1)),
     ];
-    spans.extend(toggle_spans(item, state.toggle_hover(), anim));
+    spans.extend(toggle_spans(is_on, is_hovered, anim));
     let line = Line::from(spans);
     frame.render_widget(Paragraph::new(line), row);
 }
@@ -718,46 +648,42 @@ pub(crate) const fn dropdown_kind_for_button(index: usize) -> HeaderMenuKind {
     }
 }
 
-pub(crate) fn property_rows(item: &LibraryTrigger) -> Vec<(&'static str, String)> {
+/// One properties-pane value: a switch or ordinary right-aligned text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum PropertyValue {
+    Text(String),
+    Toggle(bool),
+}
+
+pub(crate) fn property_rows(item: &LibraryTrigger) -> Vec<(&'static str, PropertyValue)> {
     let siblings = sibling_aliases(item.aliases(), item.trigger());
     let mut rows = vec![
-        (
-            "Auto case",
-            if item.auto_case() {
-                "on".to_string()
-            } else {
-                "off".to_string()
-            },
-        ),
+        ("Auto case", PropertyValue::Toggle(item.auto_case())),
         (
             "Allow on",
-            item.only_apps().unwrap_or(EMPTY_TOKEN).to_string(),
+            PropertyValue::Text(item.only_apps().unwrap_or(EMPTY_TOKEN).to_string()),
         ),
         (
             "Block on",
-            item.except_apps().unwrap_or(EMPTY_TOKEN).to_string(),
+            PropertyValue::Text(item.except_apps().unwrap_or(EMPTY_TOKEN).to_string()),
         ),
         (
             "Alias",
-            if siblings.is_empty() {
+            PropertyValue::Text(if siblings.is_empty() {
                 EMPTY_TOKEN.to_string()
             } else {
                 siblings.join(", ")
-            },
+            }),
         ),
         (
             "Platform",
-            format!("{} {}", os_icon(&item.target_os), item.target_os),
+            PropertyValue::Text(format!("{} {}", os_icon(&item.target_os), item.target_os)),
         ),
     ];
     if item.is_voice() {
         rows.push((
             "Confirm",
-            if item.require_confirmation() {
-                "on".to_string()
-            } else {
-                "off".to_string()
-            },
+            PropertyValue::Toggle(item.require_confirmation()),
         ));
     }
     rows

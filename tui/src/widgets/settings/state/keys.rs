@@ -8,6 +8,7 @@ pub(crate) trait SettingKeyMeta {
     fn editor_kind(self) -> EditorKind;
     fn display_value(self, settings: &Settings) -> String;
     fn edit_value(self, settings: &Settings) -> String;
+    fn toggle_value(self, settings: &Settings) -> Option<bool>;
 }
 
 impl SettingKeyMeta for SettingKey {
@@ -206,6 +207,31 @@ impl SettingKeyMeta for SettingKey {
             | Self::InlineDatetimeDialect
             | Self::VoiceModel
             | Self::VoiceDictionary => EditorKind::TextInput,
+        }
+    }
+
+    fn toggle_value(self, settings: &Settings) -> Option<bool> {
+        match self {
+            Self::PauseNotificationsEnabled => Some(settings.pause_notifications_enabled),
+            Self::PauseAudioEnabled => Some(settings.pause_audio_enabled),
+            Self::StartOnBoot => Some(settings.start_on_boot),
+            Self::AutoUpdate => Some(settings.auto_update),
+            Self::InlineTabCompletionEnabled => Some(settings.inline_tab_completion_enabled),
+            Self::InlineCaseTransformEnabled => Some(settings.inline_case_transform_enabled),
+            Self::InstantExpand => Some(settings.instant_expand),
+            Self::IgnoreFullscreen => Some(settings.ignore_fullscreen),
+            Self::ScriptsEnabled => Some(settings.scripts_enabled),
+            Self::ClipboardHistoryEnabled => Some(settings.clipboard_history_enabled),
+            Self::InlineEmojiEnabled => Some(settings.inline_emoji_enabled),
+            Self::SystemTrayEnabled => Some(settings.system_tray_enabled),
+            Self::InlineDatetimeEnabled => Some(settings.inline_datetime_enabled),
+            Self::InlineCurrencyToWordsEnabled => Some(settings.inline_currency_to_words_enabled),
+            Self::InlineDictionaryEnabled => Some(settings.inline_dictionary_enabled),
+            Self::InlineAiEnabled => Some(settings.inline_ai_enabled),
+            Self::NotifyOnUpdate => Some(settings.notify_on_update),
+            Self::VoiceKeepLoaded => Some(settings.voice_keep_loaded),
+            Self::PauseMediaWhileDictating => Some(settings.pause_media_while_dictating),
+            _ => None,
         }
     }
 

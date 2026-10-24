@@ -20,6 +20,7 @@ use crate::overlay_fx::OverlayTransition;
 use crate::theme::Theme;
 use crate::widgets::library;
 use crate::widgets::settings;
+use crate::widgets::toggle::{TOGGLE_ANIM_FRAME, ToggleId};
 use crate::widgets::util;
 use crossterm::{
     cursor::Show,
@@ -34,7 +35,6 @@ use tracing::error;
 use widgets::notification;
 
 const EVENT_TICK_RATE: Duration = Duration::from_millis(250);
-const TOGGLE_ANIM_FRAME: Duration = Duration::from_millis(16);
 
 pub fn run() -> taurine_core::Result<()> {
     let mut app = App::default();
@@ -51,7 +51,7 @@ pub fn run() -> taurine_core::Result<()> {
     let mut previous_layers = overlay_fx::layers(&app);
     let mut previous_rects = Vec::new();
     loop {
-        let animating = app.library_page_mut().advance_toggle_anim(Instant::now());
+        let animating = app.advance_toggle_animations(Instant::now());
         terminal.terminal.draw(|frame| {
             let area = frame.area();
             last_area = area;
@@ -73,7 +73,13 @@ pub fn run() -> taurine_core::Result<()> {
             Event::Key(key) => {
                 let layout = terminal::mouse::frame_layout(last_area);
                 track_content_width(&mut app, terminal::mouse::library_full_area(layout.page));
+                let create_auto_case = app.library_page().create_auto_case();
                 handle_tui_key_event(&mut app, key);
+                if let Some(from_on) = create_auto_case
+                    && app.library_page().create_auto_case() == Some(!from_on)
+                {
+                    app.start_toggle_anim(ToggleId::CreateAutoCase, from_on);
+                }
             }
             Event::Mouse(mouse) => handle_tui_mouse_event(&mut app, mouse, last_area),
             Event::Tick => {
@@ -187,10 +193,24 @@ fn render_app(frame: &mut ratatui::Frame, app: &App, area: ratatui::layout::Rect
     // dividers, and toasts.
     let full = terminal::mouse::library_full_area(layout.page);
     if let Some(modal) = app.library_page().modal() {
-        library::modals::render_library_modal(frame, full, theme, modal);
+        library::modals::render_library_modal(
+            frame,
+            full,
+            theme,
+            modal,
+            app.toggle_animations(),
+            app.toggle_hover(),
+        );
     }
     if app.is_settings_overlay_open() {
-        settings::render_settings_overlay(frame, area, theme, app.settings_page());
+        settings::render_settings_overlay(
+            frame,
+            area,
+            theme,
+            app.settings_page(),
+            app.toggle_animations(),
+            app.toggle_hover(),
+        );
         if let Some(modal) = app.settings_page().modal() {
             settings::modals::render_settings_modal(frame, area, theme, modal);
         }
@@ -314,7 +334,14 @@ fn render_page_content(
 ) {
     // honey: single page now; settings lives as an overlay.
     let full = terminal::mouse::library_full_area(area);
-    library::render_library_content(frame, full, theme, app.library_page());
+    library::render_library_content(
+        frame,
+        full,
+        theme,
+        app.library_page(),
+        app.toggle_animations(),
+        app.toggle_hover(),
+    );
 }
 
 fn handle_tui_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
@@ -538,6 +565,24 @@ fn handle_tui_mouse_event(
                     .hover_app_filter_menu(full, mouse.column, mouse.row);
                 return;
             }
+            if app.is_settings_overlay_open() {
+                if app.settings_page().modal().is_some() {
+                    app.set_toggle_hover(None);
+                    return;
+                }
+                let popup = settings::overlay_popup(area, app.settings_page());
+                let content = settings::overlay_content(settings::overlay_body(popup));
+                let hovered =
+                    match settings::hit_test(content, app.settings_page(), mouse.column, mouse.row)
+                    {
+                        Some(settings::SettingsHit::Toggle(key)) => {
+                            Some(ToggleId::Setting(key.storage_key()))
+                        }
+                        _ => None,
+                    };
+                app.set_toggle_hover(hovered);
+                return;
+            }
             if matches!(
                 app.library_page().modal(),
                 Some(library::LibraryModal::Create(_))
@@ -548,9 +593,17 @@ fn handle_tui_mouse_event(
                     .hover_create_divider(full, mouse.column, mouse.row);
                 app.library_page_mut()
                     .drag_create_divider(full, mouse.column);
+                let hovered = app.library_page().modal().and_then(|modal| match modal {
+                    library::LibraryModal::Create(draft) => {
+                        library::modals::create_toggle_hit(draft, full, mouse.column, mouse.row)
+                    }
+                    _ => None,
+                });
+                app.set_toggle_hover(hovered);
                 return;
             }
             if modal_open {
+                app.set_toggle_hover(None);
                 return;
             }
             let layout = terminal::mouse::frame_layout(area);
@@ -564,8 +617,11 @@ fn handle_tui_mouse_event(
                 mouse.row,
             );
             let dragging = page.divider_drag();
-            let toggle_hover = dragging.is_none()
-                && library::detail::hit_test(
+            if dragging.is_some() {
+                drag_divider_to(app, full, mouse.column);
+                app.set_toggle_hover(None);
+            } else {
+                let header_hover = library::detail::hit_test(
                     full,
                     page.split_ratio(),
                     page.detail_ratio(),
@@ -573,12 +629,20 @@ fn handle_tui_mouse_event(
                     mouse.column,
                     mouse.row,
                 ) == Some(library::detail::DetailHit::EnableToggle);
-            if dragging.is_some() {
-                drag_divider_to(app, full, mouse.column);
-                app.library_page_mut().set_toggle_hover(false);
-            } else {
+                let props_hover = library::props::toggle_hit_test(
+                    full,
+                    page.split_ratio(),
+                    page.detail_ratio(),
+                    page,
+                    mouse.column,
+                    mouse.row,
+                );
                 app.library_page_mut().set_divider_hover(hover);
-                app.library_page_mut().set_toggle_hover(toggle_hover);
+                app.set_toggle_hover(if header_hover {
+                    Some(ToggleId::TriggerEnabled)
+                } else {
+                    props_hover
+                });
             }
         }
         MouseEventKind::Drag(MouseButton::Left) => {
@@ -688,8 +752,16 @@ fn handle_tui_mouse_event(
                 if let Some(library::LibraryModal::Create(draft)) = app.library_page().modal() {
                     match library::modals::create_option_hit(draft, full, mouse.column, mouse.row) {
                         Some(library::modals::CreateHit::Field(field)) => {
+                            let from_on = (field == library::LibraryCreateModalField::AutoCase)
+                                .then(|| app.library_page().create_auto_case())
+                                .flatten();
                             let interaction = app.library_page_mut().click_create_field(field);
                             apply_library_interaction(app, interaction);
+                            if let Some(from_on) = from_on
+                                && app.library_page().create_auto_case() == Some(!from_on)
+                            {
+                                app.start_toggle_anim(ToggleId::CreateAutoCase, from_on);
+                            }
                         }
                         None => {}
                     }
@@ -742,7 +814,7 @@ fn handle_tui_mouse_event(
                 }
                 let content = settings::overlay_content(settings::overlay_body(popup));
                 match settings::hit_test(content, app.settings_page(), mouse.column, mouse.row) {
-                    Some(settings::SettingsHit::Row(key)) => {
+                    Some(settings::SettingsHit::Row(key) | settings::SettingsHit::Toggle(key)) => {
                         let anchor = settings::visible_window_start(content, app.settings_page());
                         let interaction = app.settings_page_mut().click_setting(key, anchor);
                         apply_settings_interaction(app, interaction);
@@ -858,7 +930,7 @@ fn handle_tui_mouse_event(
                             if let Some(from_on) = from_on
                                 && app.library_page().selected_enabled() == Some(!from_on)
                             {
-                                app.library_page_mut().start_toggle_anim(from_on);
+                                app.start_toggle_anim(ToggleId::TriggerEnabled, from_on);
                             }
                         }
                         None => {}
@@ -876,18 +948,31 @@ fn handle_tui_mouse_event(
                         Some(library::props::PropsHit::AutoCase) => {
                             let flush = app.library_page_mut().commit_edit();
                             apply_library_interaction(app, flush);
+                            let from_on = app.library_page().selected_auto_case();
                             let interaction = app.library_page_mut().toggle_selected_auto_case();
                             apply_library_interaction(app, interaction);
+                            if let Some(from_on) = from_on
+                                && app.library_page().selected_auto_case() == Some(!from_on)
+                            {
+                                app.start_toggle_anim(ToggleId::PropAutoCase, from_on);
+                            }
                         }
                         // honey: confirmation flips the same way,
                         // scoped to the selected voice alias row.
                         Some(library::props::PropsHit::Confirm) => {
                             let flush = app.library_page_mut().commit_edit();
                             apply_library_interaction(app, flush);
+                            let from_on = app.library_page().selected_require_confirmation();
                             let interaction = app
                                 .library_page_mut()
                                 .toggle_selected_require_confirmation();
                             apply_library_interaction(app, interaction);
+                            if let Some(from_on) = from_on
+                                && app.library_page().selected_require_confirmation()
+                                    == Some(!from_on)
+                            {
+                                app.start_toggle_anim(ToggleId::PropConfirm, from_on);
+                            }
                         }
                         Some(library::props::PropsHit::Platform) => {
                             let flush = app.library_page_mut().commit_edit();
@@ -933,8 +1018,17 @@ fn apply_settings_interaction(app: &mut App, interaction: settings::SettingsInte
     }
 
     if let Some(pending_reset) = interaction.pending_reset() {
+        let key = pending_reset.key;
+        let from_on = app.settings_page().setting_toggle_value(key);
         match pending_reset.apply() {
-            Ok(()) => refresh_settings_page(app),
+            Ok(()) => {
+                refresh_settings_page(app);
+                if let Some(from_on) = from_on
+                    && app.settings_page().setting_toggle_value(key) == Some(!from_on)
+                {
+                    app.start_toggle_anim(ToggleId::Setting(key.storage_key()), from_on);
+                }
+            }
             Err(error) => app.settings_page_mut().set_save_error(error.to_string()),
         }
         return;
@@ -943,11 +1037,18 @@ fn apply_settings_interaction(app: &mut App, interaction: settings::SettingsInte
     let Some(pending_save) = interaction.pending_save() else {
         return;
     };
+    let key = pending_save.key;
+    let from_on = app.settings_page().setting_toggle_value(key);
 
     match pending_save.apply() {
         Ok(()) => {
             refresh_settings_page(app);
             apply_saved_cursor_style();
+            if let Some(from_on) = from_on
+                && app.settings_page().setting_toggle_value(key) == Some(!from_on)
+            {
+                app.start_toggle_anim(ToggleId::Setting(key.storage_key()), from_on);
+            }
         }
         Err(error) => app.settings_page_mut().set_save_error(error.to_string()),
     }
@@ -1882,20 +1983,25 @@ mod tests {
         let page = app.library_page();
         let content =
             library::detail::center_content(full, page.split_ratio(), page.detail_ratio());
-        let x = content
-            .x
-            .saturating_add(content.width.saturating_sub(library::detail::TOGGLE_WIDTH));
+        let x = content.x.saturating_add(
+            content
+                .width
+                .saturating_sub(crate::widgets::toggle::TOGGLE_WIDTH),
+        );
         let y = content.y;
 
         handle_tui_mouse_event(&mut app, mouse_at(x, y, MouseEventKind::Moved), TEST_AREA);
-        assert!(app.library_page().toggle_hover());
+        assert_eq!(
+            app.toggle_hover(),
+            Some(crate::widgets::toggle::ToggleId::TriggerEnabled)
+        );
 
         handle_tui_mouse_event(
             &mut app,
             mouse_at(content.x, y, MouseEventKind::Moved),
             TEST_AREA,
         );
-        assert!(!app.library_page().toggle_hover());
+        assert_eq!(app.toggle_hover(), None);
     }
 
     #[test]

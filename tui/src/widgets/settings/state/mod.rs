@@ -43,6 +43,10 @@ impl SettingsPageState {
         &self.settings
     }
 
+    pub(crate) fn setting_toggle_value(&self, key: SettingKey) -> Option<bool> {
+        key.toggle_value(&self.settings)
+    }
+
     pub(crate) const fn selected_index(&self) -> usize {
         self.selected
     }
@@ -89,24 +93,24 @@ impl SettingsPageState {
         self.search.place(cursor);
     }
 
-    /// Click parity with Enter: first click selects the row, clicking the
-    /// selected row toggles booleans or opens the editor. Selecting records
-    /// the click-time window start so the list does not jump.
+    /// Clicking a boolean row or its switch flips immediately; other
+    /// rows select first and open their editor on the next click. The
+    /// click-time window start keeps the list from jumping.
     pub(crate) fn click_setting(&mut self, key: SettingKey, anchor: usize) -> SettingsInteraction {
         let position = self
             .visible_keys()
             .iter()
             .position(|k| *k == key)
             .unwrap_or(self.selected);
-        if self.selected_key() == key {
-            if key.editor_kind() == EditorKind::Toggle {
-                return self.toggle_selected_setting();
-            }
-            self.open_editor_for_selected();
-            return SettingsInteraction::handled();
-        }
+        let was_selected = self.selected_key() == key;
         self.selected = position;
         self.window_anchor = Some(anchor);
+        if key.editor_kind() == EditorKind::Toggle {
+            return self.toggle_selected_setting();
+        }
+        if was_selected {
+            self.open_editor_for_selected();
+        }
         SettingsInteraction::handled()
     }
 
@@ -259,45 +263,10 @@ impl SettingsPageState {
 
     fn toggle_selected_setting(&mut self) -> SettingsInteraction {
         let key = self.selected_key();
-        let next_value = match key {
-            SettingKey::PauseNotificationsEnabled => {
-                (!self.settings.pause_notifications_enabled).to_string()
-            }
-            SettingKey::PauseAudioEnabled => (!self.settings.pause_audio_enabled).to_string(),
-            SettingKey::StartOnBoot => (!self.settings.start_on_boot).to_string(),
-            SettingKey::AutoUpdate => (!self.settings.auto_update).to_string(),
-            SettingKey::NotifyOnUpdate => (!self.settings.notify_on_update).to_string(),
-            SettingKey::InlineTabCompletionEnabled => {
-                (!self.settings.inline_tab_completion_enabled).to_string()
-            }
-            SettingKey::InlineCaseTransformEnabled => {
-                (!self.settings.inline_case_transform_enabled).to_string()
-            }
-            SettingKey::InstantExpand => (!self.settings.instant_expand).to_string(),
-            SettingKey::IgnoreFullscreen => (!self.settings.ignore_fullscreen).to_string(),
-            SettingKey::ScriptsEnabled => (!self.settings.scripts_enabled).to_string(),
-            SettingKey::ClipboardHistoryEnabled => {
-                (!self.settings.clipboard_history_enabled).to_string()
-            }
-            SettingKey::InlineEmojiEnabled => (!self.settings.inline_emoji_enabled).to_string(),
-            SettingKey::SystemTrayEnabled => (!self.settings.system_tray_enabled).to_string(),
-            SettingKey::InlineDatetimeEnabled => {
-                (!self.settings.inline_datetime_enabled).to_string()
-            }
-            SettingKey::InlineCurrencyToWordsEnabled => {
-                (!self.settings.inline_currency_to_words_enabled).to_string()
-            }
-            SettingKey::InlineDictionaryEnabled => {
-                (!self.settings.inline_dictionary_enabled).to_string()
-            }
-            SettingKey::VoiceKeepLoaded => (!self.settings.voice_keep_loaded).to_string(),
-            SettingKey::PauseMediaWhileDictating => {
-                (!self.settings.pause_media_while_dictating).to_string()
-            }
-            _ => return SettingsInteraction::handled(),
+        let Some(value) = key.toggle_value(&self.settings) else {
+            return SettingsInteraction::handled();
         };
-
-        SettingsInteraction::save(key, Some(next_value))
+        SettingsInteraction::save(key, Some((!value).to_string()))
     }
 
     fn open_editor_for_selected(&mut self) {
@@ -772,7 +741,20 @@ mod tests {
     }
 
     #[test]
-    fn test_click_selects_then_toggles() {
+    fn every_toggle_editor_has_a_boolean_value() {
+        let settings = Settings::default();
+        for key in SettingKey::ALL {
+            assert_eq!(
+                key.editor_kind() == EditorKind::Toggle,
+                key.toggle_value(&settings).is_some(),
+                "{}",
+                key.display_name()
+            );
+        }
+    }
+
+    #[test]
+    fn test_click_toggles_boolean_immediately() {
         let mut state = SettingsPageState::default();
         let idx = state
             .visible_keys()
@@ -781,11 +763,14 @@ mod tests {
             .expect("VoiceKeepLoaded should be visible");
 
         let interaction = state.click_setting(SettingKey::VoiceKeepLoaded, 0);
-        assert!(interaction.pending_save().is_none());
+        let pending = interaction.pending_save().expect("first click toggles");
+        assert_eq!(pending.key, SettingKey::VoiceKeepLoaded);
         assert_eq!(state.selected_index(), idx);
 
         let interaction = state.click_setting(SettingKey::VoiceKeepLoaded, 0);
-        let pending = interaction.pending_save().expect("second click toggles");
+        let pending = interaction
+            .pending_save()
+            .expect("second click toggles back");
         assert_eq!(pending.key, SettingKey::VoiceKeepLoaded);
     }
 

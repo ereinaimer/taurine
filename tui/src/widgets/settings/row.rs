@@ -6,19 +6,50 @@ use ratatui::{
 };
 
 use crate::theme::Theme;
-use crate::widgets::settings::state::SettingKeyMeta;
+use crate::widgets::settings::state::{EditorKind, SettingKey, SettingKeyMeta};
+use crate::widgets::toggle::{ToggleAnimations, ToggleId, render_toggle, toggle_rect};
 use crate::widgets::util;
+
+fn setting_content(area: Rect) -> Rect {
+    Rect {
+        x: area.x.saturating_add(1),
+        y: area.y.saturating_add(1),
+        width: area.width.saturating_sub(2),
+        height: area.height.saturating_sub(2),
+    }
+}
+
+/// Right-aligned switch cell for a boolean row, shared by rendering
+/// and hover hit-testing.
+pub(crate) fn setting_toggle_rect(area: Rect, control_width: u16) -> Rect {
+    let content = setting_content(area);
+    if content.width == 0 || content.height == 0 {
+        return Rect::default();
+    }
+    let sections = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Min(0), Constraint::Length(control_width)])
+        .split(content);
+    toggle_rect(Rect {
+        x: sections[1].x,
+        y: content.y,
+        width: sections[1].width,
+        height: 1,
+    })
+}
 
 #[allow(clippy::too_many_arguments)]
 pub fn render_setting_row(
     frame: &mut Frame,
     area: Rect,
-    key: &crate::widgets::settings::state::SettingKey,
+    key: &SettingKey,
     settings: &taurine_core::settings::Settings,
     selected: bool,
     control_width: u16,
     description_lines: &[String],
     theme: &Theme,
+    animations: &ToggleAnimations,
+    hovered: Option<ToggleId>,
 ) {
     let row_style = if selected {
         Style::default().bg(theme.surface)
@@ -27,12 +58,7 @@ pub fn render_setting_row(
     };
     frame.render_widget(Block::default().style(row_style), area);
 
-    let content = Rect {
-        x: area.x.saturating_add(1),
-        y: area.y.saturating_add(1),
-        width: area.width.saturating_sub(2),
-        height: area.height.saturating_sub(2),
-    };
+    let content = setting_content(area);
     if content.width == 0 || content.height == 0 {
         return;
     }
@@ -69,24 +95,39 @@ pub fn render_setting_row(
         Paragraph::new(key.display_name()).style(label_style),
         title_area,
     );
-    let value_area = Rect {
-        x: sections[1].x,
-        y: content.y,
-        width: sections[1].width,
-        height: 1,
-    };
-    frame.render_widget(
-        Paragraph::new(format!(
-            "[ {} ]",
-            util::truncate_to_width(
-                &key.display_value(settings),
-                control_width.saturating_sub(4)
-            )
-        ))
-        .alignment(Alignment::Right)
-        .style(value_style),
-        value_area,
-    );
+    if key.editor_kind() == EditorKind::Toggle
+        && let Some(is_on) = key.toggle_value(settings)
+    {
+        let toggle = setting_toggle_rect(area, control_width);
+        let id = ToggleId::Setting(key.storage_key());
+        render_toggle(
+            frame.buffer_mut(),
+            toggle.x,
+            toggle.y,
+            is_on,
+            hovered == Some(id),
+            animations.progress_now(id),
+        );
+    } else {
+        let value_area = Rect {
+            x: sections[1].x,
+            y: content.y,
+            width: sections[1].width,
+            height: 1,
+        };
+        frame.render_widget(
+            Paragraph::new(format!(
+                "[ {} ]",
+                util::truncate_to_width(
+                    &key.display_value(settings),
+                    control_width.saturating_sub(4)
+                )
+            ))
+            .alignment(Alignment::Right)
+            .style(value_style),
+            value_area,
+        );
+    }
 
     let description_style = Style::default().fg(theme.description);
     for (index, line) in description_lines
@@ -203,5 +244,49 @@ mod tests {
     #[test]
     fn zero_width_still_returns_one_line() {
         assert_eq!(wrap_description_lines("anything", 0), vec![""]);
+    }
+
+    #[test]
+    fn switch_sits_at_the_right_content_edge() {
+        let area = Rect::new(10, 20, 60, 8);
+        let content = setting_content(area);
+        let toggle = setting_toggle_rect(area, 20);
+        assert_eq!(toggle.width, 5);
+        assert_eq!(toggle.right(), content.right());
+        assert_eq!(toggle.y, content.y);
+    }
+
+    #[test]
+    fn boolean_row_renders_the_switch_cells() {
+        use ratatui::{Terminal, backend::TestBackend};
+
+        let area = Rect::new(0, 0, 60, 8);
+        let settings = taurine_core::settings::Settings::default();
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal
+            .draw(|frame| {
+                render_setting_row(
+                    frame,
+                    area,
+                    &SettingKey::StartOnBoot,
+                    &settings,
+                    false,
+                    20,
+                    &[],
+                    &crate::theme::default::DARK_THEME,
+                    &ToggleAnimations::default(),
+                    None,
+                );
+            })
+            .expect("test draw");
+
+        let toggle = setting_toggle_rect(area, 20);
+        let buffer = terminal.backend().buffer();
+        for offset in 0..toggle.width {
+            let cell = &buffer[(toggle.x + offset, toggle.y)];
+            assert_eq!(cell.symbol(), " ");
+            assert_ne!(cell.bg, ratatui::style::Color::Reset);
+        }
     }
 }

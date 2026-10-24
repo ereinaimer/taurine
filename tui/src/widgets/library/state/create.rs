@@ -201,7 +201,6 @@ impl LibraryCreateModalState {
         &self.target_os
     }
 
-    #[cfg(test)]
     pub(crate) const fn auto_case(&self) -> bool {
         self.auto_case
     }

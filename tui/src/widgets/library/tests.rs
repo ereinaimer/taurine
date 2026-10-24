@@ -3,6 +3,10 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::path::PathBuf;
 use taurine_core::db::crud::{InvocationType, TriggerAliasRow, TriggerListItem, TriggerType};
 
+fn toggle_frame(progress: f32, from_on: bool) -> crate::widgets::toggle::ToggleFrame {
+    crate::widgets::toggle::ToggleFrame { progress, from_on }
+}
+
 fn invocation_for(trigger_type: TriggerType) -> InvocationType {
     match trigger_type {
         TriggerType::Word => InvocationType::Word,
@@ -1229,18 +1233,7 @@ fn header_hit_region_for_toggle() {
 fn toggle_cells_reflect_enable_state() {
     use ratatui::style::Color;
 
-    let enabled = LibraryTrigger::single(list_item(
-        "id-on",
-        None,
-        TriggerType::Word,
-        "on",
-        "output",
-        "text",
-        "all",
-        0,
-        None,
-    ));
-    let spans = detail::toggle_spans(&enabled, false, None);
+    let spans = detail::toggle_spans(true, false, None);
     let text: String = spans.iter().map(|span| span.content.as_ref()).collect();
     assert_eq!(text, "     ");
     assert_eq!(spans.len(), 5);
@@ -1253,7 +1246,7 @@ fn toggle_cells_reflect_enable_state() {
         assert_eq!(span.style.bg, Some(Color::Rgb(62, 207, 102)));
     }
 
-    let hovered = detail::toggle_spans(&enabled, true, None);
+    let hovered = detail::toggle_spans(true, true, None);
     for span in &hovered[..3] {
         assert_eq!(span.style.bg, Some(Color::Rgb(27, 56, 36)));
     }
@@ -1261,20 +1254,7 @@ fn toggle_cells_reflect_enable_state() {
         assert_eq!(span.style.bg, Some(Color::Rgb(69, 231, 114)));
     }
 
-    let mut raw = list_item(
-        "id-off",
-        None,
-        TriggerType::Word,
-        "off",
-        "output",
-        "text",
-        "all",
-        0,
-        None,
-    );
-    raw.is_enabled = false;
-    let disabled = LibraryTrigger::single(raw);
-    let spans = detail::toggle_spans(&disabled, false, None);
+    let spans = detail::toggle_spans(false, false, None);
     let text: String = spans.iter().map(|span| span.content.as_ref()).collect();
     assert_eq!(text, "     ");
     assert_eq!(spans.len(), 5);
@@ -1287,7 +1267,7 @@ fn toggle_cells_reflect_enable_state() {
         assert_eq!(span.style.bg, Some(Color::Rgb(36, 36, 40)));
     }
 
-    let hovered = detail::toggle_spans(&disabled, true, None);
+    let hovered = detail::toggle_spans(false, true, None);
     for span in &hovered[..2] {
         assert_eq!(span.style.bg, Some(Color::Rgb(143, 143, 152)));
     }
@@ -1300,19 +1280,7 @@ fn toggle_cells_reflect_enable_state() {
 fn toggle_animation_glides_knob_and_lerps_colors() {
     use ratatui::style::Color;
 
-    let enabled = LibraryTrigger::single(list_item(
-        "id-on",
-        None,
-        TriggerType::Word,
-        "on",
-        "output",
-        "text",
-        "all",
-        0,
-        None,
-    ));
-
-    let start = detail::toggle_spans(&enabled, false, Some((0.0, false)));
+    let start = detail::toggle_spans(true, false, Some(toggle_frame(0.0, false)));
     for span in &start[..2] {
         assert_eq!(span.content.as_ref(), " ");
         assert_eq!(span.style.bg, Some(Color::Rgb(128, 128, 136)));
@@ -1322,7 +1290,7 @@ fn toggle_animation_glides_knob_and_lerps_colors() {
         assert_eq!(span.style.bg, Some(Color::Rgb(36, 36, 40)));
     }
 
-    let mid = detail::toggle_spans(&enabled, false, Some((0.5, false)));
+    let mid = detail::toggle_spans(true, false, Some(toggle_frame(0.5, false)));
     let track = Some(Color::Rgb(32, 46, 38));
     let knob = Some(Color::Rgb(95, 168, 119));
     assert_eq!(mid[0].content.as_ref(), " ");
@@ -1338,7 +1306,7 @@ fn toggle_animation_glides_knob_and_lerps_colors() {
     assert_eq!(mid[4].content.as_ref(), " ");
     assert_eq!(mid[4].style.bg, track);
 
-    let end = detail::toggle_spans(&enabled, false, Some((1.0, false)));
+    let end = detail::toggle_spans(true, false, Some(toggle_frame(1.0, false)));
     for span in &end[..3] {
         assert_eq!(span.style.bg, Some(Color::Rgb(27, 56, 36)));
     }
@@ -1346,7 +1314,7 @@ fn toggle_animation_glides_knob_and_lerps_colors() {
         assert_eq!(span.style.bg, Some(Color::Rgb(62, 207, 102)));
     }
 
-    let reverse_start = detail::toggle_spans(&enabled, false, Some((0.0, true)));
+    let reverse_start = detail::toggle_spans(false, false, Some(toggle_frame(0.0, true)));
     for span in &reverse_start[..3] {
         assert_eq!(span.style.bg, Some(Color::Rgb(27, 56, 36)));
     }
@@ -1359,20 +1327,27 @@ fn toggle_animation_glides_knob_and_lerps_colors() {
 fn toggle_animation_finishes_after_its_duration() {
     use std::time::Instant;
 
-    let mut state = LibraryPageState::default();
+    use crate::widgets::toggle::{TOGGLE_ANIM_DURATION, ToggleAnimations, ToggleId};
+
+    let mut animations = ToggleAnimations::default();
     let start = Instant::now();
-    state.start_toggle_anim_at(false, start);
-    assert_eq!(state.toggle_anim_progress(start), Some((0.0, false)));
+    animations.start_at(ToggleId::TriggerEnabled, false, start);
+    assert_eq!(
+        animations.progress(ToggleId::TriggerEnabled, start),
+        Some(toggle_frame(0.0, false))
+    );
 
     let half = start + TOGGLE_ANIM_DURATION / 2;
-    let (progress, from_on) = state.toggle_anim_progress(half).expect("animating");
-    assert!((progress - 0.5).abs() < 0.01);
-    assert!(!from_on);
-    assert!(state.advance_toggle_anim(half));
+    let frame = animations
+        .progress(ToggleId::TriggerEnabled, half)
+        .expect("animating");
+    assert!((frame.progress - 0.5).abs() < 0.01);
+    assert!(!frame.from_on);
+    assert!(animations.has_active_animations(half));
 
     let end = start + TOGGLE_ANIM_DURATION;
-    assert!(!state.advance_toggle_anim(end));
-    assert!(state.toggle_anim_progress(end).is_none());
+    assert!(!animations.has_active_animations(end));
+    assert!(animations.progress(ToggleId::TriggerEnabled, end).is_none());
 }
 
 #[test]
@@ -1385,7 +1360,7 @@ fn header_toggle_renders_five_cells_and_hover_brightens_knob() {
         widgets::Block,
     };
 
-    let mut state = sample_state();
+    let state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
     let pane_bg = Color::Rgb(12, 12, 12);
     let backend = TestBackend::new(area.width, area.height);
@@ -1396,14 +1371,23 @@ fn header_toggle_renders_five_cells_and_hover_brightens_knob() {
                 Block::default().style(Style::default().bg(pane_bg)),
                 frame.area(),
             );
-            detail::render_detail(frame, frame.area(), &DARK_THEME, &state);
+            detail::render_detail(
+                frame,
+                frame.area(),
+                &DARK_THEME,
+                &state,
+                &crate::widgets::toggle::ToggleAnimations::default(),
+                None,
+            );
         })
         .expect("test draw");
 
     let content = detail::center_content(area, state.split_ratio(), state.detail_ratio());
-    let x = content
-        .x
-        .saturating_add(content.width.saturating_sub(detail::TOGGLE_WIDTH));
+    let x = content.x.saturating_add(
+        content
+            .width
+            .saturating_sub(crate::widgets::toggle::TOGGLE_WIDTH),
+    );
     let y = content.y;
     let buffer = terminal.backend().buffer();
     for offset in 0..3 {
@@ -1415,14 +1399,20 @@ fn header_toggle_renders_five_cells_and_hover_brightens_knob() {
         assert_eq!(buffer[(x + offset, y)].bg, Color::Rgb(62, 207, 102));
     }
 
-    state.set_toggle_hover(true);
     terminal
         .draw(|frame| {
             frame.render_widget(
                 Block::default().style(Style::default().bg(pane_bg)),
                 frame.area(),
             );
-            detail::render_detail(frame, frame.area(), &DARK_THEME, &state);
+            detail::render_detail(
+                frame,
+                frame.area(),
+                &DARK_THEME,
+                &state,
+                &crate::widgets::toggle::ToggleAnimations::default(),
+                Some(crate::widgets::toggle::ToggleId::TriggerEnabled),
+            );
         })
         .expect("test draw");
     let buffer = terminal.backend().buffer();
@@ -1459,14 +1449,23 @@ fn header_toggle_renders_disabled_cells() {
     let mut terminal = Terminal::new(backend).expect("test terminal");
     terminal
         .draw(|frame| {
-            detail::render_detail(frame, frame.area(), &DARK_THEME, &state);
+            detail::render_detail(
+                frame,
+                frame.area(),
+                &DARK_THEME,
+                &state,
+                &crate::widgets::toggle::ToggleAnimations::default(),
+                None,
+            );
         })
         .expect("test draw");
 
     let content = detail::center_content(area, state.split_ratio(), state.detail_ratio());
-    let x = content
-        .x
-        .saturating_add(content.width.saturating_sub(detail::TOGGLE_WIDTH));
+    let x = content.x.saturating_add(
+        content
+            .width
+            .saturating_sub(crate::widgets::toggle::TOGGLE_WIDTH),
+    );
     let y = content.y;
     let buffer = terminal.backend().buffer();
     for offset in 0..2 {
@@ -1913,6 +1912,8 @@ fn content_divider_spans_the_center_pane() {
                 frame.area(),
                 &crate::theme::default::DARK_THEME,
                 &state,
+                &crate::widgets::toggle::ToggleAnimations::default(),
+                None,
             );
         })
         .expect("test draw");
@@ -2128,10 +2129,19 @@ fn property_rows_use_border_token_for_empty_values() {
             .map(|(_, value)| value.clone())
             .expect("row present")
     };
-    assert_eq!(get("Auto case"), "off");
-    assert_eq!(get("Allow on"), detail::EMPTY_TOKEN);
-    assert_eq!(get("Block on"), detail::EMPTY_TOKEN);
-    assert_eq!(get("Alias"), detail::EMPTY_TOKEN);
+    assert_eq!(get("Auto case"), detail::PropertyValue::Toggle(false));
+    assert_eq!(
+        get("Allow on"),
+        detail::PropertyValue::Text(detail::EMPTY_TOKEN.to_string())
+    );
+    assert_eq!(
+        get("Block on"),
+        detail::PropertyValue::Text(detail::EMPTY_TOKEN.to_string())
+    );
+    assert_eq!(
+        get("Alias"),
+        detail::PropertyValue::Text(detail::EMPTY_TOKEN.to_string())
+    );
     // Usage rows live in the usage section now, not base properties.
     assert!(rows.iter().all(|(key, _)| *key != "Usage"));
     assert!(rows.iter().all(|(key, _)| *key != "Last used"));
@@ -2165,8 +2175,8 @@ fn property_rows_show_confirm_for_voice_only() {
     assert_eq!(
         rows.iter()
             .find(|(key, _)| *key == "Confirm")
-            .map(|(_, value)| value.as_str()),
-        Some("on")
+            .map(|(_, value)| value),
+        Some(&detail::PropertyValue::Toggle(true))
     );
 }
 
@@ -2741,6 +2751,8 @@ fn open_menu_flips_spawning_button_chevron() {
                     frame.area(),
                     &crate::theme::default::DARK_THEME,
                     state,
+                    &crate::widgets::toggle::ToggleAnimations::default(),
+                    None,
                 );
             })
             .expect("test draw");
@@ -2827,6 +2839,39 @@ fn auto_case_hit_targets_value_row() {
             &state,
             content.x,
             content.y.saturating_add(3)
+        ),
+        None
+    );
+}
+
+#[test]
+fn auto_case_switch_hit_sits_at_right_content_edge() {
+    use crate::widgets::toggle::ToggleId;
+
+    let state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let content = props::props_content(area, state.split_ratio(), state.detail_ratio());
+    let y = content.y.saturating_add(2);
+
+    assert_eq!(
+        props::toggle_hit_test(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            content.x + content.width - 1,
+            y
+        ),
+        Some(ToggleId::PropAutoCase)
+    );
+    assert_eq!(
+        props::toggle_hit_test(
+            area,
+            state.split_ratio(),
+            state.detail_ratio(),
+            &state,
+            content.x + content.width,
+            y
         ),
         None
     );
@@ -5012,7 +5057,14 @@ fn render_modal_buffer(modal: &LibraryModal) -> ratatui::buffer::Buffer {
     let mut terminal = Terminal::new(backend).expect("test terminal");
     terminal
         .draw(|frame| {
-            modals::render_library_modal(frame, frame.area(), &DARK_THEME, modal);
+            modals::render_library_modal(
+                frame,
+                frame.area(),
+                &DARK_THEME,
+                modal,
+                &crate::widgets::toggle::ToggleAnimations::default(),
+                None,
+            );
         })
         .expect("test draw");
     terminal.backend().buffer().clone()
@@ -5080,7 +5132,14 @@ fn create_form_renders_placeholders_and_stacked_pickers() {
         terminal
             .draw(|frame| {
                 let modal = state.modal().expect("create modal");
-                modals::render_library_modal(frame, frame.area(), &DARK_THEME, modal);
+                modals::render_library_modal(
+                    frame,
+                    frame.area(),
+                    &DARK_THEME,
+                    modal,
+                    &crate::widgets::toggle::ToggleAnimations::default(),
+                    None,
+                );
             })
             .expect("test draw");
         terminal.backend().buffer().clone()

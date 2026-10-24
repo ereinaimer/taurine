@@ -17,6 +17,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 
 use crate::theme::Theme;
+use crate::widgets::toggle::{ToggleAnimations, ToggleId};
 
 pub(crate) const DEFAULT_SPLIT_RATIO: f32 = 2.0 / 7.0;
 pub(crate) const DEFAULT_DETAIL_RATIO: f32 = 0.4;
@@ -280,6 +281,8 @@ pub fn render_library_content(
     area: Rect,
     theme: &Theme,
     state: &LibraryPageState,
+    animations: &ToggleAnimations,
+    hovered: Option<ToggleId>,
 ) {
     let content = left_content(area, state.split_ratio(), state.detail_ratio());
 
@@ -322,6 +325,6 @@ pub fn render_library_content(
         state.search_field(),
         state.is_search_active(),
     );
-    detail::render_detail(frame, area, theme, state);
-    props::render_props(frame, area, theme, state);
+    detail::render_detail(frame, area, theme, state, animations, hovered);
+    props::render_props(frame, area, theme, state, animations, hovered);
 }

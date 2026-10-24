@@ -15,6 +15,7 @@ use crate::widgets::library::state::{
     LibraryImportModalState, LibraryImportResultModalState, LibraryImportRunVariablesModalState,
     LibraryModal, LibrarySelectState, LibraryTagsModalState,
 };
+use crate::widgets::toggle::{ToggleAnimations, ToggleId};
 use crate::widgets::util::{self};
 
 const EXPORT_RESULT_MODAL_TITLE: &str = "Export complete";
@@ -24,13 +25,20 @@ const IMPORT_RUN_VARIABLES_WARNING_LINES: [&str; 3] = [
     "Continue? [y/N]",
 ];
 
-pub fn render_library_modal(frame: &mut Frame, area: Rect, theme: &Theme, modal: &LibraryModal) {
+pub fn render_library_modal(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    modal: &LibraryModal,
+    animations: &ToggleAnimations,
+    hovered: Option<ToggleId>,
+) {
     // honey: pickers opened from the create form keep it painted
     // underneath; drawing the picker last puts it on top.
     if let LibraryModal::HeaderMenu(menu) = modal
         && let Some(draft) = menu.return_to_create()
     {
-        render_library_create_modal(frame, area, theme, draft);
+        render_library_create_modal(frame, area, theme, draft, animations, hovered);
         // honey: the picker is the top layer; dim the form behind it so
         // it reads like every other overlay instead of blending into it.
         crate::overlay_fx::dim_rect(
@@ -54,7 +62,9 @@ pub fn render_library_modal(frame: &mut Frame, area: Rect, theme: &Theme, modal:
         LibraryModal::ConfirmDelete(state) => {
             render_library_delete_modal(frame, area, theme, state)
         }
-        LibraryModal::Create(state) => render_library_create_modal(frame, area, theme, state),
+        LibraryModal::Create(state) => {
+            render_library_create_modal(frame, area, theme, state, animations, hovered)
+        }
         LibraryModal::HeaderMenu(state) => {
             render_library_header_menu_modal(frame, area, theme, state)
         }
@@ -517,6 +527,36 @@ pub(crate) fn create_option_hit(
     None
 }
 
+/// Hover hit-test for the create form's auto-case switch. Clicks use
+/// `create_option_hit`; this only drives the knob highlight.
+pub(crate) fn create_toggle_hit(
+    draft: &LibraryCreateModalState,
+    area: Rect,
+    column: u16,
+    row: u16,
+) -> Option<ToggleId> {
+    let popup = create_popup(area);
+    if !crate::terminal::mouse::contains(popup, column, row) {
+        return None;
+    }
+    let body = util::overlay_body(popup);
+    if body.width == 0 || body.height == 0 {
+        return None;
+    }
+    let (_, _, right) = create_split(body, draft.split());
+    if column < right.x || column >= right.x.saturating_add(right.width) {
+        return None;
+    }
+    let item = draft.props_item();
+    super::props::toggle_hit_test_content(
+        create_props_content(right),
+        &item,
+        ToggleId::CreateAutoCase,
+        column,
+        row,
+    )
+}
+
 /// One pill row under the trigger, matching the saved-trigger header.
 /// The focused pill is bold; clicking either opens its picker.
 fn render_create_pill_row(
@@ -605,6 +645,8 @@ fn render_library_create_modal(
     area: Rect,
     theme: &Theme,
     state: &LibraryCreateModalState,
+    animations: &ToggleAnimations,
+    hovered: Option<ToggleId>,
 ) {
     let is_script = !state.is_text_action();
     let chrome = util::OverlayChrome::new(create_popup(area));
@@ -673,6 +715,9 @@ fn render_library_create_modal(
             &item,
             None,
             create_props_focus(focused),
+            animations,
+            hovered,
+            ToggleId::CreateAutoCase,
         );
     }
 

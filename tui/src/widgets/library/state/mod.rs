@@ -19,7 +19,6 @@ pub(crate) use tags::*;
 pub(crate) use trigger::*;
 
 use std::path::Path;
-use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -126,9 +125,6 @@ pub(crate) struct LibraryPageState {
     detail_ratio: f32,
     divider_hover: Option<super::DividerSide>,
     divider_drag: Option<super::DividerSide>,
-    toggle_hover: bool,
-    toggle_anim_start: Option<Instant>,
-    toggle_anim_from_on: bool,
     detail_scroll: usize,
     usage_expanded: bool,
     edit: Option<ActiveEdit>,
@@ -143,9 +139,6 @@ pub(crate) const DIVIDER_DOUBLE_CLICK_MS: u64 = 300;
 
 /// Millis after the last keystroke before an open edit autosaves.
 pub(crate) const AUTOSAVE_DELAY_MS: u64 = 1000;
-
-/// Duration of the enable-switch slide and color lerp.
-pub(crate) const TOGGLE_ANIM_DURATION: Duration = Duration::from_millis(90);
 
 pub(crate) fn now_millis() -> u64 {
     std::time::SystemTime::now()
@@ -170,9 +163,6 @@ impl Default for LibraryPageState {
             detail_ratio: super::DEFAULT_DETAIL_RATIO,
             divider_hover: None,
             divider_drag: None,
-            toggle_hover: false,
-            toggle_anim_start: None,
-            toggle_anim_from_on: false,
             detail_scroll: 0,
             usage_expanded: false,
             edit: None,
@@ -271,44 +261,6 @@ impl LibraryPageState {
 
     pub(crate) fn set_divider_hover(&mut self, hover: Option<super::DividerSide>) {
         self.divider_hover = hover;
-    }
-
-    pub(crate) const fn toggle_hover(&self) -> bool {
-        self.toggle_hover
-    }
-
-    pub(crate) fn set_toggle_hover(&mut self, hover: bool) {
-        self.toggle_hover = hover;
-    }
-
-    pub(crate) fn start_toggle_anim(&mut self, from_on: bool) {
-        self.start_toggle_anim_at(from_on, Instant::now());
-    }
-
-    pub(crate) fn start_toggle_anim_at(&mut self, from_on: bool, now: Instant) {
-        self.toggle_anim_start = Some(now);
-        self.toggle_anim_from_on = from_on;
-    }
-
-    /// Returns true while the toggle animation is still running.
-    pub(crate) fn advance_toggle_anim(&mut self, now: Instant) -> bool {
-        let Some(start) = self.toggle_anim_start else {
-            return false;
-        };
-        if now.saturating_duration_since(start) >= TOGGLE_ANIM_DURATION {
-            self.toggle_anim_start = None;
-            return false;
-        }
-        true
-    }
-
-    /// Normalized animation progress plus the pre-click state.
-    pub(crate) fn toggle_anim_progress(&self, now: Instant) -> Option<(f32, bool)> {
-        let start = self.toggle_anim_start?;
-        let progress = (now.saturating_duration_since(start).as_secs_f32()
-            / TOGGLE_ANIM_DURATION.as_secs_f32())
-        .clamp(0.0, 1.0);
-        Some((progress, self.toggle_anim_from_on))
     }
 
     pub(crate) const fn divider_drag(&self) -> Option<super::DividerSide> {
@@ -1304,6 +1256,24 @@ impl LibraryPageState {
 
     pub(crate) fn selected_enabled(&self) -> Option<bool> {
         self.selected_item().map(LibraryTrigger::is_enabled)
+    }
+
+    pub(crate) fn selected_auto_case(&self) -> Option<bool> {
+        self.selected_item().map(LibraryTrigger::auto_case)
+    }
+
+    pub(crate) fn selected_require_confirmation(&self) -> Option<bool> {
+        self.selected_item()
+            .map(LibraryTrigger::require_confirmation)
+    }
+
+    /// Auto-case value while the create form is open, used to animate
+    /// draft switches from the shared event loop.
+    pub(crate) fn create_auto_case(&self) -> Option<bool> {
+        match self.modal() {
+            Some(LibraryModal::Create(draft)) => Some(draft.auto_case()),
+            _ => None,
+        }
     }
 
     /// Visible window preferring a click-time anchor so a clicked row stays

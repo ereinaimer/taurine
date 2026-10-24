@@ -12,12 +12,16 @@ use ratatui::{
 
 use crate::terminal::mouse;
 use crate::theme::Theme;
-use crate::widgets::settings::row::{render_setting_row, wrap_description_lines};
-use crate::widgets::settings::state::{SettingKeyMeta, SettingsPageState};
+use crate::widgets::settings::row::{
+    render_setting_row, setting_toggle_rect, wrap_description_lines,
+};
+use crate::widgets::settings::state::{EditorKind, SettingKeyMeta, SettingsPageState};
+use crate::widgets::toggle::{ToggleAnimations, ToggleId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SettingsHit {
     Row(SettingKey),
+    Toggle(SettingKey),
     SearchAt(usize),
 }
 
@@ -161,6 +165,21 @@ pub(crate) fn hit_test(
         }
         let height = rows.heights[rows.start + index].min(remaining);
         if row >= row_y && row < row_y.saturating_add(height) {
+            let row_area = Rect {
+                x: list_area.x,
+                y: row_y,
+                width: list_area.width,
+                height,
+            };
+            if key.editor_kind() == EditorKind::Toggle
+                && mouse::contains(
+                    setting_toggle_rect(row_area, rows.control_width),
+                    column,
+                    row,
+                )
+            {
+                return Some(SettingsHit::Toggle(*key));
+            }
             return Some(SettingsHit::Row(*key));
         }
         row_y = row_y.saturating_add(height);
@@ -235,6 +254,8 @@ pub fn render_settings_overlay(
     area: Rect,
     theme: &Theme,
     state: &SettingsPageState,
+    animations: &ToggleAnimations,
+    hovered: Option<ToggleId>,
 ) {
     let popup = overlay_popup(area, state);
     let chrome = crate::widgets::util::OverlayChrome::new(popup);
@@ -245,7 +266,7 @@ pub fn render_settings_overlay(
     if chrome.content.width == 0 || chrome.content.height == 0 {
         return;
     }
-    render_settings_content(frame, chrome.content, theme, state);
+    render_settings_content(frame, chrome.content, theme, state, animations, hovered);
 }
 
 pub fn render_settings_content(
@@ -253,6 +274,8 @@ pub fn render_settings_content(
     area: Rect,
     theme: &Theme,
     state: &SettingsPageState,
+    animations: &ToggleAnimations,
+    hovered: Option<ToggleId>,
 ) {
     if area.width == 0 || area.height == 0 {
         return;
@@ -345,6 +368,8 @@ pub fn render_settings_content(
             rows.control_width,
             &rows.descriptions[start + index],
             theme,
+            animations,
+            hovered,
         );
         row_y = row_y.saturating_add(row_area.height);
     }
@@ -473,6 +498,41 @@ mod tests {
         let heights = [4u16, 4, 4, 4, 4, 4];
         assert_eq!(window_for(&heights, 5, 12, Some(0)), (3, 6));
         assert_eq!(window_for(&heights, 5, 12, None), (3, 6));
+    }
+
+    #[test]
+    fn switch_hit_returns_toggle_on_boolean_row() {
+        let area = ratatui::layout::Rect::new(26, 2, 71, 24);
+        let state = SettingsPageState::default();
+        let (list_area, _) = content_sections(area, false);
+        let rows = compute_rows(list_area, &state);
+        let all_keys = state.visible_keys();
+        let mut row_y = rows_origin(list_area, &rows.heights, rows.start, rows.end);
+
+        for (index, key) in all_keys[rows.start..rows.end].iter().enumerate() {
+            let remaining = (list_area.y + list_area.height).saturating_sub(row_y);
+            let height = rows.heights[rows.start + index].min(remaining);
+            let row_area = Rect {
+                x: list_area.x,
+                y: row_y,
+                width: list_area.width,
+                height,
+            };
+            if key.editor_kind() == EditorKind::Toggle {
+                let toggle = setting_toggle_rect(row_area, rows.control_width);
+                assert_eq!(
+                    hit_test(area, &state, toggle.x + 2, toggle.y),
+                    Some(SettingsHit::Toggle(*key))
+                );
+                assert_eq!(
+                    hit_test(area, &state, toggle.x.saturating_sub(1), toggle.y),
+                    Some(SettingsHit::Row(*key))
+                );
+                return;
+            }
+            row_y = row_y.saturating_add(height);
+        }
+        panic!("no boolean setting row");
     }
 
     #[test]
