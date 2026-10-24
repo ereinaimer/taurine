@@ -906,12 +906,12 @@ impl LibraryPageState {
         let Some(LibraryModal::HeaderMenu(mut menu)) = self.modal.take() else {
             return LibraryInteraction::handled();
         };
-        match crate::widgets::util::overlay_option_hit_in(
-            menu.popup(area),
-            &menu.line_counts(),
-            column,
-            row,
-        ) {
+        let line_counts: Vec<u16> = menu
+            .details()
+            .iter()
+            .map(|detail| if detail.is_empty() { 1 } else { 2 })
+            .collect();
+        match crate::widgets::util::overlay_option_hit(area, &line_counts, column, row) {
             Some(index) => {
                 menu.set_selected(index);
                 self.confirm_header_menu(menu)

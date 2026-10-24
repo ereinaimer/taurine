@@ -11,5 +11,5 @@ pub fn render_library_search_bar(
     field: &TextField,
     is_active: bool,
 ) {
-    util::render_search_block(frame, area, theme, field, is_active, "Search triggers…");
+    util::render_search_block(frame, area, theme, field, is_active, "Search");
 }

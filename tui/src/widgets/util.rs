@@ -85,14 +85,13 @@ pub(crate) struct OverlayEntry {
     pub(crate) icon: String,
 }
 
-/// Label prefix: the icon followed by two spaces before the label, or
-/// three spaces when there is no icon, so text always starts inside the
-/// padding.
+/// Label prefix: the icon tucked against the label, or three spaces
+/// when there is no icon, so text always starts inside the padding.
 fn overlay_label_prefix(icon: &str) -> String {
     if icon.is_empty() {
         "   ".to_string()
     } else {
-        format!("   {icon}  ")
+        format!("   {icon} ")
     }
 }
 
@@ -106,13 +105,6 @@ pub(crate) fn overlay_popup(area: Rect) -> Rect {
 /// menu; same centering, so small popups feel like the same component.
 pub(crate) fn overlay_popup_sized(width: u16, height: u16, area: Rect) -> Rect {
     centered_rect(width, height, area)
-}
-
-/// Popup rect sized to fit `lines` content rows plus the shared chrome:
-/// header band, gap row, and bottom margin.
-pub(crate) fn overlay_popup_for_lines(area: Rect, width: u16, lines: u16) -> Rect {
-    let height = lines.saturating_add(OVERLAY_HEADER_ROWS).saturating_add(2);
-    overlay_popup_sized(width, height, area)
 }
 
 /// Content rect inside an overlay popup, shared by overlay renders
@@ -185,23 +177,21 @@ impl OverlayChrome {
     }
 }
 
-/// Option index under a cell inside an explicit popup rect. `line_counts`
-/// carries each option's rendered row height, mirroring the render path;
-/// header, gap, and popup margin cells never select. Shared by fixed menus
-/// and menus that grow to fit padded rows.
-pub(crate) fn overlay_option_hit_in(
-    popup: Rect,
+/// Option index under the cell inside an overlay popup. `line_counts`
+/// carries each option's rendered row height (1 or 2), mirroring the
+/// render path; header, gap, and padding cells never select.
+pub(crate) fn overlay_option_hit(
+    area: Rect,
     line_counts: &[u16],
     column: u16,
     row: u16,
 ) -> Option<usize> {
-    let chrome = OverlayChrome::new(popup);
+    let chrome = OverlayChrome::new(overlay_popup(area));
     // honey: rows run full-bleed across the popup; only the header
     // band, gap, and vertical padding constrain the hit.
-    if column < popup.x
-        || column >= popup.x.saturating_add(popup.width)
+    if column < chrome.popup.x
+        || column >= chrome.popup.x.saturating_add(chrome.popup.width)
         || row < chrome.content.y
-        || row >= popup.y.saturating_add(popup.height)
     {
         return None;
     }
@@ -283,29 +273,7 @@ pub(crate) fn render_overlay_select(
     // like the same component; terminal cells run taller than wide,
     // so the width floor keeps the landscape read. Centered_rect
     // clamps to the terminal.
-    render_overlay_select_in(
-        frame,
-        overlay_popup(area),
-        theme,
-        title,
-        entries,
-        selected,
-        0,
-    );
-}
-
-/// Render an option overlay at an explicit popup rect. `item_padding`
-/// adds that many blank rows above and below each item.
-pub(crate) fn render_overlay_select_in(
-    frame: &mut Frame,
-    popup: Rect,
-    theme: &Theme,
-    title: &str,
-    entries: &[OverlayEntry],
-    selected: usize,
-    item_padding: u16,
-) {
-    let chrome = OverlayChrome::new(popup);
+    let chrome = OverlayChrome::new(overlay_popup(area));
     chrome.render(frame, theme, title);
     if chrome.body.width == 0 || chrome.body.height == 0 {
         return;
@@ -322,7 +290,27 @@ pub(crate) fn render_overlay_select_in(
 
     let items: Vec<ListItem> = entries
         .iter()
-        .map(|entry| overlay_select_item(entry, theme, item_padding))
+        .map(|entry| {
+            let prefix = overlay_label_prefix(&entry.icon);
+            if entry.detail.is_empty() {
+                ListItem::new(Line::from(format!("{prefix}{}", entry.label)))
+            } else {
+                // honey: unselected values stay regular so the bold
+                // highlight patch marks the cursor on the dark fill.
+                // Text aligns with the title padding; only the
+                // highlight band runs full-bleed.
+                ListItem::new(vec![
+                    Line::from(Span::styled(
+                        format!("{prefix}{}", entry.label),
+                        Style::default().fg(theme.text),
+                    )),
+                    Line::from(Span::styled(
+                        format!("   {}", entry.detail),
+                        Style::default().fg(theme.description),
+                    )),
+                ])
+            }
+        })
         .collect();
     let mut list_state = ListState::default();
     list_state.select(Some(selected));
@@ -335,37 +323,6 @@ pub(crate) fn render_overlay_select_in(
             .add_modifier(Modifier::BOLD),
     );
     frame.render_stateful_widget(list, list_area, &mut list_state);
-}
-
-fn overlay_select_item(
-    entry: &OverlayEntry,
-    theme: &Theme,
-    item_padding: u16,
-) -> ListItem<'static> {
-    let prefix = overlay_label_prefix(&entry.icon);
-    let mut lines = Vec::with_capacity(usize::from(item_padding) * 2 + 2);
-    for _ in 0..item_padding {
-        lines.push(Line::from(""));
-    }
-    if entry.detail.is_empty() {
-        lines.push(Line::from(format!("{prefix}{}", entry.label)));
-    } else {
-        // honey: unselected values stay regular so the bold highlight
-        // patch marks the cursor on the dark fill. Text aligns with
-        // the title padding; only the highlight band runs full-bleed.
-        lines.push(Line::from(Span::styled(
-            format!("{prefix}{}", entry.label),
-            Style::default().fg(theme.text),
-        )));
-        lines.push(Line::from(Span::styled(
-            format!("   {}", entry.detail),
-            Style::default().fg(theme.description),
-        )));
-    }
-    for _ in 0..item_padding {
-        lines.push(Line::from(""));
-    }
-    ListItem::new(lines)
 }
 
 pub(crate) fn render_action_buttons(
@@ -792,5 +749,81 @@ mod tests {
         let (visible, _) = field.window(5);
         assert!(visible.is_char_boundary(0));
         assert!(visible.is_char_boundary(visible.len()));
+    }
+
+    #[test]
+    fn search_block_shows_plain_placeholder() {
+        use ratatui::{Terminal, backend::TestBackend};
+
+        use crate::theme::default::DARK_THEME;
+
+        let area = Rect::new(0, 0, 24, 3);
+        let field = TextField::new("");
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+
+        terminal
+            .draw(|frame| {
+                super::render_search_block(frame, area, &DARK_THEME, &field, false, "Search");
+                let buffer = frame.buffer_mut();
+                let row: String = (0..area.width)
+                    .map(|x| {
+                        buffer.content[(area.width + x) as usize]
+                            .symbol()
+                            .to_string()
+                    })
+                    .collect();
+                assert_eq!(row.chars().skip(2).take(6).collect::<String>(), "Search");
+            })
+            .expect("test draw");
+    }
+
+    #[test]
+    fn search_block_places_query_at_text_start() {
+        use ratatui::{Terminal, backend::TestBackend};
+
+        use crate::theme::default::DARK_THEME;
+
+        let area = Rect::new(0, 0, 24, 3);
+        let field = TextField::new("gm");
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+
+        terminal
+            .draw(|frame| {
+                super::render_search_block(frame, area, &DARK_THEME, &field, true, "Search");
+                let buffer = frame.buffer_mut();
+                let row: String = (0..area.width)
+                    .map(|x| {
+                        buffer.content[(area.width + x) as usize]
+                            .symbol()
+                            .to_string()
+                    })
+                    .collect();
+                assert_eq!(row.chars().nth(2), Some('g'));
+                assert_eq!(row.chars().nth(3), Some('m'));
+            })
+            .expect("test draw");
+    }
+
+    #[test]
+    fn search_block_places_caret_at_text_start() {
+        use ratatui::{Terminal, backend::TestBackend};
+
+        use crate::theme::default::DARK_THEME;
+
+        let area = Rect::new(0, 0, 24, 3);
+        let field = TextField::new("");
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+
+        terminal
+            .draw(|frame| {
+                super::render_search_block(frame, area, &DARK_THEME, &field, true, "Search");
+            })
+            .expect("test draw");
+
+        let cursor = terminal.backend().cursor_position();
+        assert_eq!((cursor.x, cursor.y), (2, 1));
     }
 }

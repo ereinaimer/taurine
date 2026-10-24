@@ -320,7 +320,7 @@ pub fn render_settings_content(
         theme,
         state.search_field(),
         state.is_search_active(),
-        "Search settings…",
+        "Search",
     );
     if list_area.height == 0 {
         return;
