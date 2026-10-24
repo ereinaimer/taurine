@@ -1612,7 +1612,7 @@ mod tests {
     fn settings_overlay_hugs_rows_without_top_gap() {
         let app = App::default();
         let popup = settings::overlay_popup(TEST_AREA, app.settings_page());
-        assert_eq!(popup, ratatui::layout::Rect::new(5, 3, 90, 24));
+        assert_eq!(popup, ratatui::layout::Rect::new(5, 2, 90, 25));
         let body = settings::overlay_body(popup);
         let content = settings::overlay_content(body);
         // honey: the popup height already accounts for the window, so
@@ -1822,7 +1822,7 @@ mod tests {
         let full = terminal::mouse::library_full_area(layout.page);
         let body = library::modals::create_body(full);
         let (_, divider, _) = library::modals::create_split(body, 0.5);
-        let divider_top = body.y + library::modals::CREATE_HEADER_ROWS - 1;
+        let divider_top = body.y + crate::widgets::util::OVERLAY_HEADER_ROWS - 1;
 
         // The header band does not grab the divider, but the row directly
         // below it does.
@@ -1983,7 +1983,7 @@ mod tests {
         assert_eq!(app.library_page().delete_selected_yes(), Some(true));
 
         // No button of the overlay confirm on TEST_AREA.
-        handle_tui_mouse_event(&mut app, left_click(53, 16), TEST_AREA);
+        handle_tui_mouse_event(&mut app, left_click(53, 17), TEST_AREA);
 
         assert!(app.library_page().is_modal_open());
         assert_eq!(app.library_page().delete_selected_yes(), Some(false));
@@ -1997,7 +1997,7 @@ mod tests {
         app.library_page_mut().set_delete_selected_yes(false);
 
         // Yes button of the overlay confirm on TEST_AREA.
-        handle_tui_mouse_event(&mut app, left_click(43, 16), TEST_AREA);
+        handle_tui_mouse_event(&mut app, left_click(43, 17), TEST_AREA);
 
         assert!(app.library_page().is_modal_open());
         assert_eq!(app.library_page().delete_selected_yes(), Some(true));

@@ -13,16 +13,16 @@ pub(crate) const APP_FILTER_MAX_H: u16 = 18;
 /// Line budget for measuring content; the fitted popup converges on it.
 pub(crate) const APP_FILTER_MAX_LINES: u16 = 11;
 
-/// Reserved body lines: title, blank, gap, search.
-pub(crate) const APP_FILTER_RESERVED_LINES: u16 = 4;
+/// Reserved body lines: three header rows, search gap, search.
+pub(crate) const APP_FILTER_RESERVED_LINES: u16 = 5;
 
-/// Rows start below the title and one blank line.
-pub(crate) const APP_FILTER_ROWS_TOP: u16 = 2;
+/// Rows start below the header band and its gap row.
+pub(crate) const APP_FILTER_ROWS_TOP: u16 = 3;
 
 pub(crate) fn app_filter_popup(area: Rect, content_lines: u16) -> Rect {
-    // honey: title + blank + rows + gap + search + two margin rows;
-    // the row budget below converges on this exactly, so no dead space.
-    let height = content_lines.saturating_add(6).min(APP_FILTER_MAX_H);
+    // honey: header band + gap + rows + search gap + search + bottom
+    // margin; the row budget below converges on this exactly.
+    let height = content_lines.saturating_add(7).min(APP_FILTER_MAX_H);
     crate::widgets::util::centered_rect(APP_FILTER_POPUP_W, height, area)
 }
 

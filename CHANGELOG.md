@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **New Trigger Header**: The New Trigger overlay now separates its title from the form with a neutral grey header band and a divider that runs from the header to the bottom of the overlay.
 
 ### Changed
+- **Unified Popup Headers**: Every TUI popup now uses the New Trigger header band and spacing.
 - **Overlay Dismissal**: The New Trigger, delete, and settings overlays close from the dimmed backdrop or the Esc hint.
 - **Inline Renaming**: Click the trigger at the top of the detail pane to edit the actual trigger text in place. Enter saves, switching triggers saves automatically.
 - **Editable Description and Content**: Click the description or the snippet body to edit in place with a real caret. Long paragraphs wrap while editing exactly like they display. Tab commits content, Esc discards, leaving the trigger auto-saves.

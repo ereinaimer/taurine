@@ -641,10 +641,17 @@ impl LibraryPageState {
         let Some(LibraryModal::AppFilter(menu)) = self.modal.as_mut() else {
             return false;
         };
-        let (_, body, max_lines) = app_filter_geometry(area, menu);
+        let (popup, body, max_lines) = app_filter_geometry(area, menu);
         let (_, divider_x, _, _) = menu.panes(body.width);
-        let origin = body.y.saturating_add(APP_FILTER_ROWS_TOP);
-        let search_row = origin.saturating_add(menu.search_rel(max_lines));
+        // honey: the divider starts at the header band's bottom edge,
+        // one row above the first pickable row.
+        let origin = popup
+            .y
+            .saturating_add(crate::widgets::util::OVERLAY_HEADER_ROWS);
+        let search_row = body
+            .y
+            .saturating_add(APP_FILTER_ROWS_TOP)
+            .saturating_add(menu.search_rel(max_lines));
         if column == body.x.saturating_add(divider_x) && row >= origin && row <= search_row {
             menu.set_divider_drag(true);
             return true;
@@ -734,21 +741,22 @@ impl LibraryPageState {
         let Some(LibraryModal::Tags(mut menu)) = self.modal.take() else {
             return LibraryInteraction::handled();
         };
-        let popup = crate::widgets::util::overlay_popup(area);
-        let body = crate::widgets::util::overlay_body(popup);
+        let chrome =
+            crate::widgets::util::OverlayChrome::new(crate::widgets::util::overlay_popup(area));
+        let body = chrome.body;
         menu.set_cloud_width(body.width);
         // honey: an outside click closes by leaving the taken modal
         // dropped; picks keep the menu open across live writes. From
         // the create draft it returns there instead.
-        if !crate::terminal::mouse::contains(popup, column, row) || row < body.y.saturating_add(2) {
+        if !crate::terminal::mouse::contains(chrome.popup, column, row) || row < chrome.content.y {
             if menu.return_to_create().is_some() {
                 self.restore_create_draft_from_tags(menu);
             }
             return LibraryInteraction::handled();
         }
-        let max_rows = body.height.saturating_sub(3);
+        let max_rows = chrome.content.height.saturating_sub(1);
         let (_, add) = menu.paint_layout(body.width, max_rows);
-        let rel = row.saturating_sub(body.y.saturating_add(2));
+        let rel = row.saturating_sub(chrome.content.y);
         let x = column.saturating_sub(body.x);
         // honey: chips win over the `+` row; the trailing `+`
         // shares its row with the last chip.
@@ -801,14 +809,15 @@ impl LibraryPageState {
         let Some(LibraryModal::Tags(menu)) = self.modal.as_mut() else {
             return;
         };
-        let popup = crate::widgets::util::overlay_popup(area);
-        let body = crate::widgets::util::overlay_body(popup);
-        if !crate::terminal::mouse::contains(popup, column, row) || row < body.y.saturating_add(2) {
+        let chrome =
+            crate::widgets::util::OverlayChrome::new(crate::widgets::util::overlay_popup(area));
+        let body = chrome.body;
+        if !crate::terminal::mouse::contains(chrome.popup, column, row) || row < chrome.content.y {
             menu.set_hover(None);
             return;
         }
-        let max_rows = body.height.saturating_sub(3);
-        let rel = row.saturating_sub(body.y.saturating_add(2));
+        let max_rows = chrome.content.height.saturating_sub(1);
+        let rel = row.saturating_sub(chrome.content.y);
         let x = column.saturating_sub(body.x);
         menu.set_hover(
             menu.chip_at(body.width, max_rows, rel, x)

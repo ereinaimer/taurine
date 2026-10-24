@@ -1,9 +1,9 @@
 use ratatui::{
     Frame,
-    layout::{Alignment, Constraint, Direction, Layout, Margin, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Clear, Paragraph},
+    widgets::Paragraph,
 };
 
 use crate::theme::Theme;
@@ -24,9 +24,9 @@ pub fn render_settings_modal(frame: &mut Frame, area: Rect, theme: &Theme, modal
     }
 }
 
-/// Flat popup shell shared by the editor modals: borderless fill,
-/// title row, then one blank line. Mirrors the library overlays.
-/// Returns the content rect below the title, or None when too small.
+/// Flat popup shell shared by the editor modals: the shared header
+/// band and gap, then content. Mirrors the library overlays. Returns
+/// the content rect below the gap, or None when too small.
 fn overlay_shell(
     frame: &mut Frame,
     area: Rect,
@@ -35,25 +35,13 @@ fn overlay_shell(
     title: &str,
     theme: &Theme,
 ) -> Option<Rect> {
-    use ratatui::{style::Color::Rgb, widgets::Block};
-
     let popup = util::centered_rect(width, height, area);
-    frame.render_widget(Clear, popup);
-    frame.render_widget(
-        Block::default().style(Style::default().bg(Rgb(0x14, 0x14, 0x14))),
-        popup,
-    );
-    let body = popup.inner(Margin::new(3, 1));
-    if body.width == 0 || body.height < 2 {
+    let chrome = util::OverlayChrome::new(popup);
+    chrome.render(frame, theme, title);
+    if chrome.body.width == 0 || chrome.content.height == 0 {
         return None;
     }
-    util::render_overlay_title(frame, body, theme, title);
-    Some(Rect {
-        x: body.x,
-        y: body.y.saturating_add(2),
-        width: body.width,
-        height: body.height.saturating_sub(2),
-    })
+    Some(chrome.content)
 }
 
 /// Popup rects shared by rendering and the overlay open-transition so
@@ -64,8 +52,8 @@ pub(crate) fn input_popup(area: Rect) -> Rect {
     } else {
         area.width.max(1)
     };
-    let height = if area.height >= 8 {
-        8
+    let height = if area.height >= 9 {
+        9
     } else {
         area.height.max(1)
     };
@@ -78,8 +66,8 @@ pub(crate) fn confirm_popup(area: Rect) -> Rect {
     } else {
         area.width.max(1)
     };
-    let height = if area.height >= 8 {
-        8
+    let height = if area.height >= 9 {
+        9
     } else {
         area.height.max(1)
     };
@@ -92,7 +80,7 @@ pub(crate) fn hotkey_popup(area: Rect) -> Rect {
     } else {
         area.width.max(1)
     };
-    util::centered_rect(content_width.saturating_add(4), 5 + 4, area)
+    util::centered_rect(content_width.saturating_add(4), 5 + 5, area)
 }
 
 fn render_input_modal(frame: &mut Frame, area: Rect, theme: &Theme, state: &InputModalState) {

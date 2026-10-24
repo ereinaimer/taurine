@@ -3,7 +3,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Clear, Paragraph},
+    widgets::Paragraph,
 };
 
 use crate::theme::Theme;
@@ -70,16 +70,16 @@ pub(crate) fn delete_popup(area: Rect) -> Rect {
     util::overlay_popup_sized(56, DELETE_POPUP_HEIGHT, area)
 }
 
-/// Delete popup height: body rows are title, blank, question, trigger,
-/// blank, buttons, error, so nothing sits empty below the buttons.
-pub(crate) const DELETE_POPUP_HEIGHT: u16 = 9;
+/// Delete popup height: header band, gap, question, trigger, blank,
+/// buttons, error, so nothing sits empty below the buttons.
+pub(crate) const DELETE_POPUP_HEIGHT: u16 = 10;
 
 /// Body-row offsets inside the delete confirm, shared by rendering and
-/// hit-testing: title, blank, question, trigger, blank, then the
+/// hit-testing: header band, gap, question, trigger, blank, then the
 /// horizontal Yes/No button pair.
-pub(crate) const DELETE_QUESTION_OFFSET: u16 = 2;
-pub(crate) const DELETE_NAME_OFFSET: u16 = 3;
-pub(crate) const DELETE_BUTTONS_OFFSET: u16 = 5;
+pub(crate) const DELETE_QUESTION_OFFSET: u16 = 3;
+pub(crate) const DELETE_NAME_OFFSET: u16 = 4;
+pub(crate) const DELETE_BUTTONS_OFFSET: u16 = 6;
 
 /// Delete confirm button labels, shared by rendering and hit-testing
 /// so the pair never drifts between the two paths.
@@ -135,7 +135,7 @@ pub(crate) fn import_popup(area: Rect) -> Rect {
     } else {
         area.width.max(1)
     };
-    util::centered_rect(width, area.height.clamp(1, 11), area)
+    util::centered_rect(width, area.height.clamp(1, 12), area)
 }
 
 pub(crate) fn import_run_variables_popup(area: Rect) -> Rect {
@@ -144,7 +144,7 @@ pub(crate) fn import_run_variables_popup(area: Rect) -> Rect {
     } else {
         area.width.max(1)
     };
-    util::centered_rect(width, 9.min(area.height.max(1)), area)
+    util::centered_rect(width, 10.min(area.height.max(1)), area)
 }
 
 pub(crate) fn import_result_popup(area: Rect, state: &LibraryImportResultModalState) -> Rect {
@@ -155,7 +155,7 @@ pub(crate) fn import_result_popup(area: Rect, state: &LibraryImportResultModalSt
     };
     util::centered_rect(
         width,
-        (state.lines().len() as u16 + 4).min(area.height.max(1)),
+        (state.lines().len() as u16 + 5).min(area.height.max(1)),
         area,
     )
 }
@@ -166,7 +166,7 @@ pub(crate) fn export_result_popup(area: Rect) -> Rect {
     } else {
         area.width.max(1)
     };
-    util::centered_rect(width, 5.min(area.height.max(1)), area)
+    util::centered_rect(width, 6.min(area.height.max(1)), area)
 }
 
 fn render_library_delete_modal(
@@ -175,21 +175,12 @@ fn render_library_delete_modal(
     theme: &Theme,
     state: &LibraryDeleteModalState,
 ) {
-    use ratatui::style::Color::Rgb;
-
-    let popup = delete_popup(area);
-    frame.render_widget(Clear, popup);
-    // honey: flat borderless fill, the shared overlay language; the
-    // cursor band marks the selected option.
-    frame.render_widget(
-        Block::default().style(Style::default().bg(Rgb(0x14, 0x14, 0x14))),
-        popup,
-    );
-    let body = util::overlay_body(popup);
+    let chrome = util::OverlayChrome::new(delete_popup(area));
+    chrome.render(frame, theme, "Confirm delete");
+    let body = chrome.body;
     if body.width == 0 || body.height == 0 {
         return;
     }
-    util::render_overlay_title(frame, body, theme, "Confirm delete");
 
     let question_y = body.y.saturating_add(DELETE_QUESTION_OFFSET);
     let name_y = body.y.saturating_add(DELETE_NAME_OFFSET);
@@ -265,11 +256,6 @@ fn render_library_delete_modal(
 /// never see a real body rect.
 pub(crate) const CREATE_BODY_WIDTH: u16 = 80;
 
-/// Top popup rows covered by the create header band: top margin,
-/// title row, and the band's trailing blank row. The divider starts on
-/// the first row below the band.
-pub(crate) const CREATE_HEADER_ROWS: u16 = 3;
-
 /// Split a create body at the draft's left-pane share. Returns the
 /// left rect, the absolute divider column, and the right rect; render
 /// and hit-testing both run off this.
@@ -312,7 +298,7 @@ pub(crate) fn create_divider_hit(
 ) -> bool {
     let popup = create_popup(area);
     if !crate::terminal::mouse::contains(popup, column, row)
-        || row < popup.y.saturating_add(CREATE_HEADER_ROWS)
+        || row < popup.y.saturating_add(util::OVERLAY_HEADER_ROWS)
     {
         return false;
     }
@@ -620,33 +606,14 @@ fn render_library_create_modal(
     theme: &Theme,
     state: &LibraryCreateModalState,
 ) {
-    use ratatui::style::Color::Rgb;
-
     let is_script = !state.is_text_action();
-    let popup = create_popup(area);
-    frame.render_widget(Clear, popup);
-    // honey: flat borderless fill, the shared overlay language.
-    frame.render_widget(
-        Block::default().style(Style::default().bg(Rgb(0x14, 0x14, 0x14))),
-        popup,
-    );
-    let header_height = CREATE_HEADER_ROWS.min(popup.height);
-    if header_height > 0 {
-        frame.render_widget(
-            Block::default().style(Style::default().bg(theme.header.bg)),
-            Rect {
-                x: popup.x,
-                y: popup.y,
-                width: popup.width,
-                height: header_height,
-            },
-        );
-    }
-    let body = util::overlay_body(popup);
+    let chrome = util::OverlayChrome::new(create_popup(area));
+    chrome.render(frame, theme, "New Trigger");
+    let popup = chrome.popup;
+    let body = chrome.body;
     if body.width == 0 || body.height == 0 {
         return;
     }
-    util::render_overlay_title(frame, body, theme, "New Trigger");
     let layout = create_layout(is_script, body.height);
     let bottom = body.y.saturating_add(body.height);
     let focused = state.focus();
@@ -716,7 +683,7 @@ fn render_library_create_modal(
         && divider > body.x
         && divider < body.x.saturating_add(body.width)
     {
-        let height = popup.height.saturating_sub(CREATE_HEADER_ROWS);
+        let height = popup.height.saturating_sub(util::OVERLAY_HEADER_ROWS);
         if height > 0 {
             let color = if state.divider_drag() || state.divider_hover() {
                 super::DIVIDER_HOVER_COLOR
@@ -728,7 +695,7 @@ fn render_library_create_modal(
                 Paragraph::new(glyphs).style(Style::default().fg(color)),
                 Rect {
                     x: divider,
-                    y: popup.y.saturating_add(CREATE_HEADER_ROWS),
+                    y: popup.y.saturating_add(util::OVERLAY_HEADER_ROWS),
                     width: 1,
                     height,
                 },
@@ -820,9 +787,9 @@ fn render_library_export_modal(
     theme: &Theme,
     state: &LibraryExportModalState,
 ) {
-    let popup = export_popup(area);
-    frame.render_widget(Clear, popup);
-    let inner = util::render_modal_block(frame, popup, "Export Triggers", theme);
+    let chrome = util::OverlayChrome::new(export_popup(area));
+    chrome.render(frame, theme, "Export Triggers");
+    let inner = chrome.content;
 
     let sections = Layout::default()
         .direction(Direction::Vertical)
@@ -915,9 +882,9 @@ fn render_library_import_modal(
     theme: &Theme,
     state: &LibraryImportModalState,
 ) {
-    let popup = import_popup(area);
-    frame.render_widget(Clear, popup);
-    let inner = util::render_modal_block(frame, popup, "Import Triggers", theme);
+    let chrome = util::OverlayChrome::new(import_popup(area));
+    chrome.render(frame, theme, "Import Triggers");
+    let inner = chrome.content;
 
     let sections = Layout::default()
         .direction(Direction::Vertical)
@@ -1028,9 +995,9 @@ fn render_library_import_run_variables_modal(
     theme: &Theme,
     state: &LibraryImportRunVariablesModalState,
 ) {
-    let popup = import_run_variables_popup(area);
-    frame.render_widget(Clear, popup);
-    let inner = util::render_modal_block(frame, popup, "Run Variables Warning", theme);
+    let chrome = util::OverlayChrome::new(import_run_variables_popup(area));
+    chrome.render(frame, theme, "Run Variables Warning");
+    let inner = chrome.content;
 
     let sections = Layout::default()
         .direction(Direction::Vertical)
@@ -1078,9 +1045,9 @@ fn render_library_import_result_modal(
     theme: &Theme,
     state: &LibraryImportResultModalState,
 ) {
-    let popup = import_result_popup(area, state);
-    frame.render_widget(Clear, popup);
-    let inner = util::render_modal_block(frame, popup, "Import complete", theme);
+    let chrome = util::OverlayChrome::new(import_result_popup(area, state));
+    chrome.render(frame, theme, "Import complete");
+    let inner = chrome.content;
 
     let sections = Layout::default()
         .direction(Direction::Vertical)
@@ -1107,9 +1074,9 @@ fn render_library_export_result_modal(
     theme: &Theme,
     state: &LibraryExportResultModalState,
 ) {
-    let popup = export_result_popup(area);
-    frame.render_widget(Clear, popup);
-    let inner = util::render_modal_block(frame, popup, EXPORT_RESULT_MODAL_TITLE, theme);
+    let chrome = util::OverlayChrome::new(export_result_popup(area));
+    chrome.render(frame, theme, EXPORT_RESULT_MODAL_TITLE);
+    let inner = chrome.content;
 
     frame.render_widget(
         Paragraph::new(vec![Line::from(state.body())]).style(Style::default().fg(theme.text_muted)),
@@ -1176,20 +1143,13 @@ fn render_library_tags_modal(
     theme: &Theme,
     state: &LibraryTagsModalState,
 ) {
-    use ratatui::style::Color::Rgb;
-    use ratatui::widgets::Block;
-
-    let popup = util::overlay_popup(area);
-    frame.render_widget(Clear, popup);
-    frame.render_widget(
-        Block::default().style(Style::default().bg(Rgb(0x14, 0x14, 0x14))),
-        popup,
-    );
-    let body = util::overlay_body(popup);
+    let chrome = util::OverlayChrome::new(util::overlay_popup(area));
+    chrome.render(frame, theme, "Tags");
+    let body = chrome.body;
     if body.width == 0 || body.height == 0 {
         return;
     }
-    render_tags_chips(frame, body, theme, state);
+    render_tags_chips(frame, body, chrome.content.y, theme, state);
     // honey: no hint footer; errors alone take the bottom row so a
     // failed write stays visible inside the menu.
     if let Some(error) = state.error() {
@@ -1210,19 +1170,24 @@ fn render_library_tags_modal(
     }
 }
 
-/// Chips cloud: title row, one blank line, then wrapped `#tag`
+/// Chips cloud: shared header band and gap, then wrapped `#tag`
 /// chips in the Properties pane colors (text only, no
 /// background), the `+` button trailing the cloud (or the live
 /// `#` input while typing). Only the hovered chip swaps its `#`
 /// for the close icon, in the same cell; keyboard focus
 /// underlines instead, keeping the color.
-fn render_tags_chips(frame: &mut Frame, body: Rect, theme: &Theme, state: &LibraryTagsModalState) {
+fn render_tags_chips(
+    frame: &mut Frame,
+    body: Rect,
+    origin_y: u16,
+    theme: &Theme,
+    state: &LibraryTagsModalState,
+) {
     use crate::widgets::library::state::{TAGS_EMPTY_LINE, tag_style};
 
-    util::render_overlay_title(frame, body, theme, "Tags");
-    // honey: one blank line separates the title from the cloud.
-    let max_rows = body.height.saturating_sub(3);
-    let origin_y = body.y.saturating_add(2);
+    // honey: the shared header band and its gap sit above the cloud;
+    // the last row stays free for a failed write.
+    let max_rows = body.height.saturating_sub(4);
     if state.is_empty() && !state.input_active() {
         let empty = format!("{TAGS_EMPTY_LINE} ");
         let plus_focused = state.focus_is_add_row();
@@ -1358,19 +1323,11 @@ fn render_library_app_filter_modal(
     theme: &Theme,
     state: &LibraryAppFilterState,
 ) {
-    use ratatui::style::Color::Rgb;
-    use ratatui::widgets::Block;
-
-    use crate::widgets::library::state::{
-        APP_FILTER_PAD, APP_FILTER_ROWS_TOP, FilterRow, app_filter_geometry,
-    };
+    use crate::widgets::library::state::{APP_FILTER_PAD, FilterRow, app_filter_geometry};
 
     let (popup, body, max_lines) = app_filter_geometry(area, state);
-    frame.render_widget(Clear, popup);
-    frame.render_widget(
-        Block::default().style(Style::default().bg(Rgb(0x14, 0x14, 0x14))),
-        popup,
-    );
+    let chrome = util::OverlayChrome::with_body(popup, body);
+    chrome.paint(frame, theme);
     if body.width == 0 || body.height < 5 {
         return;
     }
@@ -1413,14 +1370,16 @@ fn render_library_app_filter_modal(
             height: 1,
         },
     );
-    let origin_y = body.y.saturating_add(APP_FILTER_ROWS_TOP);
+    let origin_y = chrome.content.y;
     let (left_w, divider_x, _, _) = state.panes(body.width);
     // honey: content sits one padded cell in with one blank cell left
-    // before the divider; the divider runs the full popup edge to edge.
+    // before the divider; the divider starts at the header edge and
+    // runs to the popup bottom.
     let content_x = body.x.saturating_add(APP_FILTER_PAD);
     let content_w = left_w.saturating_sub(APP_FILTER_PAD.saturating_mul(2));
     let divider_abs_x = body.x.saturating_add(divider_x);
-    for y in popup.y..popup.y.saturating_add(popup.height) {
+    let divider_top = popup.y.saturating_add(util::OVERLAY_HEADER_ROWS);
+    for y in divider_top..popup.y.saturating_add(popup.height) {
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 "│".to_string(),

@@ -1013,34 +1013,35 @@ fn confirm_up_selects_yes_and_down_selects_no() {
 
 #[test]
 fn delete_option_hit_selects_horizontal_buttons() {
-    // Sized 56x9 popup on 100x30 centers at (22,10); body starts at
-    // (25,11); buttons row is body.y+5=16 with Yes at x=42..48 and
+    // Sized 56x10 popup on 100x30 centers at (22,10); body starts at
+    // (25,11); buttons row is body.y+6=17 with Yes at x=42..48 and
     // No at x=52..57.
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
 
-    assert_eq!(modals::delete_option_hit(area, 43, 16), Some(true));
-    assert_eq!(modals::delete_option_hit(area, 42, 16), Some(true));
-    assert_eq!(modals::delete_option_hit(area, 48, 16), Some(true));
-    assert_eq!(modals::delete_option_hit(area, 53, 16), Some(false));
-    assert_eq!(modals::delete_option_hit(area, 52, 16), Some(false));
-    assert_eq!(modals::delete_option_hit(area, 57, 16), Some(false));
+    assert_eq!(modals::delete_option_hit(area, 43, 17), Some(true));
+    assert_eq!(modals::delete_option_hit(area, 42, 17), Some(true));
+    assert_eq!(modals::delete_option_hit(area, 48, 17), Some(true));
+    assert_eq!(modals::delete_option_hit(area, 53, 17), Some(false));
+    assert_eq!(modals::delete_option_hit(area, 52, 17), Some(false));
+    assert_eq!(modals::delete_option_hit(area, 57, 17), Some(false));
 }
 
 #[test]
 fn delete_option_hit_ignores_chrome_gap_and_outside() {
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
 
-    // Title, blank, question, name, blank rows.
+    // Header band, gap, question, name, blank rows.
     assert_eq!(modals::delete_option_hit(area, 30, 11), None);
     assert_eq!(modals::delete_option_hit(area, 30, 12), None);
     assert_eq!(modals::delete_option_hit(area, 30, 13), None);
     assert_eq!(modals::delete_option_hit(area, 30, 14), None);
     assert_eq!(modals::delete_option_hit(area, 30, 15), None);
-    // Gap between the buttons and cells outside them.
-    assert_eq!(modals::delete_option_hit(area, 49, 16), None);
     assert_eq!(modals::delete_option_hit(area, 30, 16), None);
-    assert_eq!(modals::delete_option_hit(area, 41, 16), None);
-    assert_eq!(modals::delete_option_hit(area, 58, 16), None);
+    // Gap between the buttons and cells outside them.
+    assert_eq!(modals::delete_option_hit(area, 49, 17), None);
+    assert_eq!(modals::delete_option_hit(area, 30, 17), None);
+    assert_eq!(modals::delete_option_hit(area, 41, 17), None);
+    assert_eq!(modals::delete_option_hit(area, 58, 17), None);
     assert_eq!(modals::delete_option_hit(area, 0, 0), None);
 }
 
@@ -3084,9 +3085,9 @@ fn tags_menu_remove_drops_checked_row() {
 fn click_tags_menu_first_cell_removes_at_once() {
     let mut state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
-    // Popup 56x14 centered with 3-cell body padding and one blank
-    // row: first chip row 11, its first cell 25; `+` trails the
-    // chip on row 11.
+    // Popup 56x15 centered with 3-cell body padding, the header band
+    // and its gap: first chip row 11, its first cell 25; `+` trails
+    // the chip on row 11.
     // Body click parks focus without persisting; the close cell
     // removes with a single click.
     state.modal = Some(LibraryModal::Tags(tags_menu(&["work"])));
@@ -3112,7 +3113,7 @@ fn click_tags_menu_first_cell_removes_at_once() {
     let interaction = state.click_tags_menu(
         area,
         body.x.saturating_add(plus_x),
-        body.y.saturating_add(2).saturating_add(plus_y),
+        body.y.saturating_add(3).saturating_add(plus_y),
     );
     assert!(interaction.pending_edit().is_none());
     let Some(LibraryModal::Tags(menu)) = state.modal() else {
@@ -3154,7 +3155,7 @@ fn click_tags_menu_empty_plus_opens_input() {
                 .saturating_add(plus_x)
                 .saturating_sub(1)
                 .saturating_add(dx),
-            body.y.saturating_add(2),
+            body.y.saturating_add(3),
         );
         assert!(interaction.pending_edit().is_none());
         let Some(LibraryModal::Tags(menu)) = state.modal() else {
@@ -3342,15 +3343,15 @@ fn filter_menu_caps_foreground_at_eight() {
 fn click_app_filter_search_places_caret() {
     let mut state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
-    // Popup fits content: `calc` leaves 3 used lines -> 9 high,
-    // body y11, rows from row 13, search docked at row 17 with
+    // Popup fits content: `calc` leaves 3 used lines -> 10 high,
+    // body y11, rows from row 14, search docked at row 18 with
     // exactly one blank above it.
     let mut menu = filter_menu(AppFilterSide::Allow);
     for ch in "calc".chars() {
         menu.search_mut().insert(ch);
     }
     state.modal = Some(LibraryModal::AppFilter(menu));
-    let interaction = state.click_app_filter_menu(area, 14, 17);
+    let interaction = state.click_app_filter_menu(area, 14, 18);
     assert!(interaction.pending_edit().is_none());
     let Some(LibraryModal::AppFilter(menu)) = state.modal() else {
         panic!("filter menu open");
@@ -3363,16 +3364,16 @@ fn click_app_filter_search_places_caret() {
 fn hover_app_filter_menu_follows_rows_skips_gray() {
     let mut state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
-    // Rows from row 12: checked(0), gray notepad(13-14), calc(15-16).
+    // Rows from row 13: checked(0), gray notepad(14-15), calc(16-17).
     state.modal = Some(LibraryModal::AppFilter(filter_menu(AppFilterSide::Allow)));
-    state.hover_app_filter_menu(area, 25, 15);
+    state.hover_app_filter_menu(area, 25, 16);
     let Some(LibraryModal::AppFilter(menu)) = state.modal() else {
         panic!("filter menu open");
     };
     assert_eq!(menu.cursor(), 2);
     // Gray rows refuse the hover.
     state.modal = Some(LibraryModal::AppFilter(menu.clone()));
-    state.hover_app_filter_menu(area, 25, 13);
+    state.hover_app_filter_menu(area, 25, 14);
     let Some(LibraryModal::AppFilter(menu)) = state.modal() else {
         panic!("filter menu open");
     };
@@ -3451,17 +3452,17 @@ fn click_app_filter_right_pane_is_dead() {
 fn click_app_filter_menu_toggles_and_grays() {
     let mut state = sample_state();
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
-    // Popup fits content: 5 used lines -> 10 high. Checked(0) row
-    // 12, gray notepad rows 13-14, calc rows 15-16.
+    // Popup fits content: 5 used lines -> 12 high. Checked(0) row
+    // 13, gray notepad rows 14-15, calc rows 16-17.
     state.modal = Some(LibraryModal::AppFilter(filter_menu(AppFilterSide::Allow)));
-    let interaction = state.click_app_filter_menu(area, 26, 12);
+    let interaction = state.click_app_filter_menu(area, 26, 13);
     let pending = interaction.pending_edit().expect("pending remove");
     assert_eq!(pending.field, EditedField::OnlyApps(Vec::new()));
     assert!(state.modal().is_some());
 
     // Gray rows refuse with an error and no write.
     state.modal = Some(LibraryModal::AppFilter(filter_menu(AppFilterSide::Allow)));
-    let interaction = state.click_app_filter_menu(area, 25, 13);
+    let interaction = state.click_app_filter_menu(area, 25, 14);
     assert!(interaction.pending_edit().is_none());
     let Some(LibraryModal::AppFilter(menu)) = state.modal() else {
         panic!("filter menu open");
@@ -3470,7 +3471,7 @@ fn click_app_filter_menu_toggles_and_grays() {
 
     // Foreground calc adds.
     state.modal = Some(LibraryModal::AppFilter(filter_menu(AppFilterSide::Allow)));
-    let interaction = state.click_app_filter_menu(area, 25, 15);
+    let interaction = state.click_app_filter_menu(area, 25, 16);
     let pending = interaction.pending_edit().expect("pending add");
     assert_eq!(
         pending.field,
@@ -4676,6 +4677,71 @@ fn create_action_pill_click_opens_action_menu() {
     assert_eq!(create.focus(), LibraryCreateModalField::Action);
 }
 
+fn render_modal_buffer(modal: &LibraryModal) -> ratatui::buffer::Buffer {
+    use crate::theme::default::DARK_THEME;
+    use ratatui::{Terminal, backend::TestBackend};
+
+    let backend = TestBackend::new(100, 30);
+    let mut terminal = Terminal::new(backend).expect("test terminal");
+    terminal
+        .draw(|frame| {
+            modals::render_library_modal(frame, frame.area(), &DARK_THEME, modal);
+        })
+        .expect("test draw");
+    terminal.backend().buffer().clone()
+}
+
+fn buffer_row(buffer: &ratatui::buffer::Buffer, y: u16) -> String {
+    (0..buffer.area.width)
+        .map(|x| buffer[(x, y)].symbol())
+        .collect()
+}
+
+#[test]
+fn delete_dialog_uses_shared_overlay_chrome() {
+    use crate::theme::default::DARK_THEME;
+
+    let mut state = sample_state();
+    state.open_delete_modal_for_selected();
+    let modal = state.modal().expect("delete modal");
+    let buffer = render_modal_buffer(modal);
+
+    assert!(buffer_row(&buffer, 11).contains("Confirm delete"));
+    assert!(buffer_row(&buffer, 11).contains("Esc"));
+    assert!(!buffer_row(&buffer, 11).contains('╭'));
+    for y in 10..=12 {
+        assert_eq!(buffer[(22, y)].bg, DARK_THEME.header.bg);
+    }
+    assert_eq!(
+        buffer[(22, 13)].bg,
+        ratatui::style::Color::Rgb(0x14, 0x14, 0x14)
+    );
+    assert!(buffer_row(&buffer, 14).contains("Do you want to delete"));
+}
+
+#[test]
+fn export_result_dialog_uses_shared_overlay_chrome() {
+    use crate::theme::default::DARK_THEME;
+    use std::path::Path;
+
+    let modal = LibraryModal::ExportResult(LibraryExportResultModalState::new(Path::new(
+        "C:\\out.taurine",
+    )));
+    let buffer = render_modal_buffer(&modal);
+
+    assert!(buffer_row(&buffer, 13).contains("Export complete"));
+    assert!(buffer_row(&buffer, 13).contains("Esc"));
+    assert!(!buffer_row(&buffer, 13).contains('╭'));
+    for y in 12..=14 {
+        assert_eq!(buffer[(12, y)].bg, DARK_THEME.header.bg);
+    }
+    assert_eq!(
+        buffer[(12, 15)].bg,
+        ratatui::style::Color::Rgb(0x14, 0x14, 0x14)
+    );
+    assert!(buffer_row(&buffer, 16).contains("Triggers are exported"));
+}
+
 #[test]
 fn create_form_renders_placeholders_and_stacked_pickers() {
     use crate::theme::default::DARK_THEME;
@@ -4809,10 +4875,12 @@ fn create_form_renders_placeholders_and_stacked_pickers() {
     assert!(screen.contains("Trigger type"));
     // The form behind the picker is dimmed like any other backdrop.
     assert_ne!(menu_buffer[(8, 2)].fg, form_title_fg);
-    // The picker itself keeps the normal bright title and dark fill.
-    assert_eq!(menu_buffer[(25, 9)].fg, DARK_THEME.text);
+    // The picker itself keeps the normal bright title, header band,
+    // and dark fill.
+    assert_eq!(menu_buffer[(25, 8)].fg, DARK_THEME.text);
+    assert_eq!(menu_buffer[(22, 8)].bg, DARK_THEME.header.bg);
     assert_eq!(
-        menu_buffer[(22, 8)].bg,
+        menu_buffer[(22, 21)].bg,
         ratatui::style::Color::Rgb(0x14, 0x14, 0x14)
     );
 }

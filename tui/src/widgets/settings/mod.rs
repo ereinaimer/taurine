@@ -5,9 +5,9 @@ pub(crate) use state::*;
 
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Margin, Rect},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
-    widgets::{Block, Clear, Paragraph},
+    widgets::Paragraph,
 };
 
 use crate::terminal::mouse;
@@ -195,11 +195,11 @@ pub(crate) fn overlay_popup(area: Rect, state: &SettingsPageState) -> Rect {
     )
 }
 
-/// Chrome around the rows inside the popup: overlay margins, title plus
-/// blank, optional status line, search gap and search box.
+/// Chrome around the rows inside the popup: overlay margins, header
+/// band and gap, optional status line, search gap and search box.
 /// Must match the render splits below row for row.
 fn popup_chrome(has_status: bool) -> u16 {
-    2 + 2 + u16::from(has_status) + 1 + 3
+    2 + 3 + u16::from(has_status) + 1 + 3
 }
 
 /// List width inside the popup, mirroring the render insets.
@@ -210,17 +210,21 @@ fn popup_list_width(area: Rect) -> u16 {
 /// Content rect inside the popup, shared by overlay renders and
 /// hit-testing so both agree on padding.
 pub(crate) fn overlay_body(popup: Rect) -> Rect {
-    popup.inner(Margin::new(3, 1))
+    crate::widgets::util::overlay_body(popup)
 }
 
-/// List rect below the title row, shared by rendering and hit-testing
-/// so both hand the same area to the page layout code.
+/// List rect below the header band and gap, shared by rendering and
+/// hit-testing so both hand the same area to the page layout code.
 pub(crate) fn overlay_content(body: Rect) -> Rect {
     Rect {
         x: body.x,
-        y: body.y.saturating_add(2),
+        y: body
+            .y
+            .saturating_add(crate::widgets::util::OVERLAY_HEADER_ROWS),
         width: body.width,
-        height: body.height.saturating_sub(2),
+        height: body
+            .height
+            .saturating_sub(crate::widgets::util::OVERLAY_HEADER_ROWS),
     }
 }
 
@@ -232,24 +236,16 @@ pub fn render_settings_overlay(
     theme: &Theme,
     state: &SettingsPageState,
 ) {
-    use ratatui::style::Color::Rgb;
-
     let popup = overlay_popup(area, state);
-    frame.render_widget(Clear, popup);
-    frame.render_widget(
-        Block::default().style(Style::default().bg(Rgb(0x14, 0x14, 0x14))),
-        popup,
-    );
-    let body = overlay_body(popup);
-    if body.width == 0 || body.height == 0 {
+    let chrome = crate::widgets::util::OverlayChrome::new(popup);
+    chrome.render(frame, theme, "Settings");
+    if chrome.body.width == 0 || chrome.body.height == 0 {
         return;
     }
-    crate::widgets::util::render_overlay_title(frame, body, theme, "Settings");
-    let content = overlay_content(body);
-    if content.width == 0 || content.height == 0 {
+    if chrome.content.width == 0 || chrome.content.height == 0 {
         return;
     }
-    render_settings_content(frame, content, theme, state);
+    render_settings_content(frame, chrome.content, theme, state);
 }
 
 pub fn render_settings_content(

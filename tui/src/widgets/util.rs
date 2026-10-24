@@ -1,7 +1,7 @@
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Margin, Rect},
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
 };
@@ -54,25 +54,6 @@ pub(crate) fn visible_library_item_capacity(available_height: u16) -> usize {
     usize::from(available_height / ROW_HEIGHT).max(1)
 }
 
-pub(crate) fn render_modal_block(
-    frame: &mut Frame,
-    popup: Rect,
-    title: &str,
-    theme: &Theme,
-) -> Rect {
-    let block = Block::default()
-        .title(Span::styled(
-            format!(" {title} "),
-            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
-        ))
-        .borders(Borders::ALL)
-        .border_set(ratatui::symbols::border::ROUNDED)
-        .border_style(Style::default().fg(theme.border));
-    let inner = block.inner(popup);
-    frame.render_widget(block, popup);
-    inner
-}
-
 /// Centered rect clamped to the terminal. Single home for every
 /// overlay popup so renderers never recompute centering.
 pub(crate) fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
@@ -117,7 +98,7 @@ fn overlay_label_prefix(icon: &str) -> String {
 /// Fixed overlay rect shared by rendering and hit-testing so clicks
 /// land on the options as drawn.
 pub(crate) fn overlay_popup(area: Rect) -> Rect {
-    overlay_popup_sized(56, 14, area)
+    overlay_popup_sized(56, 15, area)
 }
 
 /// Sized overlay rect for dialogs with less content than a full option
@@ -132,27 +113,90 @@ pub(crate) fn overlay_body(popup: Rect) -> Rect {
     popup.inner(Margin::new(3, 1))
 }
 
+/// Top popup rows covered by the shared header band.
+pub(crate) const OVERLAY_HEADER_ROWS: u16 = 3;
+
+/// Flat popup surface; the header band paints over the top rows.
+const OVERLAY_BG: Color = Color::Rgb(0x14, 0x14, 0x14);
+
+/// Shared popup chrome: flat fill, header band, title row, and the
+/// content rect below the band and its one-row gap.
+pub(crate) struct OverlayChrome {
+    pub(crate) popup: Rect,
+    pub(crate) body: Rect,
+    pub(crate) header: Rect,
+    pub(crate) content: Rect,
+}
+
+impl OverlayChrome {
+    pub(crate) fn new(popup: Rect) -> Self {
+        Self::with_body(popup, overlay_body(popup))
+    }
+
+    pub(crate) fn with_body(popup: Rect, body: Rect) -> Self {
+        let content_y = body.y.saturating_add(OVERLAY_HEADER_ROWS);
+        Self {
+            popup,
+            body,
+            header: Rect {
+                x: popup.x,
+                y: popup.y,
+                width: popup.width,
+                height: OVERLAY_HEADER_ROWS.min(popup.height),
+            },
+            content: Rect {
+                x: body.x,
+                y: content_y,
+                width: body.width,
+                height: body.y.saturating_add(body.height).saturating_sub(content_y),
+            },
+        }
+    }
+
+    /// Paint the fill and header band without the title; app-filter
+    /// overlays carry their validation error in the title row.
+    pub(crate) fn paint(&self, frame: &mut Frame, theme: &Theme) {
+        frame.render_widget(Clear, self.popup);
+        frame.render_widget(
+            Block::default().style(Style::default().bg(OVERLAY_BG)),
+            self.popup,
+        );
+        if self.header.height > 0 {
+            frame.render_widget(
+                Block::default().style(Style::default().bg(theme.header.bg)),
+                self.header,
+            );
+        }
+    }
+
+    pub(crate) fn render(&self, frame: &mut Frame, theme: &Theme, title: &str) {
+        self.paint(frame, theme);
+        if self.body.width > 0 && self.body.height > 0 {
+            render_overlay_title(frame, self.body, theme, title);
+        }
+    }
+}
+
 /// Option index under the cell inside an overlay popup. `line_counts`
 /// carries each option's rendered row height (1 or 2), mirroring the
-/// render path; title, blank, and padding cells never select.
+/// render path; header, gap, and padding cells never select.
 pub(crate) fn overlay_option_hit(
     area: Rect,
     line_counts: &[u16],
     column: u16,
     row: u16,
 ) -> Option<usize> {
-    let popup = overlay_popup(area);
-    let body = popup.inner(Margin::new(3, 1));
-    // honey: rows run full-bleed across the popup; only the title
-    // offset and vertical padding constrain the hit.
-    if column < popup.x
-        || column >= popup.x.saturating_add(popup.width)
-        || row < body.y.saturating_add(2)
+    let chrome = OverlayChrome::new(overlay_popup(area));
+    // honey: rows run full-bleed across the popup; only the header
+    // band, gap, and vertical padding constrain the hit.
+    if column < chrome.popup.x
+        || column >= chrome.popup.x.saturating_add(chrome.popup.width)
+        || row < chrome.content.y
     {
         return None;
     }
-    // honey: title row plus one blank line sit above the options.
-    let mut y = body.y.saturating_add(2);
+    // honey: the header band and its gap sit above the options.
+    let mut y = chrome.content.y;
     for (index, lines) in line_counts.iter().enumerate() {
         if row >= y && row < y.saturating_add(*lines) {
             return Some(index);
@@ -225,30 +269,20 @@ pub(crate) fn render_overlay_select(
     entries: &[OverlayEntry],
     selected: usize,
 ) {
-    use ratatui::style::Color::Rgb;
-
     // honey: fixed size for every option overlay so all menus feel
     // like the same component; terminal cells run taller than wide,
     // so the width floor keeps the landscape read. Centered_rect
     // clamps to the terminal.
-    let popup = overlay_popup(area);
-    frame.render_widget(Clear, popup);
-    // honey: flat borderless fill; the cursor keeps the lighter
-    // highlight band so it stays visible on the dark fill.
-    frame.render_widget(
-        Block::default().style(Style::default().bg(Rgb(0x14, 0x14, 0x14))),
-        popup,
-    );
-    let body = popup.inner(Margin::new(3, 1));
-    if body.width == 0 || body.height == 0 {
+    let chrome = OverlayChrome::new(overlay_popup(area));
+    chrome.render(frame, theme, title);
+    if chrome.body.width == 0 || chrome.body.height == 0 {
         return;
     }
-    render_overlay_title(frame, body, theme, title);
     let list_area = Rect {
-        x: popup.x,
-        y: body.y.saturating_add(2),
-        width: popup.width,
-        height: body.height.saturating_sub(2),
+        x: chrome.popup.x,
+        y: chrome.content.y,
+        width: chrome.popup.width,
+        height: chrome.content.height,
     };
     if list_area.height == 0 {
         return;
@@ -650,7 +684,20 @@ mod tests {
 
     use crate::widgets::field::TextField;
 
-    use super::{confirm_button_cells, overlay_body, overlay_dismiss_hit};
+    use super::{
+        OVERLAY_HEADER_ROWS, OverlayChrome, confirm_button_cells, overlay_body,
+        overlay_dismiss_hit, overlay_popup,
+    };
+
+    #[test]
+    fn overlay_chrome_puts_content_below_band_and_gap() {
+        let chrome = OverlayChrome::new(overlay_popup(Rect::new(0, 0, 100, 30)));
+
+        assert_eq!(chrome.popup, Rect::new(22, 7, 56, 15));
+        assert_eq!(chrome.body, Rect::new(25, 8, 50, 13));
+        assert_eq!(chrome.header, Rect::new(22, 7, 56, OVERLAY_HEADER_ROWS));
+        assert_eq!(chrome.content, Rect::new(25, 11, 50, 10));
+    }
 
     #[test]
     fn overlay_dismiss_hit_covers_scrim_and_title_hint() {
