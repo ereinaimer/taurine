@@ -200,7 +200,7 @@ pub fn set_mock_clip(text: Option<String>) {
 /// Store text on the system clipboard. Tests land in the mock when
 /// one is set; prod goes through arboard like the daemon listener.
 pub fn store(text: &str) {
-    let mocked = MOCK_CLIP.with(|m| {
+    let _mocked = MOCK_CLIP.with(|m| {
         if m.borrow().is_some() {
             *m.borrow_mut() = Some(VecDeque::from([text.to_string()]));
             true
@@ -208,7 +208,9 @@ pub fn store(text: &str) {
             false
         }
     });
-    if mocked {
+    // Test builds have no real clipboard path; production never mocks.
+    #[cfg(not(test))]
+    if _mocked {
         return;
     }
     #[cfg(not(test))]
