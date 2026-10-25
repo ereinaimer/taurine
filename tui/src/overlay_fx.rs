@@ -149,11 +149,12 @@ pub(crate) struct OverlayLayers {
     pub library: Option<LibraryModalKind>,
     pub settings: bool,
     pub settings_editor: Option<SettingsModalKind>,
+    pub palette: bool,
 }
 
 impl OverlayLayers {
     pub(crate) const fn is_any_open(&self) -> bool {
-        self.library.is_some() || self.settings || self.settings_editor.is_some()
+        self.library.is_some() || self.settings || self.settings_editor.is_some() || self.palette
     }
 }
 
@@ -162,6 +163,7 @@ pub(crate) fn layers(app: &App) -> OverlayLayers {
         library: app.library_page().modal().map(LibraryModal::kind),
         settings: app.is_settings_overlay_open(),
         settings_editor: app.settings_page().modal().map(SettingsModal::kind),
+        palette: app.palette_open(),
     }
 }
 
@@ -178,6 +180,7 @@ pub(crate) fn appeared(previous: &OverlayLayers, next: &OverlayLayers) -> bool {
     (next.library.is_some() && previous.library != next.library && !returning_to_create)
         || (next.settings && !previous.settings)
         || (next.settings_editor.is_some() && previous.settings_editor != next.settings_editor)
+        || (next.palette && !previous.palette)
 }
 
 /// True when an overlay layer closed: dismissals sweep inward;
@@ -189,6 +192,7 @@ pub(crate) fn disappeared(previous: &OverlayLayers, next: &OverlayLayers) -> boo
     (previous.library.is_some() && next.library.is_none())
         || (previous.settings && !next.settings)
         || (previous.settings_editor.is_some() && next.settings_editor.is_none())
+        || (previous.palette && !next.palette)
 }
 
 /// Returns the popup rects of the overlays that just closed between
@@ -208,6 +212,9 @@ pub(crate) fn closed_rects(
     {
         return vec![*top];
     }
+    if previous.palette && !next.palette && next.is_any_open() {
+        return previous_rects.last().copied().into_iter().collect();
+    }
     previous_rects.to_vec()
 }
 
@@ -226,6 +233,9 @@ pub(crate) fn transition_rects(app: &App, frame: Rect, library_full: Rect) -> Ve
     }
     if let Some(modal) = app.settings_page().modal() {
         rects.extend(modal.transition_rect(&areas));
+    }
+    if app.palette_open() {
+        rects.push(crate::widgets::palette::popup(frame));
     }
     rects
 }
@@ -251,6 +261,7 @@ mod tests {
             library: None,
             settings: false,
             settings_editor: None,
+            palette: false,
         }
     }
 
@@ -499,6 +510,44 @@ mod tests {
             closed_rects(&open_settings, &closed(), &[rect1]),
             vec![rect1]
         );
+    }
+
+    #[test]
+    fn palette_layer_sweeps_in_and_fades_out_alone() {
+        let open_palette = OverlayLayers {
+            palette: true,
+            ..closed()
+        };
+        assert!(appeared(&closed(), &open_palette));
+        assert!(disappeared(&open_palette, &closed()));
+
+        let settings = OverlayLayers {
+            settings: true,
+            ..closed()
+        };
+        let settings_and_palette = OverlayLayers {
+            settings: true,
+            palette: true,
+            ..closed()
+        };
+        assert!(appeared(&settings, &settings_and_palette));
+        // honey: dismissing the palette over settings fades only the
+        // palette popup, not the overlay underneath.
+        let rect1 = Rect::new(0, 0, 50, 20);
+        let rect2 = Rect::new(10, 5, 30, 10);
+        assert_eq!(
+            closed_rects(&settings_and_palette, &settings, &[rect1, rect2]),
+            vec![rect2]
+        );
+    }
+
+    #[test]
+    fn transition_rects_include_palette_last() {
+        let mut app = App::default();
+        app.toggle_palette();
+        let frame = Rect::new(0, 0, 100, 30);
+        let rects = transition_rects(&app, frame, frame);
+        assert_eq!(rects.last(), Some(&crate::widgets::palette::popup(frame)));
     }
 
     #[test]

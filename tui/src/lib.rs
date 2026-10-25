@@ -22,6 +22,7 @@ use crate::layout_store::TuiLayout;
 use crate::overlay_fx::OverlayTransition;
 use crate::theme::Theme;
 use crate::widgets::library;
+use crate::widgets::palette;
 use crate::widgets::settings;
 use crate::widgets::toggle::{TOGGLE_ANIM_FRAME, ToggleId};
 use crate::widgets::util;
@@ -217,10 +218,11 @@ fn render_app(frame: &mut ratatui::Frame, app: &App, area: ratatui::layout::Rect
         notification::render_notification(frame, area, theme, msg);
     }
 
-    // honey: scrim pass darkens everything behind an open modal
-    // or the settings overlay; popups paint afterward onto the
-    // dimmed backdrop.
-    let any_modal = app.library_page().is_modal_open() || app.is_settings_overlay_open();
+    // honey: scrim pass darkens everything behind an open modal,
+    // the settings overlay, or the command palette; popups paint
+    // afterward onto the dimmed backdrop.
+    let any_modal =
+        app.library_page().is_modal_open() || app.is_settings_overlay_open() || app.palette_open();
     if any_modal {
         dim_frame(frame);
     }
@@ -250,6 +252,9 @@ fn render_app(frame: &mut ratatui::Frame, app: &App, area: ratatui::layout::Rect
         if let Some(modal) = app.settings_page().modal() {
             settings::modals::render_settings_modal(frame, area, theme, modal);
         }
+    }
+    if let Some(palette) = app.palette() {
+        palette::render(frame, area, theme, palette);
     }
 }
 
@@ -399,6 +404,7 @@ fn handle_tui_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
         }
         if !app.library_page().is_modal_open()
             && !app.is_settings_overlay_open()
+            && !app.palette_open()
             && app.library_page().has_content_selection()
         {
             let interaction = app.library_page_mut().handle_key(key);
@@ -408,6 +414,32 @@ fn handle_tui_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
         let interaction = app.library_page_mut().commit_edit();
         apply_library_interaction(app, interaction);
         app.begin_close_transition();
+        return;
+    }
+
+    // honey: Ctrl+P toggles the command palette above every layer; the
+    // close sweep owns the screen once quitting starts.
+    if key.code == crossterm::event::KeyCode::Char('p')
+        && key.modifiers == crossterm::event::KeyModifiers::CONTROL
+    {
+        if !app.is_closing() {
+            app.toggle_palette();
+        }
+        return;
+    }
+
+    // honey: the palette owns the keyboard while open; Ctrl+C above
+    // still quits, and Enter hands the command to the app layer.
+    if app.palette_open() {
+        let outcome = app.palette_mut().map(|palette| palette.handle_key(key));
+        match outcome {
+            Some(palette::PaletteOutcome::Close) => app.close_palette(),
+            Some(palette::PaletteOutcome::Run(command)) => {
+                app.close_palette();
+                execute_palette_command(app, command);
+            }
+            _ => {}
+        }
         return;
     }
 
@@ -469,6 +501,66 @@ fn handle_tui_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
 
     let interaction = app.library_page_mut().handle_key(key);
     apply_library_interaction(app, interaction);
+}
+
+/// Runs a palette command. Gated commands mirror their shortcut rules
+/// so the palette never opens a dialog behind another one.
+fn execute_palette_command(app: &mut App, command: palette::PaletteCommand) {
+    use palette::PaletteCommand;
+    match command {
+        PaletteCommand::ToggleLeftPanel => app
+            .library_page_mut()
+            .toggle_panel(library::DividerSide::List),
+        PaletteCommand::ToggleRightPanel => app
+            .library_page_mut()
+            .toggle_panel(library::DividerSide::Props),
+        PaletteCommand::ResetLayout => app.library_page_mut().reset_layout(),
+        PaletteCommand::NewTrigger => {
+            if app.library_page().is_modal_open() || app.is_settings_overlay_open() {
+                app.set_notification("Close the current dialog first.".to_string());
+                return;
+            }
+            let flush = app.library_page_mut().commit_edit();
+            apply_library_interaction(app, flush);
+            app.library_page_mut().open_create_modal();
+        }
+        // honey: list entries only until the import/export flows land.
+        PaletteCommand::ImportTriggers => {
+            app.set_notification("Import triggers is not available yet.".to_string());
+        }
+        PaletteCommand::ExportTriggers => {
+            app.set_notification("Export triggers is not available yet.".to_string());
+        }
+        PaletteCommand::OpenSettings => {
+            if app.is_settings_overlay_open() {
+                app.close_settings_overlay();
+            } else if app.library_page().is_modal_open() {
+                app.set_notification("Close the current dialog first.".to_string());
+            } else {
+                let flush = app.library_page_mut().commit_edit();
+                apply_library_interaction(app, flush);
+                app.open_settings_overlay();
+            }
+        }
+        PaletteCommand::RestartTaurine => {
+            // honey: the service restart blocks up to ~10s; move it to
+            // a worker if the pause starts feeling slow.
+            let start_on_boot = app.settings_page().settings().start_on_boot;
+            match taurine_core::service::restart(start_on_boot) {
+                Ok(()) => app.set_notification("Taurine restarted.".to_string()),
+                Err(err) => app.set_notification(format!("Restart failed: {err}")),
+            }
+        }
+        PaletteCommand::Quit => {
+            if app.is_closing() {
+                app.request_quit();
+            } else {
+                let flush = app.library_page_mut().commit_edit();
+                apply_library_interaction(app, flush);
+                app.begin_close_transition();
+            }
+        }
+    }
 }
 
 /// Tracks the content text width for caret math. Width mirrors the
@@ -541,6 +633,13 @@ fn handle_tui_mouse_event(
 
     match mouse.kind {
         MouseEventKind::ScrollDown | MouseEventKind::ScrollUp => {
+            if app.palette_open() {
+                let down = mouse.kind == MouseEventKind::ScrollDown;
+                if let Some(palette) = app.palette_mut() {
+                    palette.handle_key(scroll_key(down));
+                }
+                return;
+            }
             if app.library_page().header_menu_open() {
                 let down = mouse.kind == MouseEventKind::ScrollDown;
                 app.library_page_mut().move_header_menu_cursor(down);
@@ -593,6 +692,10 @@ fn handle_tui_mouse_event(
         }
         MouseEventKind::Moved => {
             app.set_props_hover(None);
+            if app.palette_open() {
+                app.set_toggle_hover(None);
+                return;
+            }
             if app.library_page().tags_menu_open() {
                 let layout = terminal::mouse::frame_layout(area);
                 let full = terminal::mouse::library_full_area(layout.page);
@@ -697,6 +800,9 @@ fn handle_tui_mouse_event(
             }
         }
         MouseEventKind::Drag(MouseButton::Left) => {
+            if app.palette_open() {
+                return;
+            }
             if app.library_page().app_filter_menu_open() {
                 let layout = terminal::mouse::frame_layout(area);
                 let full = terminal::mouse::library_full_area(layout.page);
@@ -744,6 +850,21 @@ fn handle_tui_mouse_event(
             app.library_page_mut().release_create_divider();
         }
         MouseEventKind::Down(MouseButton::Left) => {
+            if app.palette_open() {
+                if palette::dismiss_hit(area, mouse.column, mouse.row) {
+                    app.close_palette();
+                } else if let Some(index) = palette::option_hit(area, mouse.column, mouse.row) {
+                    if let Some(state) = app.palette_mut() {
+                        state.select(index);
+                    }
+                    let command = app.palette().map(|state| state.command());
+                    app.close_palette();
+                    if let Some(command) = command {
+                        execute_palette_command(app, command);
+                    }
+                }
+                return;
+            }
             if app.library_page().header_menu_open() {
                 let layout = terminal::mouse::frame_layout(area);
                 let full = terminal::mouse::library_full_area(layout.page);
@@ -1827,6 +1948,198 @@ mod tests {
 
         assert!(!app.is_settings_overlay_open());
         assert!(app.library_page().is_modal_open());
+    }
+
+    fn ctrl_p() -> KeyEvent {
+        KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL)
+    }
+
+    fn esc() -> KeyEvent {
+        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)
+    }
+
+    fn down() -> KeyEvent {
+        KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)
+    }
+
+    fn enter() -> KeyEvent {
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn ctrl_p_toggles_palette() {
+        let mut app = App::default();
+        assert!(!app.palette_open());
+
+        handle_tui_key_event(&mut app, ctrl_p());
+        assert!(app.palette_open());
+
+        handle_tui_key_event(&mut app, ctrl_p());
+        assert!(!app.palette_open());
+    }
+
+    #[test]
+    fn ctrl_p_opens_over_settings_overlay() {
+        let mut app = App::default();
+        app.open_settings_overlay();
+
+        handle_tui_key_event(&mut app, ctrl_p());
+        assert!(app.palette_open());
+
+        handle_tui_key_event(&mut app, esc());
+        assert!(!app.palette_open());
+        assert!(app.is_settings_overlay_open());
+    }
+
+    #[test]
+    fn palette_esc_closes_without_quitting() {
+        let mut app = App::default();
+        handle_tui_key_event(&mut app, ctrl_p());
+
+        handle_tui_key_event(&mut app, esc());
+
+        assert!(!app.palette_open());
+        assert!(!app.should_quit());
+        assert!(!app.is_closing());
+    }
+
+    #[test]
+    fn palette_enter_toggles_left_panel() {
+        let mut app = App::default();
+        handle_tui_key_event(&mut app, ctrl_p());
+
+        handle_tui_key_event(&mut app, enter());
+
+        assert!(!app.palette_open());
+        assert_eq!(app.library_page().split_ratio(), library::MIN_SPLIT_RATIO);
+
+        handle_tui_key_event(&mut app, ctrl_p());
+        handle_tui_key_event(&mut app, enter());
+        assert_eq!(
+            app.library_page().split_ratio(),
+            library::DEFAULT_SPLIT_RATIO
+        );
+    }
+
+    #[test]
+    fn palette_enter_toggles_right_panel() {
+        let mut app = App::default();
+        handle_tui_key_event(&mut app, ctrl_p());
+        handle_tui_key_event(&mut app, down());
+
+        handle_tui_key_event(&mut app, enter());
+
+        assert_eq!(app.library_page().detail_ratio(), library::MIN_DETAIL_RATIO);
+    }
+
+    #[test]
+    fn palette_reset_layout_restores_defaults() {
+        let mut app = App::default();
+        app.library_page_mut().set_split_ratio(0.6);
+        app.library_page_mut().set_detail_ratio(0.6);
+        handle_tui_key_event(&mut app, ctrl_p());
+        handle_tui_key_event(&mut app, down());
+        handle_tui_key_event(&mut app, down());
+
+        handle_tui_key_event(&mut app, enter());
+
+        assert_eq!(
+            app.library_page().split_ratio(),
+            library::DEFAULT_SPLIT_RATIO
+        );
+        assert_eq!(
+            app.library_page().detail_ratio(),
+            library::DEFAULT_DETAIL_RATIO
+        );
+    }
+
+    #[test]
+    fn palette_new_trigger_opens_create_modal() {
+        let mut app = App::default();
+        handle_tui_key_event(&mut app, ctrl_p());
+        for _ in 0..3 {
+            handle_tui_key_event(&mut app, down());
+        }
+
+        handle_tui_key_event(&mut app, enter());
+
+        assert!(!app.palette_open());
+        assert!(matches!(
+            app.library_page().modal(),
+            Some(library::LibraryModal::Create(_))
+        ));
+    }
+
+    #[test]
+    fn palette_import_export_are_placeholders() {
+        let mut app = App::default();
+        handle_tui_key_event(&mut app, ctrl_p());
+        for _ in 0..4 {
+            handle_tui_key_event(&mut app, down());
+        }
+        handle_tui_key_event(&mut app, enter());
+        assert!(!app.palette_open());
+        assert!(app.notification().is_some_and(|msg| msg.contains("Import")));
+
+        handle_tui_key_event(&mut app, ctrl_p());
+        for _ in 0..5 {
+            handle_tui_key_event(&mut app, down());
+        }
+        handle_tui_key_event(&mut app, enter());
+        assert!(!app.palette_open());
+        assert!(app.notification().is_some_and(|msg| msg.contains("Export")));
+    }
+
+    #[test]
+    fn palette_open_settings_opens_overlay() {
+        let mut app = App::default();
+        handle_tui_key_event(&mut app, ctrl_p());
+        for _ in 0..6 {
+            handle_tui_key_event(&mut app, down());
+        }
+
+        handle_tui_key_event(&mut app, enter());
+
+        assert!(!app.palette_open());
+        assert!(app.is_settings_overlay_open());
+    }
+
+    #[test]
+    fn palette_quit_starts_close_animation() {
+        let mut app = App::default();
+        handle_tui_key_event(&mut app, ctrl_p());
+        for _ in 0..8 {
+            handle_tui_key_event(&mut app, down());
+        }
+
+        handle_tui_key_event(&mut app, enter());
+
+        assert!(!app.palette_open());
+        assert!(app.is_closing());
+        assert!(!app.should_quit());
+    }
+
+    #[test]
+    fn clicking_palette_row_runs_command() {
+        let mut app = App::default();
+        handle_tui_key_event(&mut app, ctrl_p());
+        let popup = palette::popup(TEST_AREA);
+        let first_row = popup.y + 4;
+
+        handle_tui_mouse_event(&mut app, left_click(popup.x + 3, first_row), TEST_AREA);
+
+        assert!(!app.palette_open());
+        assert_eq!(app.library_page().split_ratio(), library::MIN_SPLIT_RATIO);
+    }
+
+    #[test]
+    fn clicking_palette_scrim_closes_it() {
+        let mut app = App::default();
+        handle_tui_key_event(&mut app, ctrl_p());
+
+        handle_tui_mouse_event(&mut app, left_click(0, 0), TEST_AREA);
+
+        assert!(!app.palette_open());
     }
 
     #[test]

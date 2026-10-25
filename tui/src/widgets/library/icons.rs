@@ -14,6 +14,22 @@ pub(crate) const CLOSE_ICON: &str = "\u{f00d}";
 pub(crate) const ADD_ICON: &str = "\u{ea60}";
 /// Padded three-cell add chip for inline property slots.
 pub(crate) const ADD_CHIP: &str = " \u{ea60} ";
+/// Collapse-left arrow for the command palette's left panel toggle.
+pub(crate) const PANEL_LEFT_ICON: &str = "\u{f104}";
+/// Collapse-right arrow for the command palette's right panel toggle.
+pub(crate) const PANEL_RIGHT_ICON: &str = "\u{f105}";
+/// Restore arrow for resetting the pane layout.
+pub(crate) const RESET_LAYOUT_ICON: &str = "\u{f01e}";
+/// Download arrow for importing triggers.
+pub(crate) const IMPORT_ICON: &str = "\u{f019}";
+/// Upload arrow for exporting triggers.
+pub(crate) const EXPORT_ICON: &str = "\u{f093}";
+/// Cog for the settings overlay command.
+pub(crate) const SETTINGS_ICON: &str = "\u{f013}";
+/// Refresh arrow for restarting Taurine.
+pub(crate) const RESTART_ICON: &str = "\u{f021}";
+/// Power glyph for quitting the TUI.
+pub(crate) const QUIT_ICON: &str = "\u{f011}";
 
 pub(crate) fn os_icon(target_os_display: &str) -> &'static str {
     match taurine_core::db::TargetOs::parse_str(target_os_display) {

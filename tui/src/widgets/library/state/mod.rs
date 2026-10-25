@@ -343,6 +343,35 @@ impl LibraryPageState {
         true
     }
 
+    /// Collapses a pane to its edge, or restores its default width when
+    /// already collapsed. The palette uses this; the divider
+    /// double-click keeps its custom-width reset rule.
+    pub(crate) fn toggle_panel(&mut self, side: super::DividerSide) {
+        const NEAR: f32 = 0.0001;
+        match side {
+            super::DividerSide::List => {
+                if self.split_ratio() <= super::MIN_SPLIT_RATIO + NEAR {
+                    self.set_split_ratio(super::DEFAULT_SPLIT_RATIO);
+                } else {
+                    self.set_split_ratio(super::MIN_SPLIT_RATIO);
+                }
+            }
+            super::DividerSide::Props => {
+                if self.detail_ratio() <= super::MIN_DETAIL_RATIO + NEAR {
+                    self.set_detail_ratio(super::DEFAULT_DETAIL_RATIO);
+                } else {
+                    self.set_detail_ratio(super::MIN_DETAIL_RATIO);
+                }
+            }
+        }
+    }
+
+    /// Restores both pane widths to their defaults.
+    pub(crate) fn reset_layout(&mut self) {
+        self.set_split_ratio(super::DEFAULT_SPLIT_RATIO);
+        self.set_detail_ratio(super::DEFAULT_DETAIL_RATIO);
+    }
+
     pub(crate) const fn detail_scroll(&self) -> usize {
         self.detail_scroll
     }

@@ -8,6 +8,7 @@ use crate::theme::Theme;
 use crate::theme::default::DARK_THEME;
 use crate::widgets::library::LibraryPageState;
 use crate::widgets::library::props::PropsHit;
+use crate::widgets::palette::CommandPaletteState;
 use crate::widgets::settings::state::SettingsPageState;
 use crate::widgets::toggle::{ToggleAnimations, ToggleId};
 
@@ -23,6 +24,7 @@ pub(crate) struct App {
     toggle_hover: Option<ToggleId>,
     props_hover: Option<PropsHit>,
     saved_layout: TuiLayout,
+    palette: Option<CommandPaletteState>,
     transition_effect: Option<Effect>,
     last_frame_instant: Instant,
     is_closing: bool,
@@ -41,6 +43,7 @@ impl Default for App {
             toggle_hover: None,
             props_hover: None,
             saved_layout: TuiLayout::default(),
+            palette: None,
             transition_effect: None,
             last_frame_instant: Instant::now(),
             is_closing: false,
@@ -82,6 +85,34 @@ impl App {
         self.settings_page.clear_modal();
         self.toggle_hover = None;
         self.props_hover = None;
+    }
+
+    pub(crate) const fn palette(&self) -> Option<&CommandPaletteState> {
+        self.palette.as_ref()
+    }
+
+    pub(crate) const fn palette_open(&self) -> bool {
+        self.palette.is_some()
+    }
+
+    pub(crate) fn palette_mut(&mut self) -> Option<&mut CommandPaletteState> {
+        self.palette.as_mut()
+    }
+
+    /// Opens the palette fresh at the first command, or closes it when
+    /// Ctrl+P toggles an open palette.
+    pub(crate) fn toggle_palette(&mut self) {
+        self.palette = if self.palette.is_some() {
+            None
+        } else {
+            Some(CommandPaletteState::default())
+        };
+        self.toggle_hover = None;
+        self.props_hover = None;
+    }
+
+    pub(crate) fn close_palette(&mut self) {
+        self.palette = None;
     }
 
     pub(crate) const fn toggle_animations(&self) -> &ToggleAnimations {
