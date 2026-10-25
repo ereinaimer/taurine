@@ -25,7 +25,7 @@ pub(crate) fn close_effect(theme: &Theme) -> Effect {
     let timer = EffectTimer::from_ms(200, Interpolation::CubicIn);
 
     fx::evolve_from((EvolveSymbolSet::Shaded, style), timer)
-        .with_pattern(SweepPattern::right_to_left(35))
+        .with_pattern(SweepPattern::left_to_right(35))
 }
 
 #[cfg(test)]
@@ -62,5 +62,21 @@ mod tests {
         effect.process(Duration::from_millis(240), &mut buffer, area);
 
         assert!(!effect.running());
+    }
+
+    #[test]
+    fn close_effect_sweeps_left_to_right() {
+        let mut effect = close_effect(&DARK_THEME);
+        let area = Rect::new(0, 0, 40, 5);
+        let mut buffer = Buffer::empty(area);
+        for cell in buffer.content.iter_mut() {
+            cell.set_char('x');
+        }
+
+        // Midway through, the left edge has started dissolving while the
+        // right edge is still untouched.
+        effect.process(Duration::from_millis(100), &mut buffer, area);
+        assert_ne!(buffer.cell((0, 2)).expect("left cell").symbol(), "x");
+        assert_eq!(buffer.cell((39, 2)).expect("right cell").symbol(), "x");
     }
 }

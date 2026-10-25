@@ -34,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **New Trigger Form**: Press Ctrl+N to create a trigger without leaving the library, with type/action pills under the trigger, actionable in-field placeholders, script options, a Properties pane without usage history, a draggable pane divider, and the same click-outside or Esc dismissal as other overlays.
 - **New Trigger Description**: Add an optional description below the trigger field, separated by a blank row, when creating a trigger.
 - **New Trigger Header**: The New Trigger overlay now separates its title from the form with a neutral grey header band and a divider that runs from the header to the bottom of the overlay.
-- **Launch and Exit Animations**: The TUI now sweeps in from left to right on launch and reverses when you quit.
+- **Launch and Exit Animations**: The TUI now sweeps in and out from left to right on launch and quit.
 - **Command Palette**: Press Ctrl+P to toggle panels, reset the layout, create a trigger, open settings, pause or resume Taurine, restart Taurine, or quit from one menu.
 - **Hotkey Keycaps**: Hotkey triggers and aliases render as split keycap badges in the trigger list, detail header, and properties pane.
 - **Hotkey Recorder**: Click a hotkey trigger or alias to record a new chord on a full on-screen keyboard, with live preview, Cancel and Done buttons, and Backspace to clear.
