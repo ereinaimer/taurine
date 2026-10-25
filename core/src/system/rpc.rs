@@ -102,6 +102,31 @@ pub fn set_daemon_paused(paused: bool) -> Result<(), String> {
     }
 }
 
+/// Blocks on the daemon's `GetStatus` RPC. `Some(paused)` when the
+/// daemon answered, `None` when it is offline or unreachable, so a
+/// caller can keep its last known value. Blocks, so call it from a
+/// synchronous thread.
+pub fn daemon_paused() -> Option<bool> {
+    if !crate::service::is_service_running() {
+        return None;
+    }
+
+    let perform = async {
+        let mut client = get_client().await.ok()?;
+        let response = client
+            .get_status(tonic::Request::new(StatusRequest {}))
+            .await
+            .ok()?;
+        Some(response.into_inner().paused)
+    };
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .ok()?;
+    rt.block_on(perform)
+}
+
 pub fn notify_daemon_reload() {
     if !crate::service::is_service_running() {
         tracing::debug!("Service is offline; skipping reload notification.");
@@ -214,6 +239,22 @@ mod tests {
         assert!(
             elapsed.as_millis() < 50,
             "notify_daemon_reload should return in < 50ms when service is offline, took {:?}",
+            elapsed
+        );
+    }
+
+    #[test]
+    fn test_daemon_paused_skips_when_service_not_running() {
+        let _guard = lock();
+        let _temp_dir = force_service_offline();
+        let start = std::time::Instant::now();
+        let result = daemon_paused();
+        let elapsed = start.elapsed();
+        clear_offline_override();
+        assert_eq!(result, None);
+        assert!(
+            elapsed.as_millis() < 50,
+            "daemon_paused should return in < 50ms when service is offline, took {:?}",
             elapsed
         );
     }

@@ -103,7 +103,13 @@ pub fn run() -> taurine_core::Result<()> {
                 let layout = terminal::mouse::frame_layout(last_area);
                 track_content_width(&mut app, terminal::mouse::library_full_area(layout.page));
                 let create_auto_case = app.library_page().create_auto_case();
+                let palette_was_open = app.palette_open();
                 handle_tui_key_event(&mut app, key);
+                // honey: the palette toggle reads the daemon's real pause
+                // flag, so refresh before the first palette frame draws.
+                if !palette_was_open && app.palette_open() {
+                    app.refresh_daemon_paused();
+                }
                 if let Some(from_on) = create_auto_case
                     && app.library_page().create_auto_case() == Some(!from_on)
                 {
@@ -254,7 +260,7 @@ fn render_app(frame: &mut ratatui::Frame, app: &App, area: ratatui::layout::Rect
         }
     }
     if let Some(palette) = app.palette() {
-        palette::render(frame, area, theme, palette);
+        palette::render(frame, area, theme, palette, app.daemon_paused());
     }
 }
 
@@ -547,20 +553,33 @@ fn execute_palette_command(app: &mut App, command: palette::PaletteCommand) {
             // a worker if the pause starts feeling slow.
             let start_on_boot = app.settings_page().settings().start_on_boot;
             match taurine_core::service::restart(start_on_boot) {
-                Ok(()) => app.set_notification("Taurine restarted.".to_string()),
+                Ok(()) => {
+                    // A restarted daemon always comes back unpaused.
+                    app.set_daemon_paused(false);
+                    app.set_notification("Taurine restarted.".to_string());
+                }
                 Err(err) => app.set_notification(format!("Restart failed: {err}")),
             }
         }
         // honey: the pause/resume RPC blocks up to the 2s transport
         // timeout; move it to a worker if the UI starts feeling slow.
-        PaletteCommand::PauseTaurine => match taurine_core::rpc::set_daemon_paused(true) {
-            Ok(()) => app.set_notification("Taurine paused.".to_string()),
-            Err(err) => app.set_notification(err),
-        },
-        PaletteCommand::ResumeTaurine => match taurine_core::rpc::set_daemon_paused(false) {
-            Ok(()) => app.set_notification("Taurine resumed.".to_string()),
-            Err(err) => app.set_notification(err),
-        },
+        PaletteCommand::TogglePause => {
+            let paused = !app.daemon_paused();
+            match taurine_core::rpc::set_daemon_paused(paused) {
+                Ok(()) => {
+                    app.set_daemon_paused(paused);
+                    app.set_notification(
+                        if paused {
+                            "Taurine paused."
+                        } else {
+                            "Taurine resumed."
+                        }
+                        .to_string(),
+                    );
+                }
+                Err(err) => app.set_notification(err),
+            }
+        }
         PaletteCommand::Quit => {
             if app.is_closing() {
                 app.request_quit();
@@ -2118,7 +2137,7 @@ mod tests {
     fn palette_quit_starts_close_animation() {
         let mut app = App::default();
         handle_tui_key_event(&mut app, ctrl_p());
-        for _ in 0..10 {
+        for _ in 0..9 {
             handle_tui_key_event(&mut app, down());
         }
 

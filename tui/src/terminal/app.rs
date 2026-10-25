@@ -25,6 +25,9 @@ pub(crate) struct App {
     props_hover: Option<PropsHit>,
     saved_layout: TuiLayout,
     palette: Option<CommandPaletteState>,
+    /// Cached daemon pause flag: the palette labels its toggle from it,
+    /// refreshed when the palette opens and after every transition.
+    daemon_paused: bool,
     transition_effect: Option<Effect>,
     last_frame_instant: Instant,
     is_closing: bool,
@@ -44,6 +47,7 @@ impl Default for App {
             props_hover: None,
             saved_layout: TuiLayout::default(),
             palette: None,
+            daemon_paused: false,
             transition_effect: None,
             last_frame_instant: Instant::now(),
             is_closing: false,
@@ -113,6 +117,22 @@ impl App {
 
     pub(crate) fn close_palette(&mut self) {
         self.palette = None;
+    }
+
+    pub(crate) const fn daemon_paused(&self) -> bool {
+        self.daemon_paused
+    }
+
+    pub(crate) fn set_daemon_paused(&mut self, paused: bool) {
+        self.daemon_paused = paused;
+    }
+
+    /// Re-reads the pause flag from the daemon before the palette draws
+    /// its toggle. Offline or unreachable keeps the last known value.
+    pub(crate) fn refresh_daemon_paused(&mut self) {
+        if let Some(paused) = taurine_core::rpc::daemon_paused() {
+            self.daemon_paused = paused;
+        }
     }
 
     pub(crate) const fn toggle_animations(&self) -> &ToggleAnimations {

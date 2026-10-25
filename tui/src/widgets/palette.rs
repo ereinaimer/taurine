@@ -29,15 +29,16 @@ pub(crate) enum PaletteCommand {
     ImportTriggers,
     ExportTriggers,
     OpenSettings,
-    PauseTaurine,
-    ResumeTaurine,
+    /// One state-aware row: the label and icon flip with the daemon's
+    /// pause flag instead of listing pause and resume separately.
+    TogglePause,
     RestartTaurine,
     Quit,
 }
 
 impl PaletteCommand {
     /// Menu order, top to bottom.
-    pub(crate) const ALL: [Self; 11] = [
+    pub(crate) const ALL: [Self; 10] = [
         Self::ToggleLeftPanel,
         Self::ToggleRightPanel,
         Self::ResetLayout,
@@ -45,13 +46,12 @@ impl PaletteCommand {
         Self::ImportTriggers,
         Self::ExportTriggers,
         Self::OpenSettings,
-        Self::PauseTaurine,
-        Self::ResumeTaurine,
+        Self::TogglePause,
         Self::RestartTaurine,
         Self::Quit,
     ];
 
-    pub(crate) const fn label(self) -> &'static str {
+    pub(crate) const fn label(self, paused: bool) -> &'static str {
         match self {
             Self::ToggleLeftPanel => "Toggle left panel",
             Self::ToggleRightPanel => "Toggle right panel",
@@ -60,14 +60,14 @@ impl PaletteCommand {
             Self::ImportTriggers => "Import triggers",
             Self::ExportTriggers => "Export triggers",
             Self::OpenSettings => "Open settings",
-            Self::PauseTaurine => "Pause Taurine",
-            Self::ResumeTaurine => "Resume Taurine",
+            Self::TogglePause if paused => "Resume Taurine",
+            Self::TogglePause => "Pause Taurine",
             Self::RestartTaurine => "Restart Taurine",
             Self::Quit => "Quit TUI",
         }
     }
 
-    const fn icon(self) -> &'static str {
+    const fn icon(self, paused: bool) -> &'static str {
         match self {
             Self::ToggleLeftPanel => icons::PANEL_LEFT_ICON,
             Self::ToggleRightPanel => icons::PANEL_RIGHT_ICON,
@@ -76,8 +76,8 @@ impl PaletteCommand {
             Self::ImportTriggers => icons::IMPORT_ICON,
             Self::ExportTriggers => icons::EXPORT_ICON,
             Self::OpenSettings => icons::SETTINGS_ICON,
-            Self::PauseTaurine => icons::PAUSE_ICON,
-            Self::ResumeTaurine => icons::RESUME_ICON,
+            Self::TogglePause if paused => icons::RESUME_ICON,
+            Self::TogglePause => icons::PAUSE_ICON,
             Self::RestartTaurine => icons::RESTART_ICON,
             Self::Quit => icons::QUIT_ICON,
         }
@@ -155,10 +155,9 @@ impl CommandPaletteState {
     }
 }
 
-/// Shared overlay geometry, one row taller than the standard popup so
-/// all eleven commands fit with a spare row.
+/// Shared overlay geometry; ten commands fit the standard popup whole.
 pub(crate) fn popup(area: Rect) -> Rect {
-    util::overlay_popup_sized(56, 17, area)
+    util::overlay_popup(area)
 }
 
 /// Scrim or title-hint click, matching every other overlay.
@@ -180,7 +179,13 @@ pub(crate) fn option_hit(area: Rect, column: u16, row: u16) -> Option<usize> {
     (index < PaletteCommand::ALL.len()).then_some(index)
 }
 
-pub(crate) fn render(frame: &mut Frame, area: Rect, theme: &Theme, state: &CommandPaletteState) {
+pub(crate) fn render(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    state: &CommandPaletteState,
+    paused: bool,
+) {
     let chrome = OverlayChrome::new(popup(area));
     chrome.render(frame, theme, PALETTE_TITLE);
     if chrome.body.width == 0 || chrome.body.height == 0 {
@@ -208,6 +213,7 @@ pub(crate) fn render(frame: &mut Frame, area: Rect, theme: &Theme, state: &Comma
         let line = row_line(
             theme,
             *command,
+            paused,
             chrome.popup.width.saturating_sub(3),
             selected,
         );
@@ -217,8 +223,14 @@ pub(crate) fn render(frame: &mut Frame, area: Rect, theme: &Theme, state: &Comma
 
 /// One row: icon-padded label left, dimmed shortcut flush right. The
 /// highlight band is painted full-bleed, so padding stays inside it.
-fn row_line(theme: &Theme, command: PaletteCommand, width: u16, selected: bool) -> Line<'static> {
-    let label = format!("   {} {}", command.icon(), command.label());
+fn row_line(
+    theme: &Theme,
+    command: PaletteCommand,
+    paused: bool,
+    width: u16,
+    selected: bool,
+) -> Line<'static> {
+    let label = format!("   {} {}", command.icon(paused), command.label(paused));
     let hint = command.hint();
     let gap = (width as usize)
         .saturating_sub(label.chars().count())
@@ -259,10 +271,14 @@ mod tests {
     }
 
     fn render_buffer(state: &CommandPaletteState) -> Buffer {
+        render_buffer_with(state, false)
+    }
+
+    fn render_buffer_with(state: &CommandPaletteState, paused: bool) -> Buffer {
         let backend = TestBackend::new(AREA.width, AREA.height);
         let mut terminal = Terminal::new(backend).expect("test terminal");
         terminal
-            .draw(|frame| render(frame, frame.area(), &DARK_THEME, state))
+            .draw(|frame| render(frame, frame.area(), &DARK_THEME, state, paused))
             .expect("test draw");
         terminal.backend().buffer().clone()
     }
@@ -276,7 +292,7 @@ mod tests {
     #[test]
     fn commands_are_listed_in_order() {
         assert_eq!(
-            PaletteCommand::ALL.map(PaletteCommand::label),
+            PaletteCommand::ALL.map(|command| command.label(false)),
             [
                 "Toggle left panel",
                 "Toggle right panel",
@@ -286,11 +302,18 @@ mod tests {
                 "Export triggers",
                 "Open settings",
                 "Pause Taurine",
-                "Resume Taurine",
                 "Restart Taurine",
                 "Quit TUI",
             ]
         );
+    }
+
+    #[test]
+    fn pause_row_flips_with_the_daemon_state() {
+        assert_eq!(PaletteCommand::TogglePause.label(false), "Pause Taurine");
+        assert_eq!(PaletteCommand::TogglePause.label(true), "Resume Taurine");
+        assert_eq!(PaletteCommand::TogglePause.icon(false), icons::PAUSE_ICON);
+        assert_eq!(PaletteCommand::TogglePause.icon(true), icons::RESUME_ICON);
     }
 
     #[test]
@@ -344,9 +367,7 @@ mod tests {
 
         let pause = row_text(&buffer, content_y + 7);
         assert!(pause.contains("Pause Taurine"));
-        let resume = row_text(&buffer, content_y + 8);
-        assert!(resume.contains("Resume Taurine"));
-        let quit = row_text(&buffer, content_y + 10);
+        let quit = row_text(&buffer, content_y + 9);
         assert!(quit.contains("Quit TUI"));
         assert!(quit.trim_end().ends_with("Ctrl+C"));
 
@@ -356,14 +377,26 @@ mod tests {
     }
 
     #[test]
-    fn cursor_reaches_pause_and_resume() {
+    fn paused_daemon_swaps_the_pause_row_to_resume() {
+        let state = CommandPaletteState::default();
+        let buffer = render_buffer_with(&state, true);
+        let content_y = popup(AREA).y + 4;
+
+        let pause = row_text(&buffer, content_y + 7);
+        assert!(pause.contains("Resume Taurine"));
+        assert!(!pause.contains("Pause Taurine"));
+        // Still one row: the next entry is Restart, not a second toggle.
+        let restart = row_text(&buffer, content_y + 8);
+        assert!(restart.contains("Restart Taurine"));
+    }
+
+    #[test]
+    fn cursor_reaches_the_pause_toggle() {
         let mut state = CommandPaletteState::default();
         for _ in 0..7 {
             state.move_cursor(1);
         }
-        assert_eq!(state.command(), PaletteCommand::PauseTaurine);
-        state.move_cursor(1);
-        assert_eq!(state.command(), PaletteCommand::ResumeTaurine);
+        assert_eq!(state.command(), PaletteCommand::TogglePause);
     }
 
     #[test]
@@ -376,7 +409,7 @@ mod tests {
                 Some(index)
             );
         }
-        assert_eq!(option_hit(AREA, popup.x + 3, content_y + 11), None);
+        assert_eq!(option_hit(AREA, popup.x + 3, content_y + 10), None);
     }
 
     #[test]
