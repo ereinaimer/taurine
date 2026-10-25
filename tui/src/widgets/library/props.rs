@@ -575,6 +575,47 @@ pub(crate) fn toggle_hit_test_content(
     None
 }
 
+/// Alias line index under a click, counting only the sibling aliases the
+/// block draws (0 is the first sibling). `None` means the pointer is
+/// outside the alias block.
+pub(crate) fn alias_line_hit(
+    area: Rect,
+    list_ratio: f32,
+    props_ratio: f32,
+    state: &crate::widgets::library::state::LibraryPageState,
+    column: u16,
+    row: u16,
+) -> Option<usize> {
+    let content = props_content(area, list_ratio, props_ratio);
+    let selected = state.selected_index()?;
+    let item = state.item_at_filtered(selected)?;
+    alias_line_hit_content(content, item, column, row)
+}
+
+pub(crate) fn alias_line_hit_content(
+    content: Rect,
+    item: &LibraryTrigger,
+    column: u16,
+    row: u16,
+) -> Option<usize> {
+    if content.width == 0 || content.height == 0 {
+        return None;
+    }
+    if column < content.x || column >= content.x.saturating_add(content.width) {
+        return None;
+    }
+    let base = content
+        .y
+        .saturating_add(label_offset(item, content.width, "Alias")?);
+    let lines = alias_text_lines(
+        item,
+        edge_value_width("Alias", content.width) as usize,
+        content.width as usize,
+    );
+    let index = usize::from(row.checked_sub(base)?);
+    (index < lines.len() && row < content.y.saturating_add(content.height)).then_some(index)
+}
+
 /// Hit-test an explicit properties content rect, shared with the
 /// create form's draft view. The create form hides usage, so its
 /// toggle row stays dead.

@@ -8,6 +8,7 @@ use crate::theme::Theme;
 use crate::theme::default::DARK_THEME;
 use crate::widgets::library::LibraryPageState;
 use crate::widgets::library::props::PropsHit;
+use crate::widgets::library::recorder::HotkeyRecorderState;
 use crate::widgets::palette::CommandPaletteState;
 use crate::widgets::settings::state::SettingsPageState;
 use crate::widgets::toggle::{ToggleAnimations, ToggleId};
@@ -25,6 +26,7 @@ pub(crate) struct App {
     props_hover: Option<PropsHit>,
     saved_layout: TuiLayout,
     palette: Option<CommandPaletteState>,
+    hotkey_recorder: Option<HotkeyRecorderState>,
     /// Cached daemon pause flag: the palette labels its toggle from it,
     /// refreshed when the palette opens and after every transition.
     daemon_paused: bool,
@@ -47,6 +49,7 @@ impl Default for App {
             props_hover: None,
             saved_layout: TuiLayout::default(),
             palette: None,
+            hotkey_recorder: None,
             daemon_paused: false,
             transition_effect: None,
             last_frame_instant: Instant::now(),
@@ -117,6 +120,20 @@ impl App {
 
     pub(crate) fn close_palette(&mut self) {
         self.palette = None;
+    }
+
+    pub(crate) fn hotkey_recorder(&self) -> Option<&HotkeyRecorderState> {
+        self.hotkey_recorder.as_ref()
+    }
+
+    pub(crate) fn hotkey_recorder_mut(&mut self) -> Option<&mut HotkeyRecorderState> {
+        self.hotkey_recorder.as_mut()
+    }
+
+    pub(crate) fn set_hotkey_recorder(&mut self, recorder: Option<HotkeyRecorderState>) {
+        self.hotkey_recorder = recorder;
+        self.toggle_hover = None;
+        self.props_hover = None;
     }
 
     pub(crate) const fn daemon_paused(&self) -> bool {

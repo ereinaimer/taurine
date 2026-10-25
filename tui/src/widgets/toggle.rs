@@ -18,7 +18,7 @@ pub(crate) const TOGGLE_ANIM_FRAME: Duration = Duration::from_millis(16);
 pub(crate) const TOGGLE_ANIM_DURATION: Duration = Duration::from_millis(90);
 
 const ENABLED_TRACK: Color = Color::Rgb(27, 56, 36);
-const ENABLED_KNOB: Color = Color::Rgb(62, 207, 102);
+pub(crate) const ENABLED_KNOB: Color = Color::Rgb(62, 207, 102);
 const DISABLED_TRACK: Color = Color::Rgb(36, 36, 40);
 const DISABLED_KNOB: Color = Color::Rgb(128, 128, 136);
 

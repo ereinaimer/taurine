@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Launch and Exit Animations**: The TUI now sweeps in from left to right on launch and reverses when you quit.
 - **Command Palette**: Press Ctrl+P to toggle panels, reset the layout, create a trigger, open settings, pause or resume Taurine, restart Taurine, or quit from one menu.
 - **Hotkey Keycaps**: Hotkey triggers and aliases render as split keycap badges in the trigger list, detail header, and properties pane.
+- **Hotkey Recorder**: Click a hotkey trigger or alias to record a new chord on a full on-screen keyboard, with live preview, Cancel and Done buttons, and Backspace to clear.
 
 ### Changed
 - **Add Buttons**: Empty property rows and the tag builder use a Nerd Font add icon.

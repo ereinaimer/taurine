@@ -227,8 +227,10 @@ fn render_app(frame: &mut ratatui::Frame, app: &App, area: ratatui::layout::Rect
     // honey: scrim pass darkens everything behind an open modal,
     // the settings overlay, or the command palette; popups paint
     // afterward onto the dimmed backdrop.
-    let any_modal =
-        app.library_page().is_modal_open() || app.is_settings_overlay_open() || app.palette_open();
+    let any_modal = app.library_page().is_modal_open()
+        || app.is_settings_overlay_open()
+        || app.palette_open()
+        || app.hotkey_recorder().is_some();
     if any_modal {
         dim_frame(frame);
     }
@@ -268,6 +270,12 @@ fn render_app(frame: &mut ratatui::Frame, app: &App, area: ratatui::layout::Rect
             app.daemon_paused(),
             &app.settings_page().settings().pause_hotkey,
         );
+    }
+
+    // honey: the hotkey recorder sits above every other layer; it is
+    // the only thing that can be open while it captures a chord.
+    if let Some(recorder) = app.hotkey_recorder() {
+        library::recorder::render(frame, area, theme, recorder);
     }
 }
 
@@ -402,6 +410,13 @@ fn render_page_content(
 fn handle_tui_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
     app.clear_notification();
 
+    // honey: the recorder captures every chord, including Ctrl+C and
+    // Ctrl+P, so it takes the keyboard before the global shortcuts.
+    if app.hotkey_recorder().is_some() {
+        handle_hotkey_recorder_key(app, key);
+        return;
+    }
+
     // honey: Ctrl+C quits cleanly from anywhere, including modals and
     // search, since raw mode delivers it as a key event, not a signal.
     // Pending edits flush first so nothing typed is lost to timing.
@@ -516,6 +531,123 @@ fn handle_tui_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
     apply_library_interaction(app, interaction);
 }
 
+/// Recorder keyboard: physical presses drive the live chord, Esc and
+/// Enter close it, Backspace clears.
+fn handle_hotkey_recorder_key(app: &mut App, key: crossterm::event::KeyEvent) {
+    let action = app
+        .hotkey_recorder_mut()
+        .map(|recorder| recorder.press(key));
+    match action {
+        Some(library::recorder::RecorderAction::Cancel) => app.set_hotkey_recorder(None),
+        Some(library::recorder::RecorderAction::Done) => commit_hotkey_recorder(app),
+        _ => {}
+    }
+}
+
+/// Opens the recorder on the selected row's own invocation when that
+/// row is a hotkey. Returns whether it took the click.
+fn open_recorder_for_selected(app: &mut App) -> bool {
+    use library::recorder::{HotkeyRecorderState, HotkeyTarget};
+
+    let chord = {
+        let page = app.library_page();
+        page.selected_index()
+            .and_then(|index| page.item_at_filtered(index))
+            .filter(|item| item.is_hotkey())
+            .map(|item| item.trigger().to_string())
+    };
+    let Some(chord) = chord else {
+        return false;
+    };
+    app.set_hotkey_recorder(Some(HotkeyRecorderState::prefilled(
+        HotkeyTarget::PrimaryTrigger,
+        &chord,
+    )));
+    true
+}
+
+/// Opens the recorder on the sibling alias drawn at `line` in the
+/// properties block. Word aliases keep their inline text edit.
+fn open_recorder_for_alias(app: &mut App, line: usize) -> bool {
+    use library::recorder::{HotkeyRecorderState, HotkeyTarget};
+
+    let chord = {
+        let page = app.library_page();
+        page.selected_index()
+            .and_then(|index| page.item_at_filtered(index))
+            .and_then(|item| {
+                let alias = library::detail::sibling_aliases(item.aliases(), item.trigger())
+                    .get(line)
+                    .copied()?;
+                crate::widgets::hotkey::is_hotkey_chord(alias).then(|| alias.to_string())
+            })
+    };
+    let Some(chord) = chord else {
+        return false;
+    };
+    app.set_hotkey_recorder(Some(HotkeyRecorderState::prefilled(
+        HotkeyTarget::AliasIndex(line),
+        &chord,
+    )));
+    true
+}
+
+/// Builds the same rename edit the inline editor uses, pointed at the
+/// recorder's target.
+fn recorder_pending_edit(
+    app: &App,
+    target: library::recorder::HotkeyTarget,
+    chord: &str,
+) -> Option<library::PendingLibraryEdit> {
+    use library::recorder::HotkeyTarget;
+
+    let page = app.library_page();
+    let index = page.selected_index()?;
+    let item = page.item_at_filtered(index)?;
+    let trigger = match target {
+        HotkeyTarget::PrimaryTrigger => item.trigger().to_string(),
+        HotkeyTarget::AliasIndex(alias) => {
+            library::detail::sibling_aliases(item.aliases(), item.trigger())
+                .get(alias)
+                .map(|alias| (*alias).to_string())?
+        }
+    };
+    Some(library::PendingLibraryEdit {
+        trigger_id: item.id().to_string(),
+        trigger,
+        field: library::EditedField::Trigger(chord.to_string()),
+        restore_index: index,
+    })
+}
+
+/// Saves the recorded chord and closes the overlay. A rejected chord
+/// keeps the overlay open with the reason in its header.
+fn commit_hotkey_recorder(app: &mut App) {
+    let Some((target, chord)) = app
+        .hotkey_recorder_mut()
+        .and_then(|recorder| recorder.commit().map(|chord| (recorder.target, chord)))
+    else {
+        return;
+    };
+    let Some(pending) = recorder_pending_edit(app, target, &chord) else {
+        app.set_hotkey_recorder(None);
+        return;
+    };
+    match pending.apply() {
+        Ok(()) => {
+            app.set_hotkey_recorder(None);
+            refresh_library_page(app);
+            app.library_page_mut()
+                .select_row(&pending.trigger_id, &chord);
+        }
+        Err(error) => {
+            if let Some(recorder) = app.hotkey_recorder_mut() {
+                recorder.error = Some(error.to_string());
+            }
+        }
+    }
+}
+
 /// Runs a palette command. Gated commands mirror their shortcut rules
 /// so the palette never opens a dialog behind another one.
 fn execute_palette_command(app: &mut App, command: palette::PaletteCommand) {
@@ -611,6 +743,35 @@ fn track_content_width(app: &mut App, page: ratatui::layout::Rect) {
         .set_content_width(content.width.saturating_sub(4));
 }
 
+/// Recorder pointer: hover lights keycaps, clicks toggle them or hit a
+/// chip.
+fn handle_hotkey_recorder_mouse(
+    app: &mut App,
+    mouse: crossterm::event::MouseEvent,
+    area: ratatui::layout::Rect,
+) {
+    use crossterm::event::{MouseButton, MouseEventKind};
+
+    match mouse.kind {
+        MouseEventKind::Moved => {
+            if let Some(recorder) = app.hotkey_recorder_mut() {
+                recorder.hover(area, mouse.column, mouse.row);
+            }
+        }
+        MouseEventKind::Down(MouseButton::Left) => {
+            let action = app
+                .hotkey_recorder_mut()
+                .map(|recorder| recorder.click(area, mouse.column, mouse.row));
+            match action {
+                Some(library::recorder::RecorderAction::Cancel) => app.set_hotkey_recorder(None),
+                Some(library::recorder::RecorderAction::Done) => commit_hotkey_recorder(app),
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+}
+
 fn handle_tui_mouse_event(
     app: &mut App,
     mouse: crossterm::event::MouseEvent,
@@ -665,6 +826,14 @@ fn handle_tui_mouse_event(
                 app.library_page_mut().set_detail_ratio(ratio);
             }
         }
+    }
+
+    // honey: the recorder owns the pointer while it is open. The scrim
+    // deliberately ignores clicks so a stray press cannot discard a
+    // half-recorded chord.
+    if app.hotkey_recorder().is_some() {
+        handle_hotkey_recorder_mouse(app, mouse, area);
+        return;
     }
 
     match mouse.kind {
@@ -1080,6 +1249,11 @@ fn handle_tui_mouse_event(
                                 .open_header_menu(library::detail::dropdown_kind_for_button(index));
                         }
                         Some(library::detail::DetailHit::TriggerEditAt(cursor)) => {
+                            // honey: a hotkey row edits through the
+                            // recorder, not the inline text field.
+                            if open_recorder_for_selected(app) {
+                                return;
+                            }
                             let interaction = app.library_page_mut().start_trigger_edit_at(cursor);
                             apply_library_interaction(app, interaction);
                         }
@@ -1145,6 +1319,20 @@ fn handle_tui_mouse_event(
                             }
                         }
                         None => {}
+                    }
+                    // honey: clicking a hotkey alias line opens the
+                    // recorder on that sibling; word aliases keep the
+                    // inline text edit.
+                    if let Some(line) = library::props::alias_line_hit(
+                        full,
+                        app.library_page().split_ratio(),
+                        app.library_page().detail_ratio(),
+                        app.library_page(),
+                        mouse.column,
+                        mouse.row,
+                    ) && open_recorder_for_alias(app, line)
+                    {
+                        return;
                     }
                     match library::props::hit_test(
                         full,
@@ -2534,6 +2722,145 @@ mod tests {
         );
 
         assert!(app.library_page().trigger_edit().is_some());
+    }
+
+    #[test]
+    fn clicking_a_hotkey_header_opens_the_recorder() {
+        let mut app = App::default();
+        seed_single_library_item(&mut app);
+        let layout = terminal::mouse::frame_layout(TEST_AREA);
+        let full = terminal::mouse::library_full_area(layout.page);
+        let page = app.library_page();
+        let content =
+            library::detail::center_content(full, page.split_ratio(), page.detail_ratio());
+
+        handle_tui_mouse_event(&mut app, left_click(content.x + 1, content.y), TEST_AREA);
+
+        let recorder = app.hotkey_recorder().expect("recorder open");
+        assert_eq!(
+            recorder.target,
+            library::recorder::HotkeyTarget::PrimaryTrigger
+        );
+        assert_eq!(recorder.modifiers, vec!["alt".to_string()]);
+        assert_eq!(recorder.main_key.as_deref(), Some("t"));
+        assert!(app.library_page().trigger_edit().is_none());
+    }
+
+    #[test]
+    fn clicking_a_hotkey_alias_line_opens_the_recorder_on_that_sibling() {
+        let mut app = App::default();
+        app.library_page_mut()
+            .replace_items(vec![LibraryTrigger::single(TriggerListItem {
+                id: "test".to_string(),
+                description: None,
+                invocations: vec![
+                    hotkey_alias("test", "ctrl+k"),
+                    hotkey_alias("test", "alt+t"),
+                ],
+                display: "alt+t".to_string(),
+                output: "test".to_string(),
+                action_type: "text".to_string(),
+                target_os: "win".to_string(),
+                only_apps: None,
+                except_apps: None,
+                auto_case: false,
+                is_enabled: true,
+                usage_count: 0,
+                last_used_at: None,
+                created_at: 0,
+                tags: "[]".to_string(),
+                script_content: None,
+                interpreter: None,
+                behavior: None,
+            })]);
+        let layout = terminal::mouse::frame_layout(TEST_AREA);
+        let full = terminal::mouse::library_full_area(layout.page);
+        let page = app.library_page();
+        let content = library::props::props_content(full, page.split_ratio(), page.detail_ratio());
+        let row = (content.y..content.y + content.height)
+            .find(|row| {
+                library::props::alias_line_hit(
+                    full,
+                    page.split_ratio(),
+                    page.detail_ratio(),
+                    page,
+                    content.x,
+                    *row,
+                ) == Some(0)
+            })
+            .expect("alias line");
+
+        handle_tui_mouse_event(&mut app, left_click(content.x + 1, row), TEST_AREA);
+
+        let recorder = app.hotkey_recorder().expect("recorder open");
+        assert_eq!(
+            recorder.target,
+            library::recorder::HotkeyTarget::AliasIndex(0)
+        );
+        assert_eq!(recorder.chord().as_deref(), Some("ctrl+k"));
+    }
+
+    #[test]
+    fn recording_captures_the_global_shortcuts() {
+        let mut app = App::default();
+        app.set_hotkey_recorder(Some(library::recorder::HotkeyRecorderState::new(
+            library::recorder::HotkeyTarget::PrimaryTrigger,
+        )));
+
+        handle_tui_key_event(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+        );
+        assert!(!app.should_quit());
+        assert_eq!(
+            app.hotkey_recorder().and_then(|state| state.chord()),
+            Some("ctrl+c".to_string())
+        );
+
+        handle_tui_key_event(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL),
+        );
+        assert!(!app.palette_open());
+        assert_eq!(
+            app.hotkey_recorder().and_then(|state| state.chord()),
+            Some("ctrl+p".to_string())
+        );
+    }
+
+    #[test]
+    fn esc_discards_the_recording() {
+        let mut app = App::default();
+        seed_single_library_item(&mut app);
+        app.set_hotkey_recorder(Some(library::recorder::HotkeyRecorderState::prefilled(
+            library::recorder::HotkeyTarget::PrimaryTrigger,
+            "alt+f6",
+        )));
+
+        handle_tui_key_event(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+        assert!(app.hotkey_recorder().is_none());
+        assert_eq!(
+            app.library_page()
+                .selected_index()
+                .and_then(|index| app.library_page().item_at_filtered(index))
+                .map(|item| item.trigger().to_string()),
+            Some("alt+t".to_string())
+        );
+    }
+
+    #[test]
+    fn recording_ignores_clicks_outside_the_popup() {
+        let mut app = App::default();
+        seed_single_library_item(&mut app);
+        app.set_hotkey_recorder(Some(library::recorder::HotkeyRecorderState::prefilled(
+            library::recorder::HotkeyTarget::PrimaryTrigger,
+            "alt+f6",
+        )));
+
+        handle_tui_mouse_event(&mut app, left_click(0, 0), TEST_AREA);
+
+        assert!(app.hotkey_recorder().is_some());
     }
 
     #[test]

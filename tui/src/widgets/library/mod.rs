@@ -5,6 +5,7 @@ pub mod icons;
 pub mod list;
 pub mod modals;
 pub mod props;
+pub mod recorder;
 pub mod search;
 pub mod state;
 pub(crate) use actions::*;
