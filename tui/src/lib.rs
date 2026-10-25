@@ -360,6 +360,7 @@ fn render_page_content(
         app.library_page(),
         app.toggle_animations(),
         app.toggle_hover(),
+        app.props_hover(),
     );
 }
 
@@ -570,6 +571,7 @@ fn handle_tui_mouse_event(
             handle_tui_key_event(app, scroll_key(mouse.kind == MouseEventKind::ScrollDown));
         }
         MouseEventKind::Moved => {
+            app.set_props_hover(None);
             if app.library_page().tags_menu_open() {
                 let layout = terminal::mouse::frame_layout(area);
                 let full = terminal::mouse::library_full_area(layout.page);
@@ -656,12 +658,21 @@ fn handle_tui_mouse_event(
                     mouse.column,
                     mouse.row,
                 );
+                let add_hover = library::props::add_chip_hit_test(
+                    full,
+                    page.split_ratio(),
+                    page.detail_ratio(),
+                    page,
+                    mouse.column,
+                    mouse.row,
+                );
                 app.library_page_mut().set_divider_hover(hover);
                 app.set_toggle_hover(if header_hover {
                     Some(ToggleId::TriggerEnabled)
                 } else {
                     props_hover
                 });
+                app.set_props_hover(add_hover);
             }
         }
         MouseEventKind::Drag(MouseButton::Left) => {
@@ -998,6 +1009,15 @@ fn handle_tui_mouse_event(
                             apply_library_interaction(app, flush);
                             app.library_page_mut()
                                 .open_header_menu(library::HeaderMenuKind::Platform);
+                        }
+                        // honey: the Alias row has no separate add editor;
+                        // the chip opens the existing inline alias edit.
+                        Some(library::props::PropsHit::Alias) => {
+                            let flush = app.library_page_mut().commit_edit();
+                            apply_library_interaction(app, flush);
+                            let interaction =
+                                app.library_page_mut().start_trigger_edit_at(usize::MAX);
+                            apply_library_interaction(app, interaction);
                         }
                         Some(library::props::PropsHit::UsageToggle) => {
                             app.library_page_mut().toggle_usage();
@@ -2093,6 +2113,54 @@ mod tests {
 
         assert!(layout.create_split > 0.5);
         assert_eq!(layout.create_split, app.library_page().create_split_ratio());
+    }
+
+    #[test]
+    fn hovering_empty_property_chip_sets_add_hover() {
+        let mut app = App::default();
+        seed_single_library_item(&mut app);
+        let layout = terminal::mouse::frame_layout(TEST_AREA);
+        let full = terminal::mouse::library_full_area(layout.page);
+        let page = app.library_page();
+        let content = library::props::props_content(full, page.split_ratio(), page.detail_ratio());
+        let chip_x = content.x + content.width - 1;
+
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(chip_x, content.y + 4, MouseEventKind::Moved),
+            TEST_AREA,
+        );
+        assert_eq!(app.props_hover(), Some(library::props::PropsHit::Allow));
+
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(content.x, content.y + 4, MouseEventKind::Moved),
+            TEST_AREA,
+        );
+        assert_eq!(app.props_hover(), None);
+    }
+
+    #[test]
+    fn clicking_alias_add_chip_starts_inline_edit() {
+        let mut app = App::default();
+        seed_single_library_item(&mut app);
+        let layout = terminal::mouse::frame_layout(TEST_AREA);
+        let full = terminal::mouse::library_full_area(layout.page);
+        let page = app.library_page();
+        let content = library::props::props_content(full, page.split_ratio(), page.detail_ratio());
+        let chip_x = content.x + content.width - 1;
+
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(
+                chip_x,
+                content.y + 8,
+                MouseEventKind::Down(MouseButton::Left),
+            ),
+            TEST_AREA,
+        );
+
+        assert!(app.library_page().trigger_edit().is_some());
     }
 
     #[test]

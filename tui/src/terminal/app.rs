@@ -4,6 +4,7 @@ use crate::layout_store::TuiLayout;
 use crate::theme::Theme;
 use crate::theme::default::DARK_THEME;
 use crate::widgets::library::LibraryPageState;
+use crate::widgets::library::props::PropsHit;
 use crate::widgets::settings::state::SettingsPageState;
 use crate::widgets::toggle::{ToggleAnimations, ToggleId};
 
@@ -17,6 +18,7 @@ pub(crate) struct App {
     current_theme: &'static Theme,
     toggle_animations: ToggleAnimations,
     toggle_hover: Option<ToggleId>,
+    props_hover: Option<PropsHit>,
     saved_layout: TuiLayout,
 }
 
@@ -31,6 +33,7 @@ impl Default for App {
             current_theme: &DARK_THEME,
             toggle_animations: ToggleAnimations::default(),
             toggle_hover: None,
+            props_hover: None,
             saved_layout: TuiLayout::default(),
         }
     }
@@ -62,12 +65,14 @@ impl App {
     pub(crate) fn open_settings_overlay(&mut self) {
         self.settings_overlay_open = true;
         self.toggle_hover = None;
+        self.props_hover = None;
     }
 
     pub(crate) fn close_settings_overlay(&mut self) {
         self.settings_overlay_open = false;
         self.settings_page.clear_modal();
         self.toggle_hover = None;
+        self.props_hover = None;
     }
 
     pub(crate) const fn toggle_animations(&self) -> &ToggleAnimations {
@@ -88,6 +93,14 @@ impl App {
 
     pub(crate) fn set_toggle_hover(&mut self, hover: Option<ToggleId>) {
         self.toggle_hover = hover;
+    }
+
+    pub(crate) const fn props_hover(&self) -> Option<PropsHit> {
+        self.props_hover
+    }
+
+    pub(crate) fn set_props_hover(&mut self, hover: Option<PropsHit>) {
+        self.props_hover = hover;
     }
 
     /// Current pane layout, normalized so a stray non-finite ratio can

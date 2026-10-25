@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **New Trigger Header**: The New Trigger overlay now separates its title from the form with a neutral grey header band and a divider that runs from the header to the bottom of the overlay.
 
 ### Changed
+- **Property Buttons**: Empty property rows now show a + button.
 - **Search Bar**: Shortened the placeholder to Search.
 - **Wrapped Search Queries**: Long search queries now wrap across up to three lines and scroll vertically instead of sliding sideways.
 - **Unified Popup Headers**: Every TUI popup now uses the New Trigger header band and spacing.

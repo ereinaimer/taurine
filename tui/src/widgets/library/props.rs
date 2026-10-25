@@ -16,6 +16,10 @@ use crate::widgets::toggle::{
 };
 use crate::widgets::util;
 
+/// Compact add button shown when a property has no value.
+pub(crate) const ADD_CHIP: &str = " + ";
+pub(crate) const ADD_CHIP_WIDTH: u16 = 3;
+
 /// Right-pane content: two cells of padding on each side, mirroring
 /// the list pane. Shared by rendering and mouse hit-testing.
 pub(crate) fn props_content(area: Rect, list_ratio: f32, props_ratio: f32) -> Rect {
@@ -35,6 +39,7 @@ pub(crate) fn render_props(
     state: &crate::widgets::library::state::LibraryPageState,
     animations: &ToggleAnimations,
     hovered: Option<ToggleId>,
+    hovered_add: Option<PropsHit>,
 ) {
     let content = props_content(area, state.split_ratio(), state.detail_ratio());
     let Some(index) = state.selected_index() else {
@@ -52,6 +57,7 @@ pub(crate) fn render_props(
         None,
         animations,
         hovered,
+        hovered_add,
         ToggleId::PropAutoCase,
     );
 }
@@ -69,6 +75,7 @@ pub(crate) fn render_props_content(
     focused: Option<PropsHit>,
     animations: &ToggleAnimations,
     hovered: Option<ToggleId>,
+    hovered_add: Option<PropsHit>,
     auto_case_id: ToggleId,
 ) {
     if content.width == 0 || content.height == 0 {
@@ -100,7 +107,19 @@ pub(crate) fn render_props_content(
     for (position, (label, value)) in rows.iter().take(split_at).enumerate() {
         let position = position as u16;
         if Some(position) == alias_at {
-            render_alias_block(frame, content, theme, &alias_text, position);
+            if alias_text.len() == 1 && alias_text[0] == EMPTY_TOKEN {
+                render_add_chip_row(
+                    frame,
+                    content,
+                    theme,
+                    position.saturating_mul(2).saturating_add(2),
+                    label,
+                    hovered_add == Some(PropsHit::Alias),
+                    focused == Some(PropsHit::Alias),
+                );
+            } else {
+                render_alias_block(frame, content, theme, &alias_text, position);
+            }
             continue;
         }
         // Single blank line between items.
@@ -125,6 +144,20 @@ pub(crate) fn render_props_content(
                 );
             }
             PropertyValue::Text(value) => {
+                if value.as_str() == EMPTY_TOKEN
+                    && let Some(hit) = row_focus(label)
+                {
+                    render_add_chip_row(
+                        frame,
+                        content,
+                        theme,
+                        offset,
+                        label,
+                        hovered_add == Some(hit),
+                        is_focused,
+                    );
+                    continue;
+                }
                 render_row(frame, content, theme, offset, label, value, is_focused);
             }
         }
@@ -140,15 +173,26 @@ pub(crate) fn render_props_content(
     // honey: wrapped tag lines push the usage toggle down, mirroring aliases.
     let tag_extra = tag_text.len().saturating_sub(1) as u16;
     if tags_at < content.height {
-        render_tag_block(
-            frame,
-            content,
-            theme,
-            item,
-            &tag_text,
-            tags_at,
-            focused == Some(PropsHit::Tags),
-        );
+        if item.tags().is_empty() {
+            render_add_chip_row(
+                frame,
+                content,
+                theme,
+                tags_at,
+                "Tags",
+                hovered_add == Some(PropsHit::Tags),
+                focused == Some(PropsHit::Tags),
+            );
+        } else {
+            render_tag_block(
+                frame,
+                content,
+                theme,
+                &tag_text,
+                tags_at,
+                focused == Some(PropsHit::Tags),
+            );
+        }
     }
     if let Some(expanded) = usage {
         let toggle_at = usage_toggle_offset(item)
@@ -181,13 +225,14 @@ pub(crate) fn render_props_content(
     }
 }
 
-/// Which property row a focused create-form field points at.
+/// Which property row a focused field points at.
 fn row_focus(label: &str) -> Option<PropsHit> {
     match label {
         "Auto case" => Some(PropsHit::AutoCase),
         "Confirm" => Some(PropsHit::Confirm),
         "Allow on" => Some(PropsHit::Allow),
         "Block on" => Some(PropsHit::Block),
+        "Alias" => Some(PropsHit::Alias),
         "Platform" => Some(PropsHit::Platform),
         _ => None,
     }
@@ -256,20 +301,16 @@ pub(crate) fn tag_extra_lines(item: &LibraryTrigger, width: u16) -> u16 {
 }
 
 /// Tag block: first line shares the row with the dim label like
-/// every other row; continuations run full width in tag colors.
-/// Mirrors the alias block.
+/// every other row; continuations right-align under it. Tags keep
+/// their position color as foreground text with no background.
 fn render_tag_block(
     frame: &mut Frame,
     content: Rect,
     theme: &Theme,
-    item: &LibraryTrigger,
     lines: &[String],
     offset: u16,
     focused: bool,
 ) {
-    // honey: color follows the tag's position, matching the tags
-    // overlay; the empty token and the overflow marker stay neutral.
-    let shown = item.tags().len().min(lines.len());
     for (index, line) in lines.iter().enumerate() {
         let row_offset = offset.saturating_add(index as u16);
         if row_offset >= content.height {
@@ -281,9 +322,8 @@ fn render_tag_block(
             width: content.width,
             height: 1,
         };
-        // honey: color follows the tag's position, matching the tags
-        // overlay; the empty token and the overflow marker stay neutral.
-        let color = if item.tags().is_empty() || index >= shown {
+        // The overflow marker is not a tag; keep it neutral.
+        let color = if line == "." {
             theme.text
         } else {
             tag_color(theme, index)
@@ -292,24 +332,25 @@ fn render_tag_block(
         if focused {
             style = style.add_modifier(Modifier::BOLD);
         }
+        let width = line.chars().count() as u16;
         if index == 0 {
-            let width = line.chars().count();
             frame.render_widget(
                 Paragraph::new(edge_line(
                     "Tags",
                     vec![Span::styled(line.clone(), style)],
-                    width,
+                    width as usize,
                     row.width,
                     theme,
                 )),
                 row,
             );
         } else {
-            // honey: continuations right-align under the first line,
-            // mirroring the alias block.
-            let pad = content.width.saturating_sub(line.chars().count() as u16) as usize;
+            let pad = content.width.saturating_sub(width) as usize;
             frame.render_widget(
-                Paragraph::new(Line::from(format!("{}{}", " ".repeat(pad), line))).style(style),
+                Paragraph::new(Line::from(vec![
+                    Span::raw(" ".repeat(pad)),
+                    Span::styled(line.clone(), style),
+                ])),
                 row,
             );
         }
@@ -340,6 +381,44 @@ fn render_toggle(
             width: content.width,
             height: 1,
         },
+    );
+}
+
+fn add_chip_style(theme: &Theme, hovered: bool, focused: bool) -> Style {
+    Style::default().fg(theme.text).bg(if hovered || focused {
+        theme.button.active_bg
+    } else {
+        theme.button.inactive_bg
+    })
+}
+
+fn render_add_chip_row(
+    frame: &mut Frame,
+    content: Rect,
+    theme: &Theme,
+    offset: u16,
+    label: &str,
+    hovered: bool,
+    focused: bool,
+) {
+    let row = Rect {
+        x: content.x,
+        y: content.y.saturating_add(offset),
+        width: content.width,
+        height: 1,
+    };
+    frame.render_widget(
+        Paragraph::new(edge_line(
+            label,
+            vec![Span::styled(
+                ADD_CHIP,
+                add_chip_style(theme, hovered, focused),
+            )],
+            ADD_CHIP_WIDTH as usize,
+            row.width,
+            theme,
+        )),
+        row,
     );
 }
 
@@ -428,6 +507,7 @@ pub(crate) enum PropsHit {
     Confirm,
     Allow,
     Block,
+    Alias,
     Platform,
     Tags,
     UsageToggle,
@@ -528,6 +608,12 @@ pub(crate) fn hit_test_content(
             return Some(PropsHit::Platform);
         }
     }
+    if let Some(alias) = label_offset(item, content.width, "Alias") {
+        let alias = content.y.saturating_add(alias);
+        if row == alias && row < content.y.saturating_add(content.height) {
+            return Some(PropsHit::Alias);
+        }
+    }
     for (label, hit) in [("Allow on", PropsHit::Allow), ("Block on", PropsHit::Block)] {
         if let Some(offset) = label_offset(item, content.width, label) {
             let offset = content.y.saturating_add(offset);
@@ -556,6 +642,72 @@ pub(crate) fn hit_test_content(
         }
     }
     None
+}
+
+/// Hover hit-test for an empty property's add chip. Only the three
+/// rightmost cells count; the rest of the row remains a normal click
+/// target but does not brighten the chip.
+pub(crate) fn add_chip_hit_test(
+    area: Rect,
+    list_ratio: f32,
+    props_ratio: f32,
+    state: &crate::widgets::library::state::LibraryPageState,
+    column: u16,
+    row: u16,
+) -> Option<PropsHit> {
+    let content = props_content(area, list_ratio, props_ratio);
+    let selected = state.selected_index()?;
+    let item = state.item_at_filtered(selected)?;
+    add_chip_hit_test_content(content, item, column, row)
+}
+
+pub(crate) fn add_chip_hit_test_content(
+    content: Rect,
+    item: &LibraryTrigger,
+    column: u16,
+    row: u16,
+) -> Option<PropsHit> {
+    if content.width < ADD_CHIP_WIDTH || content.height == 0 {
+        return None;
+    }
+    let hit = hit_test_content(content, item, column, row, false)?;
+    if !matches!(
+        hit,
+        PropsHit::Allow | PropsHit::Block | PropsHit::Alias | PropsHit::Tags
+    ) || !add_target_is_empty(item, hit, content.width)
+    {
+        return None;
+    }
+    let chip = Rect {
+        x: content.x.saturating_add(content.width - ADD_CHIP_WIDTH),
+        y: row,
+        width: ADD_CHIP_WIDTH,
+        height: 1,
+    };
+    crate::terminal::mouse::contains(chip, column, row).then_some(hit)
+}
+
+fn add_target_is_empty(item: &LibraryTrigger, hit: PropsHit, width: u16) -> bool {
+    match hit {
+        PropsHit::Allow => property_text_is_empty(item, "Allow on"),
+        PropsHit::Block => property_text_is_empty(item, "Block on"),
+        PropsHit::Alias => {
+            let lines = alias_text_lines(
+                item,
+                edge_value_width("Alias", width) as usize,
+                width as usize,
+            );
+            lines.len() == 1 && lines[0] == EMPTY_TOKEN
+        }
+        PropsHit::Tags => item.tags().is_empty(),
+        _ => false,
+    }
+}
+
+fn property_text_is_empty(item: &LibraryTrigger, label: &str) -> bool {
+    info_rows(item).iter().any(|(row, value)| {
+        *row == label && matches!(value, PropertyValue::Text(text) if text == EMPTY_TOKEN)
+    })
 }
 
 /// Row offset of the platform property, if present: label position

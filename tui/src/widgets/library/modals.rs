@@ -518,6 +518,7 @@ pub(crate) fn create_option_hit(
             }
             super::props::PropsHit::Allow => Some(CreateHit::Field(LibraryCreateModalField::Allow)),
             super::props::PropsHit::Block => Some(CreateHit::Field(LibraryCreateModalField::Block)),
+            super::props::PropsHit::Alias => None,
             super::props::PropsHit::Platform => Some(CreateHit::Field(LibraryCreateModalField::Os)),
             super::props::PropsHit::Tags => Some(CreateHit::Field(LibraryCreateModalField::Tags)),
             super::props::PropsHit::UsageToggle => None,
@@ -717,6 +718,7 @@ fn render_library_create_modal(
             create_props_focus(focused),
             animations,
             hovered,
+            None,
             ToggleId::CreateAutoCase,
         );
     }

@@ -1658,6 +1658,142 @@ fn wrapped_tag_block_shifts_usage_toggle_down() {
     }
 }
 
+fn draw_props(
+    state: &LibraryPageState,
+    hovered_add: Option<props::PropsHit>,
+) -> ratatui::buffer::Buffer {
+    use crate::theme::default::DARK_THEME;
+    use crate::widgets::toggle::{ToggleAnimations, ToggleId};
+    use ratatui::{Terminal, backend::TestBackend};
+
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let content = props::props_content(area, state.split_ratio(), state.detail_ratio());
+    let item = state
+        .item_at_filtered(state.selected_index().expect("selected"))
+        .expect("item")
+        .clone();
+    let backend = TestBackend::new(area.width, area.height);
+    let mut terminal = Terminal::new(backend).expect("test terminal");
+    terminal
+        .draw(|frame| {
+            props::render_props_content(
+                frame,
+                content,
+                &DARK_THEME,
+                &item,
+                Some(false),
+                None,
+                &ToggleAnimations::default(),
+                None,
+                hovered_add,
+                ToggleId::PropAutoCase,
+            );
+        })
+        .expect("test draw");
+    terminal.backend().buffer().clone()
+}
+
+#[test]
+fn empty_properties_render_add_chips() {
+    use crate::theme::default::DARK_THEME;
+
+    let state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let content = props::props_content(area, state.split_ratio(), state.detail_ratio());
+    let buffer = draw_props(&state, None);
+    let chip_x = content.x + content.width - 3;
+
+    // Allow on, Block on, Alias, Tags.
+    for offset in [4u16, 6, 8, 12] {
+        let y = content.y + offset;
+        assert_eq!(buffer[(chip_x, y)].symbol(), " ");
+        assert_eq!(buffer[(chip_x + 1, y)].symbol(), "+");
+        assert_eq!(buffer[(chip_x + 2, y)].symbol(), " ");
+        for x in chip_x..chip_x + 3 {
+            assert_eq!(buffer[(x, y)].bg, DARK_THEME.button.inactive_bg);
+            assert_eq!(buffer[(x, y)].fg, DARK_THEME.text);
+        }
+    }
+}
+
+#[test]
+fn add_chip_hover_brightens_only_hovered_row() {
+    use crate::theme::default::DARK_THEME;
+
+    let state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let content = props::props_content(area, state.split_ratio(), state.detail_ratio());
+    let buffer = draw_props(&state, Some(props::PropsHit::Allow));
+    let chip_x = content.x + content.width - 3;
+
+    for x in chip_x..chip_x + 3 {
+        assert_eq!(buffer[(x, content.y + 4)].bg, DARK_THEME.button.active_bg);
+        assert_eq!(buffer[(x, content.y + 6)].bg, DARK_THEME.button.inactive_bg);
+    }
+}
+
+#[test]
+fn tags_render_as_colored_text() {
+    use crate::theme::default::DARK_THEME;
+    use ratatui::style::Color;
+
+    let mut state = LibraryPageState::default();
+    state.replace_items(vec![LibraryTrigger::single(tagged_list_item(
+        "id-tags",
+        "[\"dev\",\"prompt\"]",
+    ))]);
+    let item = state.item_at_filtered(0).expect("item");
+    let tags_at = props::usage_toggle_offset(item) - 2;
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let content = props::props_content(area, state.split_ratio(), state.detail_ratio());
+    let buffer = draw_props(&state, None);
+
+    for (row_offset, text, color) in [
+        (0u16, "#dev", props::tag_color(&DARK_THEME, 0)),
+        (1, "#prompt", props::tag_color(&DARK_THEME, 1)),
+    ] {
+        let width = text.chars().count() as u16;
+        let x = content.x + content.width - width;
+        let y = content.y + tags_at + row_offset;
+        let shown: String = (0..width).map(|i| buffer[(x + i, y)].symbol()).collect();
+        assert_eq!(shown, text);
+        for i in 0..width {
+            assert_eq!(buffer[(x + i, y)].fg, color);
+            assert_eq!(buffer[(x + i, y)].bg, Color::Reset);
+        }
+    }
+}
+
+#[test]
+fn add_chip_hit_only_on_three_cell_button() {
+    let state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let content = props::props_content(area, state.split_ratio(), state.detail_ratio());
+    let chip_x = content.x + content.width - 1;
+    let ratios = (state.split_ratio(), state.detail_ratio());
+
+    assert_eq!(
+        props::add_chip_hit_test(area, ratios.0, ratios.1, &state, chip_x, content.y + 4),
+        Some(props::PropsHit::Allow)
+    );
+    assert_eq!(
+        props::add_chip_hit_test(area, ratios.0, ratios.1, &state, content.x, content.y + 4),
+        None
+    );
+    assert_eq!(
+        props::add_chip_hit_test(area, ratios.0, ratios.1, &state, chip_x, content.y + 8),
+        Some(props::PropsHit::Alias)
+    );
+    assert_eq!(
+        props::add_chip_hit_test(area, ratios.0, ratios.1, &state, chip_x, content.y + 12),
+        Some(props::PropsHit::Tags)
+    );
+    assert_eq!(
+        props::add_chip_hit_test(area, ratios.0, ratios.1, &state, chip_x, content.y + 2),
+        None
+    );
+}
+
 #[test]
 fn usage_toggle_starts_collapsed_and_flips() {
     let mut state = sample_state();
@@ -2535,6 +2671,7 @@ fn search_bar_renders_wrapped_query_inside_the_left_pane() {
                 &crate::theme::default::DARK_THEME,
                 &state,
                 &crate::widgets::toggle::ToggleAnimations::default(),
+                None,
                 None,
             );
         })
