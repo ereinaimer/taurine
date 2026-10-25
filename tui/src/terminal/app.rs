@@ -1,6 +1,9 @@
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+use tachyonfx::Effect;
 
 use crate::layout_store::TuiLayout;
+use crate::screen_fx;
 use crate::theme::Theme;
 use crate::theme::default::DARK_THEME;
 use crate::widgets::library::LibraryPageState;
@@ -8,7 +11,7 @@ use crate::widgets::library::props::PropsHit;
 use crate::widgets::settings::state::SettingsPageState;
 use crate::widgets::toggle::{ToggleAnimations, ToggleId};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 pub(crate) struct App {
     library_page: LibraryPageState,
     settings_page: SettingsPageState,
@@ -20,6 +23,9 @@ pub(crate) struct App {
     toggle_hover: Option<ToggleId>,
     props_hover: Option<PropsHit>,
     saved_layout: TuiLayout,
+    transition_effect: Option<Effect>,
+    last_frame_instant: Instant,
+    is_closing: bool,
 }
 
 impl Default for App {
@@ -35,6 +41,9 @@ impl Default for App {
             toggle_hover: None,
             props_hover: None,
             saved_layout: TuiLayout::default(),
+            transition_effect: None,
+            last_frame_instant: Instant::now(),
+            is_closing: false,
         }
     }
 }
@@ -150,6 +159,46 @@ impl App {
         self.should_quit = true;
     }
 
+    pub(crate) const fn is_closing(&self) -> bool {
+        self.is_closing
+    }
+
+    pub(crate) const fn transition_active(&self) -> bool {
+        self.transition_effect.is_some()
+    }
+
+    pub(crate) fn begin_launch_transition(&mut self) {
+        self.is_closing = false;
+        self.transition_effect = Some(screen_fx::launch_effect(self.current_theme));
+        self.last_frame_instant = Instant::now();
+    }
+
+    pub(crate) fn begin_close_transition(&mut self) {
+        if self.is_closing {
+            return;
+        }
+        self.is_closing = true;
+        self.transition_effect = Some(screen_fx::close_effect(self.current_theme));
+        self.last_frame_instant = Instant::now();
+    }
+
+    pub(crate) fn frame_elapsed(&mut self) -> Duration {
+        let now = Instant::now();
+        let elapsed = now.saturating_duration_since(self.last_frame_instant);
+        self.last_frame_instant = now;
+        elapsed
+    }
+
+    pub(crate) fn transition_effect_mut(&mut self) -> Option<&mut Effect> {
+        self.transition_effect.as_mut()
+    }
+
+    pub(crate) fn clear_finished_transition(&mut self) {
+        if self.transition_effect.as_ref().is_some_and(Effect::done) {
+            self.transition_effect = None;
+        }
+    }
+
     pub(crate) fn notification(&self) -> Option<&str> {
         self.notification.as_deref()
     }
@@ -187,6 +236,28 @@ mod tests {
         let mut app = App::default();
         app.request_quit();
         assert!(app.should_quit());
+    }
+
+    #[test]
+    fn begin_launch_transition_starts_effect() {
+        let mut app = App::default();
+        assert!(!app.transition_active());
+
+        app.begin_launch_transition();
+
+        assert!(app.transition_active());
+        assert!(!app.is_closing());
+    }
+
+    #[test]
+    fn begin_close_transition_starts_closing_effect() {
+        let mut app = App::default();
+
+        app.begin_close_transition();
+
+        assert!(app.is_closing());
+        assert!(app.transition_active());
+        assert!(!app.should_quit());
     }
 
     #[test]

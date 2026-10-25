@@ -4,6 +4,7 @@
 mod layout_store;
 mod overlay;
 mod overlay_fx;
+mod screen_fx;
 pub mod terminal;
 mod terminal_title;
 mod theme;
@@ -52,6 +53,7 @@ pub fn run() -> taurine_core::Result<()> {
 
     let mut terminal = TerminalGuard::new()?;
     select_first_visible_library_row(&mut app, &mut terminal);
+    app.begin_launch_transition();
     setup_signal_handler(|code| std::process::exit(code));
     let mut events = EventHandler::new(EVENT_TICK_RATE);
     let mut last_area = ratatui::layout::Rect::default();
@@ -59,11 +61,20 @@ pub fn run() -> taurine_core::Result<()> {
     let mut previous_rects = Vec::new();
     loop {
         let animating = app.advance_toggle_animations(Instant::now());
+        let elapsed = app.frame_elapsed();
         terminal.terminal.draw(|frame| {
             let area = frame.area();
             last_area = area;
             render_app(frame, &app, area);
+            if let Some(effect) = app.transition_effect_mut() {
+                effect.process(elapsed.into(), frame.buffer_mut(), area);
+            }
         })?;
+        app.clear_finished_transition();
+        if app.is_closing() && !app.transition_active() {
+            persist_layout_if_needed(&mut app, true);
+            break;
+        }
 
         if previous_layers.is_any_open() {
             let layout = terminal::mouse::frame_layout(last_area);
@@ -71,8 +82,14 @@ pub fn run() -> taurine_core::Result<()> {
             previous_rects = overlay_fx::transition_rects(&app, last_area, full);
         }
 
-        let event = if animating {
-            events.next_with_timeout(TOGGLE_ANIM_FRAME)?
+        let transition_active = app.transition_active();
+        let event = if animating || transition_active {
+            let frame = if transition_active {
+                screen_fx::SCREEN_FX_FRAME
+            } else {
+                TOGGLE_ANIM_FRAME
+            };
+            events.next_with_timeout(frame)?
         } else {
             events.next()?
         };
@@ -376,6 +393,10 @@ fn handle_tui_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
             .modifiers
             .contains(crossterm::event::KeyModifiers::CONTROL)
     {
+        if app.is_closing() {
+            app.request_quit();
+            return;
+        }
         if !app.library_page().is_modal_open()
             && !app.is_settings_overlay_open()
             && app.library_page().has_content_selection()
@@ -386,7 +407,7 @@ fn handle_tui_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
         }
         let interaction = app.library_page_mut().commit_edit();
         apply_library_interaction(app, interaction);
-        app.request_quit();
+        app.begin_close_transition();
         return;
     }
 
@@ -2558,42 +2579,54 @@ mod tests {
         assert!(!app.library_page().is_modal_open());
     }
 
-    #[test]
-    fn pressing_ctrl_c_quits_from_library() {
-        let mut app = App::default();
-
-        handle_tui_key_event(
-            &mut app,
-            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
-        );
-
-        assert!(app.should_quit());
+    fn ctrl_c() -> KeyEvent {
+        KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)
     }
 
     #[test]
-    fn pressing_ctrl_c_quits_while_search_is_active() {
+    fn ctrl_c_starts_close_animation_from_library() {
+        let mut app = App::default();
+
+        handle_tui_key_event(&mut app, ctrl_c());
+
+        assert!(!app.should_quit());
+        assert!(app.is_closing());
+        assert!(app.transition_active());
+    }
+
+    #[test]
+    fn ctrl_c_starts_close_animation_while_search_is_active() {
         let mut app = App::default();
         handle_tui_key_event(&mut app, plain_key('/'));
 
-        handle_tui_key_event(
-            &mut app,
-            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
-        );
+        handle_tui_key_event(&mut app, ctrl_c());
 
-        assert!(app.should_quit());
+        assert!(!app.should_quit());
+        assert!(app.is_closing());
+        assert!(app.transition_active());
     }
 
     #[test]
-    fn pressing_ctrl_c_quits_while_modal_is_open() {
+    fn ctrl_c_starts_close_animation_while_modal_is_open() {
         let mut app = App::default();
         seed_single_library_item(&mut app);
         app.library_page_mut().open_delete_modal_for_selected();
         assert!(app.library_page().is_modal_open());
 
-        handle_tui_key_event(
-            &mut app,
-            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
-        );
+        handle_tui_key_event(&mut app, ctrl_c());
+
+        assert!(!app.should_quit());
+        assert!(app.is_closing());
+        assert!(app.transition_active());
+    }
+
+    #[test]
+    fn second_ctrl_c_quits_immediately() {
+        let mut app = App::default();
+        handle_tui_key_event(&mut app, ctrl_c());
+        assert!(!app.should_quit());
+
+        handle_tui_key_event(&mut app, ctrl_c());
 
         assert!(app.should_quit());
     }
