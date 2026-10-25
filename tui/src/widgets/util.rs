@@ -117,7 +117,7 @@ pub(crate) fn overlay_body(popup: Rect) -> Rect {
 pub(crate) const OVERLAY_HEADER_ROWS: u16 = 3;
 
 /// Flat popup surface; the header band paints over the top rows.
-const OVERLAY_BG: Color = Color::Rgb(0x14, 0x14, 0x14);
+pub(crate) const OVERLAY_BG: Color = Color::Rgb(0x14, 0x14, 0x14);
 
 /// Shared popup chrome: flat fill, header band, title row, and the
 /// content rect below the band and its one-row gap.

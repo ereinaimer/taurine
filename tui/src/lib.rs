@@ -260,7 +260,14 @@ fn render_app(frame: &mut ratatui::Frame, app: &App, area: ratatui::layout::Rect
         }
     }
     if let Some(palette) = app.palette() {
-        palette::render(frame, area, theme, palette, app.daemon_paused());
+        palette::render(
+            frame,
+            area,
+            theme,
+            palette,
+            app.daemon_paused(),
+            &app.settings_page().settings().pause_hotkey,
+        );
     }
 }
 
