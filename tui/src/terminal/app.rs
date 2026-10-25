@@ -9,6 +9,7 @@ use crate::theme::default::DARK_THEME;
 use crate::widgets::library::LibraryPageState;
 use crate::widgets::library::props::PropsHit;
 use crate::widgets::library::recorder::HotkeyRecorderState;
+use crate::widgets::nav_rail::NavRailState;
 use crate::widgets::palette::CommandPaletteState;
 use crate::widgets::settings::state::SettingsPageState;
 use crate::widgets::toggle::{ToggleAnimations, ToggleId};
@@ -27,6 +28,7 @@ pub(crate) struct App {
     saved_layout: TuiLayout,
     palette: Option<CommandPaletteState>,
     hotkey_recorder: Option<HotkeyRecorderState>,
+    nav_rail: NavRailState,
     /// Cached daemon pause flag: the palette labels its toggle from it,
     /// refreshed when the palette opens and after every transition.
     daemon_paused: bool,
@@ -50,6 +52,7 @@ impl Default for App {
             saved_layout: TuiLayout::default(),
             palette: None,
             hotkey_recorder: None,
+            nav_rail: NavRailState::default(),
             daemon_paused: false,
             transition_effect: None,
             last_frame_instant: Instant::now(),
@@ -134,6 +137,14 @@ impl App {
         self.hotkey_recorder = recorder;
         self.toggle_hover = None;
         self.props_hover = None;
+    }
+
+    pub(crate) const fn nav_rail(&self) -> &NavRailState {
+        &self.nav_rail
+    }
+
+    pub(crate) fn nav_rail_mut(&mut self) -> &mut NavRailState {
+        &mut self.nav_rail
     }
 
     pub(crate) const fn daemon_paused(&self) -> bool {

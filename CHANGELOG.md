@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Command Palette**: Press Ctrl+P to toggle panels, reset the layout, create a trigger, open settings, pause or resume Taurine, restart Taurine, or quit from one menu.
 - **Hotkey Keycaps**: Hotkey triggers and aliases render as split keycap badges in the trigger list, detail header, and properties pane.
 - **Hotkey Recorder**: Click a hotkey trigger or alias to record a new chord on a full on-screen keyboard that lights each key as you press it and echoes the chord as keycaps in the header, with left and right modifiers recorded separately, Cancel and Done buttons, and Backspace to clear.
+- **Navigation Rail**: A collapsible left rail for Home, Library, the command palette, and settings, with a draggable divider that snaps between open and closed and a double-click on the divider to toggle it.
 
 ### Changed
 - **Add Buttons**: Empty property rows and the tag builder use a Nerd Font add icon.

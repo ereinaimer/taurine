@@ -22,6 +22,7 @@ use crate::layout_store::TuiLayout;
 use crate::overlay_fx::OverlayTransition;
 use crate::theme::Theme;
 use crate::widgets::library;
+use crate::widgets::nav_rail::{self, ActivePage, NavRailItem};
 use crate::widgets::palette;
 use crate::widgets::settings;
 use crate::widgets::toggle::{TOGGLE_ANIM_FRAME, ToggleId};
@@ -70,7 +71,7 @@ pub fn run() -> taurine_core::Result<()> {
         terminal.terminal.draw(|frame| {
             let area = frame.area();
             last_area = area;
-            render_app(frame, &app, area);
+            render_app(frame, &mut app, area);
             if let Some(effect) = app.transition_effect_mut() {
                 effect.process(elapsed.into(), frame.buffer_mut(), area);
             }
@@ -82,8 +83,7 @@ pub fn run() -> taurine_core::Result<()> {
         }
 
         if previous_layers.is_any_open() {
-            let layout = terminal::mouse::frame_layout(last_area);
-            let full = terminal::mouse::library_full_area(layout.page);
+            let full = workspace_full(&app, last_area);
             previous_rects = overlay_fx::transition_rects(&app, last_area, full);
         }
 
@@ -111,8 +111,8 @@ pub fn run() -> taurine_core::Result<()> {
         );
         match event {
             Event::Key(key) => {
-                let layout = terminal::mouse::frame_layout(last_area);
-                track_content_width(&mut app, terminal::mouse::library_full_area(layout.page));
+                let full = workspace_full(&app, last_area);
+                track_content_width(&mut app, full);
                 let create_auto_case = app.library_page().create_auto_case();
                 let palette_was_open = app.palette_open();
                 handle_tui_key_event(&mut app, key);
@@ -146,7 +146,7 @@ pub fn run() -> taurine_core::Result<()> {
             play_overlay_open(&mut terminal, &mut app, last_area)?;
         } else if overlay_fx::disappeared(&previous_layers, &next_layers) {
             let closing = overlay_fx::closed_rects(&previous_layers, &next_layers, &previous_rects);
-            play_overlay_close(&mut terminal, &app, last_area, &closing)?;
+            play_overlay_close(&mut terminal, &mut app, last_area, &closing)?;
             previous_rects.clear();
         }
         previous_layers = next_layers;
@@ -178,9 +178,16 @@ fn divider_glyph(
     }
 }
 
+/// Library area after the navigation rail takes its columns. One source
+/// of truth for rendering, hit-testing, and divider drags.
+fn workspace_full(app: &App, area: ratatui::layout::Rect) -> ratatui::layout::Rect {
+    let area = nav_rail::workspace(area, app.nav_rail().collapsed);
+    terminal::mouse::library_full_area(terminal::mouse::frame_layout(area).page)
+}
+
 /// Full frame paint, shared by the main loop and the overlay open sweep
 /// so the transition starts from exactly what is on screen.
-fn render_app(frame: &mut ratatui::Frame, app: &App, area: ratatui::layout::Rect) {
+fn render_app(frame: &mut ratatui::Frame, app: &mut App, area: ratatui::layout::Rect) {
     let theme = app.theme();
 
     frame.render_widget(
@@ -188,9 +195,9 @@ fn render_app(frame: &mut ratatui::Frame, app: &App, area: ratatui::layout::Rect
         area,
     );
 
-    let layout = terminal::mouse::frame_layout(area);
+    let full = workspace_full(app, area);
 
-    render_page_content(frame, layout.page, app, theme);
+    render_page_content(frame, full, app, theme);
 
     if area.height > 0 {
         use ratatui::text::Line;
@@ -199,7 +206,6 @@ fn render_app(frame: &mut ratatui::Frame, app: &App, area: ratatui::layout::Rect
         // other stays on the base border color. Degenerate
         // dividers are never painted, so a parked edge shows
         // one line while staying grabbable.
-        let full = terminal::mouse::library_full_area(layout.page);
         let page = app.library_page();
         let content_divider_row = library::detail::content_divider_row(
             full,
@@ -231,6 +237,8 @@ fn render_app(frame: &mut ratatui::Frame, app: &App, area: ratatui::layout::Rect
         }
     }
 
+    nav_rail::render(frame, area, theme, app.nav_rail_mut());
+
     if let Some(msg) = app.notification() {
         notification::render_notification(frame, area, theme, msg);
     }
@@ -248,7 +256,6 @@ fn render_app(frame: &mut ratatui::Frame, app: &App, area: ratatui::layout::Rect
 
     // honey: modals render last so they sit above panes,
     // dividers, and toasts.
-    let full = terminal::mouse::library_full_area(layout.page);
     if let Some(modal) = app.library_page().modal() {
         library::modals::render_library_modal(
             frame,
@@ -302,8 +309,7 @@ fn play_overlay_open(
 
     use tachyonfx::EffectRenderer;
 
-    let layout = terminal::mouse::frame_layout(area);
-    let full = terminal::mouse::library_full_area(layout.page);
+    let full = workspace_full(app, area);
     let rects: Vec<ratatui::layout::Rect> = overlay_fx::transition_rects(app, area, full)
         .into_iter()
         .filter(|rect| rect.width > 0 && rect.height > 0)
@@ -339,7 +345,7 @@ fn play_overlay_open(
 /// restoring normal screen lighting.
 fn play_overlay_close(
     terminal: &mut TerminalGuard,
-    app: &App,
+    app: &mut App,
     area: ratatui::layout::Rect,
     closing_rects: &[ratatui::layout::Rect],
 ) -> taurine_core::Result<()> {
@@ -401,12 +407,11 @@ fn dim_frame_factor(frame: &mut ratatui::Frame, factor: f32) {
 
 fn render_page_content(
     frame: &mut ratatui::Frame,
-    area: ratatui::layout::Rect,
+    full: ratatui::layout::Rect,
     app: &App,
     theme: &Theme,
 ) {
     // honey: single page now; settings lives as an overlay.
-    let full = terminal::mouse::library_full_area(area);
     library::render_library_content(
         frame,
         full,
@@ -873,8 +878,7 @@ fn handle_tui_mouse_event(
             if modal_open {
                 return;
             }
-            let layout = terminal::mouse::frame_layout(area);
-            let full = terminal::mouse::library_full_area(layout.page);
+            let full = workspace_full(app, area);
             track_content_width(app, full);
             let page = app.library_page();
             if library::detail::detail_contains(
@@ -903,20 +907,32 @@ fn handle_tui_mouse_event(
         }
         MouseEventKind::Moved => {
             app.set_props_hover(None);
+            // honey: the rail is behind every overlay, so hover only
+            // tracks it on the bare workspace.
+            if app.palette_open() || modal_open {
+                app.nav_rail_mut().clear_hover();
+            } else if app.nav_rail().dragging() {
+                app.nav_rail_mut().drag_to(area, mouse.column);
+                return;
+            } else {
+                app.nav_rail_mut().hover_at(area, mouse.column, mouse.row);
+                if app.nav_rail().hovered_item.is_some() || app.nav_rail().hovered_divider() {
+                    app.set_toggle_hover(None);
+                    return;
+                }
+            }
             if app.palette_open() {
                 app.set_toggle_hover(None);
                 return;
             }
             if app.library_page().tags_menu_open() {
-                let layout = terminal::mouse::frame_layout(area);
-                let full = terminal::mouse::library_full_area(layout.page);
+                let full = workspace_full(app, area);
                 app.library_page_mut()
                     .hover_tags_menu(full, mouse.column, mouse.row);
                 return;
             }
             if app.library_page().app_filter_menu_open() {
-                let layout = terminal::mouse::frame_layout(area);
-                let full = terminal::mouse::library_full_area(layout.page);
+                let full = workspace_full(app, area);
                 app.library_page_mut()
                     .hover_app_filter_menu(full, mouse.column, mouse.row);
                 return;
@@ -943,8 +959,7 @@ fn handle_tui_mouse_event(
                 app.library_page().modal(),
                 Some(library::LibraryModal::Create(_))
             ) {
-                let layout = terminal::mouse::frame_layout(area);
-                let full = terminal::mouse::library_full_area(layout.page);
+                let full = workspace_full(app, area);
                 app.library_page_mut()
                     .hover_create_divider(full, mouse.column, mouse.row);
                 app.library_page_mut()
@@ -962,8 +977,7 @@ fn handle_tui_mouse_event(
                 app.set_toggle_hover(None);
                 return;
             }
-            let layout = terminal::mouse::frame_layout(area);
-            let full = terminal::mouse::library_full_area(layout.page);
+            let full = workspace_full(app, area);
             let page = app.library_page();
             let hover = library::divider_hit(
                 full,
@@ -1011,12 +1025,15 @@ fn handle_tui_mouse_event(
             }
         }
         MouseEventKind::Drag(MouseButton::Left) => {
+            if app.nav_rail().dragging() {
+                app.nav_rail_mut().drag_to(area, mouse.column);
+                return;
+            }
             if app.palette_open() {
                 return;
             }
             if app.library_page().app_filter_menu_open() {
-                let layout = terminal::mouse::frame_layout(area);
-                let full = terminal::mouse::library_full_area(layout.page);
+                let full = workspace_full(app, area);
                 app.library_page_mut()
                     .drag_app_filter_divider(full, mouse.column);
                 return;
@@ -1025,8 +1042,7 @@ fn handle_tui_mouse_event(
                 app.library_page().modal(),
                 Some(library::LibraryModal::Create(_))
             ) {
-                let layout = terminal::mouse::frame_layout(area);
-                let full = terminal::mouse::library_full_area(layout.page);
+                let full = workspace_full(app, area);
                 app.library_page_mut()
                     .drag_create_divider(full, mouse.column);
                 return;
@@ -1035,15 +1051,13 @@ fn handle_tui_mouse_event(
                 return;
             }
             if app.library_page().divider_drag().is_some() {
-                let layout = terminal::mouse::frame_layout(area);
-                let full = terminal::mouse::library_full_area(layout.page);
+                let full = workspace_full(app, area);
                 drag_divider_to(app, full, mouse.column);
             }
             // honey: content-box drags stretch the body selection;
             // divider drags never reach here as text.
             if app.library_page().divider_drag().is_none() {
-                let layout = terminal::mouse::frame_layout(area);
-                let full = terminal::mouse::library_full_area(layout.page);
+                let full = workspace_full(app, area);
                 let page = app.library_page();
                 let (list_ratio, props_ratio) = (page.split_ratio(), page.detail_ratio());
                 app.library_page_mut().drag_content_select(
@@ -1056,6 +1070,7 @@ fn handle_tui_mouse_event(
             }
         }
         MouseEventKind::Up(_) => {
+            app.nav_rail_mut().end_drag();
             app.library_page_mut().set_divider_drag(None);
             app.library_page_mut().release_app_filter_divider();
             app.library_page_mut().release_create_divider();
@@ -1080,8 +1095,7 @@ fn handle_tui_mouse_event(
                 return;
             }
             if app.library_page().header_menu_open() {
-                let layout = terminal::mouse::frame_layout(area);
-                let full = terminal::mouse::library_full_area(layout.page);
+                let full = workspace_full(app, area);
                 let interaction =
                     app.library_page_mut()
                         .click_header_menu(full, mouse.column, mouse.row);
@@ -1089,8 +1103,7 @@ fn handle_tui_mouse_event(
                 return;
             }
             if app.library_page().tags_menu_open() {
-                let layout = terminal::mouse::frame_layout(area);
-                let full = terminal::mouse::library_full_area(layout.page);
+                let full = workspace_full(app, area);
                 let interaction =
                     app.library_page_mut()
                         .click_tags_menu(full, mouse.column, mouse.row);
@@ -1098,8 +1111,7 @@ fn handle_tui_mouse_event(
                 return;
             }
             if app.library_page().app_filter_menu_open() {
-                let layout = terminal::mouse::frame_layout(area);
-                let full = terminal::mouse::library_full_area(layout.page);
+                let full = workspace_full(app, area);
                 // honey: grabbing the picker divider starts a resize;
                 // anywhere else clicks through to the rows.
                 if app
@@ -1122,8 +1134,7 @@ fn handle_tui_mouse_event(
                 app.library_page().modal(),
                 Some(library::LibraryModal::Create(_))
             ) {
-                let layout = terminal::mouse::frame_layout(area);
-                let full = terminal::mouse::library_full_area(layout.page);
+                let full = workspace_full(app, area);
                 let popup = library::modals::create_popup(full);
                 if util::overlay_dismiss_hit(popup, mouse.column, mouse.row) {
                     app.library_page_mut().clear_modal();
@@ -1159,8 +1170,7 @@ fn handle_tui_mouse_event(
             // shared scrim/Esc-hint rule cancels. Other modals stay
             // keyboard-only.
             if let Some(library::LibraryModal::ConfirmDelete(_)) = app.library_page().modal() {
-                let layout = terminal::mouse::frame_layout(area);
-                let full = terminal::mouse::library_full_area(layout.page);
+                let full = workspace_full(app, area);
                 let popup = library::modals::delete_popup(full);
                 if util::overlay_dismiss_hit(popup, mouse.column, mouse.row) {
                     app.library_page_mut().clear_modal();
@@ -1215,8 +1225,31 @@ fn handle_tui_mouse_event(
             if modal_open {
                 return;
             }
-            let layout = terminal::mouse::frame_layout(area);
-            let full = terminal::mouse::library_full_area(layout.page);
+            let nav_item = {
+                let nav = app.nav_rail_mut();
+                nav.refresh_hitboxes(area);
+                nav.hit(mouse.column, mouse.row)
+            };
+            if let Some(item) = nav_item {
+                match item {
+                    NavRailItem::Home => app.nav_rail_mut().set_active_page(ActivePage::Home),
+                    NavRailItem::Library => app.nav_rail_mut().set_active_page(ActivePage::Library),
+                    NavRailItem::CommandPalette => app.toggle_palette(),
+                    NavRailItem::Settings => {
+                        let flush = app.library_page_mut().commit_edit();
+                        apply_library_interaction(app, flush);
+                        app.open_settings_overlay();
+                    }
+                }
+                return;
+            }
+            if app
+                .nav_rail_mut()
+                .start_divider_drag(area, mouse.column, mouse.row)
+            {
+                return;
+            }
+            let full = workspace_full(app, area);
             track_content_width(app, full);
             if grab_divider(app, full, mouse.column, mouse.row) {
                 return;
@@ -1710,8 +1743,7 @@ fn select_first_visible_library_row(app: &mut App, terminal: &mut TerminalGuard)
         return;
     };
     let area = ratatui::layout::Rect::new(0, 0, size.width, size.height);
-    let page = terminal::mouse::frame_layout(area).page;
-    let full = terminal::mouse::library_full_area(page);
+    let full = workspace_full(app, area);
     let state = app.library_page();
     let content = library::left_content(full, state.split_ratio(), state.detail_ratio());
     let (list_area, _) = library::content_sections(
@@ -2558,8 +2590,14 @@ mod tests {
     #[test]
     fn pressing_divider_starts_drag_without_selecting() {
         let mut app = App::default();
+        let full = workspace_full(&app, TEST_AREA);
+        let column = library::divider_columns(
+            full,
+            app.library_page().split_ratio(),
+            app.library_page().detail_ratio(),
+        )[0];
 
-        handle_tui_mouse_event(&mut app, left_click(28, 10), TEST_AREA);
+        handle_tui_mouse_event(&mut app, left_click(column, 10), TEST_AREA);
 
         assert_eq!(
             app.library_page().divider_drag(),
@@ -2572,26 +2610,34 @@ mod tests {
     #[test]
     fn dragging_divider_moves_split_and_release_ends_it() {
         let mut app = App::default();
-        handle_tui_mouse_event(&mut app, left_click(28, 10), TEST_AREA);
+        let full = workspace_full(&app, TEST_AREA);
+        let column = library::divider_columns(
+            full,
+            app.library_page().split_ratio(),
+            app.library_page().detail_ratio(),
+        )[0];
+        let target = column + 20;
+        let expected = library::split_ratio_for_column(full, target);
+        handle_tui_mouse_event(&mut app, left_click(column, 10), TEST_AREA);
 
         handle_tui_mouse_event(
             &mut app,
-            mouse_at(60, 10, MouseEventKind::Drag(MouseButton::Left)),
+            mouse_at(target, 10, MouseEventKind::Drag(MouseButton::Left)),
             TEST_AREA,
         );
 
         let ratio = app.library_page().split_ratio();
-        assert!((ratio - 58.0 / 95.0).abs() < 0.01);
+        assert!((ratio - expected).abs() < 0.01);
         assert!(app.library_page().divider_drag().is_some());
 
         handle_tui_mouse_event(
             &mut app,
-            mouse_at(60, 10, MouseEventKind::Up(MouseButton::Left)),
+            mouse_at(target, 10, MouseEventKind::Up(MouseButton::Left)),
             TEST_AREA,
         );
 
         assert!(app.library_page().divider_drag().is_none());
-        assert!((app.library_page().split_ratio() - 58.0 / 95.0).abs() < 0.01);
+        assert!((app.library_page().split_ratio() - expected).abs() < 0.01);
     }
 
     /// App parked mid-drag with a split that differs from the saved one.
@@ -2686,8 +2732,7 @@ mod tests {
     fn hovering_empty_property_chip_sets_add_hover() {
         let mut app = App::default();
         seed_single_library_item(&mut app);
-        let layout = terminal::mouse::frame_layout(TEST_AREA);
-        let full = terminal::mouse::library_full_area(layout.page);
+        let full = workspace_full(&app, TEST_AREA);
         let page = app.library_page();
         let content = library::props::props_content(full, page.split_ratio(), page.detail_ratio());
         let chip_x = content.x + content.width - 1;
@@ -2711,8 +2756,7 @@ mod tests {
     fn clicking_alias_add_chip_starts_inline_edit() {
         let mut app = App::default();
         seed_single_library_item(&mut app);
-        let layout = terminal::mouse::frame_layout(TEST_AREA);
-        let full = terminal::mouse::library_full_area(layout.page);
+        let full = workspace_full(&app, TEST_AREA);
         let page = app.library_page();
         let content = library::props::props_content(full, page.split_ratio(), page.detail_ratio());
         let chip_x = content.x + content.width - 1;
@@ -2734,8 +2778,7 @@ mod tests {
     fn clicking_a_hotkey_header_opens_the_recorder() {
         let mut app = App::default();
         seed_single_library_item(&mut app);
-        let layout = terminal::mouse::frame_layout(TEST_AREA);
-        let full = terminal::mouse::library_full_area(layout.page);
+        let full = workspace_full(&app, TEST_AREA);
         let page = app.library_page();
         let content =
             library::detail::center_content(full, page.split_ratio(), page.detail_ratio());
@@ -2779,8 +2822,7 @@ mod tests {
                 interpreter: None,
                 behavior: None,
             })]);
-        let layout = terminal::mouse::frame_layout(TEST_AREA);
-        let full = terminal::mouse::library_full_area(layout.page);
+        let full = workspace_full(&app, TEST_AREA);
         let page = app.library_page();
         let content = library::props::props_content(full, page.split_ratio(), page.detail_ratio());
         let row = (content.y..content.y + content.height)
@@ -2870,12 +2912,151 @@ mod tests {
     #[test]
     fn hovering_divider_sets_hover_and_leaving_clears() {
         let mut app = App::default();
+        let full = workspace_full(&app, TEST_AREA);
+        let column = library::divider_columns(
+            full,
+            app.library_page().split_ratio(),
+            app.library_page().detail_ratio(),
+        )[0];
 
-        handle_tui_mouse_event(&mut app, mouse_at(28, 10, MouseEventKind::Moved), TEST_AREA);
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(column, 10, MouseEventKind::Moved),
+            TEST_AREA,
+        );
         assert!(app.library_page().divider_hover().is_some());
 
         handle_tui_mouse_event(&mut app, mouse_at(10, 10, MouseEventKind::Moved), TEST_AREA);
         assert!(app.library_page().divider_hover().is_none());
+    }
+
+    fn nav_button(app: &App, item: NavRailItem) -> ratatui::layout::Rect {
+        nav_rail::layout(TEST_AREA, app.nav_rail().collapsed)
+            .buttons
+            .into_iter()
+            .find(|(candidate, _)| *candidate == item)
+            .map(|(_, rect)| rect)
+            .unwrap_or_else(|| panic!("{item:?} missing"))
+    }
+
+    #[test]
+    fn nav_rail_switches_pages_and_opens_the_palette() {
+        let mut app = App::default();
+        let home = nav_button(&app, NavRailItem::Home);
+        handle_tui_mouse_event(&mut app, left_click(home.x + 1, home.y), TEST_AREA);
+        assert_eq!(app.nav_rail().active_page, ActivePage::Home);
+
+        let library = nav_button(&app, NavRailItem::Library);
+        handle_tui_mouse_event(&mut app, left_click(library.x + 1, library.y), TEST_AREA);
+        assert_eq!(app.nav_rail().active_page, ActivePage::Library);
+
+        let palette = nav_button(&app, NavRailItem::CommandPalette);
+        handle_tui_mouse_event(&mut app, left_click(palette.x + 1, palette.y), TEST_AREA);
+        assert!(app.palette_open());
+    }
+
+    #[test]
+    fn nav_rail_settings_icon_opens_the_settings_overlay() {
+        let mut app = App::default();
+        let settings = nav_button(&app, NavRailItem::Settings);
+        handle_tui_mouse_event(&mut app, left_click(settings.x + 1, settings.y), TEST_AREA);
+        assert!(app.is_settings_overlay_open());
+    }
+
+    #[test]
+    fn nav_rail_edge_drag_reopens_after_a_collapsing_drag() {
+        let mut app = App::default();
+        let divider = nav_rail::layout(TEST_AREA, false)
+            .divider
+            .expect("expanded divider");
+        handle_tui_mouse_event(&mut app, left_click(divider.x, 10), TEST_AREA);
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(1, 10, MouseEventKind::Drag(MouseButton::Left)),
+            TEST_AREA,
+        );
+        assert!(app.nav_rail().collapsed);
+        assert_eq!(workspace_full(&app, TEST_AREA).x, 0);
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(1, 10, MouseEventKind::Up(MouseButton::Left)),
+            TEST_AREA,
+        );
+        assert!(!app.nav_rail().dragging());
+
+        // The parked edge divider drags the rail back open.
+        handle_tui_mouse_event(&mut app, left_click(0, 10), TEST_AREA);
+        assert!(app.nav_rail().dragging());
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(20, 10, MouseEventKind::Drag(MouseButton::Left)),
+            TEST_AREA,
+        );
+        assert!(!app.nav_rail().collapsed);
+        assert_eq!(workspace_full(&app, TEST_AREA).x, nav_rail::FULL_WIDTH);
+    }
+
+    #[test]
+    fn double_clicking_the_nav_divider_collapses_the_rail() {
+        let mut app = App::default();
+        let divider = nav_rail::layout(TEST_AREA, false)
+            .divider
+            .expect("expanded divider");
+        for _ in 0..2 {
+            handle_tui_mouse_event(&mut app, left_click(divider.x, 10), TEST_AREA);
+            handle_tui_mouse_event(
+                &mut app,
+                mouse_at(divider.x, 10, MouseEventKind::Up(MouseButton::Left)),
+                TEST_AREA,
+            );
+        }
+        assert!(app.nav_rail().collapsed);
+    }
+
+    #[test]
+    fn nav_rail_divider_drag_snaps_and_release_ends_the_drag() {
+        let mut app = App::default();
+        let divider = nav_rail::layout(TEST_AREA, false)
+            .divider
+            .expect("expanded divider");
+        handle_tui_mouse_event(&mut app, left_click(divider.x, 10), TEST_AREA);
+        assert!(app.nav_rail().dragging());
+
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(1, 10, MouseEventKind::Drag(MouseButton::Left)),
+            TEST_AREA,
+        );
+        assert!(app.nav_rail().collapsed);
+
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(20, 10, MouseEventKind::Drag(MouseButton::Left)),
+            TEST_AREA,
+        );
+        assert!(!app.nav_rail().collapsed);
+
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(20, 10, MouseEventKind::Up(MouseButton::Left)),
+            TEST_AREA,
+        );
+        assert!(!app.nav_rail().dragging());
+    }
+
+    #[test]
+    fn nav_rail_hover_tracks_icons_and_clears_over_the_workspace() {
+        let mut app = App::default();
+        let home = nav_button(&app, NavRailItem::Home);
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(home.x, home.y, MouseEventKind::Moved),
+            TEST_AREA,
+        );
+        assert_eq!(app.nav_rail().hovered_item, Some(NavRailItem::Home));
+
+        handle_tui_mouse_event(&mut app, mouse_at(20, 10, MouseEventKind::Moved), TEST_AREA);
+        assert_eq!(app.nav_rail().hovered_item, None);
     }
 
     #[test]
@@ -2883,8 +3064,7 @@ mod tests {
         let mut app = App::default();
         seed_single_library_item(&mut app);
 
-        let layout = terminal::mouse::frame_layout(TEST_AREA);
-        let full = terminal::mouse::library_full_area(layout.page);
+        let full = workspace_full(&app, TEST_AREA);
         let page = app.library_page();
         let content =
             library::detail::center_content(full, page.split_ratio(), page.detail_ratio());
@@ -2914,8 +3094,7 @@ mod tests {
         let mut app = App::default();
         seed_single_library_item(&mut app);
         app.library_page_mut().open_create_modal();
-        let layout = terminal::mouse::frame_layout(TEST_AREA);
-        let full = terminal::mouse::library_full_area(layout.page);
+        let full = workspace_full(&app, TEST_AREA);
         let body = library::modals::create_body(full);
         let (_, divider, _) = library::modals::create_split(body, 0.5);
         let divider_top = body.y + crate::widgets::util::OVERLAY_HEADER_ROWS - 1;
@@ -2958,8 +3137,7 @@ mod tests {
         let mut app = App::default();
         seed_single_library_item(&mut app);
         app.library_page_mut().open_create_modal();
-        let layout = terminal::mouse::frame_layout(TEST_AREA);
-        let full = terminal::mouse::library_full_area(layout.page);
+        let full = workspace_full(&app, TEST_AREA);
         let body = library::modals::create_body(full);
         let (_, divider, _) = library::modals::create_split(body, 0.5);
         let content_row = body.y + library::modals::CREATE_TRIGGER_FIELD_ROW;
@@ -3078,11 +3256,34 @@ mod tests {
         app.library_page_mut().open_delete_modal_for_selected();
         assert_eq!(app.library_page().delete_selected_yes(), Some(true));
 
-        // No button of the overlay confirm on TEST_AREA.
-        handle_tui_mouse_event(&mut app, left_click(53, 17), TEST_AREA);
+        let no = delete_button_cell(&app, library::modals::DELETE_NO_LABEL);
+        handle_tui_mouse_event(&mut app, left_click(no.x, no.y), TEST_AREA);
 
         assert!(app.library_page().is_modal_open());
         assert_eq!(app.library_page().delete_selected_yes(), Some(false));
+    }
+
+    fn delete_button_cell(app: &App, label: &str) -> ratatui::layout::Rect {
+        let full = workspace_full(app, TEST_AREA);
+        let body = util::overlay_body(library::modals::delete_popup(full));
+        let row = ratatui::layout::Rect {
+            x: body.x,
+            y: body
+                .y
+                .saturating_add(library::modals::DELETE_BUTTONS_OFFSET),
+            width: body.width,
+            height: 1,
+        };
+        let (yes, no) = util::confirm_button_cells(
+            row,
+            library::modals::DELETE_YES_LABEL,
+            library::modals::DELETE_NO_LABEL,
+        );
+        if label == library::modals::DELETE_YES_LABEL {
+            yes
+        } else {
+            no
+        }
     }
 
     #[test]
@@ -3092,8 +3293,8 @@ mod tests {
         app.library_page_mut().open_delete_modal_for_selected();
         app.library_page_mut().set_delete_selected_yes(false);
 
-        // Yes button of the overlay confirm on TEST_AREA.
-        handle_tui_mouse_event(&mut app, left_click(43, 17), TEST_AREA);
+        let yes = delete_button_cell(&app, library::modals::DELETE_YES_LABEL);
+        handle_tui_mouse_event(&mut app, left_click(yes.x, yes.y), TEST_AREA);
 
         assert!(app.library_page().is_modal_open());
         assert_eq!(app.library_page().delete_selected_yes(), Some(true));
@@ -3166,8 +3367,7 @@ mod tests {
         );
 
         // Trigger field row of the create modal on TEST_AREA.
-        let layout = terminal::mouse::frame_layout(TEST_AREA);
-        let full = terminal::mouse::library_full_area(layout.page);
+        let full = workspace_full(&app, TEST_AREA);
         let body = crate::widgets::util::overlay_body(library::modals::create_popup(full));
         let trigger_row = body.y + library::modals::CREATE_TRIGGER_FIELD_ROW;
         handle_tui_mouse_event(&mut app, left_click(20, trigger_row), TEST_AREA);
@@ -3197,8 +3397,7 @@ mod tests {
             library::LibraryCreateModalField::Content
         );
 
-        let layout = terminal::mouse::frame_layout(TEST_AREA);
-        let full = terminal::mouse::library_full_area(layout.page);
+        let full = workspace_full(&app, TEST_AREA);
         let body = crate::widgets::util::overlay_body(library::modals::create_popup(full));
         let description_row = body.y + library::modals::CREATE_DESCRIPTION_FIELD_ROW;
         handle_tui_mouse_event(&mut app, left_click(20, description_row), TEST_AREA);
@@ -3252,8 +3451,7 @@ mod tests {
         let mut app = App::default();
         seed_single_library_item(&mut app);
         app.library_page_mut().open_create_modal();
-        let layout = terminal::mouse::frame_layout(TEST_AREA);
-        let full = terminal::mouse::library_full_area(layout.page);
+        let full = workspace_full(&app, TEST_AREA);
         let body = crate::widgets::util::overlay_body(library::modals::create_popup(full));
         let column = body.x.saturating_add(body.width).saturating_sub(1);
 
