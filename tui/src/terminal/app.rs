@@ -165,8 +165,8 @@ impl App {
 
     /// Both rail halves at once so rendering can borrow the state and the
     /// protocols together.
-    pub(crate) fn nav_rail_graphics(&mut self) -> (&mut NavRailState, Option<&mut RailIcons>) {
-        (&mut self.nav_rail, self.rail_icons.as_mut())
+    pub(crate) fn nav_rail_graphics(&mut self) -> (&mut NavRailState, Option<&RailIcons>) {
+        (&mut self.nav_rail, self.rail_icons.as_ref())
     }
 
     pub(crate) const fn daemon_paused(&self) -> bool {

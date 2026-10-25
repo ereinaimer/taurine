@@ -12,9 +12,9 @@ use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Paragraph},
+    widgets::Paragraph,
 };
-use ratatui_image::StatefulImage;
+use ratatui_image::Image;
 
 mod icons;
 
@@ -276,12 +276,12 @@ pub(crate) fn render(
     area: Rect,
     theme: &Theme,
     state: &mut NavRailState,
-    mut icons: Option<&mut RailIcons>,
+    icons: Option<&RailIcons>,
 ) {
     let layout = layout(area, state.collapsed);
     state.hitboxes = layout.buttons.clone();
     for (item, rect) in &layout.buttons {
-        let icon = icons.as_mut().map(|icons| (*icons).for_item_mut(*item));
+        let icon = icons.map(|icons| icons.for_item(*item));
         render_button(frame, theme, state, *item, *rect, icon);
     }
 
@@ -305,34 +305,31 @@ fn render_button(
     state: &NavRailState,
     item: NavRailItem,
     rect: Rect,
-    variants: Option<&mut IconVariants>,
+    variants: Option<&IconVariants>,
 ) {
     let active = matches!(
         (state.active_page, item),
         (ActivePage::Home, NavRailItem::Home) | (ActivePage::Library, NavRailItem::Library)
     );
     let hovered = state.hovered_item == Some(item);
-    let (bg, fg) = match (active, hovered) {
-        (true, true) => (theme.keycap.on_surface, theme.text),
-        (true, false) => (theme.surface, theme.text),
-        (false, true) => (theme.surface, theme.text),
-        (false, false) => (theme.background, theme.text_muted),
-    };
-    frame.render_widget(Block::default().style(Style::default().bg(bg)), rect);
+    let lit = active || hovered;
     if let Some(variants) = variants {
-        let protocol = match (active, hovered) {
-            (true, true) => &mut variants.active_hover,
-            (false, false) => &mut variants.idle,
-            _ => &mut variants.surface,
+        // honey: the artwork is centered in a transparent, double-sized
+        // canvas at load time, so the full 4x2 button area keeps the
+        // icon's aspect while showing it at half size.
+        let protocol = if lit {
+            &variants.bright
+        } else {
+            &variants.idle
         };
-        frame.render_stateful_widget(StatefulImage::new(), rect, protocol);
-
+        frame.render_widget(Image::new(protocol).allow_clipping(true), rect);
         return;
     }
-    // honey: headless sessions keep the bold glyph fallback.
+    // honey: headless sessions keep the bold glyph fallback; no fill.
+    let fg = if lit { theme.text } else { theme.text_muted };
     let pill = Span::styled(
         format!(" {} ", icon(item)),
-        Style::default().bg(bg).fg(fg).add_modifier(Modifier::BOLD),
+        Style::default().fg(fg).add_modifier(Modifier::BOLD),
     );
     frame.render_widget(
         Paragraph::new(Line::from(pill)),
@@ -372,7 +369,7 @@ mod tests {
         draw_with(state, None)
     }
 
-    fn draw_with(state: &mut NavRailState, icons: Option<&mut RailIcons>) -> Terminal<TestBackend> {
+    fn draw_with(state: &mut NavRailState, icons: Option<&RailIcons>) -> Terminal<TestBackend> {
         let mut terminal =
             Terminal::new(TestBackend::new(AREA.width, AREA.height)).expect("test terminal");
         terminal
@@ -489,24 +486,28 @@ mod tests {
     }
 
     #[test]
-    fn active_and_hovered_buttons_paint_distinct_surfaces() {
+    fn buttons_never_paint_a_background() {
         let mut state = NavRailState {
             hovered_item: Some(NavRailItem::CommandPalette),
             ..NavRailState::default()
         };
         let terminal = draw(&mut state);
-        assert_eq!(bg_at(&terminal, 1, 5), DARK_THEME.surface);
-        assert_eq!(bg_at(&terminal, 1, 2), DARK_THEME.background);
-        assert_eq!(bg_at(&terminal, 1, 39), DARK_THEME.surface);
+        for (x, y) in [(1, 5), (1, 2), (1, 39), (2, 5), (2, 2)] {
+            assert_eq!(
+                bg_at(&terminal, x, y),
+                ratatui::style::Color::Reset,
+                "background painted at {x},{y}"
+            );
+        }
     }
 
     #[test]
     fn graphics_replace_every_glyph_fallback() {
         use ratatui_image::picker::Picker;
 
-        let mut icons = RailIcons::load(&Picker::halfblocks(), &DARK_THEME).expect("icons load");
+        let icons = RailIcons::load(&Picker::halfblocks(), &DARK_THEME).expect("icons load");
         let mut state = NavRailState::default();
-        let terminal = draw_with(&mut state, Some(&mut icons));
+        let terminal = draw_with(&mut state, Some(&icons));
         for (item, glyph, y) in [
             (NavRailItem::Home, '\u{f015}', 2u16),
             (NavRailItem::Library, '\u{f00bb}', 5),
@@ -533,9 +534,9 @@ mod tests {
 
         let mut picker = Picker::halfblocks();
         picker.set_protocol_type(ProtocolType::Sixel);
-        let mut icons = RailIcons::load(&picker, &DARK_THEME).expect("icons");
+        let icons = RailIcons::load(&picker, &DARK_THEME).expect("icons");
         let mut state = NavRailState::default();
-        let terminal = draw_with(&mut state, Some(&mut icons));
+        let terminal = draw_with(&mut state, Some(&icons));
         for (item, y) in [
             (NavRailItem::Home, 2u16),
             (NavRailItem::Library, 5),
@@ -557,7 +558,7 @@ mod tests {
         let cell = &terminal.backend().buffer().content[2 * AREA.width as usize + 2];
         assert_eq!(cell.symbol(), "\u{f015}");
         assert!(cell.modifier.contains(Modifier::BOLD));
-        assert_eq!(cell.bg, DARK_THEME.background);
+        assert_eq!(cell.bg, ratatui::style::Color::Reset);
         assert_eq!(cell.fg, DARK_THEME.text_muted);
     }
 

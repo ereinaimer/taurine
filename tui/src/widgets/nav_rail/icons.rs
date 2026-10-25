@@ -1,20 +1,23 @@
 //! SVG rail glyphs, rasterized once at startup.
 //!
-//! The raster is deliberately small: the picker downscales it to the
-//! button's cell area, and bright/muted protocol pairs let hover and
-//! active states reuse the same artwork.
+//! The raster is intentionally oversized so the picker's high-quality
+//! downscale keeps the edges smooth at the small rail size. Bright and
+//! muted protocol pairs let hover/active states reuse the artwork
+//! without painting a background behind it.
 
 use image::{DynamicImage, RgbaImage};
+use ratatui::layout::Size;
 use ratatui::style::Color;
-use ratatui_image::picker::Picker;
-use ratatui_image::protocol::StatefulProtocol;
+use ratatui_image::picker::{Picker, ProtocolType};
+use ratatui_image::protocol::Protocol;
+use ratatui_image::{FilterType, FontSize, Resize};
 
 use super::NavRailItem;
 use crate::theme::Theme;
 
-/// Pixel edge of the source raster. Comfortably above the 4x2 cell
-/// target so antialiasing survives the downscale.
-const ICON_PX: u32 = 64;
+/// Pixel edge of the source raster. Well above the few cells used on
+/// screen so downscaling has plenty of detail to sample.
+const ICON_PX: u32 = 256;
 /// Muted variant factor, matching the theme's muted text on white.
 const MUTED: f32 = 0.5;
 
@@ -25,50 +28,67 @@ pub(crate) struct RailIcons {
     pub(crate) settings: IconVariants,
 }
 
-/// One protocol per button surface: idle, hover/active, and the
-/// brighter active-hover fill. Halfblocks drops alpha, so the rasters
-/// are composited onto the exact button background up front.
+/// Muted and bright protocols; the button itself never paints a fill.
+/// Halfblocks drop alpha, so only that protocol gets the rail color
+/// merged into transparent pixels.
 pub(crate) struct IconVariants {
-    pub(crate) idle: StatefulProtocol,
-    pub(crate) surface: StatefulProtocol,
-    pub(crate) active_hover: StatefulProtocol,
+    pub(crate) idle: Protocol,
+    pub(crate) bright: Protocol,
 }
 
 impl RailIcons {
     pub(crate) fn load(picker: &Picker, theme: &Theme) -> Result<Self, String> {
-        let backgrounds = [
-            rgb(theme.background),
-            rgb(theme.surface),
-            rgb(theme.keycap.on_surface),
-        ];
+        let halfblocks = picker.protocol_type() == ProtocolType::Halfblocks;
+        let rail_bg = rgb(theme.background);
         Ok(Self {
-            home: IconVariants::load(picker, HOME_SVG, backgrounds)?,
-            library: IconVariants::load(picker, LIBRARY_SVG, backgrounds)?,
-            command_palette: IconVariants::load(picker, COMMAND_PALETTE_SVG, backgrounds)?,
-            settings: IconVariants::load(picker, SETTINGS_SVG, backgrounds)?,
+            home: IconVariants::load(picker, HOME_SVG, halfblocks, rail_bg)?,
+            library: IconVariants::load(picker, LIBRARY_SVG, halfblocks, rail_bg)?,
+            command_palette: IconVariants::load(picker, COMMAND_PALETTE_SVG, halfblocks, rail_bg)?,
+            settings: IconVariants::load(picker, SETTINGS_SVG, halfblocks, rail_bg)?,
         })
     }
 
-    pub(crate) fn for_item_mut(&mut self, item: NavRailItem) -> &mut IconVariants {
+    pub(crate) fn for_item(&self, item: NavRailItem) -> &IconVariants {
         match item {
-            NavRailItem::Home => &mut self.home,
-            NavRailItem::Library => &mut self.library,
-            NavRailItem::CommandPalette => &mut self.command_palette,
-            NavRailItem::Settings => &mut self.settings,
+            NavRailItem::Home => &self.home,
+            NavRailItem::Library => &self.library,
+            NavRailItem::CommandPalette => &self.command_palette,
+            NavRailItem::Settings => &self.settings,
         }
     }
 }
 
 impl IconVariants {
-    fn load(picker: &Picker, svg: &str, backgrounds: [[u8; 3]; 3]) -> Result<Self, String> {
+    fn load(picker: &Picker, svg: &str, opaque: bool, background: [u8; 3]) -> Result<Self, String> {
         let bright = rasterize(svg)?;
         let muted = tint(&bright, MUTED);
+        let (idle, bright) = if opaque {
+            (
+                on_background(&muted, background),
+                on_background(&bright, background),
+            )
+        } else {
+            let font = picker.font_size();
+            (
+                half_size_canvas(&muted, font),
+                half_size_canvas(&bright, font),
+            )
+        };
         Ok(Self {
-            idle: picker.new_resize_protocol(on_background(&muted, backgrounds[0])),
-            surface: picker.new_resize_protocol(on_background(&bright, backgrounds[1])),
-            active_hover: picker.new_resize_protocol(on_background(&bright, backgrounds[2])),
+            idle: protocol(picker, idle)?,
+            bright: protocol(picker, bright)?,
         })
     }
+}
+
+fn protocol(picker: &Picker, image: DynamicImage) -> Result<Protocol, String> {
+    picker
+        .new_protocol(
+            image,
+            Size::new(4, 2),
+            Resize::Fit(Some(FilterType::Lanczos3)),
+        )
+        .map_err(|error| error.to_string())
 }
 
 fn rasterize(svg: &str) -> Result<DynamicImage, String> {
@@ -100,6 +120,26 @@ fn tint(image: &DynamicImage, factor: f32) -> DynamicImage {
     DynamicImage::ImageRgba8(rgba)
 }
 
+/// Compose the icon at exactly half the button's pixel area, centered
+/// on the full 4x2 canvas. Working in the picker's pixel dimensions
+/// keeps the artwork's aspect and avoids the fit padding landing in a
+/// corner.
+fn half_size_canvas(image: &DynamicImage, font: FontSize) -> DynamicImage {
+    let canvas_w = u32::from(font.width) * 4;
+    let canvas_h = u32::from(font.height) * 2;
+    let glyph_w = u32::from(font.width) * 2;
+    let glyph_h = u32::from(font.height);
+    let scale = (glyph_w as f32 / image.width() as f32).min(glyph_h as f32 / image.height() as f32);
+    let target_w = (image.width() as f32 * scale).round().max(1.0) as u32;
+    let target_h = (image.height() as f32 * scale).round().max(1.0) as u32;
+    let glyph = image.resize_exact(target_w, target_h, FilterType::Lanczos3);
+    let mut canvas = RgbaImage::new(canvas_w, canvas_h);
+    let x = canvas_w.saturating_sub(target_w) / 2;
+    let y = canvas_h.saturating_sub(target_h) / 2;
+    image::imageops::overlay(&mut canvas, &glyph, i64::from(x), i64::from(y));
+    DynamicImage::ImageRgba8(canvas)
+}
+
 fn on_background(image: &DynamicImage, background: [u8; 3]) -> DynamicImage {
     let mut rgba = image.to_rgba8();
     for pixel in rgba.pixels_mut() {
@@ -124,7 +164,7 @@ const HOME_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 
 
 const LIBRARY_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="#ffffff" viewBox="0 0 256 256"><path d="M184,32H72A16,16,0,0,0,56,48V224a8,8,0,0,0,12.24,6.78L128,193.43l59.77,37.35A8,8,0,0,0,200,224V48A16,16,0,0,0,184,32Z"/></svg>"##;
 
-const SETTINGS_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="#ffffff" viewBox="0 0 256 256"><path d="M237.94,107.21a8,8,0,0,0-3.89-5.4l-29.83-17-.12-33.62a8,8,0,0,0-2.83-6.08,111.91,111.91,0,0,0-36.72-20.67,8,8,0,0,0-6.46.59L128,41.85,97.88,25a8,8,0,0,0-6.47-.6A111.92,111.92,0,0,0,54.73,45.15a8,8,0,0,0-2.83,6.07l-.15,33.65-29.83,17a8,8,0,0,0-3.89,5.4,106.47,106.47,0,0,0,0,41.56,8,8,0,0,0,3.89,5.4l29.83,17,.12,33.63a8,8,0,0,0,2.83,6.08,111.91,111.91,0,0,0,36.72,20.67,8,8,0,0,0,6.46-.59L128,214.15,158.12,231a7.91,7.91,0,0,0,3.9,1,8.09,8.09,0,0,0,2.57-.42,112.1,112.1,0,0,0,36.68-20.73,8,8,0,0,0,2.83-6.07l.15-33.65,29.83-17a8,8,0,0,0,3.89-5.4A106.47,106.47,0,0,0,237.94,107.21ZM128,168a40,40,0,1,1,40-40A40,40,0,1,1,128,168Z"/></svg>"##;
+const SETTINGS_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill="#ffffff" d="M495.9 166.6c3.2 8.7.5 18.4-6.4 24.6l-43.3 39.4c1.1 8.3 1.7 16.8 1.7 25.4s-.6 17.1-1.7 25.4l43.3 39.4c6.9 6.2 9.6 15.9 6.4 24.6-4.4 11.9-9.7 23.3-15.8 34.3l-4.7 8.1c-6.6 11-14 21.4-22.1 31.2-5.9 7.2-15.7 9.6-24.5 6.8l-55.7-17.7c-13.4 10.3-28.2 18.9-44 25.4l-12.5 57.1c-2 9.1-9 16.3-18.2 17.8-13.8 2.3-28 3.5-42.5 3.5s-28.7-1.2-42.5-3.5c-9.2-1.5-16.2-8.7-18.2-17.8l-12.5-57.1c-15.8-6.5-30.6-15.1-44-25.4L83.1 425.9c-8.8 2.8-18.6.3-24.5-6.8-8.1-9.8-15.5-20.2-22.1-31.2l-4.7-8.1c-6.1-11-11.4-22.4-15.8-34.3-3.2-8.7-.5-18.4 6.4-24.6l43.3-39.4C64.6 273.1 64 264.6 64 256s.6-17.1 1.7-25.4L22.4 191.2c-6.9-6.2-9.6-15.9-6.4-24.6 4.4-11.9 9.7-23.3 15.8-34.3l4.7-8.1c6.6-11 14-21.4 22.1-31.2 5.9-7.2 15.7-9.6 24.5-6.8l55.7 17.7c13.4-10.3 28.2-18.9 44-25.4l12.5-57.1c2-9.1 9-16.3 18.2-17.8C227.3 1.2 241.5 0 256 0s28.7 1.2 42.5 3.5c9.2 1.5 16.2 8.7 18.2 17.8l12.5 57.1c15.8 6.5 30.6 15.1 44 25.4l55.7-17.7c8.8-2.8 18.6-.3 24.5 6.8 8.1 9.8 15.5 20.2 22.1 31.2l4.7 8.1c6.1 11 11.4 22.4 15.8 34.3zM256 336a80 80 0 1 0 0-160 80 80 0 1 0 0 160z"/></svg>"##;
 
 const COMMAND_PALETTE_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640"><path fill="#ffffff" d="M73.4 182.6C60.9 170.1 60.9 149.8 73.4 137.3C85.9 124.8 106.2 124.8 118.7 137.3L278.7 297.3C291.2 309.8 291.2 330.1 278.7 342.6L118.7 502.6C106.2 515.1 85.9 515.1 73.4 502.6C60.9 490.1 60.9 469.8 73.4 457.3L210.7 320L73.4 182.6zM288 448L544 448C561.7 448 576 462.3 576 480C576 497.7 561.7 512 544 512L288 512C270.3 512 256 497.7 256 480C256 462.3 270.3 448 288 448z"/></svg>"##;
 
@@ -146,17 +186,33 @@ mod tests {
     }
 
     #[test]
+    fn half_size_canvas_centers_the_icon_at_half_the_cell_area() {
+        let font = Picker::halfblocks().font_size();
+        let image = rasterize(HOME_SVG).expect("svg renders");
+        let padded = half_size_canvas(&image, font);
+        assert_eq!(padded.width(), u32::from(font.width) * 4);
+        assert_eq!(padded.height(), u32::from(font.height) * 2);
+        let rgba = padded.to_rgba8();
+        assert_eq!(rgba.get_pixel(0, 0)[3], 0, "corner is transparent");
+        assert!(
+            rgba.get_pixel(u32::from(font.width) * 2, u32::from(font.height),)[3] > 0,
+            "center holds the artwork"
+        );
+    }
+
+    #[test]
     fn icons_build_protocols_for_every_item() {
         let picker = Picker::halfblocks();
-        let mut icons =
+        let icons =
             RailIcons::load(&picker, &crate::theme::default::DARK_THEME).expect("icons load");
-        for item in [
-            NavRailItem::Home,
-            NavRailItem::Library,
-            NavRailItem::CommandPalette,
-            NavRailItem::Settings,
+        for icon in [
+            &icons.home,
+            &icons.library,
+            &icons.command_palette,
+            &icons.settings,
         ] {
-            let _ = icons.for_item_mut(item);
+            assert_eq!(icon.idle.size(), Size::new(4, 2));
+            assert_eq!(icon.bright.size(), Size::new(4, 2));
         }
     }
 }
