@@ -13,6 +13,15 @@ pub struct ButtonTheme {
     pub text: Color,
 }
 
+/// Keycap pills for hotkey chords: flat fill, no border. The plain
+/// fill sits on the pane background; `on_surface` is a shade lighter
+/// so pills stay visible on a highlighted row.
+#[derive(Debug, Clone, PartialEq)]
+pub struct KeycapTheme {
+    pub bg: Color,
+    pub on_surface: Color,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Theme {
     pub name: &'static str,
@@ -42,6 +51,7 @@ pub struct Theme {
     // Component sub-themes
     pub header: HeaderTheme,
     pub button: ButtonTheme,
+    pub keycap: KeycapTheme,
 }
 
 pub mod default;

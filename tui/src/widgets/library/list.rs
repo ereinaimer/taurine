@@ -2,11 +2,13 @@ use ratatui::{
     Frame,
     layout::Rect,
     style::{Modifier, Style},
+    text::Line,
     widgets::{Block, Paragraph},
 };
 
 use crate::terminal::mouse;
 use crate::theme::Theme;
+use crate::widgets::hotkey;
 use crate::widgets::library::state::LibraryPageState;
 use crate::widgets::util;
 
@@ -215,11 +217,26 @@ fn render_library_item(
         )
     };
 
-    frame.render_widget(
-        Paragraph::new(util::truncate_to_width(item.trigger(), top_area.width))
-            .style(trigger_style),
-        top_area,
-    );
+    // honey: hotkey rows split the chord into keycap pills; the pill
+    // fill lightens on the selected card so it stays visible against
+    // the card surface, and the gap keeps the card background.
+    let top_line = if item.is_hotkey() {
+        let (keycap_bg, base_bg) = if selected {
+            (theme.keycap.on_surface, theme.surface)
+        } else {
+            (theme.keycap.bg, theme.background)
+        };
+        Line::from(hotkey::render_hotkey_spans(
+            item.trigger(),
+            top_area.width as usize,
+            keycap_bg,
+            theme.text,
+            base_bg,
+        ))
+    } else {
+        Line::from(util::truncate_to_width(item.trigger(), top_area.width))
+    };
+    frame.render_widget(Paragraph::new(top_line).style(trigger_style), top_area);
     frame.render_widget(
         Paragraph::new(util::truncate_to_width(item.preview(), bottom_area.width))
             .style(preview_style),

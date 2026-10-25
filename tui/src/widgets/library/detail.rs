@@ -10,6 +10,7 @@ use ratatui::{
 use taurine_core::engine::ScriptInterpreter;
 
 use crate::theme::Theme;
+use crate::widgets::hotkey;
 use crate::widgets::library::icons::{CHEVRON_DOWN, CHEVRON_UP, os_icon};
 use crate::widgets::library::state::{
     EditTarget, HeaderMenuKind, LibraryModal, LibraryPageState, LibraryTrigger,
@@ -526,16 +527,32 @@ fn render_header_row(
         frame.set_cursor_position((cx, cy));
         return;
     }
-    let trigger = util::truncate_to_width(item.trigger(), available);
-    let trigger_width = trigger.chars().count();
-    let gap = available.saturating_sub(trigger_width as u16);
-    let mut spans = vec![
-        Span::styled(
-            trigger,
-            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
-        ),
-        Span::raw(" ".repeat(gap as usize + 1)),
-    ];
+    // honey: read mode splits hotkey chords into keycap pills, like
+    // the sidebar; editing keeps plain text so the caret maps 1:1.
+    let (trigger_spans, trigger_width) = if item.is_hotkey() {
+        let spans = hotkey::render_hotkey_spans(
+            item.trigger(),
+            available as usize,
+            theme.keycap.bg,
+            theme.text,
+            theme.background,
+        );
+        let width = hotkey::spans_width(&spans) as u16;
+        (spans, width)
+    } else {
+        let trigger = util::truncate_to_width(item.trigger(), available);
+        let width = trigger.chars().count() as u16;
+        (
+            vec![Span::styled(
+                trigger,
+                Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+            )],
+            width,
+        )
+    };
+    let gap = available.saturating_sub(trigger_width);
+    let mut spans = trigger_spans;
+    spans.push(Span::raw(" ".repeat(gap as usize + 1)));
     spans.extend(toggle_spans(is_on, is_hovered, anim));
     let line = Line::from(spans);
     frame.render_widget(Paragraph::new(line), row);

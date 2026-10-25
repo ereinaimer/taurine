@@ -3257,6 +3257,178 @@ fn alias_text_lines_empty_stays_border_token() {
     );
 }
 
+// --- Hotkey keycap badges -------------------------------------------
+
+fn hotkey_state(trigger: &str) -> LibraryPageState {
+    let mut state = LibraryPageState::default();
+    state.replace_items(vec![LibraryTrigger::single(list_item(
+        "id-hotkey",
+        None,
+        TriggerType::Hotkey,
+        trigger,
+        "output",
+        "text",
+        "all",
+        0,
+        None,
+    ))]);
+    state
+}
+
+fn draw_list(state: &LibraryPageState, area: ratatui::layout::Rect) -> ratatui::buffer::Buffer {
+    use crate::theme::default::DARK_THEME;
+    use ratatui::{Terminal, backend::TestBackend};
+
+    let backend = TestBackend::new(area.width, area.height);
+    let mut terminal = Terminal::new(backend).expect("test terminal");
+    terminal
+        .draw(|frame| {
+            list::render_library_list(frame, area, &DARK_THEME, state);
+        })
+        .expect("test draw");
+    terminal.backend().buffer().clone()
+}
+
+fn draw_detail(state: &LibraryPageState, area: ratatui::layout::Rect) -> ratatui::buffer::Buffer {
+    use crate::theme::default::DARK_THEME;
+    use ratatui::{Terminal, backend::TestBackend};
+
+    let backend = TestBackend::new(area.width, area.height);
+    let mut terminal = Terminal::new(backend).expect("test terminal");
+    terminal
+        .draw(|frame| {
+            detail::render_detail(
+                frame,
+                area,
+                &DARK_THEME,
+                state,
+                &crate::widgets::toggle::ToggleAnimations::default(),
+                None,
+            );
+        })
+        .expect("test draw");
+    terminal.backend().buffer().clone()
+}
+
+fn cells(buffer: &ratatui::buffer::Buffer, x: u16, y: u16, width: u16) -> String {
+    (x..x.saturating_add(width))
+        .map(|column| buffer[(column, y)].symbol())
+        .collect()
+}
+
+/// Top row of the item at filtered position `index` in a list render.
+fn list_row_y(state: &LibraryPageState, area: ratatui::layout::Rect, index: usize) -> u16 {
+    let visible_count = crate::widgets::util::visible_library_item_capacity(area.height);
+    let (start, end) = state.visible_window(visible_count);
+    let origin = list::list_origin(area, end.saturating_sub(start));
+    origin
+        .saturating_add((index.saturating_sub(start) as u16) * 4)
+        .saturating_add(1)
+}
+
+#[test]
+fn selected_sidebar_hotkey_renders_keycaps_on_the_card() {
+    use crate::theme::default::DARK_THEME;
+
+    let state = hotkey_state("alt+f6");
+    let area = ratatui::layout::Rect::new(0, 0, 80, 30);
+    let buffer = draw_list(&state, area);
+    let y = list_row_y(&state, area, 0);
+    let x = area.x + 2;
+
+    assert_eq!(cells(&buffer, x, y, 10), " alt   f6 ");
+    // Selected card: lighter pills, gap keeps the card fill.
+    assert_eq!(buffer[(x, y)].bg, DARK_THEME.keycap.on_surface);
+    assert_eq!(buffer[(x + 5, y)].bg, DARK_THEME.surface);
+    assert_eq!(buffer[(x + 6, y)].bg, DARK_THEME.keycap.on_surface);
+    assert_eq!(buffer[(x + 1, y)].fg, DARK_THEME.text);
+}
+
+#[test]
+fn unselected_sidebar_hotkey_renders_keycaps_on_the_pane() {
+    use crate::theme::default::DARK_THEME;
+
+    let mut state = LibraryPageState::default();
+    state.replace_items(vec![
+        LibraryTrigger::single(list_item(
+            "id-gm",
+            None,
+            TriggerType::Word,
+            "gm",
+            "Good Morning",
+            "text",
+            "all",
+            0,
+            None,
+        )),
+        LibraryTrigger::single(list_item(
+            "id-win-z",
+            None,
+            TriggerType::Hotkey,
+            "win+z",
+            "output",
+            "text",
+            "all",
+            0,
+            None,
+        )),
+    ]);
+    let area = ratatui::layout::Rect::new(0, 0, 80, 30);
+    let buffer = draw_list(&state, area);
+    let word_y = list_row_y(&state, area, 0);
+    let hotkey_y = list_row_y(&state, area, 1);
+    let x = area.x + 2;
+
+    // Word rows keep plain text.
+    assert_eq!(cells(&buffer, x, word_y, 2), "gm");
+    assert_ne!(buffer[(x, word_y)].bg, DARK_THEME.keycap.bg);
+
+    assert_eq!(cells(&buffer, x, hotkey_y, 9), " win   z ");
+    assert_eq!(buffer[(x, hotkey_y)].bg, DARK_THEME.keycap.bg);
+    assert_eq!(buffer[(x + 5, hotkey_y)].bg, DARK_THEME.background);
+    assert_eq!(buffer[(x + 6, hotkey_y)].bg, DARK_THEME.keycap.bg);
+}
+
+#[test]
+fn center_header_hotkey_renders_keycaps() {
+    use crate::theme::default::DARK_THEME;
+
+    let state = hotkey_state("alt+f6");
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let buffer = draw_detail(&state, area);
+    let content = detail::center_content(area, state.split_ratio(), state.detail_ratio());
+
+    assert_eq!(cells(&buffer, content.x, content.y, 10), " alt   f6 ");
+    assert_eq!(buffer[(content.x, content.y)].bg, DARK_THEME.keycap.bg);
+    assert_eq!(buffer[(content.x + 5, content.y)].bg, DARK_THEME.background);
+}
+
+#[test]
+fn alias_hotkey_renders_right_aligned_keycaps() {
+    use crate::theme::default::DARK_THEME;
+
+    let mut state = LibraryPageState::default();
+    state.replace_items(LibraryTrigger::expand(multi_alias_list_item()));
+    assert!(state.select_row("id-multi", "gs"));
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let content = props::props_content(area, state.split_ratio(), state.detail_ratio());
+    let buffer = draw_props(&state, None);
+
+    // Text alias "gst" stays plain, right-aligned on the Alias row.
+    let text_x = content.x + content.width - 3;
+    let alias_y = content.y + 8;
+    assert_eq!(cells(&buffer, text_x, alias_y, 3), "gst");
+    assert_ne!(buffer[(text_x, alias_y)].bg, DARK_THEME.keycap.bg);
+
+    // Hotkey alias "ctrl+g" continues below, split into keycaps.
+    let keycap_x = content.x + content.width - 10;
+    let hotkey_y = alias_y + 1;
+    assert_eq!(cells(&buffer, keycap_x, hotkey_y, 10), " ctrl   g ");
+    assert_eq!(buffer[(keycap_x, hotkey_y)].bg, DARK_THEME.keycap.bg);
+    assert_eq!(buffer[(keycap_x + 6, hotkey_y)].bg, DARK_THEME.background);
+    assert_eq!(buffer[(keycap_x + 7, hotkey_y)].bg, DARK_THEME.keycap.bg);
+}
+
 #[test]
 fn wrapped_alias_block_shifts_usage_toggle_down() {
     let item = TriggerListItem {

@@ -1,4 +1,5 @@
 pub mod field;
+pub mod hotkey;
 pub mod library;
 pub mod notification;
 pub mod palette;

@@ -1,4 +1,4 @@
-use crate::theme::{ButtonTheme, HeaderTheme, Theme};
+use crate::theme::{ButtonTheme, HeaderTheme, KeycapTheme, Theme};
 use ratatui::style::Color;
 
 pub const DARK_THEME: Theme = Theme {
@@ -35,5 +35,12 @@ pub const DARK_THEME: Theme = Theme {
         active_bg: Color::Rgb(0x3A, 0x3A, 0x3A),
         inactive_bg: Color::Rgb(0x1E, 0x1E, 0x1E),
         text: Color::Rgb(0xCF, 0xCF, 0xCF),
+    },
+    keycap: KeycapTheme {
+        // honey: flat pills sit one step above the pane so a chord
+        // reads as keys without drawing a border.
+        bg: Color::Rgb(0x24, 0x24, 0x28),
+        // Lighter fill for selected sidebar cards (#1e1e1e).
+        on_surface: Color::Rgb(0x2C, 0x2C, 0x32),
     },
 };

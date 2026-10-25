@@ -7,6 +7,7 @@ use ratatui::{
 };
 
 use crate::theme::Theme;
+use crate::widgets::hotkey;
 use crate::widgets::library::detail::{
     EMPTY_TOKEN, PropertyValue, edge_line, edge_value_width, relative_time,
 };
@@ -739,8 +740,9 @@ fn alias_position(rows: &[(&str, PropertyValue)]) -> Option<u16> {
 }
 
 /// Alias text: up to three sibling aliases, one per line. Overlong
-/// aliases truncate in place; a marker trails when siblings remain
-/// past three; empty stays the border token.
+/// text aliases truncate in place; hotkey aliases keep their whole
+/// chord so the render path can split it into keycaps. A marker trails
+/// when siblings remain past three; empty stays the border token.
 pub(crate) fn alias_text_lines(
     item: &LibraryTrigger,
     first_budget: usize,
@@ -763,7 +765,14 @@ pub(crate) fn alias_text_lines(
         } else {
             cont_budget
         };
-        lines.push(util::truncate_to_width(alias, budget as u16));
+        // honey: hotkey aliases keep their whole chord; the render path
+        // fits keycaps whole rather than cutting a pill mid-key.
+        let text = if crate::widgets::hotkey::is_hotkey_chord(alias) {
+            (*alias).to_string()
+        } else {
+            util::truncate_to_width(alias, budget as u16)
+        };
+        lines.push(text);
     }
     if siblings.len() > MAX_SHOWN_ALIASES {
         let budget = if lines.len() == 1 {
@@ -772,7 +781,9 @@ pub(crate) fn alias_text_lines(
             cont_budget
         };
         let last = lines.last().map(String::as_str).unwrap_or("");
-        if last.chars().count().saturating_add(2) <= budget {
+        if crate::widgets::hotkey::is_hotkey_chord(last) {
+            lines.push("…".to_string());
+        } else if last.chars().count().saturating_add(2) <= budget {
             lines.last_mut().expect("alias line").push_str(" …");
         } else {
             lines.push("…".to_string());
@@ -795,6 +806,7 @@ pub(crate) fn alias_extra_lines(item: &LibraryTrigger, width: u16) -> u16 {
 
 /// Alias block: first line shares the row with the dim label like
 /// every other row; continuations run full width in text color.
+/// Hotkey aliases render right-aligned as split keycap pills instead.
 fn render_alias_block(
     frame: &mut Frame,
     content: Rect,
@@ -814,6 +826,10 @@ fn render_alias_block(
             width: content.width,
             height: 1,
         };
+        if hotkey::is_hotkey_chord(line) {
+            render_hotkey_alias(frame, theme, row, line, index == 0);
+            continue;
+        }
         if index == 0 {
             let width = line.chars().count();
             frame.render_widget(
@@ -836,6 +852,36 @@ fn render_alias_block(
                 row,
             );
         }
+    }
+}
+
+/// Hotkey alias line: right-aligned keycap pills. The first line
+/// shares its row with the dim `Alias` label; continuations run full
+/// width, matching text aliases.
+fn render_hotkey_alias(frame: &mut Frame, theme: &Theme, row: Rect, hotkey: &str, first: bool) {
+    let budget = if first {
+        edge_value_width("Alias", row.width) as usize
+    } else {
+        row.width as usize
+    };
+    let spans = hotkey::render_hotkey_spans(
+        hotkey,
+        budget,
+        theme.keycap.bg,
+        theme.text,
+        theme.background,
+    );
+    let width = hotkey::spans_width(&spans);
+    if first {
+        frame.render_widget(
+            Paragraph::new(edge_line("Alias", spans, width, row.width, theme)),
+            row,
+        );
+    } else {
+        let pad = row.width.saturating_sub(width as u16) as usize;
+        let mut line = vec![Span::raw(" ".repeat(pad))];
+        line.extend(spans);
+        frame.render_widget(Paragraph::new(Line::from(line)), row);
     }
 }
 

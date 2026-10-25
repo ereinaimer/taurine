@@ -290,6 +290,13 @@ impl LibraryTrigger {
         matches!(self.invocation, InvocationType::Voice)
     }
 
+    /// True when the row displays a key chord: the invocation type is
+    /// hotkey, or the string itself reads as one (hotkey aliases).
+    pub(crate) fn is_hotkey(&self) -> bool {
+        matches!(self.invocation, InvocationType::Hotkey)
+            || crate::widgets::hotkey::is_hotkey_chord(&self.trigger)
+    }
+
     pub(crate) fn aliases(&self) -> &[String] {
         &self.aliases
     }
