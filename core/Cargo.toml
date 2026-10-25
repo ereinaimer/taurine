@@ -30,7 +30,7 @@ prost = "0.14"
 # Trimmed from full: core uses rt, net, time, and sync outside tests.
 tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "net", "time", "signal", "sync", "io-util", "macros"] }
 ahash = "0.8"
-parking_lot = "0.12"
+parking_lot = "0.13"
 smallvec = "1.13"
 uuid = { version = "1.23.0", features = ["v4", "v7"] }
 os_info = "3"
@@ -47,7 +47,7 @@ deunicode = "1.6"
 sha2 = "0.11"
 regex = "1.12"
 hex = "0.4"
-csscolorparser = "0.8"
+csscolorparser = "0.9"
 zstd = "0.14"
 aes-gcm = "0.11"
 argon2 = "0.6"
@@ -58,7 +58,7 @@ subtle = "2.6"
 keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 service-manager = "0.11.0"
 ureq = { version = "2.9", features = ["tls", "json"] }
-scraper = "0.27"
+scraper = "0.29"
 serde_yml = { package = "yaml_serde", version = "0.10" }
 toml = "1.1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
@@ -70,7 +70,7 @@ interim = { version = "0.1", features = ["chrono"] }
 chrono-tz = "0.10"
 phf = { version = "0.14", features = ["macros"] }
 num2words = "1.2"
-genai = "0.6.5"
+genai = "0.7.0"
 sysinfo = "0.39.0"
 
 [build-dependencies]
