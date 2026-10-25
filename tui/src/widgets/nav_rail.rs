@@ -4,28 +4,35 @@
 //! never resizes freely: dragging the divider snaps between expanded and
 //! collapsed, and double-clicking it toggles. Collapsed gives every cell
 //! back to the workspace and parks the divider on the left edge,
-//! mirroring how the right pane collapses.
+//! mirroring how the right pane collapses. Buttons render SVG icons
+//! rasterized at startup, with a bold glyph fallback for headless runs.
 
 use ratatui::{
     Frame,
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::Paragraph,
+    widgets::{Block, Paragraph},
 };
+use ratatui_image::StatefulImage;
+
+mod icons;
+
+pub(crate) use icons::RailIcons;
+
+use icons::IconVariants;
 
 use crate::theme::Theme;
 use crate::widgets::library::DIVIDER_HOVER_COLOR;
 use crate::widgets::library::state::{DIVIDER_DOUBLE_CLICK_MS, now_millis};
 
-/// Width of the rail content, excluding its divider.
-pub(crate) const RAIL_WIDTH: u16 = 5;
+/// Rail content: 1-cell margin, 4-cell button, 1-cell margin.
+pub(crate) const RAIL_WIDTH: u16 = 6;
 pub(crate) const DIVIDER_WIDTH: u16 = 1;
 /// Expanded rail including the divider. This is also the hard width cap.
 pub(crate) const FULL_WIDTH: u16 = RAIL_WIDTH + DIVIDER_WIDTH;
-pub(crate) const BUTTON_WIDTH: u16 = 3;
-/// One text row, matching the word dropdowns and chips.
-pub(crate) const BUTTON_HEIGHT: u16 = 1;
+pub(crate) const BUTTON_WIDTH: u16 = 4;
+pub(crate) const BUTTON_HEIGHT: u16 = 2;
 /// Blank rows between stacked buttons.
 const BUTTON_GAP: u16 = 1;
 
@@ -264,12 +271,20 @@ fn rects_overlap(left: &Rect, right: &Rect) -> bool {
         && right.y < left.bottom()
 }
 
-pub(crate) fn render(frame: &mut Frame, area: Rect, theme: &Theme, state: &mut NavRailState) {
+pub(crate) fn render(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    state: &mut NavRailState,
+    mut icons: Option<&mut RailIcons>,
+) {
     let layout = layout(area, state.collapsed);
     state.hitboxes = layout.buttons.clone();
     for (item, rect) in &layout.buttons {
-        render_button(frame, theme, state, *item, *rect);
+        let icon = icons.as_mut().map(|icons| (*icons).for_item_mut(*item));
+        render_button(frame, theme, state, *item, *rect, icon);
     }
+
     if let Some(divider) = layout.divider {
         let color = if state.dragging || state.hovered_divider {
             DIVIDER_HOVER_COLOR
@@ -290,6 +305,7 @@ fn render_button(
     state: &NavRailState,
     item: NavRailItem,
     rect: Rect,
+    variants: Option<&mut IconVariants>,
 ) {
     let active = matches!(
         (state.active_page, item),
@@ -302,11 +318,26 @@ fn render_button(
         (false, true) => (theme.surface, theme.text),
         (false, false) => (theme.background, theme.text_muted),
     };
+    frame.render_widget(Block::default().style(Style::default().bg(bg)), rect);
+    if let Some(variants) = variants {
+        let protocol = match (active, hovered) {
+            (true, true) => &mut variants.active_hover,
+            (false, false) => &mut variants.idle,
+            _ => &mut variants.surface,
+        };
+        frame.render_stateful_widget(StatefulImage::new(), rect, protocol);
+
+        return;
+    }
+    // honey: headless sessions keep the bold glyph fallback.
     let pill = Span::styled(
         format!(" {} ", icon(item)),
         Style::default().bg(bg).fg(fg).add_modifier(Modifier::BOLD),
     );
-    frame.render_widget(Paragraph::new(Line::from(pill)), rect);
+    frame.render_widget(
+        Paragraph::new(Line::from(pill)),
+        Rect::new(rect.x, rect.y, rect.width.min(3), 1),
+    );
 }
 
 const fn icon(item: NavRailItem) -> &'static str {
@@ -338,10 +369,14 @@ mod tests {
     }
 
     fn draw(state: &mut NavRailState) -> Terminal<TestBackend> {
+        draw_with(state, None)
+    }
+
+    fn draw_with(state: &mut NavRailState, icons: Option<&mut RailIcons>) -> Terminal<TestBackend> {
         let mut terminal =
             Terminal::new(TestBackend::new(AREA.width, AREA.height)).expect("test terminal");
         terminal
-            .draw(|frame| render(frame, AREA, &DARK_THEME, state))
+            .draw(|frame| render(frame, AREA, &DARK_THEME, state, icons))
             .expect("test draw");
         terminal
     }
@@ -353,18 +388,18 @@ mod tests {
     #[test]
     fn expanded_layout_stacks_top_and_bottom_groups() {
         let layout = layout(AREA, false);
-        assert_eq!(rect_of(&layout, NavRailItem::Home), Rect::new(1, 2, 3, 1));
+        assert_eq!(rect_of(&layout, NavRailItem::Home), Rect::new(1, 2, 4, 2));
         assert_eq!(
             rect_of(&layout, NavRailItem::Library),
-            Rect::new(1, 4, 3, 1)
+            Rect::new(1, 5, 4, 2)
         );
         assert_eq!(
             rect_of(&layout, NavRailItem::CommandPalette),
-            Rect::new(1, 41, 3, 1)
+            Rect::new(1, 39, 4, 2)
         );
         assert_eq!(
             rect_of(&layout, NavRailItem::Settings),
-            Rect::new(1, 43, 3, 1)
+            Rect::new(1, 42, 4, 2)
         );
         assert!(
             layout
@@ -372,7 +407,7 @@ mod tests {
                 .iter()
                 .all(|(_, rect)| { rect.width == BUTTON_WIDTH && rect.height == BUTTON_HEIGHT })
         );
-        assert_eq!(layout.divider, Some(Rect::new(5, 0, 1, 45)));
+        assert_eq!(layout.divider, Some(Rect::new(6, 0, 1, 45)));
     }
 
     #[test]
@@ -384,17 +419,17 @@ mod tests {
 
     #[test]
     fn workspace_width_tracks_the_rail() {
-        assert_eq!(workspace(AREA, false), Rect::new(6, 0, 94, 45));
+        assert_eq!(workspace(AREA, false), Rect::new(7, 0, 93, 45));
         assert_eq!(workspace(AREA, true), AREA);
     }
 
     #[test]
     fn hover_tracks_buttons_and_the_divider() {
         let mut state = NavRailState::default();
-        state.hover_at(AREA, 2, 4);
+        state.hover_at(AREA, 2, 5);
         assert_eq!(state.hovered_item, Some(NavRailItem::Library));
         assert!(!state.hovered_divider());
-        state.hover_at(AREA, 5, 20);
+        state.hover_at(AREA, 6, 20);
         assert_eq!(state.hovered_item, None);
         assert!(state.hovered_divider());
         state.collapsed = true;
@@ -408,7 +443,7 @@ mod tests {
     #[test]
     fn divider_drag_snaps_between_the_two_widths() {
         let mut state = NavRailState::default();
-        assert!(state.start_divider_drag(AREA, 5, 20));
+        assert!(state.start_divider_drag(AREA, 6, 20));
         state.drag_to(AREA, 1);
         assert!(state.collapsed);
         state.drag_to(AREA, 20);
@@ -427,11 +462,11 @@ mod tests {
     #[test]
     fn double_clicking_the_divider_toggles_the_rail() {
         let mut state = NavRailState::default();
-        assert!(state.start_divider_drag_at(AREA, 5, 20, 1_000));
+        assert!(state.start_divider_drag_at(AREA, 6, 20, 1_000));
         assert!(state.dragging());
         state.end_drag();
 
-        assert!(state.start_divider_drag_at(AREA, 5, 20, 1_100));
+        assert!(state.start_divider_drag_at(AREA, 6, 20, 1_100));
         assert!(state.collapsed);
         assert!(!state.dragging(), "double click must not start a drag");
         state.end_drag();
@@ -446,9 +481,9 @@ mod tests {
     #[test]
     fn slow_clicks_on_the_divider_start_drags() {
         let mut state = NavRailState::default();
-        assert!(state.start_divider_drag_at(AREA, 5, 20, 1_000));
+        assert!(state.start_divider_drag_at(AREA, 6, 20, 1_000));
         state.end_drag();
-        assert!(state.start_divider_drag_at(AREA, 5, 20, 1_400));
+        assert!(state.start_divider_drag_at(AREA, 6, 20, 1_400));
         assert!(!state.collapsed);
         assert!(state.dragging());
     }
@@ -460,9 +495,59 @@ mod tests {
             ..NavRailState::default()
         };
         let terminal = draw(&mut state);
-        assert_eq!(bg_at(&terminal, 1, 4), DARK_THEME.surface);
+        assert_eq!(bg_at(&terminal, 1, 5), DARK_THEME.surface);
         assert_eq!(bg_at(&terminal, 1, 2), DARK_THEME.background);
-        assert_eq!(bg_at(&terminal, 1, 41), DARK_THEME.surface);
+        assert_eq!(bg_at(&terminal, 1, 39), DARK_THEME.surface);
+    }
+
+    #[test]
+    fn graphics_replace_every_glyph_fallback() {
+        use ratatui_image::picker::Picker;
+
+        let mut icons = RailIcons::load(&Picker::halfblocks(), &DARK_THEME).expect("icons load");
+        let mut state = NavRailState::default();
+        let terminal = draw_with(&mut state, Some(&mut icons));
+        for (item, glyph, y) in [
+            (NavRailItem::Home, '\u{f015}', 2u16),
+            (NavRailItem::Library, '\u{f00bb}', 5),
+            (NavRailItem::CommandPalette, '\u{f120}', 39),
+            (NavRailItem::Settings, '\u{f013}', 42),
+        ] {
+            let mut painted = String::new();
+            for row in y..y + 2 {
+                for x in 1..=4 {
+                    painted.push_str(
+                        terminal.backend().buffer().content[(row * AREA.width + x) as usize]
+                            .symbol(),
+                    );
+                }
+            }
+            assert!(!painted.contains(glyph), "{item:?} fell back: {painted:?}");
+            assert!(!painted.trim().is_empty(), "{item:?} painted nothing");
+        }
+    }
+
+    #[test]
+    fn sixel_renders_every_button() {
+        use ratatui_image::picker::{Picker, ProtocolType};
+
+        let mut picker = Picker::halfblocks();
+        picker.set_protocol_type(ProtocolType::Sixel);
+        let mut icons = RailIcons::load(&picker, &DARK_THEME).expect("icons");
+        let mut state = NavRailState::default();
+        let terminal = draw_with(&mut state, Some(&mut icons));
+        for (item, y) in [
+            (NavRailItem::Home, 2u16),
+            (NavRailItem::Library, 5),
+            (NavRailItem::CommandPalette, 39),
+            (NavRailItem::Settings, 42),
+        ] {
+            let cell = &terminal.backend().buffer().content[(y * AREA.width + 1) as usize];
+            assert!(
+                cell.symbol().starts_with('\u{1b}'),
+                "{item:?} image missing"
+            );
+        }
     }
 
     #[test]

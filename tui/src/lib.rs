@@ -58,6 +58,7 @@ pub fn run() -> taurine_core::Result<()> {
     app.settings_page_mut().select_last();
 
     let mut terminal = TerminalGuard::new()?;
+    app.load_rail_icons();
     select_first_visible_library_row(&mut app, &mut terminal);
     app.begin_launch_transition();
     setup_signal_handler(|code| std::process::exit(code));
@@ -237,19 +238,17 @@ fn render_app(frame: &mut ratatui::Frame, app: &mut App, area: ratatui::layout::
         }
     }
 
-    nav_rail::render(frame, area, theme, app.nav_rail_mut());
+    let any_modal = app.library_page().is_modal_open()
+        || app.is_settings_overlay_open()
+        || app.palette_open()
+        || app.hotkey_recorder().is_some();
+    let (rail, icons) = app.nav_rail_graphics();
+    nav_rail::render(frame, area, theme, rail, icons);
 
     if let Some(msg) = app.notification() {
         notification::render_notification(frame, area, theme, msg);
     }
 
-    // honey: scrim pass darkens everything behind an open modal,
-    // the settings overlay, or the command palette; popups paint
-    // afterward onto the dimmed backdrop.
-    let any_modal = app.library_page().is_modal_open()
-        || app.is_settings_overlay_open()
-        || app.palette_open()
-        || app.hotkey_recorder().is_some();
     if any_modal {
         dim_frame(frame);
     }
@@ -2943,15 +2942,23 @@ mod tests {
     fn nav_rail_switches_pages_and_opens_the_palette() {
         let mut app = App::default();
         let home = nav_button(&app, NavRailItem::Home);
-        handle_tui_mouse_event(&mut app, left_click(home.x + 1, home.y), TEST_AREA);
+        handle_tui_mouse_event(&mut app, left_click(home.x + 2, home.y + 1), TEST_AREA);
         assert_eq!(app.nav_rail().active_page, ActivePage::Home);
 
         let library = nav_button(&app, NavRailItem::Library);
-        handle_tui_mouse_event(&mut app, left_click(library.x + 1, library.y), TEST_AREA);
+        handle_tui_mouse_event(
+            &mut app,
+            left_click(library.x + 2, library.y + 1),
+            TEST_AREA,
+        );
         assert_eq!(app.nav_rail().active_page, ActivePage::Library);
 
         let palette = nav_button(&app, NavRailItem::CommandPalette);
-        handle_tui_mouse_event(&mut app, left_click(palette.x + 1, palette.y), TEST_AREA);
+        handle_tui_mouse_event(
+            &mut app,
+            left_click(palette.x + 2, palette.y + 1),
+            TEST_AREA,
+        );
         assert!(app.palette_open());
     }
 
@@ -2959,7 +2966,11 @@ mod tests {
     fn nav_rail_settings_icon_opens_the_settings_overlay() {
         let mut app = App::default();
         let settings = nav_button(&app, NavRailItem::Settings);
-        handle_tui_mouse_event(&mut app, left_click(settings.x + 1, settings.y), TEST_AREA);
+        handle_tui_mouse_event(
+            &mut app,
+            left_click(settings.x + 2, settings.y + 1),
+            TEST_AREA,
+        );
         assert!(app.is_settings_overlay_open());
     }
 

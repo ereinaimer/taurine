@@ -19,6 +19,9 @@ vendored-openssl = ["taurine_core/vendored-openssl"]
 taurine_core = { path = "../core", default-features = false }
 crossterm = "0.29"
 ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
+ratatui-image = { version = "12.0.0-rc.3", default-features = false, features = ["crossterm"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+resvg = { version = "0.49", default-features = false }
 serde_json = "1"
 tokio = { workspace = true }
 tonic = "0.14"

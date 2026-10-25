@@ -9,12 +9,11 @@ use crate::theme::default::DARK_THEME;
 use crate::widgets::library::LibraryPageState;
 use crate::widgets::library::props::PropsHit;
 use crate::widgets::library::recorder::HotkeyRecorderState;
-use crate::widgets::nav_rail::NavRailState;
+use crate::widgets::nav_rail::{NavRailState, RailIcons};
 use crate::widgets::palette::CommandPaletteState;
 use crate::widgets::settings::state::SettingsPageState;
 use crate::widgets::toggle::{ToggleAnimations, ToggleId};
 
-#[derive(Debug)]
 pub(crate) struct App {
     library_page: LibraryPageState,
     settings_page: SettingsPageState,
@@ -29,6 +28,7 @@ pub(crate) struct App {
     palette: Option<CommandPaletteState>,
     hotkey_recorder: Option<HotkeyRecorderState>,
     nav_rail: NavRailState,
+    rail_icons: Option<RailIcons>,
     /// Cached daemon pause flag: the palette labels its toggle from it,
     /// refreshed when the palette opens and after every transition.
     daemon_paused: bool,
@@ -53,6 +53,7 @@ impl Default for App {
             palette: None,
             hotkey_recorder: None,
             nav_rail: NavRailState::default(),
+            rail_icons: None,
             daemon_paused: false,
             transition_effect: None,
             last_frame_instant: Instant::now(),
@@ -145,6 +146,27 @@ impl App {
 
     pub(crate) fn nav_rail_mut(&mut self) -> &mut NavRailState {
         &mut self.nav_rail
+    }
+
+    /// Rasterize the rail glyphs once, after the terminal can answer the
+    /// graphics probe. Failure keeps the glyph fallback.
+    pub(crate) fn load_rail_icons(&mut self) {
+        use ratatui_image::picker::Picker;
+
+        let picker = Picker::from_query_stdio().unwrap_or_else(|_| Picker::halfblocks());
+        tracing::info!(protocol = ?picker.protocol_type(), "navigation rail graphics");
+        match RailIcons::load(&picker, self.current_theme) {
+            Ok(icons) => self.rail_icons = Some(icons),
+            Err(error) => {
+                tracing::warn!(%error, "failed to rasterize the navigation rail icons");
+            }
+        }
+    }
+
+    /// Both rail halves at once so rendering can borrow the state and the
+    /// protocols together.
+    pub(crate) fn nav_rail_graphics(&mut self) -> (&mut NavRailState, Option<&mut RailIcons>) {
+        (&mut self.nav_rail, self.rail_icons.as_mut())
     }
 
     pub(crate) const fn daemon_paused(&self) -> bool {
