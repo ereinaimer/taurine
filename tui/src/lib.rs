@@ -549,20 +549,16 @@ fn handle_hotkey_recorder_key(app: &mut App, key: crossterm::event::KeyEvent) {
 fn open_recorder_for_selected(app: &mut App) -> bool {
     use library::recorder::{HotkeyRecorderState, HotkeyTarget};
 
-    let chord = {
+    let is_hotkey = {
         let page = app.library_page();
         page.selected_index()
             .and_then(|index| page.item_at_filtered(index))
-            .filter(|item| item.is_hotkey())
-            .map(|item| item.trigger().to_string())
+            .is_some_and(|item| item.is_hotkey())
     };
-    let Some(chord) = chord else {
+    if !is_hotkey {
         return false;
-    };
-    app.set_hotkey_recorder(Some(HotkeyRecorderState::prefilled(
-        HotkeyTarget::PrimaryTrigger,
-        &chord,
-    )));
+    }
+    app.set_hotkey_recorder(Some(HotkeyRecorderState::new(HotkeyTarget::PrimaryTrigger)));
     true
 }
 
@@ -571,24 +567,23 @@ fn open_recorder_for_selected(app: &mut App) -> bool {
 fn open_recorder_for_alias(app: &mut App, line: usize) -> bool {
     use library::recorder::{HotkeyRecorderState, HotkeyTarget};
 
-    let chord = {
+    let is_alias = {
         let page = app.library_page();
         page.selected_index()
             .and_then(|index| page.item_at_filtered(index))
             .and_then(|item| {
-                let alias = library::detail::sibling_aliases(item.aliases(), item.trigger())
+                library::detail::sibling_aliases(item.aliases(), item.trigger())
                     .get(line)
-                    .copied()?;
-                crate::widgets::hotkey::is_hotkey_chord(alias).then(|| alias.to_string())
+                    .copied()
             })
+            .is_some_and(crate::widgets::hotkey::is_hotkey_chord)
     };
-    let Some(chord) = chord else {
+    if !is_alias {
         return false;
-    };
-    app.set_hotkey_recorder(Some(HotkeyRecorderState::prefilled(
-        HotkeyTarget::AliasIndex(line),
-        &chord,
-    )));
+    }
+    app.set_hotkey_recorder(Some(HotkeyRecorderState::new(HotkeyTarget::AliasIndex(
+        line,
+    ))));
     true
 }
 
@@ -2741,8 +2736,8 @@ mod tests {
             recorder.target,
             library::recorder::HotkeyTarget::PrimaryTrigger
         );
-        assert_eq!(recorder.modifiers, vec!["alt".to_string()]);
-        assert_eq!(recorder.main_key.as_deref(), Some("t"));
+        assert!(recorder.modifiers.is_empty());
+        assert_eq!(recorder.main_key, None);
         assert!(app.library_page().trigger_edit().is_none());
     }
 
@@ -2797,7 +2792,7 @@ mod tests {
             recorder.target,
             library::recorder::HotkeyTarget::AliasIndex(0)
         );
-        assert_eq!(recorder.chord().as_deref(), Some("ctrl+k"));
+        assert_eq!(recorder.chord(), None);
     }
 
     #[test]
@@ -2832,9 +2827,8 @@ mod tests {
     fn esc_discards_the_recording() {
         let mut app = App::default();
         seed_single_library_item(&mut app);
-        app.set_hotkey_recorder(Some(library::recorder::HotkeyRecorderState::prefilled(
+        app.set_hotkey_recorder(Some(library::recorder::HotkeyRecorderState::new(
             library::recorder::HotkeyTarget::PrimaryTrigger,
-            "alt+f6",
         )));
 
         handle_tui_key_event(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
@@ -2853,9 +2847,8 @@ mod tests {
     fn recording_ignores_clicks_outside_the_popup() {
         let mut app = App::default();
         seed_single_library_item(&mut app);
-        app.set_hotkey_recorder(Some(library::recorder::HotkeyRecorderState::prefilled(
+        app.set_hotkey_recorder(Some(library::recorder::HotkeyRecorderState::new(
             library::recorder::HotkeyTarget::PrimaryTrigger,
-            "alt+f6",
         )));
 
         handle_tui_mouse_event(&mut app, left_click(0, 0), TEST_AREA);

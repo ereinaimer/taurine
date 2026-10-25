@@ -5,8 +5,9 @@ use ratatui::style::{Color, Style};
 use ratatui::text::Span;
 
 /// Prefixes that mark a `+`-delimited string as a key chord.
-const MODIFIERS: [&str; 10] = [
-    "ctrl", "control", "alt", "shift", "win", "super", "cmd", "command", "meta", "option",
+const MODIFIERS: [&str; 18] = [
+    "ctrl", "control", "alt", "shift", "win", "super", "cmd", "command", "meta", "option", "lctrl",
+    "rctrl", "lshift", "rshift", "lalt", "ralt", "lmeta", "rmeta",
 ];
 
 /// True when `text` reads as `modifier+key`, e.g. `alt+f6` or
@@ -87,6 +88,9 @@ mod tests {
             "super+x",
             "cmd+k",
             "Ctrl+Alt+Del",
+            "lctrl+a",
+            "rshift+f6",
+            "lmeta+space",
         ] {
             assert!(is_hotkey_chord(chord), "{chord}");
         }

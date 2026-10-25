@@ -155,7 +155,7 @@ const HOME_ROW: &[Cell] = &[
 ];
 
 const SHIFT_ROW: &[Cell] = &[
-    key("shift", "Shift", 8),
+    key("lshift", "Shift", 8),
     gap(1),
     key("z", "Z", 3),
     gap(1),
@@ -177,25 +177,25 @@ const SHIFT_ROW: &[Cell] = &[
     gap(1),
     key("/", "/", 3),
     gap(1),
-    key("shift", "Shift", 8),
+    key("rshift", "Shift", 8),
 ];
 
 const BOTTOM_ROW: &[Cell] = &[
-    key("ctrl", "Ctrl", 5),
+    key("lctrl", "Ctrl", 5),
     gap(1),
-    key("win", "Win", 5),
+    key("lmeta", "Win", 5),
     gap(1),
-    key("alt", "Alt", 5),
+    key("lalt", "Alt", 5),
     gap(1),
     key("space", "", 18),
     gap(1),
-    key("alt", "Alt", 5),
+    key("ralt", "Alt", 5),
     gap(1),
-    key("win", "Win", 5),
+    key("rmeta", "Win", 5),
     gap(1),
     key("menu", "Menu", 4),
     gap(1),
-    key("ctrl", "Ctl", 3),
+    key("rctrl", "Ctl", 3),
 ];
 
 const PRINT_CLUSTER: &[Cell] = &[
@@ -276,84 +276,42 @@ pub(crate) fn popup(area: Rect) -> Rect {
     util::overlay_popup_sized(width, height, area)
 }
 
-/// Keycap and preview heights for the content space available: the
-/// preview folds to a single pill first, then the keycaps flatten.
-const fn mode(content_height: u16) -> (u16, u16) {
-    if content_height >= 34 {
-        (3, 3)
-    } else if content_height >= 31 {
-        (3, 1)
-    } else {
-        (1, 1)
-    }
-}
-
 pub(crate) struct Layout {
     pub(crate) content: Rect,
     pub(crate) instructions: Rect,
     pub(crate) cancel: Rect,
     pub(crate) done: Rect,
     pub(crate) divider_top: u16,
-    pub(crate) preview: Rect,
-    pub(crate) divider_bottom: u16,
     pub(crate) keycaps: Vec<(&'static str, &'static str, Rect)>,
 }
 
 /// Every rect the overlay draws. The panel is 90% of the terminal, so the
-/// keyboard block is centered in it, both across and down, rather than
-/// pinned to the top-left of a mostly empty popup.
+/// keyboard stretches across the content width instead of leaving empty
+/// gutters on either side.
 pub(crate) fn layout(area: Rect) -> Layout {
     let chrome = OverlayChrome::new(popup(area));
     let content = chrome.content;
-    let (keycap_height, preview_height) = mode(content.height);
-    let keyboard_height = keycap_height.saturating_mul(6).saturating_add(5);
-    // A single-row preview tucks against the divider; a tall one keeps a
-    // blank row above it so the pills breathe.
-    let preview_gap = if preview_height > 1 { 2 } else { 1 };
-    // Zone A (three rows plus its divider), the preview block, and the
-    // keyboard with its divider and blank row.
-    let stack_height = 6 + preview_gap + preview_height + keyboard_height;
-    let top = content
-        .y
-        .saturating_add(content.height.saturating_sub(stack_height) / 2);
-    let keyboard_x = content
-        .x
-        .saturating_add(content.width.saturating_sub(TKL_WIDTH) / 2);
-    let keyboard_width = TKL_WIDTH.min(content.width);
+    let keycap_height = keycap_height(content.height);
     let right = content.x.saturating_add(content.width);
     let chips_x = right
         .saturating_sub(CANCEL_WIDTH + CHIP_GAP + DONE_WIDTH)
         .max(content.x);
-    let cancel = Rect::new(chips_x, top, CANCEL_WIDTH, 1);
+    let cancel = Rect::new(chips_x, content.y, CANCEL_WIDTH, 1);
     let done = Rect::new(
         chips_x.saturating_add(CANCEL_WIDTH + CHIP_GAP),
-        top,
+        content.y,
         DONE_WIDTH,
         1,
     );
-    let instructions = Rect::new(content.x, top, content.width, 2);
-    let divider_top = top.saturating_add(3);
-    let preview = Rect::new(
-        keyboard_x,
-        divider_top.saturating_add(preview_gap),
-        keyboard_width,
-        preview_height,
-    );
-    let divider_bottom = preview.y.saturating_add(preview_height).saturating_add(1);
-    let keycap_top = divider_bottom.saturating_add(2);
+    let instructions = Rect::new(content.x, content.y, content.width, 2);
+    let divider_top = content.y.saturating_add(3);
+    let keycap_top = divider_top.saturating_add(2);
 
     let mut keycaps = Vec::new();
     for (index, row) in ROWS.iter().enumerate() {
         let y = keycap_top.saturating_add((index as u16).saturating_mul(keycap_height + 1));
-        place_row(
-            &mut keycaps,
-            content,
-            row.main,
-            keyboard_x,
-            y,
-            keycap_height,
-        );
-        let cluster_x = keyboard_x.saturating_add(MAIN_WIDTH + CLUSTER_GAP + row.cluster_offset);
+        place_row(&mut keycaps, content, row.main, 0, y, keycap_height);
+        let cluster_x = MAIN_WIDTH + CLUSTER_GAP + row.cluster_offset;
         place_row(
             &mut keycaps,
             content,
@@ -370,10 +328,22 @@ pub(crate) fn layout(area: Rect) -> Layout {
         cancel,
         done,
         divider_top,
-        preview,
-        divider_bottom,
         keycaps,
     }
+}
+
+/// Keycap rows for the content height: full caps when the keyboard fits,
+/// flat caps otherwise.
+const fn keycap_height(content_height: u16) -> u16 {
+    // honey: five rows of header, divider, and gap sit above the matrix.
+    if content_height >= 28 { 3 } else { 1 }
+}
+
+/// Stretch a base matrix column to the drawn width. With the keyboard
+/// filling the panel, letters and word keys gain the padding they need.
+fn scale_x(x: u16, width: u16) -> u16 {
+    let scaled = u32::from(x) * u32::from(width) + u32::from(TKL_WIDTH) / 2;
+    (scaled / u32::from(TKL_WIDTH)) as u16
 }
 
 fn place_row(
@@ -385,18 +355,27 @@ fn place_row(
     height: u16,
 ) {
     let right = content.x.saturating_add(content.width);
+    let width = TKL_WIDTH.max(content.width);
     let mut x = start_x;
     for cell in cells {
         match cell {
-            Cell::Gap(width) => x = x.saturating_add(*width),
-            Cell::Key { id, label, width } => {
+            Cell::Gap(cells) => x = x.saturating_add(*cells),
+            Cell::Key {
+                id,
+                label,
+                width: cells,
+            } => {
+                let start = content.x.saturating_add(scale_x(x, width));
+                let end = content
+                    .x
+                    .saturating_add(scale_x(x.saturating_add(*cells), width));
                 // honey: narrow terminals clip the far columns instead
                 // of scrolling the keyboard.
-                if x < right {
-                    let width = (*width).min(right - x);
-                    out.push((*id, *label, Rect::new(x, y, width, height)));
+                if start < right {
+                    let cell_width = end.saturating_sub(start).min(right - start);
+                    out.push((*id, *label, Rect::new(start, y, cell_width, height)));
                 }
-                x = x.saturating_add(*width);
+                x = x.saturating_add(*cells);
             }
         }
     }
@@ -465,15 +444,15 @@ mod tests {
             .map(|(_, _, rect)| rect.x + rect.width)
             .max()
             .expect("keycaps");
-        assert_eq!(right - left, TKL_WIDTH);
-        // The keyboard block is centered in the wider panel.
-        assert_eq!(left - layout.content.x, 3);
-        assert_eq!(layout.preview.x, left);
-        assert_eq!(layout.preview.width, TKL_WIDTH);
+        // The keyboard stretches across the whole panel, so no gutters
+        // sit beside it.
+        assert_eq!(left, layout.content.x);
+        assert_eq!(right, layout.content.x + layout.content.width);
+        assert!(right - left > TKL_WIDTH);
     }
 
     #[test]
-    fn keyboard_is_vertically_centered_in_the_panel() {
+    fn keyboard_sits_directly_under_the_instructions() {
         let layout = layout(Rect::new(0, 0, 100, 60));
         let top = layout
             .keycaps
@@ -481,16 +460,8 @@ mod tests {
             .map(|(_, _, rect)| rect.y)
             .min()
             .expect("keycaps");
-        let bottom = layout
-            .keycaps
-            .iter()
-            .map(|(_, _, rect)| rect.y + rect.height)
-            .max()
-            .expect("keycaps");
-        let above = layout.instructions.y - layout.content.y;
-        let below = layout.content.y + layout.content.height - bottom;
-        assert!(above.abs_diff(below) <= 1, "above {above} below {below}");
-        assert!(top > layout.instructions.y);
+        assert_eq!(layout.instructions.y, layout.content.y);
+        assert_eq!(top, layout.divider_top + 2);
     }
 
     #[test]
@@ -531,14 +502,13 @@ mod tests {
     fn mid_height_terminals_keep_three_row_keycaps() {
         let layout = layout(Rect::new(0, 0, 100, 40));
         assert!(layout.keycaps.iter().all(|(_, _, rect)| rect.height == 3));
-        assert_eq!(layout.preview.height, 1);
         let bottom = layout
             .keycaps
             .iter()
             .map(|(_, _, rect)| rect.y + rect.height)
             .max()
             .expect("keycaps");
-        assert_eq!(bottom, layout.content.y + layout.content.height);
+        assert!(bottom <= layout.content.y + layout.content.height);
     }
 
     #[test]

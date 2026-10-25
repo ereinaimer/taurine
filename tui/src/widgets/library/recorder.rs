@@ -1,13 +1,13 @@
 //! Full-TKL virtual keyboard overlay for recording a hotkey chord.
 //!
 //! The overlay is a flat, borderless popup: an instruction header with
-//! Cancel/Done chips, a live chord preview, and a six-row keyboard. The
-//! matrix and its geometry live in [`matrix`] so rendering and
-//! hit-testing share one source of truth.
+//! Cancel/Done chips and a six-row keyboard. The matrix and its geometry
+//! live in [`matrix`] so rendering and hit-testing share one source of
+//! truth.
 
 mod matrix;
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers, ModifierKeyCode};
 use ratatui::{
     Frame,
     layout::{Alignment, Rect},
@@ -15,7 +15,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Paragraph},
 };
-use taurine_core::keys::{LogicalKey, Modifier, parse_hotkey};
+use taurine_core::keys::{Modifier, ModifierFamily, ModifierSide};
 
 pub(crate) use matrix::{Layout, layout, popup};
 
@@ -25,10 +25,6 @@ use crate::widgets::util::{self, OverlayChrome};
 
 /// Dark label on the active green fill, matching the toggle's ON state.
 const ACTIVE_TEXT: Color = Color::Rgb(0x0C, 0x0C, 0x0C);
-
-/// Canonical modifier order used by the preview, the commit string, and
-/// the state vector.
-pub(crate) const MODIFIER_ORDER: [&str; 4] = ["ctrl", "win", "alt", "shift"];
 
 /// Where a committed chord lands: the selected row's own invocation or
 /// one of its sibling aliases.
@@ -68,43 +64,11 @@ impl HotkeyRecorderState {
         }
     }
 
-    /// Opens on an existing chord, best effort: an unparsable stored
-    /// value just starts empty.
-    pub(crate) fn prefilled(target: HotkeyTarget, chord: &str) -> Self {
-        let mut state = Self::new(target);
-        if let Ok(hotkey) = parse_hotkey(chord) {
-            state.modifiers = hotkey
-                .modifiers
-                .ordered()
-                .filter_map(display_modifier)
-                .map(str::to_string)
-                .collect();
-            state.main_key = Some(display_key(hotkey.key));
-        }
-        state
-    }
-
-    /// Preview and commit parts, modifiers first in canonical order.
-    pub(crate) fn parts(&self) -> Vec<String> {
-        let mut parts: Vec<String> = MODIFIER_ORDER
-            .iter()
-            .filter(|modifier| self.modifiers.iter().any(|held| held == *modifier))
-            .map(|modifier| (*modifier).to_string())
-            .collect();
-        if let Some(key) = &self.main_key {
-            parts.push(key.clone());
-        }
-        parts
-    }
-
     /// Canonical chord string, or `None` while no non-modifier key is set.
     pub(crate) fn chord(&self) -> Option<String> {
-        self.main_key.as_ref()?;
-        let parts: Vec<String> = self
-            .parts()
-            .iter()
-            .map(|part| core_alias(part).to_string())
-            .collect();
+        let mut parts: Vec<String> = self.modifiers.iter().map(|id| chord_part(id)).collect();
+        parts.sort_by_key(|part| modifier_rank(part));
+        parts.push(chord_part(self.main_key.as_deref()?));
         Some(parts.join("+"))
     }
 
@@ -156,7 +120,7 @@ impl HotkeyRecorderState {
     }
 
     fn press_keycap(&mut self, id: &str) {
-        if MODIFIER_ORDER.contains(&id) {
+        if is_modifier(id) {
             self.toggle_modifier(id);
             return;
         }
@@ -178,18 +142,32 @@ impl HotkeyRecorderState {
             self.modifiers.remove(position);
             return;
         }
+        self.add_modifier(id);
+    }
+
+    /// One modifier per family: picking a side replaces the other side or
+    /// a generic press of the same family.
+    fn add_modifier(&mut self, id: &str) {
+        if let Some(family) = Modifier::from_alias(id).map(Modifier::family) {
+            self.modifiers
+                .retain(|held| Modifier::from_alias(held).map(Modifier::family) != Some(family));
+        }
         self.modifiers.push(id.to_string());
-        self.modifiers.sort_by_key(|held| {
-            MODIFIER_ORDER
-                .iter()
-                .position(|modifier| modifier == held)
-                .unwrap_or(MODIFIER_ORDER.len())
-        });
+        self.modifiers.sort_by_key(|held| modifier_rank(held));
     }
 
     /// Physical keyboard while recording.
     pub(crate) fn press(&mut self, key: KeyEvent) -> RecorderAction {
         if key.kind != KeyEventKind::Press {
+            return RecorderAction::None;
+        }
+        // honey: kitty-protocol terminals report which side a modifier came
+        // from; Windows terminals only report the family.
+        if let KeyCode::Modifier(modifier) = key.code
+            && let Some(id) = sided_modifier_id(modifier)
+        {
+            self.error = None;
+            self.add_modifier(id);
             return RecorderAction::None;
         }
         match (key.code, key.modifiers) {
@@ -211,7 +189,11 @@ impl HotkeyRecorderState {
             physical.push("shift".to_string());
         }
         if !physical.is_empty() {
-            self.modifiers = physical;
+            self.modifiers = physical
+                .into_iter()
+                .map(|modifier| self.keep_recorded_side(modifier))
+                .collect();
+            self.modifiers.sort_by_key(|held| modifier_rank(held));
         }
         self.error = None;
         if id == "menu" {
@@ -220,6 +202,23 @@ impl HotkeyRecorderState {
         }
         self.main_key = Some(id);
         RecorderAction::None
+    }
+
+    /// A side recorded by a click or a modifier-key event survives a
+    /// generic physical press of the same family.
+    fn keep_recorded_side(&self, generic: String) -> String {
+        let Some(family) = Modifier::from_alias(&generic).map(Modifier::family) else {
+            return generic;
+        };
+        self.modifiers
+            .iter()
+            .find(|held| {
+                Modifier::from_alias(held).is_some_and(|modifier| {
+                    modifier.family() == family && modifier.side().is_some()
+                })
+            })
+            .cloned()
+            .unwrap_or(generic)
     }
 
     /// Chord to save, or a visible nudge when nothing is recorded yet.
@@ -246,8 +245,6 @@ pub(crate) fn render(frame: &mut Frame, area: Rect, theme: &Theme, state: &Hotke
     render_instructions(frame, theme, &layout, state);
     render_chips(frame, theme, &layout);
     render_divider(frame, theme, layout.content, layout.divider_top);
-    render_preview(frame, theme, &layout, state);
-    render_divider(frame, theme, layout.content, layout.divider_bottom);
     render_keycaps(frame, theme, &layout, state);
 }
 
@@ -309,60 +306,12 @@ fn render_divider(frame: &mut Frame, theme: &Theme, content: Rect, y: u16) {
     );
 }
 
-fn render_preview(frame: &mut Frame, theme: &Theme, layout: &Layout, state: &HotkeyRecorderState) {
-    if layout.preview.width == 0 || layout.preview.height == 0 {
-        return;
-    }
-    let parts = state.parts();
-    if parts.is_empty() {
-        let y = layout
-            .preview
-            .y
-            .saturating_add(layout.preview.height.saturating_sub(1) / 2);
-        frame.render_widget(
-            Paragraph::new(Span::styled(
-                "Waiting for input...",
-                Style::default().fg(theme.text_muted),
-            )),
-            Rect::new(layout.preview.x, y, layout.preview.width, 1),
-        );
-        return;
-    }
-    let right = layout.preview.x.saturating_add(layout.preview.width);
-    let mut x = layout.preview.x;
-    for part in parts {
-        let label = format!(" {part} ");
-        let width = label.chars().count() as u16;
-        if x.saturating_add(width) > right {
-            break;
-        }
-        let rect = Rect::new(x, layout.preview.y, width, layout.preview.height);
-        frame.render_widget(
-            Block::default().style(Style::default().bg(theme.keycap.bg)),
-            rect,
-        );
-        frame.render_widget(
-            Paragraph::new(Span::styled(
-                label,
-                Style::default()
-                    .fg(theme.text)
-                    .bg(theme.keycap.bg)
-                    .add_modifier(StyleModifier::BOLD),
-            ))
-            .alignment(Alignment::Center),
-            Rect::new(x, rect.y.saturating_add(rect.height / 2), width, 1),
-        );
-        x = x.saturating_add(width + 1);
-    }
-}
-
 fn render_keycaps(frame: &mut Frame, theme: &Theme, layout: &Layout, state: &HotkeyRecorderState) {
     for (id, label, rect) in &layout.keycaps {
         if rect.width == 0 || rect.height == 0 {
             continue;
         }
-        let active =
-            state.modifiers.iter().any(|held| held == id) || state.main_key.as_deref() == Some(*id);
+        let active = keycap_active(state, id);
         let hovered = state.hovered_key.as_deref() == Some(*id);
         let (bg, fg, bold) = if active {
             (ENABLED_KNOB, ACTIVE_TEXT, true)
@@ -379,9 +328,10 @@ fn render_keycaps(frame: &mut Frame, theme: &Theme, layout: &Layout, state: &Hot
         if bold {
             style = style.add_modifier(StyleModifier::BOLD);
         }
+        let text = keycap_text(label, rect.width);
         frame.render_widget(
             Paragraph::new(Span::styled(
-                util::truncate_to_width(label, rect.width),
+                util::truncate_to_width(&text, rect.width),
                 style,
             ))
             .alignment(Alignment::Center),
@@ -395,19 +345,96 @@ fn render_keycaps(frame: &mut Frame, theme: &Theme, layout: &Layout, state: &Hot
     }
 }
 
+/// Word keys breathe with a blank cell on each side; letters, digits, and
+/// symbols stay tight. Padding only lands when the stretched key is wide
+/// enough to hold it.
+fn keycap_text(label: &str, width: u16) -> String {
+    if label.chars().count() > 1 {
+        let padded = format!(" {label} ");
+        if padded.chars().count() as u16 <= width {
+            return padded;
+        }
+    }
+    label.to_string()
+}
+
+/// True when the keycap should fill with the active green. An exact
+/// sided modifier lights only its own cap; a generic physical modifier
+/// carries no side, so it lights both caps of the family.
+fn keycap_active(state: &HotkeyRecorderState, id: &str) -> bool {
+    if state.modifiers.iter().any(|held| held == id) || state.main_key.as_deref() == Some(id) {
+        return true;
+    }
+    let Some(keycap) = Modifier::from_alias(id) else {
+        return false;
+    };
+    keycap.side().is_some()
+        && state.modifiers.iter().any(|held| {
+            Modifier::from_alias(held).is_some_and(|modifier| {
+                modifier.family() == keycap.family() && modifier.side().is_none()
+            })
+        })
+}
+
+fn is_modifier(id: &str) -> bool {
+    Modifier::from_alias(id).is_some()
+}
+
+/// Canonical chord order: family first, then the generic/sided variant.
+fn modifier_rank(id: &str) -> (u8, u8) {
+    let Some(modifier) = Modifier::from_alias(id) else {
+        return (u8::MAX, 0);
+    };
+    let family = match modifier.family() {
+        ModifierFamily::Ctrl => 0,
+        ModifierFamily::Shift => 1,
+        ModifierFamily::Alt => 2,
+        ModifierFamily::Meta => 3,
+    };
+    let side = match modifier.side() {
+        None => 0,
+        Some(ModifierSide::Left) => 1,
+        Some(ModifierSide::Right) => 2,
+    };
+    (family, side)
+}
+
+/// Keycap id to the name core stores: sided modifiers keep their side,
+/// and abbreviated caps expand to their long names.
+fn chord_part(id: &str) -> String {
+    Modifier::from_alias(id)
+        .map(|modifier| modifier.canonical_name().to_string())
+        .unwrap_or_else(|| core_alias(id).to_string())
+}
+
+/// Which side a kitty-protocol modifier event came from.
+fn sided_modifier_id(modifier: ModifierKeyCode) -> Option<&'static str> {
+    Some(match modifier {
+        ModifierKeyCode::LeftControl => "lctrl",
+        ModifierKeyCode::RightControl => "rctrl",
+        ModifierKeyCode::LeftShift => "lshift",
+        ModifierKeyCode::RightShift => "rshift",
+        ModifierKeyCode::LeftAlt => "lalt",
+        ModifierKeyCode::RightAlt => "ralt",
+        ModifierKeyCode::LeftMeta | ModifierKeyCode::LeftSuper => "lmeta",
+        ModifierKeyCode::RightMeta | ModifierKeyCode::RightSuper => "rmeta",
+        _ => return None,
+    })
+}
+
 fn physical_modifiers(modifiers: KeyModifiers) -> Vec<String> {
     let mut held = Vec::new();
     if modifiers.contains(KeyModifiers::CONTROL) {
         held.push("ctrl".to_string());
     }
-    if modifiers.contains(KeyModifiers::SUPER) {
-        held.push("win".to_string());
+    if modifiers.contains(KeyModifiers::SHIFT) {
+        held.push("shift".to_string());
     }
     if modifiers.contains(KeyModifiers::ALT) {
         held.push("alt".to_string());
     }
-    if modifiers.contains(KeyModifiers::SHIFT) {
-        held.push("shift".to_string());
+    if modifiers.intersects(KeyModifiers::SUPER | KeyModifiers::HYPER | KeyModifiers::META) {
+        held.push("meta".to_string());
     }
     held
 }
@@ -498,32 +525,6 @@ pub(crate) fn core_alias(id: &str) -> &str {
     }
 }
 
-/// Stored chord name to the keycap id the keyboard draws.
-fn display_key(key: LogicalKey) -> String {
-    let name = key.canonical_name();
-    match name.as_ref() {
-        "printscreen" => "prtsc",
-        "capslock" => "caps",
-        "backspace" => "bksp",
-        "delete" => "del",
-        "insert" => "ins",
-        "pgdown" => "pgdn",
-        "scrolllock" => "scrlk",
-        other => other,
-    }
-    .to_string()
-}
-
-fn display_modifier(modifier: Modifier) -> Option<&'static str> {
-    Some(match modifier.canonical_name() {
-        "ctrl" | "lctrl" | "rctrl" => "ctrl",
-        "shift" | "lshift" | "rshift" => "shift",
-        "alt" | "lalt" | "ralt" => "alt",
-        "meta" | "lmeta" | "rmeta" => "win",
-        _ => return None,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -535,37 +536,27 @@ mod tests {
     }
 
     #[test]
-    fn prefill_splits_a_stored_chord() {
-        let state = HotkeyRecorderState::prefilled(HotkeyTarget::PrimaryTrigger, "alt+f6");
-        assert_eq!(state.modifiers, vec!["alt".to_string()]);
-        assert_eq!(state.main_key.as_deref(), Some("f6"));
-    }
-
-    #[test]
-    fn prefill_translates_abbreviated_caps() {
-        let state =
-            HotkeyRecorderState::prefilled(HotkeyTarget::PrimaryTrigger, "ctrl+shift+printscreen");
-        assert_eq!(
-            state.modifiers,
-            vec!["ctrl".to_string(), "shift".to_string()]
-        );
-        assert_eq!(state.main_key.as_deref(), Some("prtsc"));
-        assert_eq!(state.chord().as_deref(), Some("ctrl+shift+printscreen"));
-    }
-
-    #[test]
-    fn prefill_ignores_unparsable_text() {
-        let state = HotkeyRecorderState::prefilled(HotkeyTarget::PrimaryTrigger, "hello there");
-        assert!(state.modifiers.is_empty());
-        assert_eq!(state.main_key, None);
-    }
-
-    #[test]
     fn chord_orders_modifiers_canonically() {
         let mut state = HotkeyRecorderState::new(HotkeyTarget::PrimaryTrigger);
-        state.modifiers = vec!["shift".to_string(), "win".to_string(), "ctrl".to_string()];
+        state.modifiers = vec!["shift".to_string(), "meta".to_string(), "ctrl".to_string()];
         state.main_key = Some("a".to_string());
-        assert_eq!(state.chord().as_deref(), Some("ctrl+win+shift+a"));
+        assert_eq!(state.chord().as_deref(), Some("ctrl+shift+meta+a"));
+    }
+
+    #[test]
+    fn chord_keeps_modifier_sides() {
+        let mut state = HotkeyRecorderState::new(HotkeyTarget::PrimaryTrigger);
+        state.modifiers = vec!["rshift".to_string(), "lctrl".to_string()];
+        state.main_key = Some("a".to_string());
+        assert_eq!(state.chord().as_deref(), Some("lctrl+rshift+a"));
+    }
+
+    #[test]
+    fn chord_maps_win_aliases_to_meta() {
+        let mut state = HotkeyRecorderState::new(HotkeyTarget::PrimaryTrigger);
+        state.modifiers = vec!["lwin".to_string()];
+        state.main_key = Some("a".to_string());
+        assert_eq!(state.chord().as_deref(), Some("lmeta+a"));
     }
 
     #[test]
@@ -582,6 +573,33 @@ mod tests {
         let mut state = HotkeyRecorderState::new(HotkeyTarget::PrimaryTrigger);
         state.press(KeyEvent::new(KeyCode::F(6), KeyModifiers::ALT));
         assert_eq!(state.chord().as_deref(), Some("alt+f6"));
+    }
+
+    #[test]
+    fn modifier_key_event_records_its_side() {
+        let mut state = HotkeyRecorderState::new(HotkeyTarget::PrimaryTrigger);
+        state.press(KeyEvent::new(
+            KeyCode::Modifier(ModifierKeyCode::LeftControl),
+            KeyModifiers::CONTROL,
+        ));
+        state.press(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
+        assert_eq!(state.chord().as_deref(), Some("lctrl+a"));
+
+        let mut state = HotkeyRecorderState::new(HotkeyTarget::PrimaryTrigger);
+        state.press(KeyEvent::new(
+            KeyCode::Modifier(ModifierKeyCode::RightShift),
+            KeyModifiers::SHIFT,
+        ));
+        state.press(KeyEvent::new(KeyCode::Char('A'), KeyModifiers::SHIFT));
+        assert_eq!(state.chord().as_deref(), Some("rshift+a"));
+    }
+
+    #[test]
+    fn clicked_side_survives_a_generic_physical_press() {
+        let mut state = HotkeyRecorderState::new(HotkeyTarget::PrimaryTrigger);
+        state.modifiers = vec!["lctrl".to_string()];
+        state.press(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
+        assert_eq!(state.chord().as_deref(), Some("lctrl+a"));
     }
 
     #[test]
@@ -643,12 +661,33 @@ mod tests {
         let (_, _, rect) = layout
             .keycaps
             .iter()
-            .find(|(id, _, _)| *id == "ctrl")
-            .expect("ctrl keycap");
+            .find(|(id, _, _)| *id == "lctrl")
+            .expect("left ctrl keycap");
         let mut state = HotkeyRecorderState::new(HotkeyTarget::PrimaryTrigger);
         state.click(area, rect.x + 1, rect.y);
-        assert_eq!(state.modifiers, vec!["ctrl".to_string()]);
+        assert_eq!(state.modifiers, vec!["lctrl".to_string()]);
         state.click(area, rect.x + 1, rect.y);
+        assert!(state.modifiers.is_empty());
+    }
+
+    #[test]
+    fn each_modifier_side_registers_on_its_own() {
+        let area = Rect::new(0, 0, 100, 45);
+        let layout = layout(area);
+        let click = |state: &mut HotkeyRecorderState, id: &str| {
+            let (_, _, rect) = layout
+                .keycaps
+                .iter()
+                .find(|(key, _, _)| *key == id)
+                .unwrap_or_else(|| panic!("{id} keycap"));
+            state.click(area, rect.x + 1, rect.y);
+        };
+        let mut state = HotkeyRecorderState::new(HotkeyTarget::PrimaryTrigger);
+        click(&mut state, "lshift");
+        assert_eq!(state.modifiers, vec!["lshift".to_string()]);
+        click(&mut state, "rshift");
+        assert_eq!(state.modifiers, vec!["rshift".to_string()]);
+        click(&mut state, "rshift");
         assert!(state.modifiers.is_empty());
     }
 
@@ -713,24 +752,44 @@ mod tests {
     }
 
     #[test]
-    fn active_keys_fill_green_on_both_sides() {
+    fn generic_modifier_lights_both_side_caps() {
         let mut state = HotkeyRecorderState::new(HotkeyTarget::PrimaryTrigger);
         state.modifiers = vec!["shift".to_string()];
         state.main_key = Some("f6".to_string());
         let (terminal, area) = draw(&state);
         let layout = layout(area);
-        for id in ["shift", "f6"] {
-            let rects: Vec<Rect> = layout
+        for id in ["lshift", "rshift", "f6"] {
+            let (_, _, rect) = layout
                 .keycaps
                 .iter()
-                .filter(|(key, _, _)| *key == id)
-                .map(|(_, _, rect)| *rect)
-                .collect();
-            assert!(!rects.is_empty(), "{id} rendered");
-            for rect in rects {
-                assert_eq!(bg_at(&terminal, area, rect.x, rect.y), ENABLED_KNOB, "{id}");
-            }
+                .find(|(key, _, _)| *key == id)
+                .expect(id);
+            assert_eq!(bg_at(&terminal, area, rect.x, rect.y), ENABLED_KNOB, "{id}");
         }
+    }
+
+    #[test]
+    fn sided_modifier_lights_only_its_own_cap() {
+        let mut state = HotkeyRecorderState::new(HotkeyTarget::PrimaryTrigger);
+        state.modifiers = vec!["lshift".to_string()];
+        let (terminal, area) = draw(&state);
+        let layout = layout(area);
+        let rect_of = |id: &str| {
+            let (_, _, rect) = layout
+                .keycaps
+                .iter()
+                .find(|(key, _, _)| *key == id)
+                .expect(id);
+            *rect
+        };
+        assert_eq!(
+            bg_at(&terminal, area, rect_of("lshift").x, rect_of("lshift").y),
+            ENABLED_KNOB
+        );
+        assert_eq!(
+            bg_at(&terminal, area, rect_of("rshift").x, rect_of("rshift").y),
+            DARK_THEME.surface
+        );
     }
 
     #[test]
@@ -773,18 +832,13 @@ mod tests {
     }
 
     #[test]
-    fn preview_waits_muted_until_a_key_lands() {
-        let state = HotkeyRecorderState::new(HotkeyTarget::PrimaryTrigger);
-        let (terminal, area) = draw(&state);
-        let layout = layout(area);
-        let y = layout.preview.y + layout.preview.height.saturating_sub(1) / 2;
-        let row: String = (layout.preview.x..layout.preview.x + 20)
-            .map(|x| {
-                terminal.backend().buffer().content[(y * area.width + x) as usize]
-                    .symbol()
-                    .to_string()
-            })
-            .collect();
-        assert_eq!(row, "Waiting for input...");
+    fn word_keys_get_breathing_room_but_symbols_do_not() {
+        assert_eq!(keycap_text("Esc", 5), " Esc ");
+        assert_eq!(keycap_text("Shift", 7), " Shift ");
+        // Too tight for padding: draw the bare label instead of clipping.
+        assert_eq!(keycap_text("Esc", 3), "Esc");
+        assert_eq!(keycap_text("A", 5), "A");
+        assert_eq!(keycap_text("↑", 5), "↑");
+        assert_eq!(keycap_text("", 5), "");
     }
 }
