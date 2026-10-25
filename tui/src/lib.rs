@@ -551,6 +551,16 @@ fn execute_palette_command(app: &mut App, command: palette::PaletteCommand) {
                 Err(err) => app.set_notification(format!("Restart failed: {err}")),
             }
         }
+        // honey: the pause/resume RPC blocks up to the 2s transport
+        // timeout; move it to a worker if the UI starts feeling slow.
+        PaletteCommand::PauseTaurine => match taurine_core::rpc::set_daemon_paused(true) {
+            Ok(()) => app.set_notification("Taurine paused.".to_string()),
+            Err(err) => app.set_notification(err),
+        },
+        PaletteCommand::ResumeTaurine => match taurine_core::rpc::set_daemon_paused(false) {
+            Ok(()) => app.set_notification("Taurine resumed.".to_string()),
+            Err(err) => app.set_notification(err),
+        },
         PaletteCommand::Quit => {
             if app.is_closing() {
                 app.request_quit();
@@ -2108,7 +2118,7 @@ mod tests {
     fn palette_quit_starts_close_animation() {
         let mut app = App::default();
         handle_tui_key_event(&mut app, ctrl_p());
-        for _ in 0..8 {
+        for _ in 0..10 {
             handle_tui_key_event(&mut app, down());
         }
 

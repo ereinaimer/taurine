@@ -62,6 +62,46 @@ pub async fn get_client() -> Result<
     Ok(daemon_control_client::DaemonControlClient::new(channel))
 }
 
+/// Blocks on the daemon's `Pause`/`Resume` RPC. `Ok(())` means the
+/// daemon confirmed the transition; `Err` carries a message fit for a
+/// toast. Blocks, so call it from a synchronous thread.
+pub fn set_daemon_paused(paused: bool) -> Result<(), String> {
+    if !crate::service::is_service_running() {
+        return Err("Taurine is not running.".to_string());
+    }
+
+    let action = if paused { "pause" } else { "resume" };
+    let perform = async move {
+        let mut client = get_client()
+            .await
+            .map_err(|e| format!("Could not reach Taurine: {e}"))?;
+        let response = if paused {
+            client
+                .pause(tonic::Request::new(PauseRequest {}))
+                .await
+                .map(|response| response.into_inner().success)
+        } else {
+            client
+                .resume(tonic::Request::new(ResumeRequest {}))
+                .await
+                .map(|response| response.into_inner().success)
+        };
+        match response {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(format!("Taurine refused to {action}.")),
+            Err(status) => Err(format!("Could not {action} Taurine: {}", status.message())),
+        }
+    };
+
+    match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt.block_on(perform),
+        Err(e) => Err(format!("Could not start the RPC runtime: {e}")),
+    }
+}
+
 pub fn notify_daemon_reload() {
     if !crate::service::is_service_running() {
         tracing::debug!("Service is offline; skipping reload notification.");
@@ -109,10 +149,11 @@ mod tests {
             .unwrap_or_else(|e| e.into_inner())
     }
 
-    #[test]
-    fn test_notify_daemon_reload_skips_when_service_not_running() {
-        let _guard = lock();
-        // SAFETY: Single-threaded unit test modifying environment variable for isolation.
+    /// Points liveness probes at a name/path nothing holds, so an
+    /// offline check never touches a real daemon. The returned temp
+    /// dir must outlive the probe on Unix.
+    fn force_service_offline() -> Option<tempfile::TempDir> {
+        // SAFETY: Tests hold TEST_LOCK while this variable is set.
         #[cfg(target_os = "windows")]
         unsafe {
             std::env::set_var(
@@ -124,33 +165,71 @@ mod tests {
         // probes a lock file instead, so point it at a fresh temp path.
         // Otherwise the test depends on real filesystem state.
         #[cfg(not(target_os = "windows"))]
-        let temp_dir = tempfile::tempdir().unwrap();
-        #[cfg(not(target_os = "windows"))]
-        unsafe {
-            std::env::set_var(
-                "TAURINE_SERVICE_LIVENESS_PATH",
-                temp_dir
-                    .path()
-                    .join("taurine_test_nonexistent.lock")
-                    .to_string_lossy()
-                    .to_string(),
-            );
+        let temp_dir = {
+            let temp_dir = tempfile::tempdir().unwrap();
+            // SAFETY: Tests hold TEST_LOCK while this variable is set.
+            unsafe {
+                std::env::set_var(
+                    "TAURINE_SERVICE_LIVENESS_PATH",
+                    temp_dir
+                        .path()
+                        .join("taurine_test_nonexistent.lock")
+                        .to_string_lossy()
+                        .to_string(),
+                );
+            }
+            temp_dir
+        };
+        #[cfg(target_os = "windows")]
+        {
+            None
         }
-        let start = std::time::Instant::now();
-        notify_daemon_reload();
-        let elapsed = start.elapsed();
-        // SAFETY: Single-threaded unit test cleaning up environment variable.
+        #[cfg(not(target_os = "windows"))]
+        {
+            Some(temp_dir)
+        }
+    }
+
+    fn clear_offline_override() {
+        // SAFETY: Tests hold TEST_LOCK while this variable is set.
         #[cfg(target_os = "windows")]
         unsafe {
             std::env::remove_var("TAURINE_SERVICE_LIVENESS_NAME");
         }
+        // SAFETY: Tests hold TEST_LOCK while this variable is set.
         #[cfg(not(target_os = "windows"))]
         unsafe {
             std::env::remove_var("TAURINE_SERVICE_LIVENESS_PATH");
         }
+    }
+
+    #[test]
+    fn test_notify_daemon_reload_skips_when_service_not_running() {
+        let _guard = lock();
+        let _temp_dir = force_service_offline();
+        let start = std::time::Instant::now();
+        notify_daemon_reload();
+        let elapsed = start.elapsed();
+        clear_offline_override();
         assert!(
             elapsed.as_millis() < 50,
             "notify_daemon_reload should return in < 50ms when service is offline, took {:?}",
+            elapsed
+        );
+    }
+
+    #[test]
+    fn test_set_daemon_paused_skips_when_service_not_running() {
+        let _guard = lock();
+        let _temp_dir = force_service_offline();
+        let start = std::time::Instant::now();
+        let result = set_daemon_paused(true);
+        let elapsed = start.elapsed();
+        clear_offline_override();
+        assert_eq!(result, Err("Taurine is not running.".to_string()));
+        assert!(
+            elapsed.as_millis() < 50,
+            "set_daemon_paused should return in < 50ms when service is offline, took {:?}",
             elapsed
         );
     }

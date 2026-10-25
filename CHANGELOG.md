@@ -35,7 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **New Trigger Description**: Add an optional description below the trigger field, separated by a blank row, when creating a trigger.
 - **New Trigger Header**: The New Trigger overlay now separates its title from the form with a neutral grey header band and a divider that runs from the header to the bottom of the overlay.
 - **Launch and Exit Animations**: The TUI now sweeps in from left to right on launch and reverses when you quit.
-- **Command Palette**: Press Ctrl+P to toggle panels, reset the layout, create a trigger, open settings, restart Taurine, or quit from one menu.
+- **Command Palette**: Press Ctrl+P to toggle panels, reset the layout, create a trigger, open settings, pause or resume Taurine, restart Taurine, or quit from one menu.
 
 ### Changed
 - **Add Buttons**: Empty property rows and the tag builder use a Nerd Font add icon.

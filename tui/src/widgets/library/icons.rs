@@ -28,6 +28,10 @@ pub(crate) const EXPORT_ICON: &str = "\u{f093}";
 pub(crate) const SETTINGS_ICON: &str = "\u{f013}";
 /// Refresh arrow for restarting Taurine.
 pub(crate) const RESTART_ICON: &str = "\u{f021}";
+/// Pause bars for suspending daemon listening.
+pub(crate) const PAUSE_ICON: &str = "\u{f04c}";
+/// Play triangle for resuming daemon listening.
+pub(crate) const RESUME_ICON: &str = "\u{f04b}";
 /// Power glyph for quitting the TUI.
 pub(crate) const QUIT_ICON: &str = "\u{f011}";
 

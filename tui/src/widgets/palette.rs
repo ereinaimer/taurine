@@ -29,13 +29,15 @@ pub(crate) enum PaletteCommand {
     ImportTriggers,
     ExportTriggers,
     OpenSettings,
+    PauseTaurine,
+    ResumeTaurine,
     RestartTaurine,
     Quit,
 }
 
 impl PaletteCommand {
     /// Menu order, top to bottom.
-    pub(crate) const ALL: [Self; 9] = [
+    pub(crate) const ALL: [Self; 11] = [
         Self::ToggleLeftPanel,
         Self::ToggleRightPanel,
         Self::ResetLayout,
@@ -43,6 +45,8 @@ impl PaletteCommand {
         Self::ImportTriggers,
         Self::ExportTriggers,
         Self::OpenSettings,
+        Self::PauseTaurine,
+        Self::ResumeTaurine,
         Self::RestartTaurine,
         Self::Quit,
     ];
@@ -56,6 +60,8 @@ impl PaletteCommand {
             Self::ImportTriggers => "Import triggers",
             Self::ExportTriggers => "Export triggers",
             Self::OpenSettings => "Open settings",
+            Self::PauseTaurine => "Pause Taurine",
+            Self::ResumeTaurine => "Resume Taurine",
             Self::RestartTaurine => "Restart Taurine",
             Self::Quit => "Quit TUI",
         }
@@ -70,6 +76,8 @@ impl PaletteCommand {
             Self::ImportTriggers => icons::IMPORT_ICON,
             Self::ExportTriggers => icons::EXPORT_ICON,
             Self::OpenSettings => icons::SETTINGS_ICON,
+            Self::PauseTaurine => icons::PAUSE_ICON,
+            Self::ResumeTaurine => icons::RESUME_ICON,
             Self::RestartTaurine => icons::RESTART_ICON,
             Self::Quit => icons::QUIT_ICON,
         }
@@ -147,10 +155,10 @@ impl CommandPaletteState {
     }
 }
 
-/// Shared fixed overlay rect; the nine rows fit the standard content
-/// area with one spare row.
+/// Shared overlay geometry, one row taller than the standard popup so
+/// all eleven commands fit with a spare row.
 pub(crate) fn popup(area: Rect) -> Rect {
-    util::overlay_popup(area)
+    util::overlay_popup_sized(56, 17, area)
 }
 
 /// Scrim or title-hint click, matching every other overlay.
@@ -158,10 +166,18 @@ pub(crate) fn dismiss_hit(area: Rect, column: u16, row: u16) -> bool {
     util::overlay_dismiss_hit(popup(area), column, row)
 }
 
-/// Command index under a click, if any.
+/// Command index under a click, if any. Mirrors `render`: rows are one
+/// line tall and start at the chrome content origin.
 pub(crate) fn option_hit(area: Rect, column: u16, row: u16) -> Option<usize> {
-    let heights = [1u16; PaletteCommand::ALL.len()];
-    util::overlay_option_hit(area, &heights, column, row)
+    let chrome = OverlayChrome::new(popup(area));
+    if column < chrome.popup.x
+        || column >= chrome.popup.x.saturating_add(chrome.popup.width)
+        || row < chrome.content.y
+    {
+        return None;
+    }
+    let index = usize::from(row - chrome.content.y);
+    (index < PaletteCommand::ALL.len()).then_some(index)
 }
 
 pub(crate) fn render(frame: &mut Frame, area: Rect, theme: &Theme, state: &CommandPaletteState) {
@@ -269,10 +285,20 @@ mod tests {
                 "Import triggers",
                 "Export triggers",
                 "Open settings",
+                "Pause Taurine",
+                "Resume Taurine",
                 "Restart Taurine",
                 "Quit TUI",
             ]
         );
+    }
+
+    #[test]
+    fn every_command_fits_the_popup() {
+        // honey: the palette renders whole with no scrolling; a new
+        // command past the content height would silently vanish.
+        let chrome = OverlayChrome::new(popup(AREA));
+        assert!(PaletteCommand::ALL.len() as u16 <= chrome.content.height);
     }
 
     #[test]
@@ -316,9 +342,28 @@ mod tests {
         assert!(new_trigger.contains("New Trigger"));
         assert!(new_trigger.trim_end().ends_with("Ctrl+N"));
 
+        let pause = row_text(&buffer, content_y + 7);
+        assert!(pause.contains("Pause Taurine"));
+        let resume = row_text(&buffer, content_y + 8);
+        assert!(resume.contains("Resume Taurine"));
+        let quit = row_text(&buffer, content_y + 10);
+        assert!(quit.contains("Quit TUI"));
+        assert!(quit.trim_end().ends_with("Ctrl+C"));
+
         // The cursor row paints the shared highlight band.
         assert_eq!(buffer[(popup.x, content_y)].bg, DARK_THEME.surface);
         assert_ne!(buffer[(popup.x, content_y + 1)].bg, DARK_THEME.surface);
+    }
+
+    #[test]
+    fn cursor_reaches_pause_and_resume() {
+        let mut state = CommandPaletteState::default();
+        for _ in 0..7 {
+            state.move_cursor(1);
+        }
+        assert_eq!(state.command(), PaletteCommand::PauseTaurine);
+        state.move_cursor(1);
+        assert_eq!(state.command(), PaletteCommand::ResumeTaurine);
     }
 
     #[test]
@@ -331,7 +376,7 @@ mod tests {
                 Some(index)
             );
         }
-        assert_eq!(option_hit(AREA, popup.x + 3, content_y + 9), None);
+        assert_eq!(option_hit(AREA, popup.x + 3, content_y + 11), None);
     }
 
     #[test]
