@@ -889,7 +889,10 @@ fn handle_tui_mouse_event(
             if app.palette_open() {
                 if palette::dismiss_hit(area, mouse.column, mouse.row) {
                     app.close_palette();
-                } else if let Some(index) = palette::option_hit(area, mouse.column, mouse.row) {
+                } else if let Some(index) = app
+                    .palette()
+                    .and_then(|state| palette::option_hit(area, state, mouse.column, mouse.row))
+                {
                     if let Some(state) = app.palette_mut() {
                         state.select(index);
                     }
