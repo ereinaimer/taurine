@@ -40,6 +40,10 @@ use widgets::notification;
 
 const EVENT_TICK_RATE: Duration = Duration::from_millis(250);
 
+/// Fast poll while the recorder is open: Windows terminals never report
+/// modifier-only presses, so the overlay reads them from the host instead.
+const RECORDER_POLL_RATE: Duration = Duration::from_millis(33);
+
 pub fn run() -> taurine_core::Result<()> {
     let mut app = App::default();
     // honey: the saved layout lands before the first draw so the panes
@@ -91,9 +95,16 @@ pub fn run() -> taurine_core::Result<()> {
                 TOGGLE_ANIM_FRAME
             };
             events.next_with_timeout(frame)?
+        } else if app.hotkey_recorder().is_some() {
+            events.next_with_timeout(RECORDER_POLL_RATE)?
         } else {
             events.next()?
         };
+        // honey: refresh before the event is handled so a chord key sees
+        // the modifier state at the instant it went down.
+        if let Some(recorder) = app.hotkey_recorder_mut() {
+            recorder.poll_physical();
+        }
         let layout_released = matches!(
             &event,
             Event::Mouse(mouse) if matches!(mouse.kind, MouseEventKind::Up(_))
