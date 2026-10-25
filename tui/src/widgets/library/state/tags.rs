@@ -18,7 +18,7 @@ pub(crate) struct ChipCell {
 /// the other overlay menus.
 pub(crate) const TAGS_CHIP_ROWS: usize = 8;
 
-/// Empty-menu line shown when the trigger has no tags yet. The `+`
+/// Empty-menu line shown when the trigger has no tags yet. The add
 /// button renders on the same row, right after this text.
 pub(crate) const TAGS_EMPTY_LINE: &str = "No tags available";
 
@@ -40,7 +40,7 @@ pub(crate) enum InputConfirm {
 }
 
 /// Tags builder modal: the trigger's own tags as a wrapping chip
-/// cloud with a trailing `+` action. The `+` opens an inline input
+/// cloud with a trailing add button. The button opens an inline input
 /// (`#` plus caret); Enter saves it, creating the tag when new. The
 /// focused chip swaps its `#` for the close icon; the icon cell or
 /// the Delete key removes it. Every write hits the database live.
@@ -224,9 +224,9 @@ impl LibraryTagsModalState {
         }
     }
 
-    /// True when a cloud-relative x hits the `+` button. Empty
-    /// renders a padded three-cell `" + "` span, so the padding
-    /// each side counts; the chip cloud keeps its exact cell.
+    /// True when a cloud-relative x hits the add button. Empty
+    /// renders a padded three-cell icon span, so the padding each
+    /// side counts; the chip cloud keeps its exact cell.
     pub(crate) fn plus_hit_accepts(&self, width: u16, x: u16) -> bool {
         if self.checked.is_empty() && !self.input_active {
             let center = self.plus_hit_x(width);

@@ -10,14 +10,14 @@ use crate::theme::Theme;
 use crate::widgets::library::detail::{
     EMPTY_TOKEN, PropertyValue, edge_line, edge_value_width, relative_time,
 };
+use crate::widgets::library::icons::ADD_CHIP;
 use crate::widgets::library::state::LibraryTrigger;
 use crate::widgets::toggle::{
     TOGGLE_WIDTH, ToggleAnimations, ToggleId, toggle_contains, toggle_rect, toggle_spans,
 };
 use crate::widgets::util;
 
-/// Compact add button shown when a property has no value.
-pub(crate) const ADD_CHIP: &str = " + ";
+/// Width of the padded add chip shown when a property has no value.
 pub(crate) const ADD_CHIP_WIDTH: u16 = 3;
 
 /// Right-pane content: two cells of padding on each side, mirroring

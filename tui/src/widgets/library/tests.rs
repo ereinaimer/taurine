@@ -1707,7 +1707,7 @@ fn empty_properties_render_add_chips() {
     for offset in [4u16, 6, 8, 12] {
         let y = content.y + offset;
         assert_eq!(buffer[(chip_x, y)].symbol(), " ");
-        assert_eq!(buffer[(chip_x + 1, y)].symbol(), "+");
+        assert_eq!(buffer[(chip_x + 1, y)].symbol(), icons::ADD_ICON);
         assert_eq!(buffer[(chip_x + 2, y)].symbol(), " ");
         for x in chip_x..chip_x + 3 {
             assert_eq!(buffer[(x, y)].bg, DARK_THEME.button.inactive_bg);
@@ -3479,6 +3479,29 @@ fn tags_menu_chip_colors_match_props_row() {
         tag_style(&DARK_THEME, 0),
         tag_style(&DARK_THEME, 5),
         "palette cycles every five tags like the props row"
+    );
+}
+
+#[test]
+fn tags_menu_add_buttons_use_add_icon() {
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let popup = crate::widgets::util::overlay_popup(area);
+    let body = crate::widgets::util::overlay_body(popup);
+
+    let empty = tags_menu(&[]);
+    let plus_x = empty.plus_hit_x(body.width);
+    let buffer = render_modal_buffer(&LibraryModal::Tags(empty));
+    assert_eq!(
+        buffer[(body.x + plus_x, body.y + 3)].symbol(),
+        icons::ADD_ICON
+    );
+
+    let menu = tags_menu(&["work"]);
+    let (plus_x, plus_y) = menu.plus_cell(body.width);
+    let buffer = render_modal_buffer(&LibraryModal::Tags(menu));
+    assert_eq!(
+        buffer[(body.x + plus_x, body.y + 3 + plus_y)].symbol(),
+        icons::ADD_ICON
     );
 }
 

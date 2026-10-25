@@ -37,7 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Launch and Exit Animations**: The TUI now sweeps in from left to right on launch and reverses when you quit.
 
 ### Changed
-- **Property Buttons**: Empty property rows now show a + button.
+- **Add Buttons**: Empty property rows and the tag builder use a Nerd Font add icon.
 - **Search Bar**: Shortened the placeholder to Search.
 - **Wrapped Search Queries**: Long search queries now wrap across up to three lines and scroll vertically instead of sliding sideways.
 - **Unified Popup Headers**: Every TUI popup now uses the New Trigger header band and spacing.

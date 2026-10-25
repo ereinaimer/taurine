@@ -10,6 +10,10 @@ pub(crate) const CHEVRON_DOWN: &str = "\u{f0d7}";
 pub(crate) const CHEVRON_UP: &str = "\u{f0d8}";
 /// Close X: single-cell MDI glyph marking a focused removable row.
 pub(crate) const CLOSE_ICON: &str = "\u{f00d}";
+/// Add: single-cell Nerd Font plus used by add buttons.
+pub(crate) const ADD_ICON: &str = "\u{ea60}";
+/// Padded three-cell add chip for inline property slots.
+pub(crate) const ADD_CHIP: &str = " \u{ea60} ";
 
 pub(crate) fn os_icon(target_os_display: &str) -> &'static str {
     match taurine_core::db::TargetOs::parse_str(target_os_display) {

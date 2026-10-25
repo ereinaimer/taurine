@@ -1249,7 +1249,7 @@ fn render_tags_chips(
         frame.render_widget(
             Paragraph::new(Line::from(vec![
                 Span::styled(empty, Style::default().fg(theme.text_muted)),
-                Span::styled(" + ".to_string(), plus_style),
+                Span::styled(super::icons::ADD_CHIP.to_string(), plus_style),
             ])),
             Rect {
                 x: body.x,
@@ -1346,7 +1346,10 @@ fn render_tags_chips(
                 Style::default().fg(theme.text_muted)
             };
             frame.render_widget(
-                Paragraph::new(Line::from(Span::styled("+".to_string(), style))),
+                Paragraph::new(Line::from(Span::styled(
+                    super::icons::ADD_ICON.to_string(),
+                    style,
+                ))),
                 Rect {
                     x: body.x.saturating_add(plus_x),
                     y: row_y,
