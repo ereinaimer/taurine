@@ -12,7 +12,6 @@ use ratatui::{
 
 use crate::terminal::mouse;
 use crate::theme::Theme;
-use crate::widgets::icons::AppIcons;
 use crate::widgets::labeled;
 use crate::widgets::settings::row::{
     hotkey_value_rect, inline_value_rect, render_setting_row, select_value_rect,
@@ -331,7 +330,6 @@ pub fn render_settings_overlay(
     state: &SettingsPageState,
     animations: &ToggleAnimations,
     hovered: Option<ToggleId>,
-    icons: Option<&AppIcons>,
 ) {
     let popup = overlay_popup(area);
     let chrome = crate::widgets::util::OverlayChrome::new(popup);
@@ -342,15 +340,7 @@ pub fn render_settings_overlay(
     if chrome.content.width == 0 || chrome.content.height == 0 {
         return;
     }
-    render_settings_content(
-        frame,
-        chrome.content,
-        theme,
-        state,
-        animations,
-        hovered,
-        icons,
-    );
+    render_settings_content(frame, chrome.content, theme, state, animations, hovered);
 }
 
 pub fn render_settings_content(
@@ -360,7 +350,6 @@ pub fn render_settings_content(
     state: &SettingsPageState,
     animations: &ToggleAnimations,
     hovered: Option<ToggleId>,
-    icons: Option<&AppIcons>,
 ) {
     if area.width == 0 || area.height == 0 {
         return;
@@ -411,7 +400,6 @@ pub fn render_settings_content(
         state.search_field(),
         state.is_search_active(),
         "Search",
-        icons.and_then(AppIcons::search),
     );
     if list_area.height == 0 {
         return;
@@ -615,14 +603,9 @@ mod tests {
 
         let area = ratatui::layout::Rect::new(26, 2, 71, 24);
         assert_eq!(hit_test(area, &state, 30, 3), None);
-        // The magnifier slot starts at the border plus padding; text starts
-        // four cells later.
+        // Line text starts two cells in: column 30 is the third character.
         assert_eq!(
             hit_test(area, &state, 30, 24),
-            Some(SettingsHit::SearchAt(0))
-        );
-        assert_eq!(
-            hit_test(area, &state, 35, 24),
             Some(SettingsHit::SearchAt(2))
         );
     }

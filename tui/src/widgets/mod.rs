@@ -1,6 +1,5 @@
 pub mod field;
 pub mod hotkey;
-pub mod icons;
 pub mod labeled;
 pub mod library;
 pub mod nav_rail;

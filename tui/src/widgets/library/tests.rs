@@ -1687,7 +1687,6 @@ fn draw_props(
                 None,
                 hovered_add,
                 ToggleId::PropAutoCase,
-                None,
             );
         })
         .expect("test draw");
@@ -1708,10 +1707,7 @@ fn empty_properties_render_add_chips() {
     for offset in [4u16, 6, 8, 12] {
         let y = content.y + offset;
         assert_eq!(buffer[(chip_x, y)].symbol(), " ");
-        assert_eq!(
-            buffer[(chip_x + 1, y)].symbol(),
-            crate::widgets::icons::ADD_ICON
-        );
+        assert_eq!(buffer[(chip_x + 1, y)].symbol(), icons::ADD_ICON);
         assert_eq!(buffer[(chip_x + 2, y)].symbol(), " ");
         for x in chip_x..chip_x + 3 {
             assert_eq!(buffer[(x, y)].bg, DARK_THEME.button.inactive_bg);
@@ -2059,10 +2055,13 @@ fn content_divider_spans_the_center_pane() {
         .expect("test draw");
 
     let split = split_panes(area, state.split_ratio(), state.detail_ratio());
-    assert_eq!(split.dividers[0].saturating_add(1), split.center.x);
     assert_eq!(
-        split.dividers[1],
-        split.center.x.saturating_add(split.center.width)
+        split.list_divider.expect("list divider").saturating_add(1),
+        split.center.x
+    );
+    assert_eq!(
+        split.props_divider,
+        Some(split.center.x.saturating_add(split.center.width))
     );
     let content = detail::center_content(area, state.split_ratio(), state.detail_ratio());
     let divider_y = content.y.saturating_add(6);
@@ -2603,7 +2602,7 @@ fn search_bar_click_places_caret() {
     for ch in "gm".chars() {
         state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
     }
-    // Search text starts after the border, padding, and magnifier slot.
+    // Search text starts at the search area plus border and padding.
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
     let content = left_content(area, state.split_ratio(), state.detail_ratio());
     let (_, search_area) = content_sections(
@@ -2612,7 +2611,7 @@ fn search_bar_click_places_caret() {
         state.search_field(),
         state.is_search_active(),
     );
-    let line_x = search_area.x + 7;
+    let line_x = search_area.x + 2;
     assert_eq!(
         list::hit_test(area, &state, line_x, search_area.y),
         Some(list::LibraryHit::SearchAt(0))
@@ -2677,7 +2676,6 @@ fn search_bar_renders_wrapped_query_inside_the_left_pane() {
                 &crate::widgets::toggle::ToggleAnimations::default(),
                 None,
                 None,
-                None,
             );
         })
         .expect("test draw");
@@ -2695,8 +2693,8 @@ fn search_bar_renders_wrapped_query_inside_the_left_pane() {
             .map(|x| buffer[(x, y)].symbol().to_string())
             .collect()
     };
-    assert!(row_text(search_area.y + 1).contains("hello world"));
-    assert!(row_text(search_area.y + 2).contains("again and again"));
+    assert!(row_text(search_area.y + 1).contains("hello world again"));
+    assert!(row_text(search_area.y + 2).contains("and again"));
 }
 
 #[test]
@@ -2954,7 +2952,7 @@ fn header_menu_missing_metadata_parks_on_first_option() {
 
 #[test]
 fn open_menu_flips_spawning_button_chevron() {
-    use crate::widgets::icons::{CHEVRON_DOWN, CHEVRON_UP};
+    use crate::widgets::library::icons::{CHEVRON_DOWN, CHEVRON_UP};
     use ratatui::{Terminal, backend::TestBackend};
 
     fn chevrons(state: &LibraryPageState) -> (usize, usize) {
@@ -3515,29 +3513,7 @@ fn platform_hit_targets_value_row() {
 }
 
 #[test]
-fn platform_row_falls_back_to_ascii_badge() {
-    let state = sample_state();
-    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
-    let content = props::props_content(area, state.split_ratio(), state.detail_ratio());
-    let selected = state.selected_index().expect("selection");
-    let item = state.item_at_filtered(selected).expect("item");
-    let rows = props::info_rows(item);
-    let position = rows
-        .iter()
-        .position(|(label, _)| *label == "Platform")
-        .expect("platform row") as u16;
-    let offset = position.saturating_mul(2).saturating_add(2);
-    let buffer = draw_props(&state, None);
-    let row: String = (content.x..content.x.saturating_add(content.width))
-        .map(|x| buffer[(x, content.y + offset)].symbol().to_string())
-        .collect();
-
-    assert!(row.contains("[Win]"), "{row:?}");
-    assert!(row.contains("windows"), "{row:?}");
-}
-
-#[test]
-fn platform_menu_parks_on_current_os() {
+fn platform_menu_parks_on_current_os_with_icons() {
     let mut state = sample_state();
     let menu = open_menu(&mut state, HeaderMenuKind::Platform);
     assert_eq!(menu.kind(), HeaderMenuKind::Platform);
@@ -3547,6 +3523,9 @@ fn platform_menu_parks_on_current_os() {
     );
     // First sorted row targets windows.
     assert_eq!(menu.selected_option(), Some("Windows"));
+    let icons = menu.icons();
+    assert_eq!(icons.len(), 6);
+    assert!(icons.iter().all(|icon| !icon.is_empty()));
 }
 
 #[test]
@@ -3689,7 +3668,7 @@ fn tags_menu_add_buttons_use_add_icon() {
     let buffer = render_modal_buffer(&LibraryModal::Tags(empty));
     assert_eq!(
         buffer[(body.x + plus_x, body.y + 3)].symbol(),
-        crate::widgets::icons::ADD_ICON
+        icons::ADD_ICON
     );
 
     let menu = tags_menu(&["work"]);
@@ -3697,7 +3676,7 @@ fn tags_menu_add_buttons_use_add_icon() {
     let buffer = render_modal_buffer(&LibraryModal::Tags(menu));
     assert_eq!(
         buffer[(body.x + plus_x, body.y + 3 + plus_y)].symbol(),
-        crate::widgets::icons::ADD_ICON
+        icons::ADD_ICON
     );
 }
 
@@ -4495,15 +4474,49 @@ fn divider_double_click_toggles_default_and_collapsed() {
 }
 
 #[test]
+fn collapsed_left_pane_removes_its_gutter_and_divider() {
+    // Workspace begins after the expanded navigation rail.
+    let area = ratatui::layout::Rect::new(7, 0, 93, 30);
+    let split = split_panes(area, MIN_SPLIT_RATIO, DEFAULT_DETAIL_RATIO);
+
+    assert_eq!(split.list.width, 0);
+    assert_eq!(split.center.x, area.x, "center must sit flush on the rail");
+    assert_eq!(split.list_divider, None);
+    assert_eq!(
+        split.props_divider,
+        Some(split.center.x + split.center.width)
+    );
+    assert_eq!(
+        split.center.width + split.props.width + 1,
+        area.width,
+        "the freed gutter belongs to the center"
+    );
+    assert_eq!(
+        divider_columns(area, MIN_SPLIT_RATIO, DEFAULT_DETAIL_RATIO),
+        vec![split.center.x + split.center.width]
+    );
+    assert_eq!(
+        visible_divider_columns(area, MIN_SPLIT_RATIO, DEFAULT_DETAIL_RATIO),
+        vec![(DividerSide::Props, split.center.x + split.center.width)]
+    );
+    assert_eq!(
+        divider_hit(area, MIN_SPLIT_RATIO, DEFAULT_DETAIL_RATIO, area.x, 5),
+        None,
+        "no invisible left drag column on the first content cell"
+    );
+}
+
+#[test]
 fn drag_range_parks_panes_at_either_edge() {
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
     // honey: float truncation keeps this within one cell of the edge.
     let split = split_panes(area, split_ratio_for_column(area, 0), DEFAULT_DETAIL_RATIO);
     assert!(split.list.width <= 1);
-    // Divider stays on the edge, still grabbable to drag back.
+    // The collapsed left pane leaves only the Properties divider. The
+    // nav rail divider is the left boundary, so there is no ghost column.
     assert_eq!(
         divider_columns(area, split_ratio_for_column(area, 0), DEFAULT_DETAIL_RATIO),
-        vec![0, 48]
+        vec![48]
     );
     assert_eq!(
         divider_hit(
@@ -4513,7 +4526,17 @@ fn drag_range_parks_panes_at_either_edge() {
             0,
             5
         ),
-        Some(DividerSide::List)
+        None
+    );
+    assert_eq!(
+        divider_hit(
+            area,
+            split_ratio_for_column(area, 0),
+            DEFAULT_DETAIL_RATIO,
+            48,
+            5
+        ),
+        Some(DividerSide::Props)
     );
     let split = split_panes(area, split_ratio_for_column(area, 79), DEFAULT_DETAIL_RATIO);
     // Exact edge ratio parks fully open with the lone pane absorbing
@@ -4522,7 +4545,7 @@ fn drag_range_parks_panes_at_either_edge() {
     assert_eq!(split.center.width, 0);
     assert_eq!(
         divider_columns(area, split_ratio_for_column(area, 79), DEFAULT_DETAIL_RATIO),
-        vec![79, 80]
+        vec![79]
     );
 }
 
@@ -4599,8 +4622,11 @@ fn visible_dividers_hide_parked_nothing_dividers() {
     assert_eq!(
         visible_divider_columns(area, DEFAULT_SPLIT_RATIO, DEFAULT_DETAIL_RATIO),
         vec![
-            (DividerSide::List, split.dividers[0]),
-            (DividerSide::Props, split.dividers[1]),
+            (DividerSide::List, split.list_divider.expect("list divider")),
+            (
+                DividerSide::Props,
+                split.props_divider.expect("props divider")
+            ),
         ]
     );
 }
@@ -5562,7 +5588,6 @@ fn render_modal_buffer(modal: &LibraryModal) -> ratatui::buffer::Buffer {
                 modal,
                 &crate::widgets::toggle::ToggleAnimations::default(),
                 None,
-                None,
             );
         })
         .expect("test draw");
@@ -5637,7 +5662,6 @@ fn create_form_renders_placeholders_and_stacked_pickers() {
                     &DARK_THEME,
                     modal,
                     &crate::widgets::toggle::ToggleAnimations::default(),
-                    None,
                     None,
                 );
             })

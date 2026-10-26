@@ -56,7 +56,7 @@ pub fn run() -> taurine_core::Result<()> {
     refresh_settings_page(&mut app);
 
     let mut terminal = TerminalGuard::new()?;
-    app.load_icons();
+    app.load_rail_icons();
     select_first_visible_library_row(&mut app, &mut terminal);
     select_first_visible_settings_row(&mut app, &mut terminal);
     app.begin_launch_transition();
@@ -262,7 +262,6 @@ fn render_app(frame: &mut ratatui::Frame, app: &mut App, area: ratatui::layout::
             modal,
             app.toggle_animations(),
             app.toggle_hover(),
-            app.icons(),
         );
     }
     if app.is_settings_overlay_open() {
@@ -273,7 +272,6 @@ fn render_app(frame: &mut ratatui::Frame, app: &mut App, area: ratatui::layout::
             app.settings_page(),
             app.toggle_animations(),
             app.toggle_hover(),
-            app.icons(),
         );
         if let Some(modal) = app.settings_page().modal() {
             // honey: a nested popup dims the layer directly beneath it;
@@ -302,7 +300,6 @@ fn render_app(frame: &mut ratatui::Frame, app: &mut App, area: ratatui::layout::
             palette,
             app.daemon_paused(),
             &app.settings_page().settings().pause_hotkey,
-            app.icons(),
         );
     }
 
@@ -449,7 +446,6 @@ fn render_page_content(
         app.toggle_animations(),
         app.toggle_hover(),
         app.props_hover(),
-        app.icons(),
     );
 }
 
@@ -2859,6 +2855,41 @@ mod tests {
 
         assert_eq!(app.library_page().selected_index(), Some(1));
         assert!(!app.library_page().is_modal_open());
+    }
+
+    #[test]
+    fn collapsed_left_panel_leaves_one_boundary_line() {
+        use ratatui::{Terminal, backend::TestBackend};
+
+        let mut app = App::default();
+        app.library_page_mut()
+            .toggle_panel(library::DividerSide::List);
+        let full = workspace_full(&app, TEST_AREA);
+        let split = library::split_panes(
+            full,
+            app.library_page().split_ratio(),
+            app.library_page().detail_ratio(),
+        );
+        assert_eq!(split.list.width, 0);
+        assert_eq!(split.center.x, full.x);
+
+        let backend = TestBackend::new(TEST_AREA.width, TEST_AREA.height);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal
+            .draw(|frame| render_app(frame, &mut app, TEST_AREA))
+            .expect("test draw");
+        let buffer = terminal.backend().buffer();
+        let rail_divider = full.x.saturating_sub(1);
+        assert_eq!(
+            buffer[(rail_divider, 1)].symbol(),
+            "│",
+            "the nav rail boundary stays"
+        );
+        assert_ne!(
+            buffer[(full.x, 1)].symbol(),
+            "│",
+            "the collapsed pane leaves no second divider"
+        );
     }
 
     #[test]

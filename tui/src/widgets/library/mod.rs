@@ -1,6 +1,7 @@
 pub mod actions;
 pub mod detail;
 pub mod highlight;
+pub mod icons;
 pub mod list;
 pub mod modals;
 pub mod props;
@@ -34,9 +35,11 @@ pub(crate) const DIVIDER_HOVER_COLOR: ratatui::style::Color =
     ratatui::style::Color::Rgb(0x22, 0x22, 0x22);
 
 /// Panes have no minimum widths: dragging a divider to an edge parks
-/// the pane at zero, and the divider line stays rendered on that edge
-/// so it can be dragged back. Each side pane has its own maximum width;
-/// tiny terminals fall back to the list.
+/// the pane at zero. The Properties divider stays on the outer edge so
+/// it can be dragged back; a collapsed left pane hands its boundary to
+/// the navigation rail divider instead of keeping a ghost gutter. Each
+/// side pane has its own maximum width; tiny terminals fall back to the
+/// list.
 pub(crate) const MAX_LIST_WIDTH: u16 = 52;
 pub(crate) const MAX_PROPS_WIDTH: u16 = 40;
 
@@ -53,7 +56,8 @@ pub(crate) struct PaneSplit {
     pub(crate) list: Rect,
     pub(crate) center: Rect,
     pub(crate) props: Rect,
-    pub(crate) dividers: Vec<u16>,
+    pub(crate) list_divider: Option<u16>,
+    pub(crate) props_divider: Option<u16>,
 }
 
 pub(crate) fn split_panes(area: Rect, list_ratio: f32, props_ratio: f32) -> PaneSplit {
@@ -61,7 +65,8 @@ pub(crate) fn split_panes(area: Rect, list_ratio: f32, props_ratio: f32) -> Pane
         list: area,
         center: Rect::default(),
         props: Rect::default(),
-        dividers: Vec::new(),
+        list_divider: None,
+        props_divider: None,
     };
     if area.width < 5 {
         return empty();
@@ -70,9 +75,8 @@ pub(crate) fn split_panes(area: Rect, list_ratio: f32, props_ratio: f32) -> Pane
     // maxima are overflow points, not walls: a side wanting more than
     // its maximum keeps growing by shrinking the far pane first, then
     // the middle, so drags glide past the cap instead of snapping.
-    // Both dividers always stay grabbable. Extreme ratios flow through
-    // the same redistribution, so either side can park fully open
-    // with no edge-case snap.
+    // Extreme ratios flow through the same redistribution, so either
+    // side can park fully open with no edge-case snap.
     let span = area.width.saturating_sub(2);
     let list_wanted =
         ((span as f32 * list_ratio.clamp(MIN_SPLIT_RATIO, MAX_SPLIT_RATIO)) as u16).min(span);
@@ -122,13 +126,19 @@ pub(crate) fn split_panes(area: Rect, list_ratio: f32, props_ratio: f32) -> Pane
     if left_parked {
         left_width = area.width.saturating_sub(1);
     }
+    // honey: a collapsed left pane has no gutter of its own. The nav
+    // rail divider is the single boundary, so the center starts flush
+    // against it instead of leaving a ghost column.
+    if left_width == 0 && center_width > 0 {
+        center_width = center_width.saturating_add(1);
+    }
     let list = Rect {
         x: area.x,
         y: area.y,
         width: left_width,
         height: area.height,
     };
-    let center_x = if right_parked {
+    let center_x = if left_width == 0 {
         area.x
     } else {
         list.x.saturating_add(list.width).saturating_add(1)
@@ -149,28 +159,30 @@ pub(crate) fn split_panes(area: Rect, list_ratio: f32, props_ratio: f32) -> Pane
         },
         height: area.height,
     };
-    let dividers = vec![
-        list.x.saturating_add(list.width),
-        center.x.saturating_add(center.width),
-    ];
+    let list_divider = (list.width > 0).then_some(list.x.saturating_add(list.width));
+    let props_divider =
+        (center.width > 0 || props.width > 0).then_some(center.x.saturating_add(center.width));
     PaneSplit {
         list,
         center,
         props,
-        dividers,
+        list_divider,
+        props_divider,
     }
 }
 
-/// Divider gutter columns for a full-frame line. Empty when collapsed
-/// to a single pane.
+/// Divider gutter columns that currently exist, for layout tests.
+#[cfg(test)]
 pub(crate) fn divider_columns(area: Rect, list_ratio: f32, props_ratio: f32) -> Vec<u16> {
-    split_panes(area, list_ratio, props_ratio).dividers
+    let split = split_panes(area, list_ratio, props_ratio);
+    split
+        .list_divider
+        .into_iter()
+        .chain(split.props_divider)
+        .collect()
 }
 
-/// Divider columns worth painting, each tagged with its side: a
-/// divider separating nothing from nothing is never drawn, so a fully
-/// parked edge shows one line. Hit-testing still uses every column so
-/// the edge stays grabbable.
+/// Divider columns worth painting, each tagged with its side.
 pub(crate) fn visible_divider_columns(
     area: Rect,
     list_ratio: f32,
@@ -178,15 +190,11 @@ pub(crate) fn visible_divider_columns(
 ) -> Vec<(DividerSide, u16)> {
     let split = split_panes(area, list_ratio, props_ratio);
     let mut shown = Vec::new();
-    if (split.list.width > 0 || split.center.width > 0)
-        && let Some(column) = split.dividers.first()
-    {
-        shown.push((DividerSide::List, *column));
+    if let Some(column) = split.list_divider {
+        shown.push((DividerSide::List, column));
     }
-    if (split.center.width > 0 || split.props.width > 0)
-        && let Some(column) = split.dividers.get(1)
-    {
-        shown.push((DividerSide::Props, *column));
+    if let Some(column) = split.props_divider {
+        shown.push((DividerSide::Props, column));
     }
     shown
 }
@@ -202,20 +210,19 @@ pub(crate) fn divider_hit(
     if row < area.y || row >= area.y.saturating_add(area.height) {
         return None;
     }
-    // honey: every gutter column stays grabbable, even ones too
-    // degenerate to paint, so a parked edge drags back open.
-    let dividers = divider_columns(area, list_ratio, props_ratio);
-    if dividers.first() == Some(&column) {
+    let split = split_panes(area, list_ratio, props_ratio);
+    if split.list_divider == Some(column) {
         return Some(DividerSide::List);
     }
-    if dividers.get(1) == Some(&column) {
+    if split.props_divider == Some(column) {
         return Some(DividerSide::Props);
     }
     None
 }
 
-/// List share that puts the list divider gutter at `column`. Panes may
-/// close all the way to either edge; the divider stays grabbable there.
+/// List share that puts the list divider gutter at `column`. At zero the
+/// pane collapses, its divider disappears, and the center takes the
+/// boundary from the navigation rail.
 pub(crate) fn split_ratio_for_column(area: Rect, column: u16) -> f32 {
     let gutter = area.width.saturating_sub(1).max(1) as f32;
     let ratio = column.saturating_sub(area.x) as f32 / gutter;
@@ -291,7 +298,6 @@ fn max_search_height(area_height: u16, has_status: bool) -> u16 {
     area_height.saturating_sub(reserved).max(3)
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn render_library_content(
     frame: &mut Frame,
     area: Rect,
@@ -300,7 +306,6 @@ pub fn render_library_content(
     animations: &ToggleAnimations,
     hovered: Option<ToggleId>,
     hovered_add: Option<props::PropsHit>,
-    icons: Option<&crate::widgets::icons::AppIcons>,
 ) {
     let content = left_content(area, state.split_ratio(), state.detail_ratio());
 
@@ -347,17 +352,7 @@ pub fn render_library_content(
         theme,
         state.search_field(),
         state.is_search_active(),
-        icons,
     );
     detail::render_detail(frame, area, theme, state, animations, hovered);
-    props::render_props(
-        frame,
-        area,
-        theme,
-        state,
-        animations,
-        hovered,
-        hovered_add,
-        icons,
-    );
+    props::render_props(frame, area, theme, state, animations, hovered, hovered_add);
 }

@@ -11,7 +11,7 @@ use taurine_core::engine::ScriptInterpreter;
 
 use crate::theme::Theme;
 use crate::widgets::hotkey;
-use crate::widgets::icons::{CHEVRON_DOWN, CHEVRON_UP};
+use crate::widgets::library::icons::{CHEVRON_DOWN, CHEVRON_UP, os_icon};
 use crate::widgets::library::state::{
     EditTarget, HeaderMenuKind, LibraryModal, LibraryPageState, LibraryTrigger,
 };
@@ -665,13 +665,11 @@ pub(crate) const fn dropdown_kind_for_button(index: usize) -> HeaderMenuKind {
     }
 }
 
-/// One properties-pane value: a switch, ordinary right-aligned text, or
-/// a platform badge plus its name.
+/// One properties-pane value: a switch or ordinary right-aligned text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum PropertyValue {
     Text(String),
     Toggle(bool),
-    Platform(String),
 }
 
 pub(crate) fn property_rows(item: &LibraryTrigger) -> Vec<(&'static str, PropertyValue)> {
@@ -694,7 +692,10 @@ pub(crate) fn property_rows(item: &LibraryTrigger) -> Vec<(&'static str, Propert
                 siblings.join(", ")
             }),
         ),
-        ("Platform", PropertyValue::Platform(item.target_os.clone())),
+        (
+            "Platform",
+            PropertyValue::Text(format!("{} {}", os_icon(&item.target_os), item.target_os)),
+        ),
     ];
     if item.is_voice() {
         rows.push((

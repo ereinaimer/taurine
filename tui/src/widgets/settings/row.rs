@@ -8,8 +8,8 @@ use ratatui::{
 
 use crate::theme::Theme;
 use crate::widgets::hotkey;
-use crate::widgets::icons::CHEVRON_DOWN;
 use crate::widgets::labeled;
+use crate::widgets::library::icons::CHEVRON_DOWN;
 use crate::widgets::settings::state::{EditorKind, InputModalState, SettingKey, SettingKeyMeta};
 use crate::widgets::slider;
 use crate::widgets::toggle::{ToggleAnimations, ToggleId, render_toggle, toggle_rect};
