@@ -6,6 +6,7 @@ use ratatui::{
 };
 
 use crate::theme::Theme;
+use crate::widgets::library::icons::CHEVRON_DOWN;
 use crate::widgets::settings::state::{EditorKind, SettingKey, SettingKeyMeta};
 use crate::widgets::toggle::{ToggleAnimations, ToggleId, render_toggle, toggle_rect};
 use crate::widgets::util;
@@ -115,13 +116,15 @@ pub fn render_setting_row(
             width: sections[1].width,
             height: 1,
         };
+        let value = util::truncate_to_width(
+            &key.display_value(settings),
+            control_width.saturating_sub(2),
+        );
+        // The pill chevron flags a value that opens its own editor overlay.
         frame.render_widget(
-            Paragraph::new(util::truncate_to_width(
-                &key.display_value(settings),
-                control_width,
-            ))
-            .alignment(Alignment::Right)
-            .style(value_style),
+            Paragraph::new(format!("{value} {CHEVRON_DOWN}"))
+                .alignment(Alignment::Right)
+                .style(value_style),
             value_area,
         );
     }
@@ -253,8 +256,7 @@ mod tests {
         assert_eq!(toggle.y, content.y);
     }
 
-    #[test]
-    fn boolean_row_renders_the_switch_cells() {
+    fn row_buffer(key: SettingKey) -> ratatui::buffer::Buffer {
         use ratatui::{Terminal, backend::TestBackend};
 
         let area = Rect::new(0, 0, 60, 8);
@@ -266,7 +268,7 @@ mod tests {
                 render_setting_row(
                     frame,
                     area,
-                    &SettingKey::StartOnBoot,
+                    &key,
                     &settings,
                     false,
                     20,
@@ -277,9 +279,21 @@ mod tests {
                 );
             })
             .expect("test draw");
+        terminal.backend().buffer().clone()
+    }
 
-        let toggle = setting_toggle_rect(area, 20);
-        let buffer = terminal.backend().buffer();
+    /// Value line of a rendered row (the title sits one row above).
+    fn row_line(key: SettingKey) -> String {
+        let buffer = row_buffer(key);
+        (0..buffer.area.width)
+            .map(|x| buffer[(x, buffer.area.y + 1)].symbol())
+            .collect()
+    }
+
+    #[test]
+    fn boolean_row_renders_the_switch_cells() {
+        let toggle = setting_toggle_rect(Rect::new(0, 0, 60, 8), 20);
+        let buffer = row_buffer(SettingKey::StartOnBoot);
         for offset in 0..toggle.width {
             let cell = &buffer[(toggle.x + offset, toggle.y)];
             assert_eq!(cell.symbol(), " ");
@@ -289,34 +303,20 @@ mod tests {
 
     #[test]
     fn value_row_renders_without_brackets() {
-        use ratatui::{Terminal, backend::TestBackend};
-
-        let area = Rect::new(0, 0, 60, 8);
-        let settings = taurine_core::settings::Settings::default();
-        let backend = TestBackend::new(area.width, area.height);
-        let mut terminal = Terminal::new(backend).expect("test terminal");
-        terminal
-            .draw(|frame| {
-                render_setting_row(
-                    frame,
-                    area,
-                    &SettingKey::PauseHotkey,
-                    &settings,
-                    false,
-                    20,
-                    &[],
-                    &crate::theme::default::DARK_THEME,
-                    &ToggleAnimations::default(),
-                    None,
-                );
-            })
-            .expect("test draw");
-
-        let buffer = terminal.backend().buffer();
-        let line: String = (0..area.width)
-            .map(|x| buffer[(x, area.y + 1)].symbol())
-            .collect();
-        assert!(line.contains(&SettingKey::PauseHotkey.display_value(&settings)));
+        let line = row_line(SettingKey::PauseHotkey);
+        let value =
+            SettingKey::PauseHotkey.display_value(&taurine_core::settings::Settings::default());
+        assert!(line.contains(&value));
         assert!(!line.contains('['));
+    }
+
+    #[test]
+    fn overlay_editors_get_the_pill_chevron() {
+        assert!(
+            row_line(SettingKey::SpinnerStyle)
+                .trim_end()
+                .ends_with(CHEVRON_DOWN)
+        );
+        assert!(!row_line(SettingKey::StartOnBoot).contains(CHEVRON_DOWN));
     }
 }

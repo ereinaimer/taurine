@@ -73,6 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Actionable Create Hints**: The content box now shows text or script wording based on the action pill.
 - **Stacked Create Pickers**: Type and action pickers now open above the dimmed new-trigger form instead of replacing it.
 - **Unbracketed Setting Values**: Settings overlay values now show on their own without the surrounding brackets.
+- **Overlay Carets**: Settings that open an editor now show the same caret as the center-pane pills after their value.
 
 ### Removed
 - **Trigger Display Names**: Triggers no longer have a separate name label; the library header shows the trigger itself and the --name flag is gone.
