@@ -94,6 +94,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Type to Filter**: Typing anywhere on the library or settings page starts filtering immediately with no need to press slash first, and arrow keys keep moving while search is focused.
 
 ### Fixed
+- **Sharper Navigation Icons**: Navigation rail icons are rendered straight from vector art at the terminal's exact cell resolution, keeping their aspect ratio without any rescaling.
 - **Left Panel Collapse**: Collapsing the trigger list now removes its gutter and divider, letting the center workspace expand flush against the navigation rail with one boundary line.
 - **Stable Settings Clicks**: Toggling a setting or saving a value no longer scrolls the list to the search bar and makes the next click land on a different row.
 - **Unset AI Values**: Empty AI temperature and max-token settings now open with a blank field instead of showing the unset placeholder.

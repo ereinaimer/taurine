@@ -1,9 +1,13 @@
 //! SVG rail glyphs, rasterized once at startup.
 //!
-//! Each SVG is rendered by resvg directly into the exact pixel canvas
-//! of its 4x2 cell protocol: one vector-to-pixels step, no intermediate
-//! bitmap and no resampling filter. Bright and muted protocol pairs let
-//! hover/active states reuse the artwork without painting a background.
+//! Each SVG is scaled as a vector and rendered by resvg directly into
+//! the exact pixel canvas of its 4x2 cell protocol: one vector-to-pixels
+//! step with anti-aliased edges, no intermediate bitmap and no resample
+//! pass. The raster already matches the cell area, so the documented
+//! `Picker::new_protocol(.., Resize::Fit(None))` quick start performs no
+//! resize at all and the pixels reach the terminal 1:1. Icons sit
+//! slightly inside the button, scaled uniformly, so their aspect ratio
+//! never changes.
 
 use image::{DynamicImage, RgbaImage};
 use ratatui::layout::Size;
@@ -17,6 +21,10 @@ use crate::theme::Theme;
 
 /// Muted variant factor, matching the theme's muted text on white.
 const MUTED: f32 = 0.5;
+/// Graphics icons occupy 5/8 of the 4x2 button canvas; halfblocks fill
+/// it so their coarse block grid keeps enough detail.
+const ICON_SCALE_NUM: u32 = 5;
+const ICON_SCALE_DEN: u32 = 8;
 
 pub(crate) struct RailIcons {
     pub(crate) home: IconVariants,
@@ -81,20 +89,26 @@ fn protocol(picker: &Picker, image: DynamicImage) -> Result<Protocol, String> {
         .map_err(|error| error.to_string())
 }
 
-/// Rasterize the SVG once into the protocol's exact 4x2 cell canvas.
-/// Graphics protocols get the artwork at half size, centered; the
-/// half-block fallback fills the canvas to keep any detail. Uniform
-/// scaling keeps the original aspect in both cases.
+/// Scale the SVG itself and rasterize it in one resvg step directly at
+/// the exact pixel size of the 4x2 cell canvas. Graphics icons sit at
+/// 5/8 of the button, centered, and are scaled uniformly so their
+/// aspect ratio never changes. Halfblocks fill the canvas because their
+/// block grid needs the extra detail. Because the raster matches the
+/// cell area exactly, ratatui-image's `Resize::Fit` skips its resize
+/// and the protocol receives these pixels unresampled.
 fn render_canvas(svg: &str, font: FontSize, opaque: bool) -> Result<DynamicImage, String> {
-    let canvas_w = u32::from(font.width) * 4;
-    let canvas_h = u32::from(font.height) * 2;
+    let canvas_w = u32::from(font.width).saturating_mul(4);
+    let canvas_h = u32::from(font.height).saturating_mul(2);
     if canvas_w == 0 || canvas_h == 0 {
         return Err("terminal reports a zero-size cell".to_string());
     }
     let (glyph_w, glyph_h) = if opaque {
         (canvas_w, canvas_h)
     } else {
-        (u32::from(font.width) * 2, u32::from(font.height))
+        (
+            canvas_w.saturating_mul(ICON_SCALE_NUM) / ICON_SCALE_DEN,
+            canvas_h.saturating_mul(ICON_SCALE_NUM) / ICON_SCALE_DEN,
+        )
     };
     let options = resvg::usvg::Options::default();
     let tree = resvg::usvg::Tree::from_str(svg, &options).map_err(|error| error.to_string())?;
@@ -170,18 +184,53 @@ mod tests {
         }
     }
 
+    fn alpha_bounds(image: &DynamicImage) -> (u32, u32, u32, u32) {
+        let rgba = image.to_rgba8();
+        let mut min_x = rgba.width();
+        let mut min_y = rgba.height();
+        let mut max_x = 0;
+        let mut max_y = 0;
+        for (x, y, pixel) in rgba.enumerate_pixels() {
+            if pixel[3] > 0 {
+                min_x = min_x.min(x);
+                min_y = min_y.min(y);
+                max_x = max_x.max(x);
+                max_y = max_y.max(y);
+            }
+        }
+        (
+            min_x,
+            min_y,
+            max_x.saturating_sub(min_x).saturating_add(1),
+            max_y.saturating_sub(min_y).saturating_add(1),
+        )
+    }
+
+    /// The raster must land on the exact protocol pixels so the
+    /// documented `Resize::Fit(None)` skips its resize: one
+    /// vector-to-pixels step, no resample pass, no size change.
     #[test]
-    fn canvas_centers_the_half_size_icon_without_resampling() {
-        let font = Picker::halfblocks().font_size();
-        let canvas = render_canvas(HOME_SVG, font, false).expect("svg renders");
+    fn canvas_renders_the_icon_directly_at_protocol_resolution() {
+        let font = FontSize::new(8, 16);
+        let square = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect width="1" height="1" fill="#ffffff"/></svg>"##;
+        let canvas = render_canvas(square, font, false).expect("svg renders");
         assert_eq!(canvas.width(), u32::from(font.width) * 4);
         assert_eq!(canvas.height(), u32::from(font.height) * 2);
-        let rgba = canvas.to_rgba8();
-        assert_eq!(rgba.get_pixel(0, 0)[3], 0, "corner is transparent");
-        assert!(
-            rgba.get_pixel(u32::from(font.width) * 2, u32::from(font.height),)[3] > 0,
-            "center holds the artwork"
-        );
+        let (_, _, width, height) = alpha_bounds(&canvas);
+        let expected = u32::from(font.width) * 4 * ICON_SCALE_NUM / ICON_SCALE_DEN;
+        assert_eq!(width, expected);
+        assert_eq!(height, expected);
+        assert!(width > canvas.width() / 2, "icon stayed at half size");
+        assert!(width < canvas.width(), "icon fills the whole button");
+    }
+
+    #[test]
+    fn canvas_keeps_square_artwork_square_on_a_tall_cell() {
+        let font = FontSize::new(10, 18);
+        let square = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect width="1" height="1" fill="#ffffff"/></svg>"##;
+        let canvas = render_canvas(square, font, false).expect("svg renders");
+        let (_, _, width, height) = alpha_bounds(&canvas);
+        assert_eq!(width, height, "aspect ratio changed during rasterization");
     }
 
     #[test]
