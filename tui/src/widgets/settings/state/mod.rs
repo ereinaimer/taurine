@@ -63,7 +63,7 @@ fn voice_model_choices() -> Vec<SelectChoice> {
 fn voice_device_choices(devices: Vec<String>) -> Vec<SelectChoice> {
     let mut choices = vec![SelectChoice {
         label: "System Default".to_string(),
-        detail: "Use the microphone the system selects".to_string(),
+        detail: String::new(),
         value: String::new(),
     }];
     choices.extend(devices.into_iter().map(|name| SelectChoice {
@@ -670,6 +670,10 @@ mod tests {
         let values: Vec<&str> = choices.iter().map(|choice| choice.value.as_str()).collect();
         assert_eq!(labels, ["System Default", "Mic A", "Mic B"]);
         assert_eq!(values, ["", "Mic A", "Mic B"]);
+        assert!(
+            choices.iter().all(|choice| choice.detail.is_empty()),
+            "microphone rows are single-line items"
+        );
     }
 
     #[test]
