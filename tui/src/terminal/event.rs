@@ -1,10 +1,11 @@
 use std::io;
 use std::time::{Duration, Instant};
 
-use crossterm::event::{self, Event as CrosstermEvent, KeyEvent, KeyEventKind};
+use crossterm::event::{self, Event as CrosstermEvent, KeyEvent, KeyEventKind, MouseEvent};
 
 pub(crate) enum Event {
     Key(KeyEvent),
+    Mouse(MouseEvent),
     Tick,
 }
 
@@ -23,6 +24,11 @@ impl EventHandler {
 
     pub(crate) fn next(&mut self) -> io::Result<Event> {
         let timeout = self.tick_rate.saturating_sub(self.last_tick.elapsed());
+        self.next_with_timeout(timeout)
+    }
+
+    pub(crate) fn next_with_timeout(&mut self, timeout: Duration) -> io::Result<Event> {
+        let timeout = timeout.min(self.tick_rate.saturating_sub(self.last_tick.elapsed()));
 
         if event::poll(timeout)? {
             match event::read()? {
@@ -30,6 +36,9 @@ impl EventHandler {
                     if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) =>
                 {
                     return Ok(Event::Key(key));
+                }
+                CrosstermEvent::Mouse(mouse) => {
+                    return Ok(Event::Mouse(mouse));
                 }
                 _ => {
                     self.last_tick = Instant::now();
