@@ -24,8 +24,9 @@ pub(crate) const PALETTE_TITLE: &str = "Commands";
 /// all key off this list, so adding a command is one enum arm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PaletteCommand {
-    ToggleLeftPanel,
-    ToggleRightPanel,
+    ToggleSearchPane,
+    TogglePropertiesPane,
+    ToggleNavRail,
     ResetLayout,
     NewTrigger,
     ImportTriggers,
@@ -40,9 +41,10 @@ pub(crate) enum PaletteCommand {
 
 impl PaletteCommand {
     /// Menu order, top to bottom.
-    pub(crate) const ALL: [Self; 10] = [
-        Self::ToggleLeftPanel,
-        Self::ToggleRightPanel,
+    pub(crate) const ALL: [Self; 11] = [
+        Self::ToggleSearchPane,
+        Self::TogglePropertiesPane,
+        Self::ToggleNavRail,
         Self::ResetLayout,
         Self::NewTrigger,
         Self::ImportTriggers,
@@ -55,8 +57,9 @@ impl PaletteCommand {
 
     pub(crate) const fn label(self, paused: bool) -> &'static str {
         match self {
-            Self::ToggleLeftPanel => "Toggle left panel",
-            Self::ToggleRightPanel => "Toggle right panel",
+            Self::ToggleSearchPane => "Toggle search pane",
+            Self::TogglePropertiesPane => "Toggle properties pane",
+            Self::ToggleNavRail => "Toggle navigation rail",
             Self::ResetLayout => "Reset layout to defaults",
             Self::NewTrigger => "New Trigger",
             Self::ImportTriggers => "Import triggers",
@@ -72,8 +75,9 @@ impl PaletteCommand {
     /// One-line explanation shown under the label, matching settings rows.
     pub(crate) const fn description(self, paused: bool) -> &'static str {
         match self {
-            Self::ToggleLeftPanel => "Show or hide the trigger list",
-            Self::ToggleRightPanel => "Show or hide the trigger details",
+            Self::ToggleSearchPane => "Show or hide the search pane",
+            Self::TogglePropertiesPane => "Show or hide the properties pane",
+            Self::ToggleNavRail => "Show or hide the navigation rail",
             Self::ResetLayout => "Restore both panes to their default widths",
             Self::NewTrigger => "Create a trigger without leaving the library",
             Self::ImportTriggers => "Import triggers from a file",
@@ -91,7 +95,12 @@ impl PaletteCommand {
     /// pause hotkey, read from the settings database.
     fn hint(self, pause_hotkey: &str) -> &str {
         match self {
+            Self::ToggleSearchPane => "Ctrl+F",
+            Self::TogglePropertiesPane => "Ctrl+D",
+            Self::ToggleNavRail => "Ctrl+B",
             Self::NewTrigger => "Ctrl+N",
+            Self::ImportTriggers => "Ctrl+I",
+            Self::ExportTriggers => "Ctrl+E",
             Self::OpenSettings => "Ctrl+,",
             Self::TogglePause => pause_hotkey,
             Self::Quit => "Ctrl+C",
@@ -625,8 +634,9 @@ mod tests {
         assert_eq!(
             PaletteCommand::ALL.map(|command| command.label(false)),
             [
-                "Toggle left panel",
-                "Toggle right panel",
+                "Toggle search pane",
+                "Toggle properties pane",
+                "Toggle navigation rail",
                 "Reset layout to defaults",
                 "New Trigger",
                 "Import triggers",
@@ -637,6 +647,18 @@ mod tests {
                 "Quit TUI",
             ]
         );
+    }
+
+    #[test]
+    fn shortcut_hints_match_their_commands() {
+        assert_eq!(PaletteCommand::ImportTriggers.hint("Alt + `"), "Ctrl+I");
+        assert_eq!(PaletteCommand::ExportTriggers.hint("Alt + `"), "Ctrl+E");
+        assert_eq!(PaletteCommand::ToggleSearchPane.hint("Alt + `"), "Ctrl+F");
+        assert_eq!(
+            PaletteCommand::TogglePropertiesPane.hint("Alt + `"),
+            "Ctrl+D"
+        );
+        assert_eq!(PaletteCommand::ToggleNavRail.hint("Alt + `"), "Ctrl+B");
     }
 
     #[test]
@@ -753,12 +775,12 @@ mod tests {
         );
 
         let mut state = CommandPaletteState::default();
-        for ch in "details".chars() {
+        for ch in "properties".chars() {
             state.handle_key(key(KeyCode::Char(ch)));
         }
         assert_eq!(
             state.visible_commands(),
-            vec![PaletteCommand::ToggleRightPanel]
+            vec![PaletteCommand::TogglePropertiesPane]
         );
     }
 
@@ -770,10 +792,10 @@ mod tests {
         let (list, _) = content_sections(chrome.content, &state);
 
         let first = row_text(&buffer, list.y + 1);
-        assert!(first.contains("Toggle left panel"), "{first:?}");
+        assert!(first.contains("Toggle search pane"), "{first:?}");
         let description = row_text(&buffer, list.y + 2);
         assert!(
-            description.contains("Show or hide the trigger list"),
+            description.contains("Show or hide the search pane"),
             "{description:?}"
         );
     }
@@ -864,6 +886,7 @@ mod tests {
         let mut state = CommandPaletteState::default();
         state.handle_key(key(KeyCode::Down));
         state.handle_key(key(KeyCode::Down));
+        state.handle_key(key(KeyCode::Down));
 
         assert_eq!(
             state.handle_key(key(KeyCode::Enter)),
@@ -890,28 +913,28 @@ mod tests {
         let first_y = content_y(list, &rows, start, 0);
         let first = row_text(&buffer, first_y);
         // Plain label: no icon glyph ahead of the text.
-        assert_eq!(first.trim(), "Toggle left panel");
+        assert!(first.trim().starts_with("Toggle search pane"), "{first:?}");
         assert_eq!(buffer[(list.x, first_y)].fg, DARK_THEME.text);
         assert!(buffer[(list.x, first_y)].modifier.contains(Modifier::BOLD));
         let first_description = row_text(&buffer, first_y + 1);
         assert!(
-            first_description.contains("Show or hide the trigger list"),
+            first_description.contains("Show or hide the search pane"),
             "{first_description:?}"
         );
         assert_eq!(buffer[(list.x, first_y + 1)].fg, DARK_THEME.description);
 
-        let new_trigger_y = content_y(list, &rows, start, 3);
-        assert!(row_text(&buffer, new_trigger_y).contains("New Trigger"));
+        let nav_rail_y = content_y(list, &rows, start, 2);
+        assert!(row_text(&buffer, nav_rail_y).contains("Toggle navigation rail"));
 
         // Shortcut keycaps end on the same column, inside the block.
         let right = popup.x + popup.width - 4;
-        let keys = " Ctrl   N ";
+        let keys = " Ctrl   B ";
         let keys_width = keys.chars().count() as u16;
         assert_eq!(
-            cells(&buffer, right + 1 - keys_width, new_trigger_y, keys_width),
+            cells(&buffer, right + 1 - keys_width, nav_rail_y, keys_width),
             keys
         );
-        assert_eq!(buffer[(right, new_trigger_y)].bg, DARK_THEME.keycap.bg);
+        assert_eq!(buffer[(right, nav_rail_y)].bg, DARK_THEME.keycap.bg);
 
         // The selected block paints every variable-height row; the next
         // block's top pad starts immediately with the popup fill.
@@ -930,13 +953,13 @@ mod tests {
     #[test]
     fn selected_row_lightens_its_keycaps() {
         let mut state = CommandPaletteState::default();
-        for _ in 0..3 {
+        for _ in 0..4 {
             state.move_cursor(1);
         }
         let buffer = render_buffer(&state);
         let popup = popup(AREA);
         let (list, rows, start, _) = list_rows(&state, AREA, false, "Alt + `");
-        let y = content_y(list, &rows, start, 3);
+        let y = content_y(list, &rows, start, 4);
         let right = popup.x + popup.width - 4;
 
         assert_eq!(buffer[(right, y)].bg, DARK_THEME.keycap.on_surface);
@@ -953,8 +976,8 @@ mod tests {
         let buffer = render_buffer_with(&state, true, pause_hotkey);
         let popup = popup(AREA);
         let (list, rows, start, _) = list_rows(&state, AREA, true, pause_hotkey);
-        let pause_y = content_y(list, &rows, start, 7);
-        let restart_y = content_y(list, &rows, start, 8);
+        let pause_y = content_y(list, &rows, start, 8);
+        let restart_y = content_y(list, &rows, start, 9);
 
         let pause = row_text(&buffer, pause_y);
         assert!(pause.contains("Resume Taurine"));
@@ -983,7 +1006,7 @@ mod tests {
     #[test]
     fn cursor_reaches_the_pause_toggle() {
         let mut state = CommandPaletteState::default();
-        for _ in 0..7 {
+        for _ in 0..8 {
             state.move_cursor(1);
         }
         assert_eq!(state.command(), Some(PaletteCommand::TogglePause));

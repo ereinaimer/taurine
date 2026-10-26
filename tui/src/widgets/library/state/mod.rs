@@ -1025,8 +1025,6 @@ impl LibraryPageState {
         self.modal.as_ref()
     }
 
-    // honey: unreachable until the shortcut rework lands; kept with tests.
-    #[allow(dead_code)]
     pub(crate) fn open_export_modal(&mut self) {
         match LibraryExportModalState::new() {
             Ok(state) => self.modal = Some(LibraryModal::Export(state)),
@@ -1034,8 +1032,6 @@ impl LibraryPageState {
         }
     }
 
-    // honey: unreachable until the shortcut rework lands; kept with tests.
-    #[allow(dead_code)]
     pub(crate) fn open_import_modal(&mut self) {
         self.modal = Some(LibraryModal::Import(LibraryImportModalState::new()));
     }

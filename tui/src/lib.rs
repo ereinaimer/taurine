@@ -554,6 +554,37 @@ fn handle_tui_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
         return;
     }
 
+    // honey: workspace shortcuts mirror their palette commands; open
+    // dialogs keep the keyboard, so the toggles wait for them.
+    if key.modifiers == crossterm::event::KeyModifiers::CONTROL {
+        let dialog_open = app.library_page().is_modal_open() || app.is_settings_overlay_open();
+        match key.code {
+            crossterm::event::KeyCode::Char('i') => {
+                open_exchange_modal(app, library::LibraryPageState::open_import_modal);
+                return;
+            }
+            crossterm::event::KeyCode::Char('e') => {
+                open_exchange_modal(app, library::LibraryPageState::open_export_modal);
+                return;
+            }
+            crossterm::event::KeyCode::Char('f') if !dialog_open => {
+                app.library_page_mut()
+                    .toggle_panel(library::DividerSide::List);
+                return;
+            }
+            crossterm::event::KeyCode::Char('d') if !dialog_open => {
+                app.library_page_mut()
+                    .toggle_panel(library::DividerSide::Props);
+                return;
+            }
+            crossterm::event::KeyCode::Char('b') if !dialog_open => {
+                app.nav_rail_mut().toggle();
+                return;
+            }
+            _ => {}
+        }
+    }
+
     // honey: Ctrl+, toggles the settings overlay; a library modal owns
     // the screen while open, so the toggle waits for it to close.
     if key.code == crossterm::event::KeyCode::Char(',')
@@ -736,17 +767,31 @@ fn commit_hotkey_recorder(app: &mut App) {
     }
 }
 
+/// Opens the import or export dialog, switching to the library first so
+/// the dialog is visible and owns keyboard input.
+fn open_exchange_modal(app: &mut App, open: fn(&mut library::LibraryPageState)) {
+    if app.library_page().is_modal_open() || app.is_settings_overlay_open() {
+        app.set_notification("Close the current dialog first.".to_string());
+        return;
+    }
+    switch_page(app, ActivePage::Library);
+    let flush = app.library_page_mut().commit_edit();
+    apply_library_interaction(app, flush);
+    open(app.library_page_mut());
+}
+
 /// Runs a palette command. Gated commands mirror their shortcut rules
 /// so the palette never opens a dialog behind another one.
 fn execute_palette_command(app: &mut App, command: palette::PaletteCommand) {
     use palette::PaletteCommand;
     match command {
-        PaletteCommand::ToggleLeftPanel => app
+        PaletteCommand::ToggleSearchPane => app
             .library_page_mut()
             .toggle_panel(library::DividerSide::List),
-        PaletteCommand::ToggleRightPanel => app
+        PaletteCommand::TogglePropertiesPane => app
             .library_page_mut()
             .toggle_panel(library::DividerSide::Props),
+        PaletteCommand::ToggleNavRail => app.nav_rail_mut().toggle(),
         PaletteCommand::ResetLayout => app.library_page_mut().reset_layout(),
         PaletteCommand::NewTrigger => {
             if app.library_page().is_modal_open() || app.is_settings_overlay_open() {
@@ -757,12 +802,11 @@ fn execute_palette_command(app: &mut App, command: palette::PaletteCommand) {
             apply_library_interaction(app, flush);
             app.library_page_mut().open_create_modal();
         }
-        // honey: list entries only until the import/export flows land.
         PaletteCommand::ImportTriggers => {
-            app.set_notification("Import triggers is not available yet.".to_string());
+            open_exchange_modal(app, library::LibraryPageState::open_import_modal);
         }
         PaletteCommand::ExportTriggers => {
-            app.set_notification("Export triggers is not available yet.".to_string());
+            open_exchange_modal(app, library::LibraryPageState::open_export_modal);
         }
         PaletteCommand::OpenSettings => {
             if app.is_settings_overlay_open() {
@@ -2440,7 +2484,7 @@ mod tests {
     }
 
     #[test]
-    fn palette_enter_toggles_right_panel() {
+    fn palette_enter_toggles_properties_pane() {
         let mut app = App::default();
         handle_tui_key_event(&mut app, ctrl_p());
         handle_tui_key_event(&mut app, down());
@@ -2456,8 +2500,9 @@ mod tests {
         app.library_page_mut().set_split_ratio(0.6);
         app.library_page_mut().set_detail_ratio(0.6);
         handle_tui_key_event(&mut app, ctrl_p());
-        handle_tui_key_event(&mut app, down());
-        handle_tui_key_event(&mut app, down());
+        for _ in 0..3 {
+            handle_tui_key_event(&mut app, down());
+        }
 
         handle_tui_key_event(&mut app, enter());
 
@@ -2475,7 +2520,7 @@ mod tests {
     fn palette_new_trigger_opens_create_modal() {
         let mut app = App::default();
         handle_tui_key_event(&mut app, ctrl_p());
-        for _ in 0..3 {
+        for _ in 0..4 {
             handle_tui_key_event(&mut app, down());
         }
 
@@ -2489,30 +2534,40 @@ mod tests {
     }
 
     #[test]
-    fn palette_import_export_are_placeholders() {
+    fn palette_import_opens_import_modal() {
         let mut app = App::default();
-        handle_tui_key_event(&mut app, ctrl_p());
-        for _ in 0..4 {
-            handle_tui_key_event(&mut app, down());
-        }
-        handle_tui_key_event(&mut app, enter());
-        assert!(!app.palette_open());
-        assert!(app.notification().is_some_and(|msg| msg.contains("Import")));
-
         handle_tui_key_event(&mut app, ctrl_p());
         for _ in 0..5 {
             handle_tui_key_event(&mut app, down());
         }
         handle_tui_key_event(&mut app, enter());
         assert!(!app.palette_open());
-        assert!(app.notification().is_some_and(|msg| msg.contains("Export")));
+        assert!(matches!(
+            app.library_page().modal(),
+            Some(library::LibraryModal::Import(_))
+        ));
+    }
+
+    #[test]
+    fn palette_export_opens_export_modal() {
+        let mut app = App::default();
+        handle_tui_key_event(&mut app, ctrl_p());
+        for _ in 0..6 {
+            handle_tui_key_event(&mut app, down());
+        }
+        handle_tui_key_event(&mut app, enter());
+        assert!(!app.palette_open());
+        assert!(matches!(
+            app.library_page().modal(),
+            Some(library::LibraryModal::Export(_))
+        ));
     }
 
     #[test]
     fn palette_open_settings_opens_overlay() {
         let mut app = App::default();
         handle_tui_key_event(&mut app, ctrl_p());
-        for _ in 0..6 {
+        for _ in 0..7 {
             handle_tui_key_event(&mut app, down());
         }
 
@@ -2526,7 +2581,7 @@ mod tests {
     fn palette_quit_starts_close_animation() {
         let mut app = App::default();
         handle_tui_key_event(&mut app, ctrl_p());
-        for _ in 0..9 {
+        for _ in 0..10 {
             handle_tui_key_event(&mut app, down());
         }
 
@@ -3763,6 +3818,77 @@ mod tests {
 
         assert!(!app.library_page().is_modal_open());
         assert!(app.is_settings_overlay_open());
+    }
+
+    fn ctrl_key(ch: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(ch), KeyModifiers::CONTROL)
+    }
+
+    #[test]
+    fn ctrl_i_opens_the_import_modal() {
+        let mut app = App::default();
+
+        handle_tui_key_event(&mut app, ctrl_key('i'));
+
+        assert!(matches!(
+            app.library_page().modal(),
+            Some(library::LibraryModal::Import(_))
+        ));
+    }
+
+    #[test]
+    fn ctrl_e_opens_the_export_modal() {
+        let mut app = App::default();
+
+        handle_tui_key_event(&mut app, ctrl_key('e'));
+
+        assert!(matches!(
+            app.library_page().modal(),
+            Some(library::LibraryModal::Export(_))
+        ));
+    }
+
+    #[test]
+    fn ctrl_f_and_ctrl_d_toggle_the_panes() {
+        let mut app = App::default();
+
+        handle_tui_key_event(&mut app, ctrl_key('f'));
+        assert_eq!(app.library_page().split_ratio(), library::MIN_SPLIT_RATIO);
+        handle_tui_key_event(&mut app, ctrl_key('f'));
+        assert_eq!(
+            app.library_page().split_ratio(),
+            library::DEFAULT_SPLIT_RATIO
+        );
+
+        handle_tui_key_event(&mut app, ctrl_key('d'));
+        assert_eq!(app.library_page().detail_ratio(), library::MIN_DETAIL_RATIO);
+        handle_tui_key_event(&mut app, ctrl_key('d'));
+        assert_eq!(
+            app.library_page().detail_ratio(),
+            library::DEFAULT_DETAIL_RATIO
+        );
+    }
+
+    #[test]
+    fn ctrl_b_toggles_the_navigation_rail() {
+        let mut app = App::default();
+
+        handle_tui_key_event(&mut app, ctrl_key('b'));
+        assert!(app.nav_rail().collapsed);
+        handle_tui_key_event(&mut app, ctrl_key('b'));
+        assert!(!app.nav_rail().collapsed);
+    }
+
+    #[test]
+    fn palette_toggles_panes_and_the_navigation_rail() {
+        let mut app = App::default();
+
+        execute_palette_command(&mut app, palette::PaletteCommand::ToggleNavRail);
+        assert!(app.nav_rail().collapsed);
+        execute_palette_command(&mut app, palette::PaletteCommand::ToggleSearchPane);
+        assert_eq!(app.library_page().split_ratio(), library::MIN_SPLIT_RATIO);
+        execute_palette_command(&mut app, palette::PaletteCommand::TogglePropertiesPane);
+        assert_eq!(app.library_page().detail_ratio(), library::MIN_DETAIL_RATIO);
     }
 
     #[test]

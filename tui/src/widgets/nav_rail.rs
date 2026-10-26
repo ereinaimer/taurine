@@ -142,13 +142,19 @@ impl NavRailState {
             // started, mirroring the pane dividers' double-click reset.
             self.last_divider_click = None;
             self.dragging = false;
-            self.collapsed = !self.collapsed;
-            self.clear_hover();
-            self.hitboxes.clear();
+            self.toggle();
             return true;
         }
         self.dragging = true;
         true
+    }
+
+    /// Flips the rail between expanded and collapsed, dropping hover
+    /// state that belongs to the old layout.
+    pub(crate) fn toggle(&mut self) {
+        self.collapsed = !self.collapsed;
+        self.clear_hover();
+        self.hitboxes.clear();
     }
 
     /// Snap to expanded or collapsed from the pointer column. The rail
