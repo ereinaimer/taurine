@@ -868,7 +868,7 @@ fn handle_tui_mouse_event(
             // honey: wheel over the settings overlay scrolls its list;
             // wheel outside the popup never leaks into the library.
             if app.is_settings_overlay_open() {
-                let popup = settings::overlay_popup(area, app.settings_page());
+                let popup = settings::overlay_popup(area);
                 if terminal::mouse::contains(popup, mouse.column, mouse.row) {
                     handle_tui_key_event(app, scroll_key(mouse.kind == MouseEventKind::ScrollDown));
                 }
@@ -941,7 +941,7 @@ fn handle_tui_mouse_event(
                     app.set_toggle_hover(None);
                     return;
                 }
-                let popup = settings::overlay_popup(area, app.settings_page());
+                let popup = settings::overlay_popup(area);
                 let content = settings::overlay_content(settings::overlay_body(popup));
                 let hovered =
                     match settings::hit_test(content, app.settings_page(), mouse.column, mouse.row)
@@ -1078,6 +1078,13 @@ fn handle_tui_mouse_event(
             if app.palette_open() {
                 if palette::dismiss_hit(area, mouse.column, mouse.row) {
                     app.close_palette();
+                } else if let Some(cursor) = app
+                    .palette()
+                    .and_then(|state| palette::search_hit(area, state, mouse.column, mouse.row))
+                {
+                    if let Some(state) = app.palette_mut() {
+                        state.activate_search_at(cursor);
+                    }
                 } else if let Some(index) = app
                     .palette()
                     .and_then(|state| palette::option_hit(area, state, mouse.column, mouse.row))
@@ -1085,7 +1092,7 @@ fn handle_tui_mouse_event(
                     if let Some(state) = app.palette_mut() {
                         state.select(index);
                     }
-                    let command = app.palette().map(|state| state.command());
+                    let command = app.palette().and_then(|state| state.command());
                     app.close_palette();
                     if let Some(command) = command {
                         execute_palette_command(app, command);
@@ -1202,7 +1209,7 @@ fn handle_tui_mouse_event(
                         return;
                     }
                 }
-                let popup = settings::overlay_popup(area, app.settings_page());
+                let popup = settings::overlay_popup(area);
                 if util::overlay_dismiss_hit(popup, mouse.column, mouse.row) {
                     app.close_settings_overlay();
                     return;
@@ -2432,30 +2439,11 @@ mod tests {
     }
 
     #[test]
-    fn settings_overlay_hugs_rows_without_top_gap() {
-        let app = App::default();
-        let popup = settings::overlay_popup(TEST_AREA, app.settings_page());
-        assert_eq!(popup, ratatui::layout::Rect::new(5, 2, 90, 25));
-        let body = settings::overlay_body(popup);
-        let content = settings::overlay_content(body);
-        // honey: the popup height already accounts for the window, so
-        // the first row starts at the very top of the list.
-        let mut first = None;
-        for row in 0..TEST_AREA.height {
-            for column in 0..TEST_AREA.width {
-                if matches!(
-                    settings::hit_test(content, app.settings_page(), column, row),
-                    Some(settings::SettingsHit::Row(_))
-                ) {
-                    first = Some(row);
-                    break;
-                }
-            }
-            if first.is_some() {
-                break;
-            }
-        }
-        assert_eq!(first, Some(6));
+    fn settings_overlay_takes_ninety_percent_of_the_terminal() {
+        assert_eq!(
+            settings::overlay_popup(TEST_AREA),
+            ratatui::layout::Rect::new(5, 1, 90, 27)
+        );
     }
 
     #[test]
@@ -2503,7 +2491,7 @@ mod tests {
         app.settings_page_mut().selected = last;
         // honey: scan the real hit path for the first row instead of
         // hard-coding a cell that row heights could shift.
-        let popup = settings::overlay_popup(TEST_AREA, app.settings_page());
+        let popup = settings::overlay_popup(TEST_AREA);
         let content = settings::overlay_content(settings::overlay_body(popup));
         let mut target = None;
         for row in 0..TEST_AREA.height {

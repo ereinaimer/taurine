@@ -215,43 +215,14 @@ pub(crate) fn hit_test(
     None
 }
 
-/// Settings overlay geometry: popup at 80% of the terminal width,
-/// height hugging the windowed rows so bottom-anchored rows never leave
-/// a top gap; capped at 80% with scrolling beyond that. Shared by
-/// rendering and hit-testing so clicks land as drawn.
-pub(crate) fn overlay_popup(area: Rect, state: &SettingsPageState) -> Rect {
-    let width = area.width / 10 * 9;
-    let max_list =
-        (area.height / 10 * 9).saturating_sub(popup_chrome(state.status_message().is_some()));
-    let (_, heights, _) = row_shapes(popup_list_width(area), state);
-    let (start, end) = window_for(
-        &heights,
-        state.selected_index(),
-        max_list,
-        state.window_anchor,
-    );
-    let mut used: u16 = heights[start..end].iter().sum();
-    if heights.is_empty() {
-        // honey: the empty-list message still needs one row.
-        used = 1;
-    }
+/// Settings overlay geometry: 90% of the terminal in both axes at all
+/// times. Shared by rendering and hit-testing so clicks land as drawn.
+pub(crate) fn overlay_popup(area: Rect) -> Rect {
     crate::widgets::util::centered_rect(
-        width,
-        popup_chrome(state.status_message().is_some()).saturating_add(used),
+        crate::widgets::util::percent_of(area.width, 90),
+        crate::widgets::util::percent_of(area.height, 90),
         area,
     )
-}
-
-/// Chrome around the rows inside the popup: overlay margins, header
-/// band and gap, optional status line, search gap and search box.
-/// Must match the render splits below row for row.
-fn popup_chrome(has_status: bool) -> u16 {
-    2 + 3 + u16::from(has_status) + 1 + 3
-}
-
-/// List width inside the popup, mirroring the render insets.
-fn popup_list_width(area: Rect) -> u16 {
-    (area.width / 10 * 9).saturating_sub(6)
 }
 
 /// Content rect inside the popup, shared by overlay renders and
@@ -285,7 +256,7 @@ pub fn render_settings_overlay(
     animations: &ToggleAnimations,
     hovered: Option<ToggleId>,
 ) {
-    let popup = overlay_popup(area, state);
+    let popup = overlay_popup(area);
     let chrome = crate::widgets::util::OverlayChrome::new(popup);
     chrome.render(frame, theme, "Settings");
     if chrome.body.width == 0 || chrome.body.height == 0 {

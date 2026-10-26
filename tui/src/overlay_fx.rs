@@ -229,7 +229,7 @@ pub(crate) fn transition_rects(app: &App, frame: Rect, library_full: Rect) -> Ve
         rects.extend(modal.transition_rect(&areas));
     }
     if app.is_settings_overlay_open() {
-        rects.push(settings::overlay_popup(frame, app.settings_page()));
+        rects.push(settings::overlay_popup(frame));
     }
     if let Some(modal) = app.settings_page().modal() {
         rects.extend(modal.transition_rect(&areas));

@@ -54,6 +54,11 @@ pub(crate) fn visible_library_item_capacity(available_height: u16) -> usize {
     usize::from(available_height / ROW_HEIGHT).max(1)
 }
 
+/// Percentage of a terminal dimension, rounded down.
+pub(crate) const fn percent_of(value: u16, percent: u16) -> u16 {
+    (value as u32 * percent as u32 / 100) as u16
+}
+
 /// Centered rect clamped to the terminal. Single home for every
 /// overlay popup so renderers never recompute centering.
 pub(crate) fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {

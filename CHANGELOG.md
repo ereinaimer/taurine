@@ -36,11 +36,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **New Trigger Header**: The New Trigger overlay now separates its title from the form with a neutral grey header band and a divider that runs from the header to the bottom of the overlay.
 - **Launch and Exit Animations**: The TUI now sweeps in and out from left to right on launch and quit.
 - **Command Palette**: Press Ctrl+P to toggle panels, reset the layout, create a trigger, open settings, pause or resume Taurine, restart Taurine, or quit from one menu.
+- **Command Palette Search**: The command palette now has a bottom search box that filters commands as you type.
 - **Hotkey Keycaps**: Hotkey triggers and aliases render as split keycap badges in the trigger list, detail header, and properties pane.
 - **Hotkey Recorder**: Click a hotkey trigger or alias to record a new chord on a full on-screen keyboard that lights each key as you press it and echoes the chord as keycaps in the header, with left and right modifiers recorded separately, Cancel and Done buttons, and Backspace to clear.
 - **Navigation Rail**: A collapsible left rail with rasterized SVG icons for Home, Library, the command palette, and settings, falling back to half-blocks when the terminal has no graphics protocol, plus a draggable divider that snaps between open and closed and toggles on double-click.
 
 ### Changed
+- **Full-Width Overlays**: The settings overlay and command palette now use 90% of the terminal width and height.
 - **Add Buttons**: Empty property rows and the tag builder use a Nerd Font add icon.
 - **Search Bar**: Shortened the placeholder to Search.
 - **Wrapped Search Queries**: Long search queries now wrap across up to three lines and scroll vertically instead of sliding sideways.
