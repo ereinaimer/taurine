@@ -13,10 +13,18 @@ pub struct ButtonTheme {
     pub text: Color,
 }
 
+/// Keycap pills for hotkey chords: flat fill, no border. The plain
+/// fill sits on the pane background; `on_surface` is a shade lighter
+/// so pills stay visible on a highlighted row.
+#[derive(Debug, Clone, PartialEq)]
+pub struct KeycapTheme {
+    pub bg: Color,
+    pub on_surface: Color,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Theme {
     pub name: &'static str,
-    pub dark: bool,
     // Core semantic palette
     pub primary: Color,
     pub secondary: Color,
@@ -25,13 +33,25 @@ pub struct Theme {
     pub surface: Color,
     pub text: Color,
     pub text_muted: Color,
+    pub description: Color,
     pub accent: Color,
     pub error: Color,
     pub warning: Color,
     pub success: Color,
+    // Syntax scale: Atom One Dark roles shared by script code and
+    // Taurine's own `[vars]` / `| transformers` markup. Commands read
+    // blue, quoted text green, keywords purple, numbers orange.
+    pub syntax_comment: Color,
+    pub syntax_keyword: Color,
+    pub syntax_string: Color,
+    pub syntax_entity: Color,
+    pub syntax_constant: Color,
+    pub syntax_type: Color,
+    pub syntax_variable: Color,
     // Component sub-themes
     pub header: HeaderTheme,
     pub button: ButtonTheme,
+    pub keycap: KeycapTheme,
 }
 
-pub mod builtin;
+pub mod default;

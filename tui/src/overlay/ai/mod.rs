@@ -13,7 +13,7 @@ use taurine_core::error::Result as CoreResult;
 use taurine_core::settings::SettingsManager;
 
 use super::OverlaySession;
-
+use crate::widgets::field::TextField;
 #[derive(Debug, Clone)]
 pub struct ConfiguredProviderInfo {
     pub provider: AiProvider,
@@ -34,9 +34,9 @@ pub enum AddField {
 pub struct AddModalState {
     pub provider_index: usize,
     pub focus: AddField,
-    pub api_key: String,
-    pub endpoint: String,
-    pub model: String,
+    pub api_key: TextField,
+    pub endpoint: TextField,
+    pub model: TextField,
     pub error_msg: Option<String>,
 }
 
@@ -46,9 +46,9 @@ impl AddModalState {
         Self {
             provider_index: 0,
             focus: AddField::Provider,
-            api_key: String::new(),
-            endpoint: "http://localhost:11434/v1".to_string(),
-            model: first_provider.default_model().to_string(),
+            api_key: TextField::new(""),
+            endpoint: TextField::new("http://localhost:11434/v1"),
+            model: TextField::new(first_provider.default_model()),
             error_msg: None,
         }
     }
@@ -59,7 +59,7 @@ impl AddModalState {
 
     pub fn select_next_provider(&mut self) {
         self.provider_index = (self.provider_index + 1) % AiProvider::ALL.len();
-        self.model = self.selected_provider().default_model().to_string();
+        self.model = TextField::new(self.selected_provider().default_model());
     }
 
     pub fn select_prev_provider(&mut self) {
@@ -68,7 +68,7 @@ impl AddModalState {
         } else {
             self.provider_index -= 1;
         }
-        self.model = self.selected_provider().default_model().to_string();
+        self.model = TextField::new(self.selected_provider().default_model());
     }
 
     pub fn next_field(&mut self) {
@@ -131,10 +131,17 @@ impl AddModalState {
                 AddField::Endpoint => {
                     match key.code {
                         KeyCode::Backspace => {
-                            self.endpoint.pop();
+                            self.endpoint.backspace();
                         }
+                        KeyCode::Delete => {
+                            self.endpoint.delete_at();
+                        }
+                        KeyCode::Left => self.endpoint.move_left(),
+                        KeyCode::Right => self.endpoint.move_right(),
+                        KeyCode::Home => self.endpoint.move_home(),
+                        KeyCode::End => self.endpoint.move_end(),
                         KeyCode::Enter => self.next_field(),
-                        KeyCode::Char(c) => self.endpoint.push(c),
+                        KeyCode::Char(c) => self.endpoint.insert(c),
                         _ => {}
                     }
                     AddModalAction::None
@@ -142,10 +149,17 @@ impl AddModalState {
                 AddField::ApiKey => {
                     match key.code {
                         KeyCode::Backspace => {
-                            self.api_key.pop();
+                            self.api_key.backspace();
                         }
+                        KeyCode::Delete => {
+                            self.api_key.delete_at();
+                        }
+                        KeyCode::Left => self.api_key.move_left(),
+                        KeyCode::Right => self.api_key.move_right(),
+                        KeyCode::Home => self.api_key.move_home(),
+                        KeyCode::End => self.api_key.move_end(),
                         KeyCode::Enter => self.next_field(),
-                        KeyCode::Char(c) => self.api_key.push(c),
+                        KeyCode::Char(c) => self.api_key.insert(c),
                         _ => {}
                     }
                     AddModalAction::None
@@ -153,10 +167,17 @@ impl AddModalState {
                 AddField::Model => {
                     match key.code {
                         KeyCode::Backspace => {
-                            self.model.pop();
+                            self.model.backspace();
                         }
+                        KeyCode::Delete => {
+                            self.model.delete_at();
+                        }
+                        KeyCode::Left => self.model.move_left(),
+                        KeyCode::Right => self.model.move_right(),
+                        KeyCode::Home => self.model.move_home(),
+                        KeyCode::End => self.model.move_end(),
                         KeyCode::Enter => return AddModalAction::Save,
-                        KeyCode::Char(c) => self.model.push(c),
+                        KeyCode::Char(c) => self.model.insert(c),
                         _ => {}
                     }
                     AddModalAction::None
@@ -196,7 +217,7 @@ impl Default for AddModalState {
 #[derive(Debug, Clone)]
 pub struct EditModelModalState {
     pub provider: AiProvider,
-    pub model: String,
+    pub model: TextField,
 }
 
 impl EditModelModalState {
@@ -204,14 +225,34 @@ impl EditModelModalState {
         match key.code {
             KeyCode::Esc => EditModelModalAction::Cancel,
             KeyCode::Backspace => {
-                self.model.pop();
+                self.model.backspace();
+                EditModelModalAction::None
+            }
+            KeyCode::Delete => {
+                self.model.delete_at();
+                EditModelModalAction::None
+            }
+            KeyCode::Left => {
+                self.model.move_left();
+                EditModelModalAction::None
+            }
+            KeyCode::Right => {
+                self.model.move_right();
+                EditModelModalAction::None
+            }
+            KeyCode::Home => {
+                self.model.move_home();
+                EditModelModalAction::None
+            }
+            KeyCode::End => {
+                self.model.move_end();
                 EditModelModalAction::None
             }
             KeyCode::Char(c) => {
-                self.model.push(c);
+                self.model.insert(c);
                 EditModelModalAction::None
             }
-            KeyCode::Enter => EditModelModalAction::Save(self.model.trim().to_string()),
+            KeyCode::Enter => EditModelModalAction::Save(self.model.text().trim().to_string()),
             _ => EditModelModalAction::None,
         }
     }
@@ -301,7 +342,7 @@ impl AiWizardState {
                 }
                 AddModalAction::Save => {
                     let provider = modal_state.selected_provider();
-                    let key = modal_state.api_key.trim();
+                    let key = modal_state.api_key.text().trim();
 
                     if provider != AiProvider::Custom && key.is_empty() {
                         modal_state.error_msg = Some("API key cannot be empty".to_string());
@@ -310,8 +351,8 @@ impl AiWizardState {
                     }
 
                     let api_key = key.to_string();
-                    let model = modal_state.model.trim().to_string();
-                    let endpoint = modal_state.endpoint.trim().to_string();
+                    let model = modal_state.model.text().trim().to_string();
+                    let endpoint = modal_state.endpoint.text().trim().to_string();
                     self.save_new_provider(provider, &api_key, &model, &endpoint)
                 }
             },
@@ -361,7 +402,10 @@ impl AiWizardState {
                     self.refresh_providers()?;
 
                     // Open edit modal so user can change model if desired
-                    self.modal = ModalView::EditModel(EditModelModalState { provider, model });
+                    self.modal = ModalView::EditModel(EditModelModalState {
+                        provider,
+                        model: crate::widgets::field::TextField::new(model),
+                    });
                 }
             }
             KeyCode::Char('d') => {
@@ -563,32 +607,35 @@ mod tests {
     fn test_add_modal_provider_selection_updates_model() {
         let mut modal = AddModalState::new();
         let initial_provider = modal.selected_provider();
-        let initial_model = modal.model.clone();
+        let initial_model = modal.model.text().to_string();
 
         modal.handle_key(key(KeyCode::Char('j')));
         assert_ne!(modal.selected_provider(), initial_provider);
-        assert_ne!(modal.model, initial_model);
-        assert_eq!(modal.model, modal.selected_provider().default_model());
+        assert_ne!(modal.model.text(), initial_model);
+        assert_eq!(
+            modal.model.text(),
+            modal.selected_provider().default_model()
+        );
 
         modal.handle_key(key(KeyCode::Char('k')));
         assert_eq!(modal.selected_provider(), initial_provider);
-        assert_eq!(modal.model, initial_model);
+        assert_eq!(modal.model.text(), initial_model);
     }
 
     #[test]
     fn test_edit_model_modal_state_key_handling() {
         let mut edit = EditModelModalState {
             provider: AiProvider::Openai,
-            model: "gpt-4o".to_string(),
+            model: TextField::new("gpt-4o"),
         };
 
         let action = edit.handle_key(key(KeyCode::Backspace));
         assert_eq!(action, EditModelModalAction::None);
-        assert_eq!(edit.model, "gpt-4");
+        assert_eq!(edit.model.text(), "gpt-4");
 
         let action = edit.handle_key(key(KeyCode::Char('1')));
         assert_eq!(action, EditModelModalAction::None);
-        assert_eq!(edit.model, "gpt-41");
+        assert_eq!(edit.model.text(), "gpt-41");
 
         let action = edit.handle_key(key(KeyCode::Enter));
         assert_eq!(action, EditModelModalAction::Save("gpt-41".to_string()));

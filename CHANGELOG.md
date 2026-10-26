@@ -21,15 +21,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Cleaner Trigger List**: Listing shows one line per trigger with just the trigger and result, plus multi-tag filtering.
 - **Trigger Usage History**: Record daily per-trigger expansion stats and active application context in the local database.
 - **Settings & Stats Sync**: Synchronize allowed user preferences and daily trigger statistics across authorized cloud devices.
+- **Redesigned TUI Workspace**: Full-height responsive layout featuring a vector-icon navigation rail, draggable three-pane split view, and remembered divider widths.
+- **Command Palette**: Quick-access command palette (`Ctrl+P`) with real-time search, descriptions, and direct execution shortcuts.
+- **In-TUI Trigger Creator**: Create and configure triggers directly (`Ctrl+N`) with interactive type pickers, tag builder, and running application selectors.
+- **Visual Hotkey Recorder**: Capture shortcuts by pressing physical keys with full keyboard visual layout and distinct modifier detection.
+- **Syntax Highlighting & Rich Editor**: Live Tree-sitter syntax highlighting for shell scripts and Taurine template variables with mouse text selection and undo support.
+- **Modern Settings Overlay**: Quick-access settings modal (`Ctrl+,`) with inline field editing, graphical animated toggles, volume sliders, and connected microphone pickers.
 
 ### Changed
 - **Monetization Simplification**: Free tier now includes unlimited snippets, workspaces, and devices, gating exclusively on weekly expansion quota.
+
+### Removed
+- **Trigger Display Names**: Replaced redundant trigger display names with primary trigger invocations and descriptions across the CLI and TUI.
 
 ### Fixed
 - **Cloud Login Defaults**: Sign in to Taurine Cloud directly without configuring manual environment variables.
 - **Background Service Startup**: Prevent `taurine up` from falsely reporting the service as already running when an interactive terminal or TUI session is active.
 - **Quota Depletion**: Ensure trigger expansions update weekly quota balance and sync accurately with cloud status.
-
 
 ## [1.0.0-alpha.19] - 2026-09-27
 

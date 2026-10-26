@@ -1,9 +1,12 @@
-pub mod footer;
-pub mod header;
-pub mod home;
+pub mod field;
+pub mod hotkey;
+pub mod labeled;
 pub mod library;
-pub mod nav;
+pub mod nav_rail;
 pub mod notification;
+pub mod palette;
 pub mod settings;
-pub mod stat_card;
+pub mod slider;
+pub mod textarea;
+pub mod toggle;
 pub mod util;

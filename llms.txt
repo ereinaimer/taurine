@@ -50,7 +50,7 @@ A fast, secure and easy-to-use text expander built in Rust. Taurine helps you ty
 *   `taurine list` (or `ls`): Displays a formatted table of all active triggers. Supports `--sort` (`alpha`, `usage`, `created`, `recent`), `--asc`/`--desc`, `--tag`, and `--json`.
 *   `taurine delete` (or `rm`/`remove`) `<trigger>...`: Removes one or more triggers. 
 
-Validation limits: trigger string ≤200 chars, text output ≤100 KB, script content ≤1 MB, display name ≤200, description ≤1000. Tags are normalized (trimmed, lowercased, deduped; max 20 per trigger, 50 chars each). App filters accept only `exe:`/`class:`/`title:` prefixes. Dead `[use("name")]` references are rejected at save time.
+Validation limits: trigger string ≤200 chars, text output ≤100 KB, script content ≤1 MB, description ≤1000. Tags are normalized (trimmed, lowercased, deduped; max 20 per trigger, 50 chars each). App filters accept only `exe:`/`class:`/`title:` prefixes. Dead `[use("name")]` references are rejected at save time.
 
 ### 2.3 Import / Export
 *   `taurine export [path] [-y]`: Exports triggers to a backup file `.tau`. Files are always AES-256-GCM encrypted and only open in Taurine. Setting a password in the TUI adds a second lock (required to import); without one the file still never sits as plaintext. `-s` includes settings, `-t` includes usage stats, `-x` includes sensitive settings. `-y` skips the TUI (no password). Interactive TUI by default.

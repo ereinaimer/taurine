@@ -1,7 +1,7 @@
 pub(crate) mod actions;
 pub(crate) mod rows;
 
-use crate::theme::builtin::DARK_THEME;
+use crate::theme::default::DARK_THEME;
 use crate::widgets::library::actions::alias_line;
 use crate::widgets::library::{
     ButtonSelection, LibraryExportModalField, LibraryExportModalState, LibraryImportModalField,
@@ -48,22 +48,17 @@ pub(crate) fn render_export_popup(frame: &mut Frame, state: &LibraryExportModalS
 
     let (path_area, path_desc) = desc_area(sections[2]);
     let path_focused = state.focus() == LibraryExportModalField::Path;
-    let path_cursor = render_path_row(
-        frame,
-        path_area,
-        state.path(),
-        state.path_cursor(),
-        path_focused,
-    );
+    let path_cursor = render_path_row(frame, path_area, state.path_field(), path_focused);
     render_desc(frame, path_desc, "file path for the export", path_focused);
 
     let (pw_area, pw_desc) = desc_area(sections[3]);
     let password_focused = state.focus() == LibraryExportModalField::Password;
-    row_password(
+    let password_cursor = row_password(
         frame,
         pw_area,
         " Password",
-        state.password(),
+        &state.password_display_value(),
+        state.password_cursor(),
         password_focused,
         false,
         false,
@@ -106,13 +101,9 @@ pub(crate) fn render_export_popup(frame: &mut Frame, state: &LibraryExportModalS
             }
         }
         LibraryExportModalField::Password => {
-            let (pw_area, _) = desc_area(sections[3]);
-            let val_x = pw_area.x
-                + pw_area
-                    .width
-                    .saturating_sub(state.password().len() as u16)
-                    .saturating_sub(2);
-            frame.set_cursor_position((val_x + 1 + state.password_cursor() as u16, pw_area.y));
+            if let Some((cx, cy)) = password_cursor {
+                frame.set_cursor_position((cx, cy));
+            }
         }
         _ => {}
     }
@@ -151,13 +142,7 @@ pub(crate) fn render_import_popup(frame: &mut Frame, state: &LibraryImportModalS
 
     let (path_area, path_desc) = desc_area(sections[2]);
     let path_focused = state.focus() == LibraryImportModalField::Path;
-    let path_cursor = render_path_row(
-        frame,
-        path_area,
-        state.path(),
-        state.path_cursor(),
-        path_focused,
-    );
+    let path_cursor = render_path_row(frame, path_area, state.path_field(), path_focused);
     render_desc(frame, path_desc, "file path to import from", path_focused);
 
     let (pw_area, pw_desc) = desc_area(sections[3]);
@@ -166,11 +151,12 @@ pub(crate) fn render_import_popup(frame: &mut Frame, state: &LibraryImportModalS
     let show_red_asterisk = state.is_encrypted() == Some(true)
         && state.password().is_empty()
         && state.error().is_some();
-    row_password(
+    let password_cursor = row_password(
         frame,
         pw_area,
         " Password",
-        state.password(),
+        &state.password_display_value(),
+        state.password_cursor(),
         password_focused && !password_disabled,
         password_disabled,
         show_red_asterisk,
@@ -233,13 +219,9 @@ pub(crate) fn render_import_popup(frame: &mut Frame, state: &LibraryImportModalS
             }
         }
         LibraryImportModalField::Password if state.is_encrypted() != Some(false) => {
-            let (pw_area, _) = desc_area(sections[3]);
-            let val_x = pw_area.x
-                + pw_area
-                    .width
-                    .saturating_sub(state.password().len() as u16)
-                    .saturating_sub(2);
-            frame.set_cursor_position((val_x + 1 + state.password_cursor() as u16, pw_area.y));
+            if let Some((cx, cy)) = password_cursor {
+                frame.set_cursor_position((cx, cy));
+            }
         }
         _ => {}
     }
@@ -334,19 +316,12 @@ fn incoming_alias_lines(incoming: &TriggerExport) -> Vec<String> {
         return vec![alias_line(
             incoming.trigger_type.as_db_str(),
             &incoming.trigger,
-            false,
         )];
     }
     incoming
         .aliases
         .iter()
-        .map(|alias| {
-            alias_line(
-                alias.invocation_type.as_db_str(),
-                &alias.invocation,
-                alias.require_confirmation,
-            )
-        })
+        .map(|alias| alias_line(alias.invocation_type.as_db_str(), &alias.invocation))
         .collect()
 }
 
@@ -354,13 +329,7 @@ fn existing_alias_lines(existing: &ExistingTriggerConflict) -> Vec<String> {
     existing
         .invocations
         .iter()
-        .map(|alias| {
-            alias_line(
-                alias.invocation_type.as_db_str(),
-                &alias.invocation,
-                alias.require_confirmation,
-            )
-        })
+        .map(|alias| alias_line(alias.invocation_type.as_db_str(), &alias.invocation))
         .collect()
 }
 
@@ -388,7 +357,7 @@ pub(crate) fn render_conflict_popup(
 
     let sub_style = Style::default().fg(DARK_THEME.text_muted);
     frame.render_widget(
-        Paragraph::new(format!("  \"{}\" already exists.", incoming.name)).style(sub_style),
+        Paragraph::new(format!("  \"{}\" already exists.", incoming.trigger)).style(sub_style),
         Rect {
             x: inner.x,
             y: inner.y + 1,
@@ -495,7 +464,6 @@ mod tests {
 
     fn incoming_fixture() -> TriggerExport {
         TriggerExport {
-            name: String::new(),
             description: None,
             trigger_type: TriggerType::Word,
             trigger: "hi".to_string(),
@@ -524,7 +492,6 @@ mod tests {
     fn existing_fixture() -> ExistingTriggerConflict {
         ExistingTriggerConflict {
             id: "existing-1".to_string(),
-            name: String::new(),
             description: None,
             invocations: vec![
                 alias_row("hi", InvocationType::Word),
@@ -552,13 +519,10 @@ mod tests {
     }
 
     #[test]
-    fn conflict_lists_each_existing_invocation_with_confirm_suffix() {
+    fn conflict_lists_each_existing_invocation_without_confirm_suffix() {
         assert_eq!(
             existing_alias_lines(&existing_fixture()),
-            vec![
-                "word: hi".to_string(),
-                "voice: say hi (confirm)".to_string()
-            ]
+            vec!["word: hi".to_string(), "voice: say hi".to_string()]
         );
     }
 

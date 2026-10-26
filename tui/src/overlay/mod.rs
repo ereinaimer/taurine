@@ -3,7 +3,7 @@ pub mod ui;
 
 pub use ai::run_ai_overlay;
 
-use crate::theme::builtin::DARK_THEME;
+use crate::theme::default::DARK_THEME;
 use crate::widgets::library::{
     LibraryExportModalField, LibraryExportModalState, LibraryImportConflictMode,
     LibraryImportModalField, LibraryImportModalState, LibraryInteraction, RememberedConflictChoice,
@@ -13,7 +13,6 @@ use crossterm::event::{
     MouseButton, MouseEventKind,
 };
 use crossterm::{
-    cursor::SetCursorStyle,
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -45,10 +44,12 @@ impl OverlaySession {
         let mut stdout = io::stdout();
         execute!(stdout, EnterAlternateScreen)?;
         execute!(stdout, EnableMouseCapture)?;
-        execute!(stdout, SetCursorStyle::SteadyBar)?;
+        crate::apply_saved_cursor_style();
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
         terminal.hide_cursor()?;
+        // honey: same Taurine tab title as the main TUI; Drop restores it.
+        crate::terminal_title::acquire();
         drain_stale_events();
         Ok(Self { terminal })
     }
@@ -58,8 +59,10 @@ impl Drop for OverlaySession {
     fn drop(&mut self) {
         let _ = self.terminal.show_cursor();
         let _ = disable_raw_mode();
+        crate::reset_cursor_style();
         let _ = execute!(self.terminal.backend_mut(), DisableMouseCapture);
         let _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen);
+        crate::terminal_title::release();
     }
 }
 

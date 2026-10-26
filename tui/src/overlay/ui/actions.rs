@@ -1,4 +1,4 @@
-use crate::theme::builtin::DARK_THEME;
+use crate::theme::default::DARK_THEME;
 use crate::widgets::library::ButtonSelection;
 use ratatui::{
     Frame,
