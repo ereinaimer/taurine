@@ -17,9 +17,11 @@ pub(crate) const TOGGLE_ANIM_FRAME: Duration = Duration::from_millis(16);
 /// Slide and color-lerp duration for every switch.
 pub(crate) const TOGGLE_ANIM_DURATION: Duration = Duration::from_millis(90);
 
-const ENABLED_TRACK: Color = Color::Rgb(27, 56, 36);
+/// Shared control palette: the volume slider reuses the switch colors so
+/// both controls read as one family.
+pub(crate) const ENABLED_TRACK: Color = Color::Rgb(27, 56, 36);
 pub(crate) const ENABLED_KNOB: Color = Color::Rgb(62, 207, 102);
-const DISABLED_TRACK: Color = Color::Rgb(36, 36, 40);
+pub(crate) const DISABLED_TRACK: Color = Color::Rgb(36, 36, 40);
 const DISABLED_KNOB: Color = Color::Rgb(128, 128, 136);
 
 /// The five cells a switch occupies when parked at the right edge of

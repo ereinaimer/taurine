@@ -44,6 +44,35 @@ pub(crate) fn visible_range(total: usize, selected: usize, visible_count: usize)
     (start, end)
 }
 
+/// Window `[start, end)` of variable-height rows containing `selected`
+/// that fits in `available` rows. Anchors `selected` at the bottom first,
+/// then fills above and below. Shared by settings and the command palette.
+pub(crate) fn visible_variable_range(
+    heights: &[u16],
+    selected: usize,
+    available: u16,
+) -> (usize, usize) {
+    if heights.is_empty() || available == 0 {
+        return (0, 0);
+    }
+    let selected = selected.min(heights.len().saturating_sub(1));
+    if heights[selected] > available {
+        return (selected, selected + 1);
+    }
+    let mut start = selected;
+    let mut end = selected + 1;
+    let mut used = heights[selected];
+    while start > 0 && used.saturating_add(heights[start - 1]) <= available {
+        start -= 1;
+        used = used.saturating_add(heights[start]);
+    }
+    while end < heights.len() && used.saturating_add(heights[end]) <= available {
+        used = used.saturating_add(heights[end]);
+        end += 1;
+    }
+    (start, end)
+}
+
 pub(crate) fn visible_library_item_capacity(available_height: u16) -> usize {
     const LIBRARY_ITEM_HEIGHT: u16 = 2;
     const LIBRARY_ITEM_PADDING: u16 = 1;

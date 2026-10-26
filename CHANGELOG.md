@@ -39,11 +39,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Launch and Exit Animations**: The TUI now sweeps in and out from left to right on launch and quit.
 - **Command Palette**: Press Ctrl+P to toggle panels, reset the layout, create a trigger, open settings, pause or resume Taurine, restart Taurine, or quit from one menu.
 - **Command Palette Search**: The command palette now has a bottom search box that filters commands as you type.
+- **Command Palette Descriptions**: Every command now shows a wrapped description under its label, matching settings rows, and search matches that text too.
 - **Hotkey Keycaps**: Hotkey triggers and aliases render as split keycap badges in the trigger list, detail header, and properties pane.
 - **Hotkey Recorder**: Click a hotkey trigger or alias to record a new chord on a full on-screen keyboard that lights each key as you press it and echoes the chord as keycaps in the header, with left and right modifiers recorded separately, Cancel and Done buttons, and Backspace to clear.
 - **Navigation Rail**: A collapsible left rail with rasterized SVG icons for Home, Library, the command palette, and settings, falling back to half-blocks when the terminal has no graphics protocol, plus a draggable divider that snaps between open and closed and toggles on double-click.
 
 ### Changed
+- **Audio Volume Slider**: Audio Volume now uses an inline 0-100% slider with arrow-key, click, and drag adjustment instead of a number field.
 - **Hotkey Settings Keycaps**: Keyboard shortcut settings such as Pause Hotkey and the voice hotkeys now render their values as keycap pills instead of plain text.
 - **Click Hotkey Settings to Record**: Clicking a shortcut setting's keycaps opens the on-screen recorder and saves the chord to that setting.
 - **Wrapped Setting Descriptions**: Long setting descriptions now wrap inside the label column and grow the row instead of running under the value field.

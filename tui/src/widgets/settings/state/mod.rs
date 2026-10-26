@@ -11,6 +11,7 @@ pub(crate) use keys::{
 pub(crate) use modals::{ConfirmResetModalState, InputModalState, SelectChoice, SelectModalState};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::layout::Rect;
 use taurine_core::{
     ai::supported_providers,
     settings::{Settings, apply_setting_input, reset_setting_to_default},
@@ -74,6 +75,14 @@ fn voice_device_choices(devices: Vec<String>) -> Vec<SelectChoice> {
     choices
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SliderDrag {
+    key: SettingKey,
+    track: Rect,
+    original: u32,
+    value: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct SettingsPageState {
     pub(crate) settings: Settings,
@@ -85,6 +94,7 @@ pub(crate) struct SettingsPageState {
     pub(crate) search_active: bool,
     pub(crate) window_anchor: Option<usize>,
     pub(crate) inline: Option<InputModalState>,
+    pub(crate) slider_drag: Option<SliderDrag>,
 }
 
 impl SettingsPageState {
@@ -123,6 +133,97 @@ impl SettingsPageState {
 
     pub(crate) fn search_query(&self) -> &str {
         self.search.text()
+    }
+
+    /// Current value of the focused slider, if the selected row is one.
+    fn selected_slider_value(&self) -> Option<(SettingKey, u32)> {
+        let keys = self.visible_keys();
+        let key = *keys.get(self.selected.min(keys.len().saturating_sub(1)))?;
+        match key {
+            SettingKey::AudioVolume => Some((key, self.settings.audio_volume)),
+            _ => None,
+        }
+    }
+
+    /// Save a slider position, clamped to its range.
+    fn save_slider_value(&self, key: SettingKey, value: u32) -> SettingsInteraction {
+        let current = match key {
+            SettingKey::AudioVolume => self.settings.audio_volume,
+            _ => return SettingsInteraction::default(),
+        };
+        let next = value.min(100);
+        if next == current {
+            return SettingsInteraction::handled();
+        }
+        SettingsInteraction::save(key, Some(next.to_string()))
+    }
+
+    fn adjust_slider(&mut self, delta: isize) -> SettingsInteraction {
+        let Some((key, current)) = self.selected_slider_value() else {
+            return SettingsInteraction::default();
+        };
+        let next = (current as isize + delta).clamp(0, 100) as u32;
+        self.save_slider_value(key, next)
+    }
+
+    fn set_selected_slider(&mut self, value: u32) -> SettingsInteraction {
+        let Some((key, _)) = self.selected_slider_value() else {
+            return SettingsInteraction::default();
+        };
+        self.save_slider_value(key, value)
+    }
+
+    /// Begin a slider drag with a live preview; the value is written once
+    /// when the button is released so dragging does not hit the settings
+    /// store on every pointer tick.
+    pub(crate) fn begin_slider_drag(&mut self, key: SettingKey, value: u32, track: Rect) {
+        let original = match key {
+            SettingKey::AudioVolume => self.settings.audio_volume,
+            _ => return,
+        };
+        let value = value.min(100);
+        self.settings.audio_volume = value;
+        self.slider_drag = Some(SliderDrag {
+            key,
+            track,
+            original,
+            value,
+        });
+    }
+
+    /// Move an active drag to the pointer column. Returns whether a drag
+    /// was running, so stray drags never reach the library underneath.
+    pub(crate) fn drag_slider_to(&mut self, column: u16) -> bool {
+        let Some(drag) = self.slider_drag.as_mut() else {
+            return false;
+        };
+        let value = crate::widgets::slider::value_at(drag.track, column);
+        if value != drag.value {
+            drag.value = value;
+            self.settings.audio_volume = value;
+        }
+        true
+    }
+
+    /// Finish a drag and return the save it implies, if the value moved.
+    pub(crate) fn finish_slider_drag(&mut self) -> SettingsInteraction {
+        let Some(drag) = self.slider_drag.take() else {
+            return SettingsInteraction::default();
+        };
+        if drag.value == drag.original {
+            return SettingsInteraction::handled();
+        }
+        SettingsInteraction::save(drag.key, Some(drag.value.to_string()))
+    }
+
+    /// Abandon a drag and restore the value it started from.
+    pub(crate) fn cancel_slider_drag(&mut self) {
+        let Some(drag) = self.slider_drag.take() else {
+            return;
+        };
+        if drag.key == SettingKey::AudioVolume {
+            self.settings.audio_volume = drag.original;
+        }
     }
 
     pub(crate) fn search_field(&self) -> &crate::widgets::field::TextField {
@@ -264,6 +365,11 @@ impl SettingsPageState {
     }
 
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> SettingsInteraction {
+        if self.slider_drag.is_some() {
+            // honey: a key press abandons an in-flight pointer drag so a
+            // pending preview cannot overwrite the action the key takes.
+            self.cancel_slider_drag();
+        }
         if self.modal.is_some() {
             return self.handle_modal_key(key);
         }
@@ -295,6 +401,10 @@ impl SettingsPageState {
                 self.move_selection(-1);
                 SettingsInteraction::handled()
             }
+            (KeyCode::Left, KeyModifiers::NONE) => self.adjust_slider(-5),
+            (KeyCode::Right, KeyModifiers::NONE) => self.adjust_slider(5),
+            (KeyCode::Home, KeyModifiers::NONE) => self.set_selected_slider(0),
+            (KeyCode::End, KeyModifiers::NONE) => self.set_selected_slider(100),
             (KeyCode::Char('r'), KeyModifiers::NONE) => {
                 if self.visible_keys().is_empty() {
                     return SettingsInteraction::handled();
@@ -311,6 +421,10 @@ impl SettingsPageState {
                 let key = self.selected_key();
                 if key.editor_kind() == EditorKind::Toggle {
                     self.toggle_selected_setting()
+                } else if key.editor_kind() == EditorKind::VolumeSlider {
+                    // honey: the volume slider is adjusted with the arrow
+                    // keys and clicks, never through an overlay.
+                    SettingsInteraction::handled()
                 } else if key.inline_edit() {
                     self.begin_inline_edit(key);
                     SettingsInteraction::handled()
@@ -387,7 +501,7 @@ impl SettingsPageState {
     fn open_editor_for_selected(&mut self) {
         let key = self.selected_key();
         self.modal = match key.editor_kind() {
-            EditorKind::Toggle => None,
+            EditorKind::Toggle | EditorKind::VolumeSlider => None,
             EditorKind::SpinnerSelect => Some(SettingsModal::Select(SelectModalState::new(
                 key,
                 SPINNER_STYLE_OPTIONS
@@ -1068,6 +1182,130 @@ mod tests {
         state.handle_key(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE));
         assert!(state.is_search_active());
         assert_eq!(state.search_query(), "3");
+    }
+
+    #[test]
+    fn volume_slider_steps_with_arrows_and_clamps() {
+        let mut state = SettingsPageState::default();
+        state.selected = state
+            .visible_keys()
+            .iter()
+            .position(|key| *key == SettingKey::AudioVolume)
+            .expect("visible volume key");
+
+        state.settings.audio_volume = 50;
+        let interaction = state.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        assert_eq!(
+            interaction
+                .pending_save()
+                .map(|pending| pending.value.clone()),
+            Some(Some("55".to_string()))
+        );
+
+        state.settings.audio_volume = 100;
+        let interaction = state.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        assert!(interaction.pending_save().is_none());
+
+        state.settings.audio_volume = 0;
+        let interaction = state.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+        assert!(interaction.pending_save().is_none());
+    }
+
+    #[test]
+    fn volume_slider_home_and_end_jump_to_the_bounds() {
+        let mut state = SettingsPageState::default();
+        state.selected = state
+            .visible_keys()
+            .iter()
+            .position(|key| *key == SettingKey::AudioVolume)
+            .expect("visible volume key");
+        state.settings.audio_volume = 50;
+
+        let interaction = state.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+        assert_eq!(
+            interaction
+                .pending_save()
+                .map(|pending| pending.value.clone()),
+            Some(Some("100".to_string()))
+        );
+
+        let interaction = state.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
+        assert_eq!(
+            interaction
+                .pending_save()
+                .map(|pending| pending.value.clone()),
+            Some(Some("0".to_string()))
+        );
+    }
+
+    #[test]
+    fn volume_slider_saves_and_skips_unchanged_values() {
+        let state = SettingsPageState::default();
+        let interaction = state.save_slider_value(SettingKey::AudioVolume, 73);
+
+        assert_eq!(
+            interaction
+                .pending_save()
+                .map(|pending| pending.value.clone()),
+            Some(Some("73".to_string()))
+        );
+        assert!(
+            state
+                .save_slider_value(SettingKey::AudioVolume, 50)
+                .pending_save()
+                .is_none(),
+            "clicking the current value should not rewrite it"
+        );
+    }
+
+    #[test]
+    fn dragging_the_volume_slider_previews_then_saves_on_release() {
+        let track = Rect::new(0, 0, 16, 1);
+        let mut state = SettingsPageState::default();
+        state.settings.audio_volume = 50;
+
+        state.begin_slider_drag(SettingKey::AudioVolume, 10, track);
+        assert_eq!(state.settings.audio_volume, 10);
+
+        assert!(state.drag_slider_to(track.right().saturating_sub(1)));
+        assert_eq!(state.settings.audio_volume, 100);
+
+        let interaction = state.finish_slider_drag();
+        assert_eq!(
+            interaction
+                .pending_save()
+                .map(|pending| pending.value.clone()),
+            Some(Some("100".to_string()))
+        );
+    }
+
+    #[test]
+    fn canceling_a_slider_drag_restores_the_starting_value() {
+        let track = Rect::new(0, 0, 16, 1);
+        let mut state = SettingsPageState::default();
+        state.settings.audio_volume = 50;
+
+        state.begin_slider_drag(SettingKey::AudioVolume, 80, track);
+        state.cancel_slider_drag();
+
+        assert_eq!(state.settings.audio_volume, 50);
+        assert!(!state.drag_slider_to(0));
+    }
+
+    #[test]
+    fn enter_on_the_volume_slider_opens_no_editor() {
+        let mut state = SettingsPageState::default();
+        state.selected = state
+            .visible_keys()
+            .iter()
+            .position(|key| *key == SettingKey::AudioVolume)
+            .expect("visible volume key");
+
+        let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert!(state.modal().is_none());
+        assert!(state.inline_edit().is_none());
+        assert!(interaction.pending_save().is_none());
     }
 
     #[test]

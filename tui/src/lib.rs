@@ -1071,6 +1071,15 @@ fn handle_tui_mouse_event(
             }
         }
         MouseEventKind::Drag(MouseButton::Left) => {
+            // honey: a slider drag previews live and saves on release, so
+            // pointer ticks never reach the settings store or the library
+            // content behind the overlay.
+            if app.is_settings_overlay_open() {
+                if app.settings_page().modal().is_none() {
+                    app.settings_page_mut().drag_slider_to(mouse.column);
+                }
+                return;
+            }
             if app.nav_rail().dragging() {
                 app.nav_rail_mut().drag_to(area, mouse.column);
                 return;
@@ -1116,6 +1125,10 @@ fn handle_tui_mouse_event(
             }
         }
         MouseEventKind::Up(_) => {
+            if app.is_settings_overlay_open() {
+                let interaction = app.settings_page_mut().finish_slider_drag();
+                apply_settings_interaction(app, interaction);
+            }
             app.nav_rail_mut().end_drag();
             app.library_page_mut().set_divider_drag(None);
             app.library_page_mut().release_app_filter_divider();
@@ -1123,6 +1136,8 @@ fn handle_tui_mouse_event(
         }
         MouseEventKind::Down(MouseButton::Left) => {
             if app.palette_open() {
+                let paused = app.daemon_paused();
+                let pause_hotkey = app.settings_page().settings().pause_hotkey.clone();
                 if palette::dismiss_hit(area, mouse.column, mouse.row) {
                     app.close_palette();
                 } else if let Some(cursor) = app
@@ -1132,10 +1147,9 @@ fn handle_tui_mouse_event(
                     if let Some(state) = app.palette_mut() {
                         state.activate_search_at(cursor);
                     }
-                } else if let Some(index) = app
-                    .palette()
-                    .and_then(|state| palette::option_hit(area, state, mouse.column, mouse.row))
-                {
+                } else if let Some(index) = app.palette().and_then(|state| {
+                    palette::option_hit(area, state, paused, &pause_hotkey, mouse.column, mouse.row)
+                }) {
                     if let Some(state) = app.palette_mut() {
                         state.select(index);
                     }
@@ -1285,6 +1299,12 @@ fn handle_tui_mouse_event(
                         app.settings_page_mut().clear_inline_edit();
                         let anchor = settings::visible_window_start(content, app.settings_page());
                         app.settings_page_mut().open_editor_for_key(key, anchor);
+                    }
+                    Some(settings::SettingsHit::Slider(key, value, track)) => {
+                        app.settings_page_mut().clear_inline_edit();
+                        let anchor = settings::visible_window_start(content, app.settings_page());
+                        app.settings_page_mut().select_key(key, anchor);
+                        app.settings_page_mut().begin_slider_drag(key, value, track);
                     }
                     Some(settings::SettingsHit::InlineValue(key))
                         if app.settings_page().inline_key() != Some(key) =>

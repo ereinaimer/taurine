@@ -1,10 +1,12 @@
 pub mod field;
 pub mod hotkey;
+pub mod labeled;
 pub mod library;
 pub mod nav_rail;
 pub mod notification;
 pub mod palette;
 pub mod settings;
+pub mod slider;
 pub mod textarea;
 pub mod toggle;
 pub mod util;

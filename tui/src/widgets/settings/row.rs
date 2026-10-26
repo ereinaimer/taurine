@@ -1,6 +1,6 @@
 use ratatui::{
     Frame,
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
     text::Line,
     widgets::{Block, Paragraph},
@@ -8,38 +8,17 @@ use ratatui::{
 
 use crate::theme::Theme;
 use crate::widgets::hotkey;
+use crate::widgets::labeled;
 use crate::widgets::library::icons::CHEVRON_DOWN;
 use crate::widgets::settings::state::{EditorKind, InputModalState, SettingKey, SettingKeyMeta};
+use crate::widgets::slider;
 use crate::widgets::toggle::{ToggleAnimations, ToggleId, render_toggle, toggle_rect};
 use crate::widgets::util;
-
-fn setting_content(area: Rect) -> Rect {
-    Rect {
-        x: area.x.saturating_add(1),
-        y: area.y.saturating_add(1),
-        width: area.width.saturating_sub(2),
-        height: area.height.saturating_sub(2),
-    }
-}
-
-/// Label and value columns inside a row, shared by rendering and hit
-/// testing so keycaps land exactly where they are drawn.
-fn control_sections(area: Rect, control_width: u16) -> (Rect, Rect) {
-    let content = setting_content(area);
-    if content.width == 0 || content.height == 0 {
-        return (Rect::default(), Rect::default());
-    }
-    let sections = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(0), Constraint::Length(control_width)])
-        .split(content);
-    (sections[0], sections[1])
-}
 
 /// Right-aligned switch cell for a boolean row, shared by rendering
 /// and hover hit-testing.
 pub(crate) fn setting_toggle_rect(area: Rect, control_width: u16) -> Rect {
-    let (_, value) = control_sections(area, control_width);
+    let (_, value) = labeled::sections(area, control_width);
     if value.width == 0 || value.height == 0 {
         return Rect::default();
     }
@@ -63,7 +42,7 @@ pub(crate) fn hotkey_value_rect(
     if key.editor_kind() != EditorKind::HotkeyCapture {
         return None;
     }
-    let (_, value_column) = control_sections(area, control_width);
+    let (_, value_column) = labeled::sections(area, control_width);
     if value_column.width == 0 || value_column.height == 0 {
         return None;
     }
@@ -113,7 +92,7 @@ pub(crate) fn inline_value_rect(
     if !key.inline_edit() {
         return None;
     }
-    let (_, value) = control_sections(area, control_width);
+    let (_, value) = labeled::sections(area, control_width);
     if value.width == 0 || value.height == 0 {
         return None;
     }
@@ -136,7 +115,7 @@ pub(crate) fn select_value_rect(area: Rect, control_width: u16, key: SettingKey)
     if !key.editor_kind().opens_select() {
         return None;
     }
-    let (_, value) = control_sections(area, control_width);
+    let (_, value) = labeled::sections(area, control_width);
     if value.width == 0 || value.height == 0 {
         return None;
     }
@@ -146,6 +125,16 @@ pub(crate) fn select_value_rect(area: Rect, control_width: u16, key: SettingKey)
         width: value.width,
         height: 1,
     })
+}
+
+/// Track of the audio volume slider. Shared by rendering and hit-testing
+/// so a click lands on the cell it paints.
+pub(crate) fn volume_slider_rect(area: Rect, control_width: u16, key: SettingKey) -> Option<Rect> {
+    if key.editor_kind() != EditorKind::VolumeSlider {
+        return None;
+    }
+    let (_, value) = labeled::sections(area, control_width);
+    slider::track_rect(value)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -162,28 +151,12 @@ pub fn render_setting_row(
     hovered: Option<ToggleId>,
     inline_edit: Option<&InputModalState>,
 ) {
-    let row_style = if selected {
-        Style::default().bg(theme.surface)
-    } else {
-        Style::default()
-    };
-    frame.render_widget(Block::default().style(row_style), area);
-
-    let content = setting_content(area);
+    labeled::paint_selection(frame, area, theme, selected);
+    let content = labeled::content(area);
     if content.width == 0 || content.height == 0 {
         return;
     }
 
-    let (label_section, value_section) = control_sections(area, control_width);
-
-    let label_style = if selected {
-        Style::default()
-            .fg(theme.text)
-            .bg(theme.surface)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(theme.text)
-    };
     let value_style = if selected {
         Style::default()
             .fg(theme.text)
@@ -192,17 +165,16 @@ pub fn render_setting_row(
     } else {
         Style::default().fg(theme.text_muted)
     };
-
-    let title_area = Rect {
-        x: label_section.x,
-        y: content.y,
-        width: label_section.width,
-        height: 1,
-    };
-    frame.render_widget(
-        Paragraph::new(key.display_name()).style(label_style),
-        title_area,
+    let value_area = labeled::render(
+        frame,
+        content,
+        theme,
+        key.display_name(),
+        description_lines,
+        selected,
+        control_width,
     );
+
     if key.editor_kind() == EditorKind::Toggle
         && let Some(is_on) = key.toggle_value(settings)
     {
@@ -216,63 +188,39 @@ pub fn render_setting_row(
             hovered == Some(id),
             animations.progress_now(id),
         );
+    } else if key.editor_kind() == EditorKind::HotkeyCapture {
+        render_hotkey_value(
+            frame,
+            theme,
+            key,
+            settings,
+            selected,
+            value_area,
+            value_style,
+        );
+    } else if key.editor_kind() == EditorKind::VolumeSlider {
+        render_volume_slider(frame, value_style, settings.audio_volume, value_area);
+    } else if key.inline_edit() {
+        render_inline_value(
+            frame,
+            theme,
+            key,
+            settings,
+            selected,
+            value_area,
+            inline_edit.filter(|state| state.key() == *key),
+        );
     } else {
-        let value_area = Rect {
-            x: value_section.x,
-            y: content.y,
-            width: value_section.width,
-            height: 1,
-        };
-        if key.editor_kind() == EditorKind::HotkeyCapture {
-            render_hotkey_value(
-                frame,
-                theme,
-                key,
-                settings,
-                selected,
-                value_area,
-                value_style,
-            );
-        } else if key.inline_edit() {
-            render_inline_value(
-                frame,
-                theme,
-                key,
-                settings,
-                selected,
-                value_area,
-                inline_edit.filter(|state| state.key() == *key),
-            );
-        } else {
-            let value = util::truncate_to_width(
-                &key.display_value(settings),
-                control_width.saturating_sub(2),
-            );
-            // The pill chevron flags a value that opens its own editor overlay.
-            frame.render_widget(
-                Paragraph::new(format!("{value} {CHEVRON_DOWN}"))
-                    .alignment(Alignment::Right)
-                    .style(value_style),
-                value_area,
-            );
-        }
-    }
-
-    let description_style = Style::default().fg(theme.description);
-    for (index, line) in description_lines
-        .iter()
-        .take(usize::from(content.height.saturating_sub(1)))
-        .enumerate()
-    {
-        let description_area = Rect {
-            x: content.x,
-            y: content.y + 1 + index as u16,
-            width: label_section.width,
-            height: 1,
-        };
+        let value = util::truncate_to_width(
+            &key.display_value(settings),
+            control_width.saturating_sub(2),
+        );
+        // The pill chevron flags a value that opens its own editor overlay.
         frame.render_widget(
-            Paragraph::new(line.as_str()).style(description_style),
-            description_area,
+            Paragraph::new(format!("{value} {CHEVRON_DOWN}"))
+                .alignment(Alignment::Right)
+                .style(value_style),
+            value_area,
         );
     }
 }
@@ -343,6 +291,29 @@ fn render_inline_value(
     }
 }
 
+/// Audio volume renders as a right-aligned slider that extends the switch
+/// language: filled track, empty tail, and the same two-cell knob.
+fn render_volume_slider(frame: &mut Frame, style: Style, volume: u32, area: Rect) {
+    let Some(track) = slider::track_rect(area) else {
+        return;
+    };
+    let label = format!(
+        "{:>width$}%",
+        volume.min(100),
+        width = usize::from(slider::PERCENT_WIDTH.saturating_sub(1))
+    );
+    frame.render_widget(
+        Paragraph::new(label)
+            .alignment(Alignment::Right)
+            .style(style),
+        slider::label_rect(track),
+    );
+    frame.render_widget(
+        Paragraph::new(Line::from(slider::spans(volume, track.width))),
+        track,
+    );
+}
+
 /// Hotkey values render as right-aligned keycap pills, like the
 /// command palette hints, instead of text plus the editor chevron.
 fn render_hotkey_value(
@@ -379,108 +350,14 @@ fn render_hotkey_value(
     );
 }
 
-/// Maximum wrapped description lines shown under a setting title.
-pub(crate) const MAX_DESCRIPTION_LINES: usize = 3;
-
-/// Word-wrap `text` to `width` columns (character count, not bytes).
-/// Always returns at least one line so callers keep a minimum 2-row layout.
-/// Longer text is capped at `MAX_DESCRIPTION_LINES` with an ellipsis.
-pub(crate) fn wrap_description_lines(text: &str, width: u16) -> Vec<String> {
-    let width = width as usize;
-    if width == 0 {
-        return vec![String::new()];
-    }
-    let mut lines: Vec<String> = Vec::new();
-    let mut current = String::new();
-    let mut current_len = 0usize;
-    let mut truncated = false;
-
-    for word in text.split_whitespace() {
-        let word_len = word.chars().count();
-        if word_len > width {
-            if !current.is_empty() {
-                lines.push(std::mem::take(&mut current));
-                current_len = 0;
-            }
-            // honey: hard-break overlong words by chars; fine for paths/hotkeys.
-            let chars: Vec<char> = word.chars().collect();
-            for chunk in chars.chunks(width) {
-                lines.push(chunk.iter().collect());
-            }
-            continue;
-        }
-        if current_len == 0 {
-            current.push_str(word);
-            current_len = word_len;
-        } else if current_len + 1 + word_len <= width {
-            current.push(' ');
-            current.push_str(word);
-            current_len += 1 + word_len;
-        } else {
-            lines.push(std::mem::take(&mut current));
-            current.push_str(word);
-            current_len = word_len;
-        }
-    }
-    if !current.is_empty() {
-        lines.push(current);
-    }
-    if lines.is_empty() {
-        lines.push(String::new());
-    }
-    if lines.len() > MAX_DESCRIPTION_LINES {
-        truncated = true;
-        lines.truncate(MAX_DESCRIPTION_LINES);
-    }
-    if truncated && let Some(last) = lines.pop() {
-        let capped: String = last.chars().take(width.saturating_sub(1)).collect();
-        lines.push(format!("{capped}…"));
-    }
-    lines
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn short_description_stays_on_one_line() {
-        assert_eq!(wrap_description_lines("Short text", 40), vec!["Short text"]);
-    }
-
-    #[test]
-    fn long_description_wraps_on_word_boundaries() {
-        let lines = wrap_description_lines("aaa bbb ccc ddd", 7);
-        assert_eq!(lines, vec!["aaa bbb", "ccc ddd"]);
-    }
-
-    #[test]
-    fn overlong_word_hard_breaks() {
-        assert_eq!(
-            wrap_description_lines("abcdefghij", 4),
-            vec!["abcd", "efgh", "ij"]
-        );
-    }
-
-    #[test]
-    fn caps_at_three_lines_with_ellipsis() {
-        let lines = wrap_description_lines(
-            "one two three four five six seven eight nine ten eleven twelve",
-            10,
-        );
-        assert_eq!(lines.len(), MAX_DESCRIPTION_LINES);
-        assert!(lines[MAX_DESCRIPTION_LINES - 1].ends_with('…'));
-    }
-
-    #[test]
-    fn zero_width_still_returns_one_line() {
-        assert_eq!(wrap_description_lines("anything", 0), vec![""]);
-    }
-
-    #[test]
     fn switch_sits_at_the_right_content_edge() {
         let area = Rect::new(10, 20, 60, 8);
-        let content = setting_content(area);
+        let content = labeled::content(area);
         let toggle = setting_toggle_rect(area, 20);
         assert_eq!(toggle.width, 5);
         assert_eq!(toggle.right(), content.right());
@@ -531,6 +408,25 @@ mod tests {
             assert_eq!(cell.symbol(), " ");
             assert_ne!(cell.bg, ratatui::style::Color::Reset);
         }
+    }
+
+    #[test]
+    fn volume_row_renders_a_slider_with_a_percent_label() {
+        use crate::widgets::toggle::{DISABLED_TRACK, ENABLED_KNOB, ENABLED_TRACK};
+
+        let line = row_line(SettingKey::AudioVolume);
+        assert!(line.contains("50%"), "{line:?}");
+        assert!(!line.contains(CHEVRON_DOWN), "{line:?}");
+
+        let track = volume_slider_rect(Rect::new(0, 0, 60, 8), 20, SettingKey::AudioVolume)
+            .expect("volume slider track");
+        let buffer = row_buffer(SettingKey::AudioVolume);
+        let bgs: Vec<_> = (0..track.width)
+            .map(|offset| buffer[(track.x + offset, track.y)].bg)
+            .collect();
+        assert_eq!(bgs[0], ENABLED_TRACK);
+        assert_eq!(*bgs.last().unwrap(), DISABLED_TRACK);
+        assert!(bgs.contains(&ENABLED_KNOB));
     }
 
     #[test]

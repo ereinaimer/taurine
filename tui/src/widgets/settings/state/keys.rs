@@ -21,7 +21,7 @@ impl SettingKeyMeta for SettingKey {
             Self::PauseNotificationsEnabled => "Pause Notifications",
             Self::PauseAudioEnabled => "Pause Audio",
             Self::AudioTheme => "Audio Theme",
-            Self::AudioVolume => "Audio Volume (%)",
+            Self::AudioVolume => "Audio Volume",
             Self::StartOnBoot => "Start on Boot",
             Self::AutoUpdate => "Auto Update",
             Self::InlineTabCompletionEnabled => "Inline Tab Completion",
@@ -185,11 +185,11 @@ impl SettingKeyMeta for SettingKey {
             | Self::VoiceKeepLoaded
             | Self::PauseMediaWhileDictating => EditorKind::Toggle,
             Self::Wpm
-            | Self::AudioVolume
             | Self::ClipboardRestoreDelayMs
             | Self::ScriptTimeout
             | Self::AiMaxTokens
             | Self::ClipboardHistoryRetentionSecs => EditorKind::NumberInput,
+            Self::AudioVolume => EditorKind::VolumeSlider,
             Self::SpinnerStyle => EditorKind::SpinnerSelect,
             Self::TuiCursorStyle => EditorKind::CursorStyleSelect,
             Self::AudioTheme => EditorKind::AudioThemeSelect,
@@ -251,6 +251,7 @@ impl SettingKeyMeta for SettingKey {
             ),
             EditorKind::OptionalTextInput => matches!(self, Self::AiTemperature),
             EditorKind::Toggle
+            | EditorKind::VolumeSlider
             | EditorKind::HotkeyCapture
             | EditorKind::SpinnerSelect
             | EditorKind::CursorStyleSelect
@@ -406,6 +407,7 @@ impl SettingKeyMeta for SettingKey {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EditorKind {
     Toggle,
+    VolumeSlider,
     HotkeyCapture,
     SingleCharInput,
     TextInput,
@@ -510,6 +512,7 @@ mod tests {
         assert!(!SettingKey::VoiceModel.inline_edit());
         assert!(!SettingKey::VoiceInputDevice.inline_edit());
         assert!(!SettingKey::AudioTheme.inline_edit());
+        assert!(!SettingKey::AudioVolume.inline_edit());
         assert!(!SettingKey::PauseHotkey.inline_edit());
     }
 

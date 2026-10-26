@@ -95,6 +95,7 @@ impl App {
         self.settings_overlay_open = false;
         self.settings_page.clear_modal();
         self.settings_page.clear_inline_edit();
+        self.settings_page.cancel_slider_drag();
         self.toggle_hover = None;
         self.props_hover = None;
     }

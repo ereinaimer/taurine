@@ -5,15 +5,16 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Paragraph},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    style::Style,
+    text::Line,
+    widgets::Paragraph,
 };
 
 use crate::theme::Theme;
 use crate::widgets::field::TextField;
 use crate::widgets::hotkey;
+use crate::widgets::labeled;
 use crate::widgets::util::{self, OverlayChrome};
 
 /// Header title for the palette overlay.
@@ -68,6 +69,23 @@ impl PaletteCommand {
         }
     }
 
+    /// One-line explanation shown under the label, matching settings rows.
+    pub(crate) const fn description(self, paused: bool) -> &'static str {
+        match self {
+            Self::ToggleLeftPanel => "Show or hide the trigger list",
+            Self::ToggleRightPanel => "Show or hide the trigger details",
+            Self::ResetLayout => "Restore both panes to their default widths",
+            Self::NewTrigger => "Create a trigger without leaving the library",
+            Self::ImportTriggers => "Import triggers from a file",
+            Self::ExportTriggers => "Export triggers to a file",
+            Self::OpenSettings => "Open the settings overlay",
+            Self::TogglePause if paused => "Resume trigger expansion and hotkeys",
+            Self::TogglePause => "Pause trigger expansion until you resume",
+            Self::RestartTaurine => "Restart the background Taurine service",
+            Self::Quit => "Close the terminal interface",
+        }
+    }
+
     /// Existing shortcut shown flush right; empty when the command has
     /// no keybinding yet. The pause toggle shows the configured global
     /// pause hotkey, read from the settings database.
@@ -113,6 +131,14 @@ impl CommandPaletteState {
                 needle.is_empty()
                     || command.label(false).to_ascii_lowercase().contains(&needle)
                     || command.label(true).to_ascii_lowercase().contains(&needle)
+                    || command
+                        .description(false)
+                        .to_ascii_lowercase()
+                        .contains(&needle)
+                    || command
+                        .description(true)
+                        .to_ascii_lowercase()
+                        .contains(&needle)
             })
             .collect()
     }
@@ -261,21 +287,59 @@ pub(crate) fn popup(area: Rect) -> Rect {
     util::overlay_popup_sized(width, height, area)
 }
 
-/// Every entry is a three-row block: a blank pad row, the content row,
-/// and a blank pad row, stacked with no gap like the settings and
-/// library lists. The selected band paints the whole block.
-const ITEM_HEIGHT: u16 = 3;
-
-/// Entry blocks that fit the list; the list windows when it cannot
-/// show them all.
-fn item_capacity(list: Rect) -> usize {
-    usize::from(list.height / ITEM_HEIGHT).max(1)
+/// Every entry stacks: a blank pad row, the label and shortcut row, the
+/// wrapped description rows, then a blank pad row.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct PaletteRows {
+    descriptions: Vec<Vec<String>>,
+    heights: Vec<u16>,
+    control_width: u16,
 }
 
-/// Visible `[start, end)` window keeping the cursor in view, matching
-/// the library list's scrolling.
-fn visible_window(list: Rect, total: usize, selected: usize) -> (usize, usize) {
-    util::visible_range(total, selected, item_capacity(list))
+/// Command descriptions and variable row heights at a list width. The
+/// widest shortcut reserves one right column so every description wraps
+/// to the same width, mirroring the settings value column.
+fn row_shapes(
+    commands: &[PaletteCommand],
+    width: u16,
+    paused: bool,
+    pause_hotkey: &str,
+) -> PaletteRows {
+    let control_width = commands
+        .iter()
+        .map(|command| hotkey::display_width(command.hint(pause_hotkey)) as u16)
+        .max()
+        .unwrap_or(0)
+        .min(width.saturating_sub(10));
+    let description_width = labeled::description_width(width, control_width);
+    let descriptions: Vec<Vec<String>> = commands
+        .iter()
+        .map(|command| {
+            labeled::wrap_description_lines(command.description(paused), description_width)
+        })
+        .collect();
+    let heights = descriptions
+        .iter()
+        .map(|lines| labeled::row_height(lines.len()))
+        .collect();
+    PaletteRows {
+        descriptions,
+        heights,
+        control_width,
+    }
+}
+
+/// Row shapes plus the window `[start, end)` that keeps `selected` in view.
+fn visible_rows(
+    commands: &[PaletteCommand],
+    list: Rect,
+    selected: usize,
+    paused: bool,
+    pause_hotkey: &str,
+) -> (PaletteRows, usize, usize) {
+    let rows = row_shapes(commands, list.width, paused, pause_hotkey);
+    let (start, end) = util::visible_variable_range(&rows.heights, selected, list.height);
+    (rows, start, end)
 }
 
 /// List above the bottom search bar, mirroring the settings overlay:
@@ -307,10 +371,13 @@ pub(crate) fn dismiss_hit(area: Rect, column: u16, row: u16) -> bool {
 }
 
 /// Command index under a click, if any. Mirrors `render`: a whole block
-/// selects, pad rows included, and the window follows the cursor.
+/// selects, description and pad rows included, and the window follows the
+/// cursor.
 pub(crate) fn option_hit(
     area: Rect,
     state: &CommandPaletteState,
+    paused: bool,
+    pause_hotkey: &str,
     column: u16,
     row: u16,
 ) -> Option<usize> {
@@ -319,10 +386,21 @@ pub(crate) fn option_hit(
     if !crate::terminal::mouse::contains(list, column, row) {
         return None;
     }
-    let (start, end) = visible_window(list, state.visible_commands().len(), state.selected);
-    let offset = usize::from(row - list.y) / usize::from(ITEM_HEIGHT);
-    let index = start.saturating_add(offset);
-    (index < end).then_some(index)
+    let visible = state.visible_commands();
+    let (rows, start, end) = visible_rows(&visible, list, state.selected, paused, pause_hotkey);
+    let bottom = list.y.saturating_add(list.height);
+    let mut y = list.y;
+    for (index, height) in rows.heights.iter().enumerate().take(end).skip(start) {
+        let height = (*height).min(bottom.saturating_sub(y));
+        if height == 0 {
+            break;
+        }
+        if row >= y && row < y.saturating_add(height) {
+            return Some(index);
+        }
+        y = y.saturating_add(height);
+    }
+    None
 }
 
 /// Caret index under a click inside the bottom search box, if any.
@@ -374,39 +452,42 @@ pub(crate) fn render(
             );
         } else {
             let bottom = list.y.saturating_add(list.height);
-            let (start, end) = visible_window(list, visible.len(), state.selected);
-            for (offset, index) in (start..end).enumerate() {
-                let y = list
-                    .y
-                    .saturating_add((offset as u16).saturating_mul(ITEM_HEIGHT));
-                if y >= bottom {
+            let (rows, start, end) =
+                visible_rows(&visible, list, state.selected, paused, pause_hotkey);
+            let mut y = list.y;
+            for (index, command) in visible.iter().enumerate().take(end).skip(start) {
+                let height = rows.heights[index].min(bottom.saturating_sub(y));
+                if height == 0 {
                     break;
                 }
                 let block = Rect {
                     x: chrome.popup.x,
                     y,
                     width: chrome.popup.width,
-                    height: ITEM_HEIGHT.min(bottom.saturating_sub(y)),
+                    height,
                 };
-                let command = visible[index];
+                let command = *command;
                 let selected = index == state.selected;
-                if selected {
-                    frame.render_widget(
-                        Block::default().style(Style::default().bg(theme.surface)),
-                        block,
-                    );
-                }
-                let row = Rect {
+                labeled::paint_selection(frame, block, theme, selected);
+                let content = Rect {
                     x: list.x,
                     y: y.saturating_add(1),
                     width: list.width,
-                    height: 1,
+                    height: height.saturating_sub(2),
                 };
-                if row.y >= bottom {
-                    continue;
+                if content.height > 0 {
+                    let control = labeled::render(
+                        frame,
+                        content,
+                        theme,
+                        command.label(paused),
+                        &rows.descriptions[index],
+                        selected,
+                        rows.control_width,
+                    );
+                    render_hint(frame, theme, command, pause_hotkey, control, selected);
                 }
-                let line = row_line(theme, command, paused, pause_hotkey, row.width, selected);
-                frame.render_widget(Paragraph::new(line), row);
+                y = y.saturating_add(height);
             }
         }
     }
@@ -420,49 +501,41 @@ pub(crate) fn render(
     );
 }
 
-/// One row: label left, shortcut right as split keycaps. The selected
-/// band is painted over the whole three-row block, so the pads stay
-/// inside it.
-fn row_line(
+/// Shortcut pills flush right in the reserved control column.
+fn render_hint(
+    frame: &mut Frame,
     theme: &Theme,
     command: PaletteCommand,
-    paused: bool,
     pause_hotkey: &str,
-    width: u16,
+    control: Rect,
     selected: bool,
-) -> Line<'static> {
-    let label = command.label(paused);
-    let label_width = label.chars().count();
+) {
     let hint = command.hint(pause_hotkey);
-    let label_style = if selected {
-        Style::default().fg(theme.text).add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(theme.text)
-    };
-    let mut spans = vec![Span::styled(label, label_style)];
-    if !hint.is_empty() {
-        // Pills sit on the row fill, lightened on the selected band.
-        let (keycap_bg, base_bg) = if selected {
-            (theme.keycap.on_surface, theme.surface)
-        } else {
-            (theme.keycap.bg, util::OVERLAY_BG)
-        };
-        let keys = hotkey::render_hotkey_spans(
-            hint,
-            (width as usize).saturating_sub(label_width),
-            keycap_bg,
-            theme.text,
-            base_bg,
-        );
-        let keys_width = hotkey::spans_width(&keys);
-        if keys_width > 0 {
-            spans.push(Span::raw(
-                " ".repeat((width as usize).saturating_sub(label_width + keys_width)),
-            ));
-            spans.extend(keys);
-        }
+    if hint.is_empty() || control.width == 0 || control.height == 0 {
+        return;
     }
-    Line::from(spans)
+    let (keycap_bg, base_bg) = if selected {
+        (theme.keycap.on_surface, theme.surface)
+    } else {
+        (theme.keycap.bg, util::OVERLAY_BG)
+    };
+    let keys =
+        hotkey::render_hotkey_spans(hint, control.width as usize, keycap_bg, theme.text, base_bg);
+    let width = hotkey::spans_width(&keys) as u16;
+    if width == 0 {
+        return;
+    }
+    frame.render_widget(
+        Paragraph::new(Line::from(keys)).alignment(Alignment::Right),
+        Rect {
+            x: control
+                .x
+                .saturating_add(control.width.saturating_sub(width)),
+            y: control.y,
+            width,
+            height: 1,
+        },
+    );
 }
 
 #[cfg(test)]
@@ -525,6 +598,28 @@ mod tests {
             .collect()
     }
 
+    fn list_rows(
+        state: &CommandPaletteState,
+        area: Rect,
+        paused: bool,
+        pause_hotkey: &str,
+    ) -> (Rect, PaletteRows, usize, usize) {
+        let chrome = OverlayChrome::new(popup(area));
+        let (list, _) = content_sections(chrome.content, state);
+        let visible = state.visible_commands();
+        let (rows, start, end) = visible_rows(&visible, list, state.selected, paused, pause_hotkey);
+        (list, rows, start, end)
+    }
+
+    fn block_y(list: Rect, rows: &PaletteRows, start: usize, index: usize) -> u16 {
+        list.y
+            .saturating_add(rows.heights[start..index].iter().sum::<u16>())
+    }
+
+    fn content_y(list: Rect, rows: &PaletteRows, start: usize, index: usize) -> u16 {
+        block_y(list, rows, start, index).saturating_add(1)
+    }
+
     #[test]
     fn commands_are_listed_in_order() {
         assert_eq!(
@@ -551,19 +646,43 @@ mod tests {
     }
 
     #[test]
+    fn every_command_has_a_description() {
+        for command in PaletteCommand::ALL {
+            assert!(
+                !command.description(false).trim().is_empty(),
+                "{command:?} needs a description"
+            );
+            assert!(
+                !command.description(true).trim().is_empty(),
+                "{command:?} needs a paused description"
+            );
+        }
+        assert_eq!(
+            PaletteCommand::TogglePause.description(false),
+            "Pause trigger expansion until you resume"
+        );
+        assert_eq!(
+            PaletteCommand::TogglePause.description(true),
+            "Resume trigger expansion and hotkeys"
+        );
+    }
+
+    #[test]
     fn every_command_scrolls_into_view() {
-        let chrome = OverlayChrome::new(popup(AREA));
         let state = CommandPaletteState::default();
-        let (list, _) = content_sections(chrome.content, &state);
-        let capacity = item_capacity(list);
-        assert_eq!(capacity, 6);
+        let (list, rows, _, _) = list_rows(&state, AREA, false, "Alt + `");
         for selected in 0..PaletteCommand::ALL.len() {
-            let (start, end) = visible_window(list, PaletteCommand::ALL.len(), selected);
+            let (start, end) = util::visible_variable_range(&rows.heights, selected, list.height);
             assert!(
                 start <= selected && selected < end,
                 "selected {selected} outside {start}..{end}"
             );
-            assert!(end - start <= capacity);
+            let used: u16 = rows.heights[start..end].iter().sum();
+            assert!(
+                used <= list.height,
+                "{used} rows do not fit {}",
+                list.height
+            );
         }
     }
 
@@ -584,20 +703,18 @@ mod tests {
             width: 100,
             height: 20,
         };
-        let chrome = OverlayChrome::new(popup(short));
         let mut state = CommandPaletteState::default();
-        let (list, _) = content_sections(chrome.content, &state);
-        assert_eq!(item_capacity(list), 3);
-
         state.handle_key(key(KeyCode::End));
         let buffer = render_buffer_in(short, &state, false, "Alt + `");
-        let content_y = list.y;
-        // The window follows the cursor: the last three entries render.
-        assert!(row_text(&buffer, content_y + 1).contains("Pause Taurine"));
-        assert!(row_text(&buffer, content_y + 7).contains("Quit TUI"));
+        let (list, rows, start, end) = list_rows(&state, short, false, "Alt + `");
+        assert!(end > start);
+
+        let last = state.visible_commands().len().saturating_sub(1);
+        let last_y = content_y(list, &rows, start, last);
+        assert!(row_text(&buffer, last_y).contains("Quit TUI"));
         assert_eq!(
-            option_hit(short, &state, chrome.popup.x + 3, content_y + 7),
-            Some(9)
+            option_hit(short, &state, false, "Alt + `", popup(short).x + 3, last_y),
+            Some(last)
         );
     }
 
@@ -622,6 +739,60 @@ mod tests {
             state.handle_key(key(KeyCode::Char(ch)));
         }
         assert_eq!(state.visible_commands(), vec![PaletteCommand::TogglePause]);
+    }
+
+    #[test]
+    fn search_matches_command_descriptions() {
+        let mut state = CommandPaletteState::default();
+        for ch in "service".chars() {
+            state.handle_key(key(KeyCode::Char(ch)));
+        }
+        assert_eq!(
+            state.visible_commands(),
+            vec![PaletteCommand::RestartTaurine]
+        );
+
+        let mut state = CommandPaletteState::default();
+        for ch in "details".chars() {
+            state.handle_key(key(KeyCode::Char(ch)));
+        }
+        assert_eq!(
+            state.visible_commands(),
+            vec![PaletteCommand::ToggleRightPanel]
+        );
+    }
+
+    #[test]
+    fn command_rows_render_descriptions_under_the_label() {
+        let state = CommandPaletteState::default();
+        let buffer = render_buffer(&state);
+        let chrome = OverlayChrome::new(popup(AREA));
+        let (list, _) = content_sections(chrome.content, &state);
+
+        let first = row_text(&buffer, list.y + 1);
+        assert!(first.contains("Toggle left panel"), "{first:?}");
+        let description = row_text(&buffer, list.y + 2);
+        assert!(
+            description.contains("Show or hide the trigger list"),
+            "{description:?}"
+        );
+    }
+
+    #[test]
+    fn narrow_palette_wraps_long_command_descriptions() {
+        let narrow = Rect {
+            x: 0,
+            y: 0,
+            width: 50,
+            height: 40,
+        };
+        let state = CommandPaletteState::default();
+        let buffer = render_buffer_in(narrow, &state, false, "Alt + `");
+        let rows: Vec<String> = (0..narrow.height).map(|y| row_text(&buffer, y)).collect();
+        let text = rows.join("\n");
+
+        assert!(text.contains("Create a trigger without"), "{text}");
+        assert!(text.contains("leaving the library"), "{text}");
     }
 
     #[test]
@@ -708,36 +879,50 @@ mod tests {
 
     #[test]
     fn render_shows_labels_and_shortcuts() {
+        use ratatui::style::Modifier;
+
         let state = CommandPaletteState::default();
         let buffer = render_buffer(&state);
         let popup = popup(AREA);
-        let content_y = popup.y + 4;
+        let (list, rows, start, _) = list_rows(&state, AREA, false, "Alt + `");
 
-        // First block: blank pad, content, blank pad.
-        let first = row_text(&buffer, content_y + 1);
+        // First block: blank pad, label row, description row, blank pad.
+        let first_y = content_y(list, &rows, start, 0);
+        let first = row_text(&buffer, first_y);
         // Plain label: no icon glyph ahead of the text.
         assert_eq!(first.trim(), "Toggle left panel");
+        assert_eq!(buffer[(list.x, first_y)].fg, DARK_THEME.text);
+        assert!(buffer[(list.x, first_y)].modifier.contains(Modifier::BOLD));
+        let first_description = row_text(&buffer, first_y + 1);
+        assert!(
+            first_description.contains("Show or hide the trigger list"),
+            "{first_description:?}"
+        );
+        assert_eq!(buffer[(list.x, first_y + 1)].fg, DARK_THEME.description);
 
-        let new_trigger = row_text(&buffer, content_y + 10);
-        assert!(new_trigger.contains("New Trigger"));
+        let new_trigger_y = content_y(list, &rows, start, 3);
+        assert!(row_text(&buffer, new_trigger_y).contains("New Trigger"));
 
         // Shortcut keycaps end on the same column, inside the block.
         let right = popup.x + popup.width - 4;
         let keys = " Ctrl   N ";
         let keys_width = keys.chars().count() as u16;
         assert_eq!(
-            cells(&buffer, right + 1 - keys_width, content_y + 10, keys_width),
+            cells(&buffer, right + 1 - keys_width, new_trigger_y, keys_width),
             keys
         );
-        assert_eq!(buffer[(right, content_y + 10)].bg, DARK_THEME.keycap.bg);
+        assert_eq!(buffer[(right, new_trigger_y)].bg, DARK_THEME.keycap.bg);
 
-        // The selected block paints all three rows; the next block's
-        // top pad starts immediately with the popup fill.
-        for dy in 0..ITEM_HEIGHT {
-            assert_eq!(buffer[(popup.x, content_y + dy)].bg, DARK_THEME.surface);
+        // The selected block paints every variable-height row; the next
+        // block's top pad starts immediately with the popup fill.
+        let selected_y = block_y(list, &rows, start, 0);
+        let selected_height = rows.heights[0];
+        assert!(selected_height > 3);
+        for dy in 0..selected_height {
+            assert_eq!(buffer[(popup.x, selected_y + dy)].bg, DARK_THEME.surface);
         }
         assert_eq!(
-            buffer[(popup.x, content_y + ITEM_HEIGHT)].bg,
+            buffer[(popup.x, selected_y + selected_height)].bg,
             util::OVERLAY_BG
         );
     }
@@ -750,7 +935,8 @@ mod tests {
         }
         let buffer = render_buffer(&state);
         let popup = popup(AREA);
-        let y = popup.y + 4 + 1 + 3 * ITEM_HEIGHT;
+        let (list, rows, start, _) = list_rows(&state, AREA, false, "Alt + `");
+        let y = content_y(list, &rows, start, 3);
         let right = popup.x + popup.width - 4;
 
         assert_eq!(buffer[(right, y)].bg, DARK_THEME.keycap.on_surface);
@@ -763,18 +949,21 @@ mod tests {
         // Keep the pause and restart blocks in view.
         state.handle_key(key(KeyCode::End));
         state.handle_key(key(KeyCode::Up));
-        let buffer = render_buffer_with(&state, true, "Ctrl + Shift + P");
+        let pause_hotkey = "Ctrl + Shift + P";
+        let buffer = render_buffer_with(&state, true, pause_hotkey);
         let popup = popup(AREA);
-        let chrome = OverlayChrome::new(popup);
-        let (list, _) = content_sections(chrome.content, &state);
-        let (start, _) = visible_window(list, state.visible_commands().len(), state.selected);
-        let content_y = list.y;
-        let pause_y = content_y + (7 - start) as u16 * ITEM_HEIGHT + 1;
-        let restart_y = content_y + (8 - start) as u16 * ITEM_HEIGHT + 1;
+        let (list, rows, start, _) = list_rows(&state, AREA, true, pause_hotkey);
+        let pause_y = content_y(list, &rows, start, 7);
+        let restart_y = content_y(list, &rows, start, 8);
 
         let pause = row_text(&buffer, pause_y);
         assert!(pause.contains("Resume Taurine"));
         assert!(!pause.contains("Pause Taurine"));
+        assert!(
+            row_text(&buffer, pause_y + 1).contains("Resume trigger expansion"),
+            "{:?}",
+            row_text(&buffer, pause_y + 1)
+        );
         // Still one row: the next entry is Restart, not a second toggle.
         let restart = row_text(&buffer, restart_y);
         assert!(restart.contains("Restart Taurine"));
@@ -802,53 +991,76 @@ mod tests {
 
     #[test]
     fn hit_maps_each_block() {
+        let narrow = Rect {
+            x: 0,
+            y: 0,
+            width: 50,
+            height: 40,
+        };
         let mut state = CommandPaletteState::default();
-        let popup = popup(AREA);
-        let chrome = OverlayChrome::new(popup);
-        let (list, _) = content_sections(chrome.content, &state);
-        let content_y = list.y;
-        let capacity = item_capacity(list);
-        for index in 0..capacity as u16 {
-            let y = content_y + index * ITEM_HEIGHT;
-            // The whole block selects, pad rows included.
-            for dy in 0..ITEM_HEIGHT {
+        let (list, rows, start, end) = list_rows(&state, narrow, false, "Alt + `");
+        assert!(
+            rows.heights.iter().any(|height| *height > 4),
+            "expected at least one wrapped description"
+        );
+        for index in start..end {
+            let y = block_y(list, &rows, start, index);
+            // The whole variable-height block selects, pads included.
+            for dy in 0..rows.heights[index] {
                 assert_eq!(
-                    option_hit(AREA, &state, popup.x + 3, y + dy),
-                    Some(index as usize)
+                    option_hit(
+                        narrow,
+                        &state,
+                        false,
+                        "Alt + `",
+                        popup(narrow).x + 3,
+                        y + dy
+                    ),
+                    Some(index)
                 );
             }
         }
-        // The block after the default window is outside.
-        assert_eq!(
-            option_hit(
-                AREA,
-                &state,
-                popup.x + 3,
-                content_y + capacity as u16 * ITEM_HEIGHT
-            ),
-            None
-        );
+        if end < state.visible_commands().len() {
+            assert_eq!(
+                option_hit(
+                    narrow,
+                    &state,
+                    false,
+                    "Alt + `",
+                    popup(narrow).x + 3,
+                    block_y(list, &rows, start, end)
+                ),
+                None
+            );
+        }
 
         // Scrolling moves the window with the cursor.
         state.handle_key(key(KeyCode::End));
-        let (start, end) = visible_window(list, state.visible_commands().len(), state.selected);
-        for (offset, index) in (start..end).enumerate() {
-            assert_eq!(
-                option_hit(
-                    AREA,
-                    &state,
-                    popup.x + 3,
-                    content_y + offset as u16 * ITEM_HEIGHT
-                ),
-                Some(index)
-            );
+        let (list, rows, start, end) = list_rows(&state, narrow, false, "Alt + `");
+        for index in start..end {
+            let y = block_y(list, &rows, start, index);
+            for dy in 0..rows.heights[index] {
+                assert_eq!(
+                    option_hit(
+                        narrow,
+                        &state,
+                        false,
+                        "Alt + `",
+                        popup(narrow).x + 3,
+                        y + dy
+                    ),
+                    Some(index)
+                );
+            }
         }
         assert_eq!(
             option_hit(
-                AREA,
+                narrow,
                 &state,
-                popup.x + 3,
-                content_y + (end - start) as u16 * ITEM_HEIGHT
+                false,
+                "Alt + `",
+                popup(narrow).x + 3,
+                block_y(list, &rows, start, end)
             ),
             None
         );

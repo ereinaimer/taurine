@@ -12,12 +12,14 @@ use ratatui::{
 
 use crate::terminal::mouse;
 use crate::theme::Theme;
+use crate::widgets::labeled;
 use crate::widgets::settings::row::{
     hotkey_value_rect, inline_value_rect, render_setting_row, select_value_rect,
-    setting_toggle_rect, wrap_description_lines,
+    setting_toggle_rect, volume_slider_rect,
 };
 use crate::widgets::settings::state::{EditorKind, SettingKeyMeta, SettingsPageState};
 use crate::widgets::toggle::{ToggleAnimations, ToggleId};
+use crate::widgets::util;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SettingsHit {
@@ -29,6 +31,9 @@ pub(crate) enum SettingsHit {
     InlineValue(SettingKey),
     /// Value of a picker setting; opens its option overlay.
     SelectValue(SettingKey),
+    /// Volume slider click, already mapped to the percent under the pointer
+    /// and carrying its track rect so a press can start a drag.
+    Slider(SettingKey, u32, Rect),
     SearchAt(usize),
 }
 
@@ -106,15 +111,15 @@ fn row_shapes(width: u16, state: &SettingsPageState) -> (Vec<Vec<String>>, Vec<u
     let control_width = control_column_width(state.settings(), width);
     // honey: descriptions live in the label column only; wrapping at the
     // full row width would let them run under the value field.
-    let description_width = width.saturating_sub(2).saturating_sub(control_width);
+    let description_width = labeled::description_width(width.saturating_sub(2), control_width);
     let descriptions: Vec<Vec<String>> = all_keys
         .iter()
-        .map(|key| wrap_description_lines(key.description(), description_width))
+        .map(|key| labeled::wrap_description_lines(key.description(), description_width))
         .collect();
     // honey: each row is 1 pad + title + descriptions + 1 pad.
     let heights: Vec<u16> = descriptions
         .iter()
-        .map(|lines| 3 + lines.len() as u16)
+        .map(|lines| labeled::row_height(lines.len()))
         .collect();
     (descriptions, heights, control_width)
 }
@@ -186,7 +191,7 @@ fn window_for(
             return (start, end);
         }
     }
-    visible_variable_range(heights, selected, available)
+    util::visible_variable_range(heights, selected, available)
 }
 
 /// Hit-test a click at terminal cell `(column, row)` against the layout
@@ -268,6 +273,15 @@ pub(crate) fn hit_test(
                 && mouse::contains(value, column, row)
             {
                 return Some(SettingsHit::SelectValue(*key));
+            }
+            if let Some(track) = volume_slider_rect(row_area, rows.control_width, *key)
+                && mouse::contains(track, column, row)
+            {
+                return Some(SettingsHit::Slider(
+                    *key,
+                    crate::widgets::slider::value_at(track, column),
+                    track,
+                ));
             }
             return Some(SettingsHit::Row(*key));
         }
@@ -455,33 +469,10 @@ fn rows_origin(list_area: Rect, heights: &[u16], start: usize, end: usize) -> u1
     }
 }
 
-/// Window `[start, end)` of variable-height rows containing `selected`
-/// that fits in `available` rows. Anchors `selected` at the bottom first
-/// (matching the previous fixed-height behavior), then fills below.
-fn visible_variable_range(heights: &[u16], selected: usize, available: u16) -> (usize, usize) {
-    if heights.is_empty() || available == 0 {
-        return (0, 0);
-    }
-    let selected = selected.min(heights.len().saturating_sub(1));
-    if heights[selected] > available {
-        return (selected, selected + 1);
-    }
-    let mut start = selected;
-    let mut end = selected + 1;
-    let mut used = heights[selected];
-    while start > 0 && used.saturating_add(heights[start - 1]) <= available {
-        start -= 1;
-        used = used.saturating_add(heights[start]);
-    }
-    while end < heights.len() && used.saturating_add(heights[end]) <= available {
-        used = used.saturating_add(heights[end]);
-        end += 1;
-    }
-    (start, end)
-}
-
 fn control_column_width(settings: &taurine_core::settings::Settings, area_width: u16) -> u16 {
     use crate::widgets::settings::state::{SettingKey, SettingKeyMeta};
+    use crate::widgets::slider::{PERCENT_WIDTH, TRACK_WIDTH};
+
     let longest_value = SettingKey::ALL
         .iter()
         .map(|key| {
@@ -493,7 +484,10 @@ fn control_column_width(settings: &taurine_core::settings::Settings, area_width:
             }
         })
         .max()
-        .unwrap_or(10);
+        .unwrap_or(10)
+        // honey: reserve room for the volume slider's label, gap, and track
+        // so it keeps its intended width even when every stored value is short.
+        .max(TRACK_WIDTH + PERCENT_WIDTH + 1);
 
     let desired = longest_value.min(30);
     let max_width = area_width.saturating_sub(8);
@@ -513,7 +507,8 @@ mod tests {
         let state = SettingsPageState::default();
         let width = 60;
         let (descriptions, heights, control_width) = row_shapes(width, &state);
-        let label_width = width.saturating_sub(2).saturating_sub(control_width) as usize;
+        let label_width =
+            labeled::description_width(width.saturating_sub(2), control_width) as usize;
         assert!(label_width > 0);
         for (key, lines) in state.visible_keys().iter().zip(&descriptions) {
             for line in lines {
@@ -528,7 +523,7 @@ mod tests {
             "expected at least one wrapped description"
         );
         for (lines, height) in descriptions.iter().zip(&heights) {
-            assert_eq!(*height, 3 + lines.len() as u16);
+            assert_eq!(*height, labeled::row_height(lines.len()));
         }
     }
 
@@ -565,19 +560,19 @@ mod tests {
 
     #[test]
     fn variable_range_fits_all_when_tall_enough() {
-        assert_eq!(visible_variable_range(&[2, 2, 3], 0, 10), (0, 3));
+        assert_eq!(util::visible_variable_range(&[2, 2, 3], 0, 10), (0, 3));
     }
 
     #[test]
     fn variable_range_keeps_selected_visible() {
-        let (start, end) = visible_variable_range(&[2, 2, 2, 2], 3, 4);
+        let (start, end) = util::visible_variable_range(&[2, 2, 2, 2], 3, 4);
         assert!(start <= 3 && 3 < end);
         assert_eq!((start, end), (2, 4));
     }
 
     #[test]
     fn oversized_selected_row_returns_selected_only() {
-        assert_eq!(visible_variable_range(&[2, 5, 2], 1, 3), (1, 2));
+        assert_eq!(util::visible_variable_range(&[2, 5, 2], 1, 3), (1, 2));
     }
 
     #[test]
@@ -786,6 +781,51 @@ mod tests {
             row_y = row_y.saturating_add(height);
         }
         panic!("no select setting row");
+    }
+
+    #[test]
+    fn volume_slider_hit_maps_the_pointer_column_to_a_percent() {
+        let area = ratatui::layout::Rect::new(26, 2, 71, 24);
+        let mut state = SettingsPageState::default();
+        let key = SettingKey::AudioVolume;
+        state.selected = state
+            .visible_keys()
+            .iter()
+            .position(|candidate| *candidate == key)
+            .expect("visible volume key");
+        let (list_area, _) =
+            content_sections(area, false, state.search_field(), state.is_search_active());
+        let rows = compute_rows(list_area, &state);
+        let all_keys = state.visible_keys();
+        let mut row_y = rows_origin(list_area, &rows.heights, rows.start, rows.end);
+
+        for (index, key) in all_keys[rows.start..rows.end].iter().enumerate() {
+            let remaining = (list_area.y + list_area.height).saturating_sub(row_y);
+            let height = rows.heights[rows.start + index].min(remaining);
+            let row_area = Rect {
+                x: list_area.x,
+                y: row_y,
+                width: list_area.width,
+                height,
+            };
+            if let Some(track) = volume_slider_rect(row_area, rows.control_width, *key) {
+                assert_eq!(
+                    hit_test(area, &state, track.x, track.y),
+                    Some(SettingsHit::Slider(*key, 0, track))
+                );
+                assert_eq!(
+                    hit_test(area, &state, track.right() - 1, track.y),
+                    Some(SettingsHit::Slider(*key, 100, track))
+                );
+                assert_eq!(
+                    hit_test(area, &state, track.x.saturating_sub(1), track.y),
+                    Some(SettingsHit::Row(*key))
+                );
+                return;
+            }
+            row_y = row_y.saturating_add(height);
+        }
+        panic!("no volume slider row");
     }
 
     #[test]
