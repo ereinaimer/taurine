@@ -1,23 +1,20 @@
 //! SVG rail glyphs, rasterized once at startup.
 //!
-//! The raster is intentionally oversized so the picker's high-quality
-//! downscale keeps the edges smooth at the small rail size. Bright and
-//! muted protocol pairs let hover/active states reuse the artwork
-//! without painting a background behind it.
+//! Each SVG is rendered by resvg directly into the exact pixel canvas
+//! of its 4x2 cell protocol: one vector-to-pixels step, no intermediate
+//! bitmap and no resampling filter. Bright and muted protocol pairs let
+//! hover/active states reuse the artwork without painting a background.
 
 use image::{DynamicImage, RgbaImage};
 use ratatui::layout::Size;
 use ratatui::style::Color;
 use ratatui_image::picker::{Picker, ProtocolType};
 use ratatui_image::protocol::Protocol;
-use ratatui_image::{FilterType, FontSize, Resize};
+use ratatui_image::{FontSize, Resize};
 
 use super::NavRailItem;
 use crate::theme::Theme;
 
-/// Pixel edge of the source raster. Well above the few cells used on
-/// screen so downscaling has plenty of detail to sample.
-const ICON_PX: u32 = 256;
 /// Muted variant factor, matching the theme's muted text on white.
 const MUTED: f32 = 0.5;
 
@@ -60,7 +57,8 @@ impl RailIcons {
 
 impl IconVariants {
     fn load(picker: &Picker, svg: &str, opaque: bool, background: [u8; 3]) -> Result<Self, String> {
-        let bright = rasterize(svg)?;
+        let font = picker.font_size();
+        let bright = render_canvas(svg, font, opaque)?;
         let muted = tint(&bright, MUTED);
         let (idle, bright) = if opaque {
             (
@@ -68,11 +66,7 @@ impl IconVariants {
                 on_background(&bright, background),
             )
         } else {
-            let font = picker.font_size();
-            (
-                half_size_canvas(&muted, font),
-                half_size_canvas(&bright, font),
-            )
+            (muted, bright)
         };
         Ok(Self {
             idle: protocol(picker, idle)?,
@@ -83,29 +77,39 @@ impl IconVariants {
 
 fn protocol(picker: &Picker, image: DynamicImage) -> Result<Protocol, String> {
     picker
-        .new_protocol(
-            image,
-            Size::new(4, 2),
-            Resize::Fit(Some(FilterType::Lanczos3)),
-        )
+        .new_protocol(image, Size::new(4, 2), Resize::Fit(None))
         .map_err(|error| error.to_string())
 }
 
-fn rasterize(svg: &str) -> Result<DynamicImage, String> {
+/// Rasterize the SVG once into the protocol's exact 4x2 cell canvas.
+/// Graphics protocols get the artwork at half size, centered; the
+/// half-block fallback fills the canvas to keep any detail. Uniform
+/// scaling keeps the original aspect in both cases.
+fn render_canvas(svg: &str, font: FontSize, opaque: bool) -> Result<DynamicImage, String> {
+    let canvas_w = u32::from(font.width) * 4;
+    let canvas_h = u32::from(font.height) * 2;
+    if canvas_w == 0 || canvas_h == 0 {
+        return Err("terminal reports a zero-size cell".to_string());
+    }
+    let (glyph_w, glyph_h) = if opaque {
+        (canvas_w, canvas_h)
+    } else {
+        (u32::from(font.width) * 2, u32::from(font.height))
+    };
     let options = resvg::usvg::Options::default();
     let tree = resvg::usvg::Tree::from_str(svg, &options).map_err(|error| error.to_string())?;
     let size = tree.size();
     if size.width() <= 0.0 || size.height() <= 0.0 {
         return Err("rail icon SVG has no size".to_string());
     }
-    let mut pixmap = resvg::tiny_skia::Pixmap::new(ICON_PX, ICON_PX)
+    let scale = (glyph_w as f32 / size.width()).min(glyph_h as f32 / size.height());
+    let tx = (canvas_w as f32 - size.width() * scale) / 2.0;
+    let ty = (canvas_h as f32 - size.height() * scale) / 2.0;
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(canvas_w, canvas_h)
         .ok_or_else(|| "failed to allocate the rail icon raster".to_string())?;
-    let transform = resvg::tiny_skia::Transform::from_scale(
-        ICON_PX as f32 / size.width(),
-        ICON_PX as f32 / size.height(),
-    );
+    let transform = resvg::tiny_skia::Transform::from_row(scale, 0.0, 0.0, scale, tx, ty);
     resvg::render(&tree, transform, &mut pixmap.as_mut());
-    let image = RgbaImage::from_raw(ICON_PX, ICON_PX, pixmap.take())
+    let image = RgbaImage::from_raw(canvas_w, canvas_h, pixmap.take())
         .ok_or_else(|| "failed to wrap the rail icon raster".to_string())?;
     Ok(DynamicImage::ImageRgba8(image))
 }
@@ -118,26 +122,6 @@ fn tint(image: &DynamicImage, factor: f32) -> DynamicImage {
         }
     }
     DynamicImage::ImageRgba8(rgba)
-}
-
-/// Compose the icon at exactly half the button's pixel area, centered
-/// on the full 4x2 canvas. Working in the picker's pixel dimensions
-/// keeps the artwork's aspect and avoids the fit padding landing in a
-/// corner.
-fn half_size_canvas(image: &DynamicImage, font: FontSize) -> DynamicImage {
-    let canvas_w = u32::from(font.width) * 4;
-    let canvas_h = u32::from(font.height) * 2;
-    let glyph_w = u32::from(font.width) * 2;
-    let glyph_h = u32::from(font.height);
-    let scale = (glyph_w as f32 / image.width() as f32).min(glyph_h as f32 / image.height() as f32);
-    let target_w = (image.width() as f32 * scale).round().max(1.0) as u32;
-    let target_h = (image.height() as f32 * scale).round().max(1.0) as u32;
-    let glyph = image.resize_exact(target_w, target_h, FilterType::Lanczos3);
-    let mut canvas = RgbaImage::new(canvas_w, canvas_h);
-    let x = canvas_w.saturating_sub(target_w) / 2;
-    let y = canvas_h.saturating_sub(target_h) / 2;
-    image::imageops::overlay(&mut canvas, &glyph, i64::from(x), i64::from(y));
-    DynamicImage::ImageRgba8(canvas)
 }
 
 fn on_background(image: &DynamicImage, background: [u8; 3]) -> DynamicImage {
@@ -174,10 +158,11 @@ mod tests {
 
     #[test]
     fn every_svg_rasterizes_with_visible_pixels() {
+        let font = Picker::halfblocks().font_size();
         for svg in [HOME_SVG, LIBRARY_SVG, COMMAND_PALETTE_SVG, SETTINGS_SVG] {
-            let image = rasterize(svg).expect("svg renders");
-            assert_eq!(image.width(), ICON_PX);
-            assert_eq!(image.height(), ICON_PX);
+            let image = render_canvas(svg, font, false).expect("svg renders");
+            assert_eq!(image.width(), u32::from(font.width) * 4);
+            assert_eq!(image.height(), u32::from(font.height) * 2);
             assert!(
                 image.to_rgba8().pixels().any(|pixel| pixel[3] > 0),
                 "transparent raster"
@@ -186,13 +171,12 @@ mod tests {
     }
 
     #[test]
-    fn half_size_canvas_centers_the_icon_at_half_the_cell_area() {
+    fn canvas_centers_the_half_size_icon_without_resampling() {
         let font = Picker::halfblocks().font_size();
-        let image = rasterize(HOME_SVG).expect("svg renders");
-        let padded = half_size_canvas(&image, font);
-        assert_eq!(padded.width(), u32::from(font.width) * 4);
-        assert_eq!(padded.height(), u32::from(font.height) * 2);
-        let rgba = padded.to_rgba8();
+        let canvas = render_canvas(HOME_SVG, font, false).expect("svg renders");
+        assert_eq!(canvas.width(), u32::from(font.width) * 4);
+        assert_eq!(canvas.height(), u32::from(font.height) * 2);
+        let rgba = canvas.to_rgba8();
         assert_eq!(rgba.get_pixel(0, 0)[3], 0, "corner is transparent");
         assert!(
             rgba.get_pixel(u32::from(font.width) * 2, u32::from(font.height),)[3] > 0,

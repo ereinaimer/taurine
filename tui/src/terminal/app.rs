@@ -154,7 +154,31 @@ impl App {
         use ratatui_image::picker::Picker;
 
         let picker = Picker::from_query_stdio().unwrap_or_else(|_| Picker::halfblocks());
-        tracing::info!(protocol = ?picker.protocol_type(), "navigation rail graphics");
+        let font = picker.font_size();
+        // honey: crossterm cannot report pixel dimensions on Windows, so
+        // the picker's CSI 16 t answer is the only cell-size source.
+        match crossterm::terminal::window_size() {
+            Ok(size) => tracing::info!(
+                cols = size.columns,
+                rows = size.rows,
+                px_w = size.width,
+                px_h = size.height,
+                "terminal window metrics"
+            ),
+            Err(error) => {
+                tracing::debug!(%error, "terminal window pixel metrics unavailable");
+            }
+        }
+        tracing::info!(
+            protocol = ?picker.protocol_type(),
+            cell_w = font.width,
+            cell_h = font.height,
+            "navigation rail graphics"
+        );
+        if font.width == 0 || font.height == 0 {
+            tracing::warn!("terminal reported a zero-size cell; keeping the glyph fallback");
+            return;
+        }
         match RailIcons::load(&picker, self.current_theme) {
             Ok(icons) => self.rail_icons = Some(icons),
             Err(error) => {
