@@ -621,6 +621,7 @@ fn recorder_pending_edit(
                 .get(alias)
                 .map(|alias| (*alias).to_string())?
         }
+        HotkeyTarget::Setting(_) => return None,
     };
     Some(library::PendingLibraryEdit {
         trigger_id: item.id().to_string(),
@@ -639,6 +640,24 @@ fn commit_hotkey_recorder(app: &mut App) {
     else {
         return;
     };
+    if let library::recorder::HotkeyTarget::Setting(key) = target {
+        let pending = settings::PendingSettingSave {
+            key,
+            value: Some(chord),
+        };
+        match pending.apply() {
+            Ok(()) => {
+                app.set_hotkey_recorder(None);
+                refresh_settings_page(app);
+            }
+            Err(error) => {
+                if let Some(recorder) = app.hotkey_recorder_mut() {
+                    recorder.error = Some(error.to_string());
+                }
+            }
+        }
+        return;
+    }
     let Some(pending) = recorder_pending_edit(app, target, &chord) else {
         app.set_hotkey_recorder(None);
         return;
@@ -1223,6 +1242,13 @@ fn handle_tui_mouse_event(
                     }
                     Some(settings::SettingsHit::SearchAt(cursor)) => {
                         app.settings_page_mut().activate_search_at(cursor);
+                    }
+                    Some(settings::SettingsHit::HotkeyValue(key)) => {
+                        let anchor = settings::visible_window_start(content, app.settings_page());
+                        app.settings_page_mut().select_key(key, anchor);
+                        app.set_hotkey_recorder(Some(library::recorder::HotkeyRecorderState::new(
+                            library::recorder::HotkeyTarget::Setting(key),
+                        )));
                     }
                     None => {}
                 }
@@ -2467,6 +2493,39 @@ mod tests {
         handle_tui_key_event(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(app.is_settings_overlay_open());
         assert!(!app.settings_page().is_modal_open());
+    }
+
+    #[test]
+    fn clicking_hotkey_setting_keycaps_opens_the_recorder() {
+        let mut app = App::default();
+        app.open_settings_overlay();
+        let popup = settings::overlay_popup(TEST_AREA);
+        let content = settings::overlay_content(settings::overlay_body(popup));
+        let mut target = None;
+        for row in 0..TEST_AREA.height {
+            for column in 0..TEST_AREA.width {
+                if let Some(settings::SettingsHit::HotkeyValue(key)) =
+                    settings::hit_test(content, app.settings_page(), column, row)
+                {
+                    target = Some((key, column, row));
+                    break;
+                }
+            }
+            if target.is_some() {
+                break;
+            }
+        }
+        let (key, column, row) = target.expect("hotkey keycap");
+
+        handle_tui_mouse_event(&mut app, left_click(column, row), TEST_AREA);
+
+        let recorder = app.hotkey_recorder().expect("recorder open");
+        assert_eq!(
+            recorder.target,
+            library::recorder::HotkeyTarget::Setting(key)
+        );
+        assert_eq!(app.settings_page().selected_key(), key);
+        assert!(app.is_settings_overlay_open());
     }
 
     #[test]

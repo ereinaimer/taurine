@@ -119,6 +119,15 @@ impl SettingsPageState {
         keys[self.selected.min(keys.len().saturating_sub(1))]
     }
 
+    /// Select `key` without opening an editor, anchoring the visible
+    /// window so the clicked row keeps its place.
+    pub(crate) fn select_key(&mut self, key: SettingKey, anchor: usize) {
+        if let Some(position) = self.visible_keys().iter().position(|k| *k == key) {
+            self.selected = position;
+        }
+        self.window_anchor = Some(anchor);
+    }
+
     pub(crate) const fn modal(&self) -> Option<&SettingsModal> {
         self.modal.as_ref()
     }

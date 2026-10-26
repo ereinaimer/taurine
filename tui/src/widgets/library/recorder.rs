@@ -28,13 +28,14 @@ use crate::widgets::util::{self, OverlayChrome};
 /// Dark label on the active green fill, matching the toggle's ON state.
 const ACTIVE_TEXT: Color = Color::Rgb(0x0C, 0x0C, 0x0C);
 
-/// Where a committed chord lands: the selected row's own invocation or
-/// one of its sibling aliases.
+/// Where a committed chord lands: the selected row's own invocation, one
+/// of its sibling aliases, or a settings hotkey.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum HotkeyTarget {
     #[default]
     PrimaryTrigger,
     AliasIndex(usize),
+    Setting(taurine_core::settings::SettingKey),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

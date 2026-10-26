@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Hotkey Settings Keycaps**: Keyboard shortcut settings such as Pause Hotkey and the voice hotkeys now render their values as keycap pills instead of plain text.
+- **Click Hotkey Settings to Record**: Clicking a shortcut setting's keycaps opens the on-screen recorder and saves the chord to that setting.
 - **Wrapped Setting Descriptions**: Long setting descriptions now wrap inside the label column and grow the row instead of running under the value field.
 - **Full-Width Overlays**: The settings overlay and command palette now use 90% of the terminal width and height.
 - **Add Buttons**: Empty property rows and the tag builder use a Nerd Font add icon.

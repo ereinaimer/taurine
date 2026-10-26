@@ -13,7 +13,7 @@ use ratatui::{
 use crate::terminal::mouse;
 use crate::theme::Theme;
 use crate::widgets::settings::row::{
-    render_setting_row, setting_toggle_rect, wrap_description_lines,
+    hotkey_value_rect, render_setting_row, setting_toggle_rect, wrap_description_lines,
 };
 use crate::widgets::settings::state::{EditorKind, SettingKeyMeta, SettingsPageState};
 use crate::widgets::toggle::{ToggleAnimations, ToggleId};
@@ -22,6 +22,8 @@ use crate::widgets::toggle::{ToggleAnimations, ToggleId};
 pub(crate) enum SettingsHit {
     Row(SettingKey),
     Toggle(SettingKey),
+    /// Keycap pills of a hotkey setting; opens the on-screen recorder.
+    HotkeyValue(SettingKey),
     SearchAt(usize),
 }
 
@@ -210,6 +212,12 @@ pub(crate) fn hit_test(
                 )
             {
                 return Some(SettingsHit::Toggle(*key));
+            }
+            if let Some(keycap) =
+                hotkey_value_rect(row_area, rows.control_width, *key, state.settings())
+                && mouse::contains(keycap, column, row)
+            {
+                return Some(SettingsHit::HotkeyValue(*key));
             }
             return Some(SettingsHit::Row(*key));
         }
@@ -572,6 +580,43 @@ mod tests {
             row_y = row_y.saturating_add(height);
         }
         panic!("no boolean setting row");
+    }
+
+    #[test]
+    fn keycap_hit_returns_hotkey_value() {
+        let area = ratatui::layout::Rect::new(26, 2, 71, 24);
+        let state = SettingsPageState::default();
+        let (list_area, _) =
+            content_sections(area, false, state.search_field(), state.is_search_active());
+        let rows = compute_rows(list_area, &state);
+        let all_keys = state.visible_keys();
+        let mut row_y = rows_origin(list_area, &rows.heights, rows.start, rows.end);
+
+        for (index, key) in all_keys[rows.start..rows.end].iter().enumerate() {
+            let remaining = (list_area.y + list_area.height).saturating_sub(row_y);
+            let height = rows.heights[rows.start + index].min(remaining);
+            let row_area = Rect {
+                x: list_area.x,
+                y: row_y,
+                width: list_area.width,
+                height,
+            };
+            if let Some(keycap) =
+                hotkey_value_rect(row_area, rows.control_width, *key, state.settings())
+            {
+                assert_eq!(
+                    hit_test(area, &state, keycap.x + keycap.width / 2, keycap.y),
+                    Some(SettingsHit::HotkeyValue(*key))
+                );
+                assert_eq!(
+                    hit_test(area, &state, keycap.x.saturating_sub(1), keycap.y),
+                    Some(SettingsHit::Row(*key))
+                );
+                return;
+            }
+            row_y = row_y.saturating_add(height);
+        }
+        panic!("no hotkey setting row");
     }
 
     #[test]

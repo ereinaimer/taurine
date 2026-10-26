@@ -1,7 +1,7 @@
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::Line,
     widgets::{Block, Paragraph},
 };
@@ -22,21 +22,69 @@ fn setting_content(area: Rect) -> Rect {
     }
 }
 
-/// Right-aligned switch cell for a boolean row, shared by rendering
-/// and hover hit-testing.
-pub(crate) fn setting_toggle_rect(area: Rect, control_width: u16) -> Rect {
+/// Label and value columns inside a row, shared by rendering and hit
+/// testing so keycaps land exactly where they are drawn.
+fn control_sections(area: Rect, control_width: u16) -> (Rect, Rect) {
     let content = setting_content(area);
     if content.width == 0 || content.height == 0 {
-        return Rect::default();
+        return (Rect::default(), Rect::default());
     }
     let sections = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Min(0), Constraint::Length(control_width)])
         .split(content);
+    (sections[0], sections[1])
+}
+
+/// Right-aligned switch cell for a boolean row, shared by rendering
+/// and hover hit-testing.
+pub(crate) fn setting_toggle_rect(area: Rect, control_width: u16) -> Rect {
+    let (_, value) = control_sections(area, control_width);
+    if value.width == 0 || value.height == 0 {
+        return Rect::default();
+    }
     toggle_rect(Rect {
-        x: sections[1].x,
-        y: content.y,
-        width: sections[1].width,
+        x: value.x,
+        y: value.y,
+        width: value.width,
+        height: 1,
+    })
+}
+
+/// Rect covered by the keycap pills of a hotkey setting, if it has any.
+/// Shared by rendering and hit-testing so clicking a pill opens the
+/// on-screen recorder.
+pub(crate) fn hotkey_value_rect(
+    area: Rect,
+    control_width: u16,
+    key: SettingKey,
+    settings: &taurine_core::settings::Settings,
+) -> Option<Rect> {
+    if key.editor_kind() != EditorKind::HotkeyCapture {
+        return None;
+    }
+    let (_, value_column) = control_sections(area, control_width);
+    if value_column.width == 0 || value_column.height == 0 {
+        return None;
+    }
+    let chord = hotkey::display_chord(&key.display_value(settings));
+    let spans = hotkey::render_hotkey_spans(
+        &chord,
+        value_column.width as usize,
+        Color::Reset,
+        Color::Reset,
+        Color::Reset,
+    );
+    let width = hotkey::spans_width(&spans) as u16;
+    if width == 0 {
+        return None;
+    }
+    Some(Rect {
+        x: value_column
+            .x
+            .saturating_add(value_column.width.saturating_sub(width)),
+        y: value_column.y,
+        width,
         height: 1,
     })
 }
@@ -66,10 +114,7 @@ pub fn render_setting_row(
         return;
     }
 
-    let sections = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(0), Constraint::Length(control_width)])
-        .split(content);
+    let (label_section, value_section) = control_sections(area, control_width);
 
     let label_style = if selected {
         Style::default()
@@ -89,9 +134,9 @@ pub fn render_setting_row(
     };
 
     let title_area = Rect {
-        x: sections[0].x,
+        x: label_section.x,
         y: content.y,
-        width: sections[0].width,
+        width: label_section.width,
         height: 1,
     };
     frame.render_widget(
@@ -113,9 +158,9 @@ pub fn render_setting_row(
         );
     } else {
         let value_area = Rect {
-            x: sections[1].x,
+            x: value_section.x,
             y: content.y,
-            width: sections[1].width,
+            width: value_section.width,
             height: 1,
         };
         if key.editor_kind() == EditorKind::HotkeyCapture {
@@ -152,7 +197,7 @@ pub fn render_setting_row(
         let description_area = Rect {
             x: content.x,
             y: content.y + 1 + index as u16,
-            width: sections[0].width,
+            width: label_section.width,
             height: 1,
         };
         frame.render_widget(
