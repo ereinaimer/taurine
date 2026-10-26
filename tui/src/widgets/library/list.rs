@@ -1,16 +1,102 @@
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::Rect,
     style::{Modifier, Style},
+    text::Line,
     widgets::{Block, Paragraph},
 };
 
+use crate::terminal::mouse;
 use crate::theme::Theme;
+use crate::widgets::hotkey;
 use crate::widgets::library::state::LibraryPageState;
 use crate::widgets::util;
 
+use super::{content_sections, left_content};
+
 const LIBRARY_ITEM_HEIGHT: u16 = 2;
-const LIBRARY_ITEM_GAP: u16 = 1;
+const LIBRARY_ITEM_PADDING: u16 = 1;
+const LIBRARY_ITEM_PAD_X: u16 = 2;
+const LIBRARY_ROW_HEIGHT: u16 = LIBRARY_ITEM_HEIGHT + 2 * LIBRARY_ITEM_PADDING;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LibraryHit {
+    Item(usize),
+    SearchAt(usize),
+}
+
+/// First-row y so the visible stack sits directly above the search bar
+/// when it is shorter than the list area; overflowing stacks stay
+/// top-aligned. Shared by rendering and hit-testing.
+pub(crate) fn list_origin(list_area: Rect, visible_count: usize) -> u16 {
+    let used = (visible_count as u16).saturating_mul(LIBRARY_ROW_HEIGHT);
+    if used >= list_area.height {
+        list_area.y
+    } else {
+        list_area
+            .y
+            .saturating_add(list_area.height.saturating_sub(used))
+    }
+}
+/// Hit-test a click at terminal cell `(column, row)` against the layout
+/// `render_library_content` produces for the same `area` and `state`.
+/// Returns the filtered-list position for item hits.
+pub(crate) fn hit_test(
+    area: Rect,
+    state: &LibraryPageState,
+    column: u16,
+    row: u16,
+) -> Option<LibraryHit> {
+    let content = left_content(area, state.split_ratio(), state.detail_ratio());
+    if content.width == 0 || content.height == 0 {
+        return None;
+    }
+    let (list_area, search_area) = content_sections(
+        content,
+        state.status_message().is_some(),
+        state.search_field(),
+        state.is_search_active(),
+    );
+    if mouse::contains(search_area, column, row) {
+        return Some(LibraryHit::SearchAt(util::search_block_index_at(
+            state.search_field(),
+            state.is_search_active(),
+            search_area,
+            column,
+            row,
+        )));
+    }
+    if !mouse::contains(list_area, column, row) {
+        return None;
+    }
+    let visible_count = util::visible_library_item_capacity(list_area.height);
+    let (start, end) = state.visible_window(visible_count);
+    let origin_y = list_origin(list_area, end.saturating_sub(start));
+    for (visible_index, filtered_position) in (start..end).enumerate() {
+        let row_y = origin_y + (visible_index as u16 * LIBRARY_ROW_HEIGHT);
+        if row >= row_y && row < row_y.saturating_add(LIBRARY_ROW_HEIGHT) {
+            return Some(LibraryHit::Item(filtered_position));
+        }
+    }
+    None
+}
+
+/// Window start for the current state, used to anchor the view when a
+/// visible row is clicked so the list does not jump.
+pub(crate) fn window_start(area: Rect, state: &LibraryPageState) -> usize {
+    let content = left_content(area, state.split_ratio(), state.detail_ratio());
+    if content.width == 0 || content.height == 0 {
+        return 0;
+    }
+    let (list_area, _) = content_sections(
+        content,
+        state.status_message().is_some(),
+        state.search_field(),
+        state.is_search_active(),
+    );
+    let visible_count = util::visible_library_item_capacity(list_area.height);
+    state.visible_window(visible_count).0
+}
 
 pub fn render_library_list(frame: &mut Frame, area: Rect, theme: &Theme, state: &LibraryPageState) {
     if let Some(message) = state.load_error() {
@@ -36,25 +122,26 @@ pub fn render_library_list(frame: &mut Frame, area: Rect, theme: &Theme, state: 
                     .fg(theme.text_muted)
                     .add_modifier(Modifier::DIM),
             ),
-            area,
+            Rect {
+                x: area.x,
+                y: area.y.saturating_add(area.height.saturating_sub(1)),
+                width: area.width,
+                height: 1.min(area.height),
+            },
         );
         return;
     }
 
     let visible_count = util::visible_library_item_capacity(area.height);
-    if visible_count == 0 {
-        return;
-    }
-
-    let selected_index = state.selected_index().unwrap_or(0);
-    let (start, end) = util::visible_range(state.filtered_len(), selected_index, visible_count);
+    let (start, end) = state.visible_window(visible_count);
+    let origin_y = list_origin(area, end.saturating_sub(start));
 
     for (visible_index, filtered_index) in (start..end).enumerate() {
         let row_area = Rect {
             x: area.x,
-            y: area.y + (visible_index as u16 * (LIBRARY_ITEM_HEIGHT + LIBRARY_ITEM_GAP)),
+            y: origin_y + (visible_index as u16 * LIBRARY_ROW_HEIGHT),
             width: area.width,
-            height: LIBRARY_ITEM_HEIGHT,
+            height: LIBRARY_ROW_HEIGHT,
         };
 
         let Some(item) = state.item_at_filtered(filtered_index) else {
@@ -78,92 +165,81 @@ fn render_library_item(
     theme: &Theme,
     selected: bool,
 ) {
-    let row_bg = if selected {
-        theme.surface
+    let row_style = if selected {
+        Style::default().bg(theme.surface)
     } else {
-        ratatui::style::Color::Reset
+        Style::default()
     };
-    frame.render_widget(Block::default().style(Style::default().bg(row_bg)), area);
+    frame.render_widget(Block::default().style(row_style), area);
 
-    let kind_width = (item.kind_label().chars().count() as u16).min(area.width.saturating_sub(2));
-    let metadata = item.metadata_label();
-    let metadata_width = (metadata.chars().count() as u16).min(area.width.saturating_sub(2));
+    let content = Rect {
+        x: area.x.saturating_add(LIBRARY_ITEM_PAD_X),
+        y: area.y.saturating_add(LIBRARY_ITEM_PADDING),
+        width: area.width.saturating_sub(2 * LIBRARY_ITEM_PAD_X),
+        height: area.height.saturating_sub(2 * LIBRARY_ITEM_PADDING),
+    };
+    if content.width == 0 || content.height == 0 {
+        return;
+    }
 
     let top_area = Rect {
-        x: area.x,
-        y: area.y,
-        width: area.width,
+        x: content.x,
+        y: content.y,
+        width: content.width,
         height: 1,
     };
     let bottom_area = Rect {
-        x: area.x,
-        y: area.y + 1,
-        width: area.width,
+        x: content.x,
+        y: content.y + 1,
+        width: content.width,
         height: 1,
     };
-
-    let top_sections = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(0), Constraint::Length(kind_width)])
-        .split(top_area);
-    let bottom_sections = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(0), Constraint::Length(metadata_width)])
-        .split(bottom_area);
 
     let trigger_style = if selected {
         Style::default()
             .fg(theme.text)
-            .bg(row_bg)
+            .bg(theme.surface)
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(theme.text).add_modifier(Modifier::BOLD)
     };
-    let kind_style = if selected {
-        Style::default().fg(theme.text_muted).bg(row_bg)
-    } else {
-        Style::default().fg(theme.text_muted)
-    };
     let preview_style = if selected {
-        Style::default()
-            .fg(theme.text_muted)
-            .bg(row_bg)
-            .add_modifier(Modifier::DIM)
+        Style::default().fg(theme.description).bg(theme.surface)
     } else {
-        Style::default()
-            .fg(theme.text_muted)
-            .add_modifier(Modifier::DIM)
+        Style::default().fg(theme.description)
+    };
+    let (trigger_style, preview_style) = if item.is_enabled() {
+        (trigger_style, preview_style)
+    } else {
+        (
+            trigger_style.add_modifier(Modifier::DIM),
+            preview_style.add_modifier(Modifier::DIM),
+        )
     };
 
-    frame.render_widget(
-        Paragraph::new(util::truncate_to_width(
+    // honey: hotkey rows split the chord into keycap pills; the pill
+    // fill lightens on the selected card so it stays visible against
+    // the card surface, and the gap keeps the card background.
+    let top_line = if item.is_hotkey() {
+        let (keycap_bg, base_bg) = if selected {
+            (theme.keycap.on_surface, theme.surface)
+        } else {
+            (theme.keycap.bg, theme.background)
+        };
+        Line::from(hotkey::render_hotkey_spans(
             item.trigger(),
-            top_sections[0].width,
+            top_area.width as usize,
+            keycap_bg,
+            theme.text,
+            base_bg,
         ))
-        .style(trigger_style),
-        top_sections[0],
-    );
+    } else {
+        Line::from(util::truncate_to_width(item.trigger(), top_area.width))
+    };
+    frame.render_widget(Paragraph::new(top_line).style(trigger_style), top_area);
     frame.render_widget(
-        Paragraph::new(util::truncate_to_width(
-            item.kind_label(),
-            top_sections[1].width,
-        ))
-        .alignment(ratatui::layout::Alignment::Right)
-        .style(kind_style),
-        top_sections[1],
-    );
-    frame.render_widget(
-        Paragraph::new(util::truncate_to_width(
-            item.preview(),
-            bottom_sections[0].width,
-        ))
-        .style(preview_style),
-        bottom_sections[0],
-    );
-    frame.render_widget(
-        Paragraph::new(util::truncate_to_width(&metadata, bottom_sections[1].width))
-            .alignment(ratatui::layout::Alignment::Right)
+        Paragraph::new(util::truncate_to_width(item.preview(), bottom_area.width))
             .style(preview_style),
-        bottom_sections[1],
+        bottom_area,
     );
 }

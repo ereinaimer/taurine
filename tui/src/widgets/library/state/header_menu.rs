@@ -1,0 +1,204 @@
+use taurine_core::db::TargetOs;
+use taurine_core::db::crud::ActionType;
+use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
+
+use crate::widgets::library::icons::os_icon;
+
+/// Which header button spawned the centered menu: invocation type,
+/// action type, script language and run behavior for scripts, plus
+/// the target platform row from the properties pane.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HeaderMenuKind {
+    InvocationType,
+    ActionType,
+    Interpreter,
+    Behavior,
+    Platform,
+}
+
+impl HeaderMenuKind {
+    pub(crate) const fn title(self) -> &'static str {
+        match self {
+            Self::InvocationType => "Trigger type",
+            Self::ActionType => "Action type",
+            Self::Interpreter => "Script language",
+            Self::Behavior => "Run behavior",
+            Self::Platform => "Target platform",
+        }
+    }
+}
+
+/// Centered option menu over the detail pane: option labels with a
+/// cursor and a one-line description of what each option does.
+/// Options are plain labels; the caller maps the confirmed label
+/// back onto its domain value.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct LibraryHeaderMenuState {
+    kind: HeaderMenuKind,
+    options: Vec<String>,
+    details: Vec<String>,
+    selected: usize,
+    return_to_create: Option<Box<super::create::LibraryCreateModalState>>,
+}
+
+impl LibraryHeaderMenuState {
+    pub(crate) fn new(kind: HeaderMenuKind, current: &str) -> Self {
+        // honey: labels derive from the core sets so a new variant
+        // lands in the menu automatically; details describe each one.
+        let options: Vec<String> = match kind {
+            HeaderMenuKind::InvocationType => ["word", "hotkey", "regex", "voice"]
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
+            HeaderMenuKind::ActionType => ActionType::ALL
+                .iter()
+                .map(|action| action.as_str().to_string())
+                .collect(),
+            HeaderMenuKind::Interpreter => ScriptInterpreter::ALL
+                .iter()
+                .map(|interpreter| interpreter.as_str().to_string())
+                .collect(),
+            HeaderMenuKind::Behavior => ScriptBehavior::ALL
+                .iter()
+                .map(|behavior| behavior.as_str().to_string())
+                .collect(),
+            HeaderMenuKind::Platform => TargetOs::ALL
+                .iter()
+                .map(|os| match os {
+                    TargetOs::All => "All",
+                    TargetOs::Windows => "Windows",
+                    TargetOs::MacOs => "macOS",
+                    TargetOs::Linux => "Linux",
+                    TargetOs::Android => "Android",
+                    TargetOs::Ios => "iOS",
+                })
+                .map(str::to_string)
+                .collect(),
+        };
+        if kind == HeaderMenuKind::Platform {
+            // honey: platform rows are single-line icon rows; empty
+            // details render no second line. Labels are proper-cased
+            // while stored values are lowercase, so parking compares
+            // case-insensitively.
+            let selected = options
+                .iter()
+                .position(|option| option.to_lowercase() == current.to_lowercase())
+                .unwrap_or(0);
+            return Self {
+                kind,
+                options,
+                details: vec![String::new(); 6],
+                selected,
+                return_to_create: None,
+            };
+        }
+        let details: Vec<String> = options
+            .iter()
+            .map(|option| match kind {
+                HeaderMenuKind::InvocationType => match option.as_str() {
+                    "hotkey" => "Fires on a keyboard shortcut",
+                    "regex" => "Fires when typed text matches a pattern",
+                    "voice" => "Fires on a spoken phrase",
+                    _ => "Expands when you type the text",
+                },
+                HeaderMenuKind::ActionType => match option.as_str() {
+                    "script" => "Runs the expansion as a script",
+                    _ => "Types the expansion as plain text",
+                },
+                HeaderMenuKind::Interpreter => match option.as_str() {
+                    "powershell" => "Windows PowerShell scripts",
+                    "python" => "Python scripts",
+                    "node" => "Node.js scripts",
+                    "cmd" => "Windows command scripts",
+                    _ => "Unix shell scripts",
+                },
+                HeaderMenuKind::Behavior => match option.as_str() {
+                    "silent" => "Runs in the background, types nothing",
+                    _ => "Script output is typed out",
+                },
+                _ => "Script output is typed out",
+            })
+            .map(str::to_string)
+            .collect();
+        let selected = options
+            .iter()
+            .position(|option| option == current)
+            .unwrap_or(0);
+        Self {
+            kind,
+            options,
+            details,
+            selected,
+            return_to_create: None,
+        }
+    }
+
+    /// Attach a create draft for the return trip: picks apply to the
+    /// draft instead of persisting to the database.
+    pub(crate) fn with_create_draft(
+        mut self,
+        draft: super::create::LibraryCreateModalState,
+    ) -> Self {
+        self.return_to_create = Some(Box::new(draft));
+        self
+    }
+
+    /// Borrow the parked draft so rendering can keep the create form
+    /// visible behind this menu.
+    pub(crate) fn return_to_create(&self) -> Option<&super::create::LibraryCreateModalState> {
+        self.return_to_create.as_deref()
+    }
+
+    pub(crate) fn take_return_to_create(
+        &mut self,
+    ) -> Option<Box<super::create::LibraryCreateModalState>> {
+        self.return_to_create.take()
+    }
+
+    pub(crate) const fn kind(&self) -> HeaderMenuKind {
+        self.kind
+    }
+
+    pub(crate) fn options(&self) -> &[String] {
+        &self.options
+    }
+
+    pub(crate) fn details(&self) -> &[String] {
+        &self.details
+    }
+
+    /// Nerd-font glyph per option, blank for menus without icons.
+    pub(crate) fn icons(&self) -> Vec<String> {
+        if self.kind != HeaderMenuKind::Platform {
+            return vec![String::new(); self.options.len()];
+        }
+        self.options
+            .iter()
+            .map(|option| os_icon(option).to_string())
+            .collect()
+    }
+
+    pub(crate) const fn selected(&self) -> usize {
+        self.selected
+    }
+
+    pub(crate) fn set_selected(&mut self, index: usize) {
+        if index < self.options.len() {
+            self.selected = index;
+        }
+    }
+
+    /// Menus wrap around both ends.
+    pub(crate) fn move_cursor(&mut self, delta: i32) {
+        if self.options.is_empty() {
+            return;
+        }
+        let len = self.options.len() as i32;
+        let next = (self.selected as i32 + delta).rem_euclid(len);
+        self.selected = next as usize;
+    }
+
+    pub(crate) fn selected_option(&self) -> Option<&str> {
+        self.options.get(self.selected).map(String::as_str)
+    }
+}

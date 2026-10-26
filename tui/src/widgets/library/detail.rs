@@ -1,0 +1,901 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use ratatui::{
+    Frame,
+    layout::Rect,
+    style::{Modifier, Style},
+    text::{Line, Span},
+    widgets::Paragraph,
+};
+use taurine_core::engine::ScriptInterpreter;
+
+use crate::theme::Theme;
+use crate::widgets::hotkey;
+use crate::widgets::library::icons::{CHEVRON_DOWN, CHEVRON_UP, os_icon};
+use crate::widgets::library::state::{
+    EditTarget, HeaderMenuKind, LibraryModal, LibraryPageState, LibraryTrigger,
+};
+use crate::widgets::toggle::{ToggleAnimations, ToggleId, toggle_contains, toggle_rect};
+use crate::widgets::util;
+
+pub(crate) use crate::widgets::toggle::toggle_spans;
+
+use super::highlight;
+use super::split_panes;
+
+pub(crate) const CONTENT_INNER_HEIGHT: usize = 16;
+/// Empty-state token: three ROUNDED-border horizontals, matching the pane
+/// border glyph set.
+pub(crate) const EMPTY_TOKEN: &str = "───";
+/// Fixed single-row offsets above the content section.
+const DESCRIPTION_OFFSET: u16 = 2;
+const BUTTONS_OFFSET: u16 = 4;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DetailHit {
+    EnableToggle,
+    TriggerEditAt(usize),
+    DescriptionEdit,
+    ContentEditAt { row: usize, col: usize },
+    Button(usize),
+}
+
+/// One rendered header button: horizontal offset in the buttons row,
+/// width, and index into the button labels.
+pub(crate) struct ButtonCell {
+    pub(crate) x: u16,
+    pub(crate) width: u16,
+    pub(crate) index: usize,
+}
+
+fn button_labels(item: &LibraryTrigger) -> Vec<String> {
+    let mut labels = vec![
+        item.invocation_type_label().to_string(),
+        item.action_type_label().to_string(),
+    ];
+    if item.is_script() {
+        labels.push(
+            item.interpreter()
+                .map(|interpreter| interpreter.as_str())
+                .unwrap_or(EMPTY_TOKEN)
+                .to_string(),
+        );
+        labels.push(
+            item.behavior()
+                .map(|behavior| behavior.as_str())
+                .unwrap_or(EMPTY_TOKEN)
+                .to_string(),
+        );
+    }
+    labels
+}
+
+/// Button cells shared by rendering and hit-testing: two-space gaps,
+/// buttons that no longer fit are dropped, type first.
+pub(crate) fn button_layout(row_width: u16, labels: &[String]) -> Vec<ButtonCell> {
+    let mut cells = Vec::new();
+    let mut used = 0usize;
+    for (index, label) in labels.iter().enumerate() {
+        let width = format!(" {label} {CHEVRON_DOWN} ").chars().count();
+        let gap = if index > 0 { 2 } else { 0 };
+        if used.saturating_add(gap).saturating_add(width) > row_width as usize {
+            break;
+        }
+        used = used.saturating_add(gap);
+        cells.push(ButtonCell {
+            x: used as u16,
+            width: width as u16,
+            index,
+        });
+        used = used.saturating_add(width);
+    }
+    cells
+}
+
+/// Which detail cell a click landed on. Toggle flips enable, trigger and
+/// description open inline edits, content-box text opens the body
+/// editor; everything else is read-only preview.
+pub(crate) fn hit_test(
+    area: Rect,
+    list_ratio: f32,
+    props_ratio: f32,
+    state: &LibraryPageState,
+    column: u16,
+    row: u16,
+) -> Option<DetailHit> {
+    let content = center_content(area, list_ratio, props_ratio);
+    if content.width == 0 || content.height == 0 {
+        return None;
+    }
+    let selected = state.selected_index()?;
+    let item = state.item_at_filtered(selected)?;
+    if row == content.y {
+        let toggle = toggle_rect(Rect {
+            x: content.x,
+            y: content.y,
+            width: content.width,
+            height: 1,
+        });
+        if toggle_contains(toggle, column, row) {
+            return Some(DetailHit::EnableToggle);
+        }
+        if column >= content.x && column < toggle.x.saturating_sub(1) {
+            return Some(DetailHit::TriggerEditAt(
+                column.saturating_sub(content.x) as usize
+            ));
+        }
+        return None;
+    }
+    if row == content.y.saturating_add(DESCRIPTION_OFFSET)
+        && column >= content.x
+        && column < content.x.saturating_add(content.width)
+    {
+        return Some(DetailHit::DescriptionEdit);
+    }
+    if row == content.y.saturating_add(BUTTONS_OFFSET) {
+        let labels = button_labels(item);
+        for cell in button_layout(content.width, &labels) {
+            let start = content.x.saturating_add(cell.x);
+            if column >= start && column < start.saturating_add(cell.width) {
+                return Some(DetailHit::Button(cell.index));
+            }
+        }
+    }
+    // honey: text rows inside the content section map straight onto wrapped visual
+    // rows; the divider line and its padding row are not editable. Text
+    // starts flush with the content pane, mirroring the render path.
+    let box_top = content.y.saturating_add(CONTENT_BOX_TOP);
+    let text_top = box_top.saturating_add(2);
+    let text_bottom = text_top.saturating_add(CONTENT_INNER_HEIGHT as u16);
+    let text_x = content.x;
+    let width = content_text_width(content.width);
+    if row >= text_top
+        && row < text_bottom
+        && row < content.y.saturating_add(content.height)
+        && column >= text_x
+        && column < content.x.saturating_add(width)
+    {
+        return Some(DetailHit::ContentEditAt {
+            row: row.saturating_sub(text_top) as usize,
+            col: column.saturating_sub(text_x) as usize,
+        });
+    }
+    None
+}
+
+/// Pointer mapped onto source coords with edge clamping, so drags
+/// past the box stretch the selection to the nearest edge instead of
+/// dying. None when the pane is degenerate or the pointer sits
+/// outside the center column, so dividers and side panes never select.
+pub(crate) fn content_clamped_cell(
+    area: Rect,
+    list_ratio: f32,
+    props_ratio: f32,
+    item: &LibraryTrigger,
+    scroll: usize,
+    column: u16,
+    row: u16,
+) -> Option<(usize, usize)> {
+    let content = center_content(area, list_ratio, props_ratio);
+    if content.width < 5 || content.height == 0 {
+        return None;
+    }
+    if column < content.x || column >= content.x.saturating_add(content.width) {
+        return None;
+    }
+    let width = content_text_width(content.width);
+    let text_top = content.y.saturating_add(CONTENT_BOX_TOP).saturating_add(2);
+    let rel = (row.saturating_sub(text_top) as usize).min(CONTENT_INNER_HEIGHT.saturating_sub(1));
+    let text_x = content.x;
+    let col = (column.saturating_sub(text_x) as usize).min(width as usize);
+    Some(content_source_cell(item, width, scroll + rel, col))
+}
+
+/// True when the cell sits inside the center-pane content area.
+pub(crate) fn detail_contains(
+    area: Rect,
+    list_ratio: f32,
+    props_ratio: f32,
+    column: u16,
+    row: u16,
+) -> bool {
+    let content = center_content(area, list_ratio, props_ratio);
+    column >= content.x
+        && column < content.x.saturating_add(content.width)
+        && row >= content.y
+        && row < content.y.saturating_add(content.height)
+}
+
+/// Wrap one source line to the pane width: greedy whole words, one
+/// visual row per entry, each with its source char range. Words move
+/// whole to the next row; only a lone word longer than the width
+/// hard-breaks (paths, URLs). The consumed break space is dropped so
+/// continuation rows start clean; interior spacing is preserved.
+/// Blank lines stay blank; tabs flatten.
+pub(crate) fn wrap_content_spans(line: &str, width: u16) -> Vec<(String, std::ops::Range<usize>)> {
+    let width = (width.max(1)) as usize;
+    let flat = line.replace('\t', "  ");
+    let trimmed = flat.trim_end();
+    if trimmed.is_empty() {
+        return vec![(String::new(), 0..0)];
+    }
+    let chars: Vec<char> = trimmed.chars().collect();
+    let mut rows = Vec::new();
+    let mut start = 0usize;
+    while start < chars.len() {
+        if chars.len() - start <= width {
+            rows.push((chars[start..].iter().collect(), start..chars.len()));
+            break;
+        }
+        let end = start + width;
+        match chars[start..end].iter().rposition(|ch| *ch == ' ') {
+            Some(gap) => {
+                rows.push((
+                    chars[start..start + gap].iter().collect(),
+                    start..start + gap,
+                ));
+                start += gap + 1;
+            }
+            None => {
+                // honey: overlong word hard-breaks; the only cut this
+                // wrapper ever makes.
+                rows.push((chars[start..end].iter().collect(), start..end));
+                start = end;
+                while start < chars.len() && chars[start] == ' ' {
+                    start += 1;
+                }
+            }
+        }
+    }
+    rows
+}
+
+/// Wrap source lines to the pane width, one visual row per chunk.
+/// Blank lines stay blank; tabs flatten; trailing space trimmed so it
+/// never forces an extra row. No ellipsis, nothing clipped.
+#[cfg(test)]
+pub(crate) fn wrap_content_lines(content: &str, width: u16) -> Vec<String> {
+    let mut rows = Vec::new();
+    for line in content.lines() {
+        for (text, _) in wrap_content_spans(line, width) {
+            rows.push(text);
+        }
+    }
+    rows
+}
+
+/// Full flow layout, top to bottom: header 0, blank 1, description 2,
+/// blank 3, buttons 4, blank 5, divider 6, blank 7, content rows (16 text rows).
+/// Nothing follows the content. Content rows carry their
+/// source line plus char range so highlighting survives word-wrap.
+struct DetailLayout {
+    content_rows: Vec<(u16, usize, std::ops::Range<usize>)>,
+    rest: usize,
+}
+
+const CONTENT_BOX_TOP: u16 = 6;
+const CONTENT_BOX_HEIGHT: u16 = CONTENT_INNER_HEIGHT as u16 + 2;
+
+/// Text width for the content area: full width of the center pane, with no
+/// extra horizontal padding.
+pub(crate) fn content_text_width(box_width: u16) -> u16 {
+    box_width
+}
+
+/// Map a source caret (row, column) onto wrapped visual (row, column)
+/// at `width`, using the same word wrap as the render path. A caret
+/// exactly on a break lands on the next row, column 0.
+pub(crate) fn content_visual_cursor(
+    lines: &[String],
+    row: usize,
+    col: usize,
+    width: u16,
+) -> (usize, usize) {
+    let mut visual = 0usize;
+    for (index, line) in lines.iter().enumerate() {
+        let spans = wrap_content_spans(line, width);
+        let count = spans.len().max(1);
+        if index == row.min(lines.len().saturating_sub(1)) && !lines.is_empty() {
+            let clamped = col.min(line.chars().count());
+            for (offset, (text, range)) in spans.iter().enumerate() {
+                if clamped < range.end || offset + 1 == spans.len() {
+                    // honey: the break space itself belongs to no row;
+                    // it renders as the next row's start.
+                    let cell = clamped
+                        .saturating_sub(range.start)
+                        .min(text.chars().count());
+                    return (visual + offset, cell);
+                }
+            }
+        }
+        visual += count;
+    }
+    (visual.saturating_sub(1), 0)
+}
+
+/// Map a wrapped visual row + column onto the source (row, column).
+/// Edit mode shows lines unwrapped, so clicks land on the source row
+/// with an approximate column; placement clamps into the visual row.
+pub(crate) fn content_source_cell(
+    item: &LibraryTrigger,
+    width: u16,
+    visual_row: usize,
+    visual_col: usize,
+) -> (usize, usize) {
+    let mut acc = 0usize;
+    let mut last = (0usize, 0usize);
+    for (srow, line) in item.content().lines().enumerate() {
+        let spans = wrap_content_spans(line, width);
+        let n = spans.len().max(1);
+        if visual_row < acc + n {
+            let (text, range) = &spans[(visual_row - acc).min(spans.len().saturating_sub(1))];
+            return (srow, range.start + visual_col.min(text.chars().count()));
+        }
+        acc += n;
+        last = (srow, line.chars().count());
+    }
+    last
+}
+
+fn detail_layout(
+    height: u16,
+    width: u16,
+    item: &LibraryTrigger,
+    scroll: usize,
+) -> Option<DetailLayout> {
+    let box_bottom = CONTENT_BOX_TOP.saturating_add(CONTENT_BOX_HEIGHT);
+    if box_bottom > height || width < 5 {
+        return None;
+    }
+    let text_width = content_text_width(width);
+    let source: Vec<&str> = item.content().lines().collect();
+    let mut wrapped: Vec<(usize, std::ops::Range<usize>)> = Vec::new();
+    for (source_row, line) in source.iter().enumerate() {
+        for (_, range) in wrap_content_spans(line, text_width) {
+            wrapped.push((source_row, range));
+        }
+    }
+    let total = wrapped.len();
+    let visible = CONTENT_INNER_HEIGHT.min(total.saturating_sub(scroll.min(total)));
+    let start = CONTENT_BOX_TOP.saturating_add(2);
+    let content_rows = wrapped
+        .into_iter()
+        .skip(scroll)
+        .take(visible)
+        .enumerate()
+        .map(|(index, (source_row, range))| (start.saturating_add(index as u16), source_row, range))
+        .collect::<Vec<_>>();
+    let rest = total.saturating_sub(scroll.saturating_add(visible));
+    Some(DetailLayout { content_rows, rest })
+}
+
+/// Max scroll offset for the content section at this pane size.
+pub(crate) fn content_scroll_max(height: u16, width: u16, item: &LibraryTrigger) -> usize {
+    let Some(layout) = detail_layout(height, width, item, 0) else {
+        return 0;
+    };
+    layout.rest
+}
+
+/// Row where the center content rule is painted, when the detail pane
+/// has enough room and a selected trigger. Shared with the vertical
+/// divider renderer so its glyph can become a T-junction on that row.
+pub(crate) fn content_divider_row(
+    area: Rect,
+    list_ratio: f32,
+    props_ratio: f32,
+    state: &LibraryPageState,
+) -> Option<u16> {
+    let content = center_content(area, list_ratio, props_ratio);
+    if content.width < 5
+        || CONTENT_BOX_TOP.saturating_add(CONTENT_BOX_HEIGHT) > content.height
+        || state.load_error().is_some()
+    {
+        return None;
+    }
+    let index = state.selected_index()?;
+    state.item_at_filtered(index)?;
+    Some(content.y.saturating_add(CONTENT_BOX_TOP))
+}
+
+/// Center-pane content: two cells of padding on the left, one on the
+/// right. Shared by rendering and mouse hit-testing.
+pub(crate) fn center_content(area: Rect, list_ratio: f32, props_ratio: f32) -> Rect {
+    let split = split_panes(area, list_ratio, props_ratio);
+    Rect {
+        x: split.center.x.saturating_add(2),
+        y: split.center.y.saturating_add(1),
+        width: split.center.width.saturating_sub(3),
+        height: split.center.height.saturating_sub(1),
+    }
+}
+
+pub(crate) fn render_detail(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    state: &LibraryPageState,
+    animations: &ToggleAnimations,
+    hovered: Option<ToggleId>,
+) {
+    let content = center_content(area, state.split_ratio(), state.detail_ratio());
+    if content.width == 0 || content.height == 0 {
+        return;
+    }
+    if state.load_error().is_some() {
+        return;
+    }
+
+    let Some(index) = state.selected_index() else {
+        render_empty(
+            frame,
+            content,
+            theme,
+            state
+                .empty_state_message()
+                .unwrap_or("No trigger selected."),
+        );
+        return;
+    };
+    let Some(item) = state.item_at_filtered(index) else {
+        render_empty(frame, content, theme, "No trigger selected.");
+        return;
+    };
+
+    let scroll = state.detail_scroll();
+    render_header_row(frame, content, theme, state, item, animations, hovered);
+    render_description_row(frame, content, theme, state, item);
+    render_buttons_row(frame, content, theme, state, item);
+    if let Some(layout) = detail_layout(content.height, content.width, item, scroll) {
+        let center = split_panes(area, state.split_ratio(), state.detail_ratio()).center;
+        render_content_rows(frame, content, center, theme, state, item, &layout);
+    }
+}
+
+fn render_empty(frame: &mut Frame, area: Rect, theme: &Theme, message: &str) {
+    frame.render_widget(
+        Paragraph::new(message).style(Style::default().fg(theme.text)),
+        Rect {
+            x: area.x,
+            y: area.y,
+            width: area.width,
+            height: 1.min(area.height),
+        },
+    );
+}
+
+/// Edge-aligned row: dimmed label flush left, value flush right.
+pub(crate) fn edge_line(
+    label: &str,
+    value: Vec<Span<'static>>,
+    value_width: usize,
+    row_width: u16,
+    theme: &Theme,
+) -> Line<'static> {
+    let gap = row_width
+        .saturating_sub(label.chars().count() as u16)
+        .saturating_sub(value_width as u16);
+    let mut spans = vec![Span::styled(
+        label.to_string(),
+        Style::default().fg(theme.text).add_modifier(Modifier::DIM),
+    )];
+    spans.push(Span::raw(" ".repeat(gap as usize)));
+    spans.extend(value);
+    Line::from(spans)
+}
+
+/// Value text truncated to share its row with `label`, leaving one cell gap.
+pub(crate) fn edge_value_width(label: &str, row_width: u16) -> u16 {
+    row_width.saturating_sub(label.chars().count() as u16 + 1)
+}
+
+fn render_header_row(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    state: &LibraryPageState,
+    item: &LibraryTrigger,
+    animations: &ToggleAnimations,
+    hovered: Option<ToggleId>,
+) {
+    let row = row_area(area, 0);
+    if row.width == 0 {
+        return;
+    }
+    let width = toggle_rect(row).width;
+    let is_on = item.is_enabled();
+    let is_hovered = hovered == Some(ToggleId::TriggerEnabled);
+    let anim = animations.progress_now(ToggleId::TriggerEnabled);
+    let available = row.width.saturating_sub(width).saturating_sub(1);
+    // honey: editing shows the caret-anchored viewport with a real
+    // caret, mirroring the search box; read mode shows the truncated
+    // trigger text.
+    if let Some(edit) = state.trigger_edit() {
+        let (visible, caret) = edit.field().window(available);
+        let gap = available.saturating_sub(visible.chars().count() as u16);
+        let mut spans = vec![
+            Span::styled(
+                visible.to_string(),
+                Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" ".repeat(gap as usize + 1)),
+        ];
+        spans.extend(toggle_spans(is_on, is_hovered, anim));
+        let line = Line::from(spans);
+        frame.render_widget(Paragraph::new(line), row);
+        let (cx, cy) = util::caret_position(row.x, row.y, caret, available);
+        frame.set_cursor_position((cx, cy));
+        return;
+    }
+    // honey: read mode splits hotkey chords into keycap pills, like
+    // the sidebar; editing keeps plain text so the caret maps 1:1.
+    let (trigger_spans, trigger_width) = if item.is_hotkey() {
+        let spans = hotkey::render_hotkey_spans(
+            item.trigger(),
+            available as usize,
+            theme.keycap.bg,
+            theme.text,
+            theme.background,
+        );
+        let width = hotkey::spans_width(&spans) as u16;
+        (spans, width)
+    } else {
+        let trigger = util::truncate_to_width(item.trigger(), available);
+        let width = trigger.chars().count() as u16;
+        (
+            vec![Span::styled(
+                trigger,
+                Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+            )],
+            width,
+        )
+    };
+    let gap = available.saturating_sub(trigger_width);
+    let mut spans = trigger_spans;
+    spans.push(Span::raw(" ".repeat(gap as usize + 1)));
+    spans.extend(toggle_spans(is_on, is_hovered, anim));
+    let line = Line::from(spans);
+    frame.render_widget(Paragraph::new(line), row);
+}
+
+fn render_description_row(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    state: &LibraryPageState,
+    item: &LibraryTrigger,
+) {
+    if DESCRIPTION_OFFSET >= area.height {
+        return;
+    }
+    let row = row_area(area, DESCRIPTION_OFFSET);
+    if let Some(edit) = state
+        .edit()
+        .filter(|edit| edit.target() == EditTarget::Description)
+    {
+        let (visible, caret) = edit.line().window(row.width);
+        let gap = row.width.saturating_sub(visible.chars().count() as u16);
+        let line = Line::from(vec![
+            Span::styled(visible.to_string(), Style::default().fg(theme.text)),
+            Span::raw(" ".repeat(gap as usize)),
+        ]);
+        frame.render_widget(Paragraph::new(line), row);
+        let (cx, cy) = util::caret_position(row.x, row.y, caret, row.width);
+        frame.set_cursor_position((cx, cy));
+        return;
+    }
+    let text = match item.description() {
+        Some(description) if !description.trim().is_empty() => description.to_string(),
+        _ => "No description.".to_string(),
+    };
+    // Same dimmed treatment as the other labels (Content, properties).
+    let style = Style::default().fg(theme.text).add_modifier(Modifier::DIM);
+    // Single row only: first line, cut to width, never wrapped.
+    let first = text.lines().next().unwrap_or("").trim();
+    let value = util::truncate_to_width(first, area.width);
+    frame.render_widget(
+        Paragraph::new(Line::from(value)).style(style),
+        row_area(area, DESCRIPTION_OFFSET),
+    );
+}
+
+/// Header button: 1-cell horizontal padding inside a background
+/// fill, with a chevron pointing up while its menu is open.
+fn button_spans(label: &str, open: bool, theme: &Theme) -> (Vec<Span<'static>>, usize) {
+    let chevron = if open { CHEVRON_UP } else { CHEVRON_DOWN };
+    let text = format!(" {label} {chevron} ");
+    let width = text.chars().count();
+    (
+        vec![Span::styled(
+            text,
+            Style::default()
+                .fg(theme.button.text)
+                .bg(theme.button.inactive_bg),
+        )],
+        width,
+    )
+}
+
+fn render_buttons_row(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    state: &LibraryPageState,
+    item: &LibraryTrigger,
+) {
+    if BUTTONS_OFFSET >= area.height {
+        return;
+    }
+    let row = row_area(area, BUTTONS_OFFSET);
+    let labels = button_labels(item);
+    // honey: same flip convention as the usage toggle: the spawning
+    // button points up while its menu overlay is open.
+    let open_kind = match state.modal() {
+        Some(LibraryModal::HeaderMenu(menu)) => Some(menu.kind()),
+        _ => None,
+    };
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut cursor = 0u16;
+    for cell in button_layout(row.width, &labels) {
+        if cell.x > cursor {
+            spans.push(Span::raw(
+                " ".repeat(cell.x.saturating_sub(cursor) as usize),
+            ));
+        }
+        let (button, _) = button_spans(
+            &labels[cell.index],
+            open_kind == Some(dropdown_kind_for_button(cell.index)),
+            theme,
+        );
+        spans.extend(button);
+        cursor = cell.x.saturating_add(cell.width);
+    }
+    frame.render_widget(Paragraph::new(Line::from(spans)), row);
+}
+
+/// Header button index onto its menu: invocation, action, then script
+/// language and run behavior. Hit-testing only fires on rendered
+/// buttons, so trailing indices are always script menus.
+pub(crate) const fn dropdown_kind_for_button(index: usize) -> HeaderMenuKind {
+    match index {
+        0 => HeaderMenuKind::InvocationType,
+        1 => HeaderMenuKind::ActionType,
+        2 => HeaderMenuKind::Interpreter,
+        _ => HeaderMenuKind::Behavior,
+    }
+}
+
+/// One properties-pane value: a switch or ordinary right-aligned text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum PropertyValue {
+    Text(String),
+    Toggle(bool),
+}
+
+pub(crate) fn property_rows(item: &LibraryTrigger) -> Vec<(&'static str, PropertyValue)> {
+    let siblings = sibling_aliases(item.aliases(), item.trigger());
+    let mut rows = vec![
+        ("Auto case", PropertyValue::Toggle(item.auto_case())),
+        (
+            "Allow on",
+            PropertyValue::Text(item.only_apps().unwrap_or(EMPTY_TOKEN).to_string()),
+        ),
+        (
+            "Block on",
+            PropertyValue::Text(item.except_apps().unwrap_or(EMPTY_TOKEN).to_string()),
+        ),
+        (
+            "Alias",
+            PropertyValue::Text(if siblings.is_empty() {
+                EMPTY_TOKEN.to_string()
+            } else {
+                siblings.join(", ")
+            }),
+        ),
+        (
+            "Platform",
+            PropertyValue::Text(format!("{} {}", os_icon(&item.target_os), item.target_os)),
+        ),
+    ];
+    if item.is_voice() {
+        rows.push((
+            "Confirm",
+            PropertyValue::Toggle(item.require_confirmation()),
+        ));
+    }
+    rows
+}
+
+/// Content section: single horizontal divider line separating the header
+/// controls from the body, with 16 scrollable text rows inside.
+fn render_content_rows(
+    frame: &mut Frame,
+    area: Rect,
+    center: Rect,
+    theme: &Theme,
+    state: &LibraryPageState,
+    item: &LibraryTrigger,
+    layout: &DetailLayout,
+) {
+    let divider_y = area.y.saturating_add(CONTENT_BOX_TOP);
+    if divider_y < frame.area().height {
+        // honey: run the rule across the full center pane so it meets
+        // the vertical dividers instead of stopping at the text inset.
+        let divider = Rect {
+            x: center.x,
+            y: divider_y,
+            width: center.width,
+            height: 1,
+        };
+        let line = "─".repeat(center.width as usize);
+        frame.render_widget(
+            Paragraph::new(Line::from(line)).style(Style::default().fg(theme.border)),
+            divider,
+        );
+    }
+
+    let text_x = area.x;
+    let text_y = divider_y.saturating_add(2);
+    let text_width = content_text_width(area.width);
+    if text_width == 0 || area.height <= CONTENT_BOX_TOP.saturating_add(2) {
+        return;
+    }
+    let text = Rect {
+        x: text_x,
+        y: text_y,
+        width: text_width,
+        height: CONTENT_INNER_HEIGHT as u16,
+    };
+    if let Some(edit) = state
+        .edit()
+        .filter(|edit| edit.target() == EditTarget::Content)
+    {
+        render_content_editor(
+            frame,
+            theme,
+            text,
+            edit,
+            state.detail_scroll(),
+            item.interpreter(),
+        );
+        return;
+    }
+    let source: Vec<String> = item.content().lines().map(str::to_string).collect();
+    let highlighted = highlight::highlight_lines(&source, item.interpreter(), theme);
+    for (index, (_, source_row, range)) in layout.content_rows.iter().enumerate() {
+        if index >= text.height as usize {
+            break;
+        }
+        let row = Rect {
+            x: text.x,
+            y: text.y.saturating_add(index as u16),
+            width: text.width,
+            height: 1,
+        };
+        // Pre-wrapped to the text width: one visual row sliced from the
+        // highlighted source line, nothing clipped.
+        let spans = highlight::spans_for_range(
+            &source[*source_row],
+            &highlighted[*source_row],
+            range.clone(),
+            None,
+        );
+        frame.render_widget(Paragraph::new(Line::from(spans)), row);
+    }
+}
+
+/// Body editor: session lines with per-line horizontal viewports and a
+/// real caret. Non-caret lines show their head, truncated like read mode.
+fn render_content_editor(
+    frame: &mut Frame,
+    theme: &Theme,
+    text: Rect,
+    edit: &crate::widgets::library::state::ActiveEdit,
+    scroll: usize,
+    interpreter: Option<ScriptInterpreter>,
+) {
+    // honey: identical wrapping to read mode; the caret paints on the
+    // wrapped visual row, so long paragraphs stay editable in place.
+    // Selected ranges render reversed so the selection is visible.
+    let body = edit.body();
+    let (caret_row, caret_col) = body.cursor();
+    let (caret_visual, caret_cell) =
+        content_visual_cursor(body.lines(), caret_row, caret_col, text.width);
+    let selection = body.selection_range();
+    let highlighted = highlight::highlight_lines(body.lines(), interpreter, theme);
+    let mut visual = 0usize;
+    'rows: for (source_row, line) in body.lines().iter().enumerate() {
+        for (_, range) in wrap_content_spans(line, text.width) {
+            if visual < scroll {
+                visual = visual.saturating_add(1);
+                continue;
+            }
+            let shown = visual.saturating_sub(scroll);
+            if shown >= text.height as usize {
+                break 'rows;
+            }
+            let row = Rect {
+                x: text.x,
+                y: text.y.saturating_add(shown as u16),
+                width: text.width,
+                height: 1,
+            };
+            let selected = selection.and_then(
+                |((sel_start_row, sel_start_col), (sel_end_row, sel_end_col))| {
+                    if source_row < sel_start_row || source_row > sel_end_row {
+                        return None;
+                    }
+                    let lo = if source_row == sel_start_row {
+                        sel_start_col
+                    } else {
+                        range.start
+                    }
+                    .max(range.start);
+                    let hi = if source_row == sel_end_row {
+                        sel_end_col
+                    } else {
+                        range.end
+                    }
+                    .min(range.end);
+                    (lo < hi).then_some(lo..hi)
+                },
+            );
+            // honey: no backgrounds while editing; highlighted spans plus
+            // the real caret alone mark the position.
+            let spans =
+                highlight::spans_for_range(line, &highlighted[source_row], range.clone(), selected);
+            frame.render_widget(Paragraph::new(Line::from(spans)), row);
+            if visual == caret_visual {
+                // honey: no backgrounds while editing; the real caret alone
+                // marks the position.
+                let (cx, cy) = util::caret_position(row.x, row.y, caret_cell, text.width);
+                frame.set_cursor_position((cx, cy));
+            }
+            visual = visual.saturating_add(1);
+        }
+    }
+}
+
+/// Sibling invocations, excluding the currently displayed trigger.
+/// Nothing renders when the trigger has no siblings.
+pub(crate) fn sibling_aliases<'a>(aliases: &'a [String], current: &str) -> Vec<&'a str> {
+    aliases
+        .iter()
+        .map(String::as_str)
+        .filter(|alias| *alias != current)
+        .collect()
+}
+
+fn row_area(area: Rect, offset: u16) -> Rect {
+    Rect {
+        x: area.x,
+        y: area.y.saturating_add(offset),
+        width: area.width,
+        height: 1,
+    }
+}
+
+pub(crate) fn relative_time(timestamp: i64) -> Option<String> {
+    if timestamp <= 0 {
+        return None;
+    }
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|duration| duration.as_secs() as i64)?;
+    let diff = now.saturating_sub(timestamp).max(0);
+
+    if diff < 60 {
+        Some("just now".to_string())
+    } else if diff < 3600 {
+        Some(format!("{}m ago", diff / 60))
+    } else if diff < 86400 {
+        Some(format!("{}h ago", diff / 3600))
+    } else if diff < 2_592_000 {
+        Some(format!("{}d ago", diff / 86400))
+    } else if diff < 31_104_000 {
+        Some(format!("{}mo ago", diff / 2_592_000))
+    } else {
+        Some(format!("{}y ago", diff / 31_104_000))
+    }
+}

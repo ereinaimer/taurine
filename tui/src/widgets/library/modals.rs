@@ -3,16 +3,19 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Clear, List, ListItem, ListState, Paragraph},
+    widgets::Paragraph,
 };
 
 use crate::theme::Theme;
+use crate::widgets::field::TextField;
 use crate::widgets::library::state::{
-    LibraryDeleteModalState, LibraryEditorModalState, LibraryExportModalField,
-    LibraryExportModalState, LibraryExportResultModalState, LibraryImportModalField,
+    LibraryAppFilterState, LibraryCreateModalField, LibraryCreateModalState,
+    LibraryDeleteModalState, LibraryExportModalField, LibraryExportModalState,
+    LibraryExportResultModalState, LibraryHeaderMenuState, LibraryImportModalField,
     LibraryImportModalState, LibraryImportResultModalState, LibraryImportRunVariablesModalState,
-    LibraryModal, LibraryModalField, LibrarySelectState,
+    LibraryModal, LibrarySelectState, LibraryTagsModalState,
 };
+use crate::widgets::toggle::{ToggleAnimations, ToggleId};
 use crate::widgets::util::{self};
 
 const EXPORT_RESULT_MODAL_TITLE: &str = "Export complete";
@@ -22,9 +25,29 @@ const IMPORT_RUN_VARIABLES_WARNING_LINES: [&str; 3] = [
     "Continue? [y/N]",
 ];
 
-pub fn render_library_modal(frame: &mut Frame, area: Rect, theme: &Theme, modal: &LibraryModal) {
+pub fn render_library_modal(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    modal: &LibraryModal,
+    animations: &ToggleAnimations,
+    hovered: Option<ToggleId>,
+) {
+    // honey: pickers opened from the create form keep it painted
+    // underneath; drawing the picker last puts it on top.
+    if let LibraryModal::HeaderMenu(menu) = modal
+        && let Some(draft) = menu.return_to_create()
+    {
+        render_library_create_modal(frame, area, theme, draft, animations, hovered);
+        // honey: the picker is the top layer; dim the form behind it so
+        // it reads like every other overlay instead of blending into it.
+        crate::overlay_fx::dim_rect(
+            frame,
+            create_popup(area),
+            crate::overlay_fx::OVERLAY_SCRIM_FACTOR,
+        );
+    }
     match modal {
-        LibraryModal::Editor(state) => render_library_editor_modal(frame, area, theme, state),
         LibraryModal::Export(state) => render_library_export_modal(frame, area, theme, state),
         LibraryModal::Import(state) => render_library_import_modal(frame, area, theme, state),
         LibraryModal::ExportResult(state) => {
@@ -39,239 +62,121 @@ pub fn render_library_modal(frame: &mut Frame, area: Rect, theme: &Theme, modal:
         LibraryModal::ConfirmDelete(state) => {
             render_library_delete_modal(frame, area, theme, state)
         }
+        LibraryModal::Create(state) => {
+            render_library_create_modal(frame, area, theme, state, animations, hovered)
+        }
+        LibraryModal::HeaderMenu(state) => {
+            render_library_header_menu_modal(frame, area, theme, state)
+        }
+        LibraryModal::Tags(state) => render_library_tags_modal(frame, area, theme, state),
+        LibraryModal::AppFilter(state) => {
+            render_library_app_filter_modal(frame, area, theme, state)
+        }
     }
 }
 
-fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
-    let width = width.min(area.width).max(1);
-    let height = height.min(area.height).max(1);
-    let vertical = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length((area.height.saturating_sub(height)) / 2),
-            Constraint::Length(height),
-        ])
-        .split(area);
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Length((area.width.saturating_sub(width)) / 2),
-            Constraint::Length(width),
-        ])
-        .split(vertical[1])[1]
+/// Popup geometry for library modal dialogs.
+pub(crate) fn delete_popup(area: Rect) -> Rect {
+    util::overlay_popup_sized(56, DELETE_POPUP_HEIGHT, area)
 }
 
-fn render_library_editor_modal(
-    frame: &mut Frame,
-    area: Rect,
-    theme: &Theme,
-    state: &LibraryEditorModalState,
-) {
-    let width = ((area.width as u32 * 4) / 5) as u16;
-    let height = ((area.height as u32 * 4) / 5) as u16;
-    let popup = centered_rect(width.max(48), height.max(12), area);
-    frame.render_widget(Clear, popup);
-    let inner = util::render_modal_block(frame, popup, "Trigger", theme);
+/// Delete popup height: header band, gap, question, trigger, blank,
+/// buttons, error, so nothing sits empty below the buttons.
+pub(crate) const DELETE_POPUP_HEIGHT: u16 = 10;
 
-    let header_rows = 4;
-    let available_after_headers = inner.height.saturating_sub(header_rows);
-    let editable_metadata_rows = if state.is_script_kind() { 4 } else { 2 };
-    let metadata_len = state.metadata_rows().len() as u16 + editable_metadata_rows;
-    let min_content_height = if available_after_headers >= 6 {
-        4
-    } else {
-        available_after_headers.max(1)
+/// Body-row offsets inside the delete confirm, shared by rendering and
+/// hit-testing: header band, gap, question, trigger, blank, then the
+/// horizontal Yes/No button pair.
+pub(crate) const DELETE_QUESTION_OFFSET: u16 = 3;
+pub(crate) const DELETE_NAME_OFFSET: u16 = 4;
+pub(crate) const DELETE_BUTTONS_OFFSET: u16 = 6;
+
+/// Delete confirm button labels, shared by rendering and hit-testing
+/// so the pair never drifts between the two paths.
+pub(crate) const DELETE_YES_LABEL: &str = "Yes";
+pub(crate) const DELETE_NO_LABEL: &str = "No";
+
+/// Buttons row inside the delete confirm, shared by rendering and
+/// hit-testing.
+fn delete_buttons_row(area: Rect) -> Rect {
+    let popup = delete_popup(area);
+    let body = util::overlay_body(popup);
+    Rect {
+        x: body.x,
+        y: body.y.saturating_add(DELETE_BUTTONS_OFFSET),
+        width: body.width,
+        height: 1,
+    }
+}
+
+/// Click on the delete confirm at `(column, row)`: `Some(true)` is Yes,
+/// `Some(false)` is No. Only the button cells select; title, blanks,
+/// question, trigger, and error cells never do.
+pub(crate) fn delete_option_hit(area: Rect, column: u16, row: u16) -> Option<bool> {
+    let row_area = delete_buttons_row(area);
+    let (yes, no) = util::confirm_button_cells(row_area, DELETE_YES_LABEL, DELETE_NO_LABEL);
+    let inside = |cell: Rect| {
+        column >= cell.x
+            && column < cell.x.saturating_add(cell.width)
+            && row == cell.y
+            && cell.width > 0
     };
-    let metadata_height = metadata_len.min(available_after_headers.saturating_sub(1));
-    let mut content_height = available_after_headers.saturating_sub(metadata_height);
-    if content_height < min_content_height {
-        content_height = min_content_height.min(available_after_headers.max(1));
-    }
-
-    let sections = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(content_height.max(1)),
-            Constraint::Min(0),
-            Constraint::Length(1),
-        ])
-        .split(inner);
-
-    util::render_modal_field_label(
-        frame,
-        sections[0],
-        "Trigger",
-        state.focus() == LibraryModalField::Trigger,
-        None,
-        theme,
-    );
-    util::render_modal_input_field(
-        frame,
-        sections[1],
-        state.trigger(),
-        state.trigger_cursor(),
-        state.focus() == LibraryModalField::Trigger,
-        theme,
-    );
-
-    util::render_modal_field_label(
-        frame,
-        sections[2],
-        state.content_label(),
-        state.focus() == LibraryModalField::Content,
-        state.content_line_indicator(sections[3].height),
-        theme,
-    );
-    render_modal_content_field(frame, sections[3], theme, state);
-
-    render_modal_metadata(frame, sections[4], theme, state, state.metadata_rows());
-    render_library_editor_feedback(frame, sections[5], theme, state);
-
-    if state.focus() == LibraryModalField::Trigger {
-        frame.set_cursor_position((
-            sections[1].x + 1 + state.trigger_cursor() as u16,
-            sections[1].y,
-        ));
-    } else if state.focus() == LibraryModalField::Content {
-        let (cursor_line, cursor_col) = crate::widgets::library::actions::line_col_for_char_index(
-            state.content(),
-            state.content_cursor(),
-        );
-        let scroll = state.effective_content_scroll(sections[3].height);
-        frame.set_cursor_position((
-            sections[3].x + 1 + cursor_col as u16,
-            sections[3].y + cursor_line.saturating_sub(scroll) as u16,
-        ));
-    }
-
-    if let Some(selector) = state.selector() {
-        render_library_select_modal(frame, area, theme, selector);
+    if inside(yes) {
+        Some(true)
+    } else if inside(no) {
+        Some(false)
+    } else {
+        None
     }
 }
 
-fn render_modal_content_field(
-    frame: &mut Frame,
-    area: Rect,
-    theme: &Theme,
-    state: &LibraryEditorModalState,
-) {
-    let focused = state.focus() == LibraryModalField::Content;
-    let bg = if focused {
-        theme.surface
+pub(crate) fn export_popup(area: Rect) -> Rect {
+    let width = if area.width > 48 {
+        area.width.saturating_sub(6).min(76)
     } else {
-        theme.background
+        area.width.max(1)
     };
-    let block = Block::default().style(Style::default().bg(bg));
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-
-    let scroll = state.effective_content_scroll(inner.height);
-    let (cursor_line, cursor_col) = crate::widgets::library::actions::line_col_for_char_index(
-        state.content(),
-        state.content_cursor(),
-    );
-    let visible_lines = state.visible_content_lines(inner.height);
-    let rendered = visible_lines
-        .into_iter()
-        .enumerate()
-        .map(|(index, line)| {
-            let absolute_line = scroll + index;
-            if focused && absolute_line == cursor_line {
-                util::input_cursor_line(&line, cursor_col)
-            } else {
-                Line::from(line)
-            }
-        })
-        .collect::<Vec<_>>();
-
-    let content_style = if focused {
-        Style::default()
-            .fg(theme.text)
-            .bg(bg)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(theme.text).bg(bg)
-    };
-    frame.render_widget(Paragraph::new(rendered).style(content_style), inner);
+    util::centered_rect(width, area.height.clamp(1, 10), area)
 }
 
-fn render_modal_metadata(
-    frame: &mut Frame,
-    area: Rect,
-    theme: &Theme,
-    state: &LibraryEditorModalState,
-    metadata_rows: &[crate::widgets::library::state::LibraryMetadataRow],
-) {
-    let mut rows: Vec<(&str, String, bool, bool)> = Vec::with_capacity(metadata_rows.len() + 2);
-    rows.push((
-        "Kind",
-        state.kind_label().to_string(),
-        state.focus() == LibraryModalField::Kind,
-        false,
-    ));
-    rows.push((
-        "Target OS",
-        state.target_os().to_string(),
-        state.focus() == LibraryModalField::TargetOs,
-        false,
-    ));
-    if state.is_script_kind() {
-        rows.push((
-            "Language",
-            state.language_label().to_string(),
-            state.focus() == LibraryModalField::Language,
-            false,
-        ));
-        rows.push((
-            "Mode",
-            state.mode_label().to_string(),
-            state.focus() == LibraryModalField::Mode,
-            false,
-        ));
-    }
-    rows.extend(
-        metadata_rows
-            .iter()
-            .map(|row| (row.label(), row.value().to_string(), false, true)),
-    );
-
-    let render_count = rows.len().min(area.height as usize);
-    for (index, (label, value, focused, quiet)) in rows.into_iter().take(render_count).enumerate() {
-        let row_area = Rect {
-            x: area.x,
-            y: area.y + index as u16,
-            width: area.width,
-            height: 1,
-        };
-        util::render_modal_key_value_row(frame, row_area, label, &value, focused, quiet, theme);
-    }
+pub(crate) fn import_popup(area: Rect) -> Rect {
+    let width = if area.width > 48 {
+        area.width.saturating_sub(6).min(76)
+    } else {
+        area.width.max(1)
+    };
+    util::centered_rect(width, area.height.clamp(1, 12), area)
 }
 
-fn render_library_editor_feedback(
-    frame: &mut Frame,
-    area: Rect,
-    theme: &Theme,
-    state: &LibraryEditorModalState,
-) {
-    let (text, style) = if let Some(error) = state.error() {
-        (
-            error,
-            Style::default()
-                .fg(theme.error)
-                .add_modifier(Modifier::BOLD),
-        )
+pub(crate) fn import_run_variables_popup(area: Rect) -> Rect {
+    let width = if area.width > 52 {
+        area.width.saturating_sub(6).min(72)
     } else {
-        (
-            "",
-            Style::default()
-                .fg(theme.text_muted)
-                .add_modifier(Modifier::DIM),
-        )
+        area.width.max(1)
     };
-    frame.render_widget(Paragraph::new(text).style(style), area);
+    util::centered_rect(width, 10.min(area.height.max(1)), area)
+}
+
+pub(crate) fn import_result_popup(area: Rect, state: &LibraryImportResultModalState) -> Rect {
+    let width = if area.width > 48 {
+        area.width.saturating_sub(6).min(64)
+    } else {
+        area.width.max(1)
+    };
+    util::centered_rect(
+        width,
+        (state.lines().len() as u16 + 5).min(area.height.max(1)),
+        area,
+    )
+}
+
+pub(crate) fn export_result_popup(area: Rect) -> Rect {
+    let width = if area.width > 48 {
+        area.width.saturating_sub(6).min(76)
+    } else {
+        area.width.max(1)
+    };
+    util::centered_rect(width, 6.min(area.height.max(1)), area)
 }
 
 fn render_library_delete_modal(
@@ -280,63 +185,60 @@ fn render_library_delete_modal(
     theme: &Theme,
     state: &LibraryDeleteModalState,
 ) {
-    let width = if area.width > 44 {
-        area.width.saturating_sub(4).min(64)
-    } else {
-        area.width.max(1)
-    };
-    let height = 8;
-    let popup = centered_rect(width, height, area);
-    frame.render_widget(Clear, popup);
-    let inner = util::render_modal_block(frame, popup, "Delete Trigger", theme);
+    let chrome = util::OverlayChrome::new(delete_popup(area));
+    chrome.render(frame, theme, "Confirm delete");
+    let body = chrome.body;
+    if body.width == 0 || body.height == 0 {
+        return;
+    }
 
-    let sections = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Min(0),
-        ])
-        .split(inner);
+    let question_y = body.y.saturating_add(DELETE_QUESTION_OFFSET);
+    let name_y = body.y.saturating_add(DELETE_NAME_OFFSET);
+    let buttons = delete_buttons_row(area);
+    // honey: error rides directly under the buttons so a failed
+    // confirm stays visible without reserving dead space for it.
+    let error_y = buttons.y.saturating_add(1);
+    let bottom = body.y.saturating_add(body.height);
+    if question_y < bottom {
+        frame.render_widget(
+            Paragraph::new("Do you want to delete this trigger?")
+                .style(Style::default().fg(theme.text_muted)),
+            Rect {
+                x: body.x,
+                y: question_y,
+                width: body.width,
+                height: 1,
+            },
+        );
+    }
+    if name_y < bottom {
+        frame.render_widget(
+            Paragraph::new(util::truncate_to_width(state.trigger(), body.width))
+                .style(Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
+            Rect {
+                x: body.x,
+                y: name_y,
+                width: body.width,
+                height: 1,
+            },
+        );
+    }
 
-    frame.render_widget(
-        Paragraph::new("Do you want to delete this trigger?")
-            .style(Style::default().fg(theme.text_muted)),
-        sections[0],
-    );
-    frame.render_widget(
-        Paragraph::new(util::truncate_to_width(state.name(), sections[1].width))
-            .style(Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
-        sections[1],
-    );
-
-    let yes_style = if state.selected_yes() {
-        Style::default()
-            .fg(theme.text)
-            .bg(theme.surface)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(theme.text_muted)
-    };
-    let no_style = if !state.selected_yes() {
-        Style::default()
-            .fg(theme.text)
-            .bg(theme.surface)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(theme.text_muted)
-    };
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled("  Yes  ", yes_style),
-            Span::raw("    "),
-            Span::styled("  No  ", no_style),
-        ]))
-        .alignment(ratatui::layout::Alignment::Center),
-        sections[2],
-    );
+    // honey: horizontal pair on the shared confirm geometry so a
+    // future delete overlay reuses the same cells in rendering and
+    // hit-testing.
+    if buttons.y < bottom && buttons.width > 0 {
+        let (yes, no) = util::confirm_button_cells(buttons, DELETE_YES_LABEL, DELETE_NO_LABEL);
+        util::render_confirm_buttons(
+            frame,
+            yes,
+            no,
+            DELETE_YES_LABEL,
+            DELETE_NO_LABEL,
+            state.selected_yes(),
+            theme,
+        );
+    }
 
     let feedback_style = if state.error().is_some() {
         Style::default()
@@ -347,10 +249,583 @@ fn render_library_delete_modal(
             .fg(theme.text_muted)
             .add_modifier(Modifier::DIM)
     };
+    if error_y < bottom && error_y != buttons.y {
+        frame.render_widget(
+            Paragraph::new(state.error().unwrap_or("")).style(feedback_style),
+            Rect {
+                x: body.x,
+                y: error_y,
+                width: body.width,
+                height: 1,
+            },
+        );
+    }
+}
+
+/// Tags cloud fallback width for keyboard-opened pickers, which
+/// never see a real body rect.
+pub(crate) const CREATE_BODY_WIDTH: u16 = 80;
+
+/// Split a create body at the draft's left-pane share. Returns the
+/// left rect, the absolute divider column, and the right rect; render
+/// and hit-testing both run off this.
+pub(crate) fn create_split(body: Rect, split: f32) -> (Rect, u16, Rect) {
+    let offset = if body.width < 2 {
+        0
+    } else {
+        ((body.width as f32 * split.clamp(0.0, 1.0)).floor() as u16)
+            .clamp(1, body.width.saturating_sub(1))
+    };
+    let divider = body.x.saturating_add(offset);
+    let left = Rect {
+        x: body.x,
+        y: body.y,
+        width: offset,
+        height: body.height,
+    };
+    let right = Rect {
+        x: divider,
+        y: body.y,
+        width: body.width.saturating_sub(offset),
+        height: body.height,
+    };
+    (left, divider, right)
+}
+
+/// Body rect shared by create rendering and divider hit-testing.
+pub(crate) fn create_body(area: Rect) -> Rect {
+    util::overlay_body(create_popup(area))
+}
+
+/// The divider starts at the header band's bottom edge and runs to the
+/// popup bottom, so only the band itself stays clean. The body check
+/// keeps tiny popups from reporting a phantom line.
+pub(crate) fn create_divider_hit(
+    draft: &LibraryCreateModalState,
+    area: Rect,
+    column: u16,
+    row: u16,
+) -> bool {
+    let popup = create_popup(area);
+    if !crate::terminal::mouse::contains(popup, column, row)
+        || row < popup.y.saturating_add(util::OVERLAY_HEADER_ROWS)
+    {
+        return false;
+    }
+    let body = util::overlay_body(popup);
+    if body.width < 2 {
+        return false;
+    }
+    let (_, divider, _) = create_split(body, draft.split());
+    column == divider
+}
+
+/// Body-relative rows of the split create form. Left holds the
+/// trigger field, the type/action pills, optional script pills, and a
+/// flex content box; right is the shared properties pane. The old
+/// submit row stays reserved; errors pin to the body bottom.
+pub(crate) struct CreateLayout {
+    pub(crate) box_first: u16,
+    pub(crate) box_last: u16,
+}
+
+pub(crate) fn create_layout(is_script: bool, body_height: u16) -> CreateLayout {
+    // honey: the old button row stays reserved; the content box flexes
+    // between the pills and that footer row.
+    let footer = body_height.saturating_sub(2);
+    let box_first = if is_script {
+        CREATE_SCRIPT_CONTENT_FIRST_ROW
+    } else {
+        CREATE_CONTENT_FIRST_ROW
+    };
+    CreateLayout {
+        box_first,
+        box_last: footer.saturating_sub(2),
+    }
+}
+
+/// Left-pane rows, shared by rendering and hit-testing: title, blank,
+/// header gap, trigger field, blank, description field, blank,
+/// type/action pills, blank, then the flex content box. Scripts add a
+/// second pill row and push the box down.
+pub(crate) const CREATE_TRIGGER_FIELD_ROW: u16 = 3;
+pub(crate) const CREATE_DESCRIPTION_FIELD_ROW: u16 = 5;
+pub(crate) const CREATE_PILLS_ROW: u16 = 7;
+pub(crate) const CREATE_CONTENT_FIRST_ROW: u16 = 9;
+pub(crate) const CREATE_SCRIPT_PILLS_ROW: u16 = 9;
+pub(crate) const CREATE_SCRIPT_CONTENT_FIRST_ROW: u16 = 11;
+
+/// Placeholder copy shown inside the empty create fields.
+pub(crate) const CREATE_TRIGGER_PLACEHOLDER: &str = "Type your trigger here";
+pub(crate) const CREATE_DESCRIPTION_PLACEHOLDER: &str = "Add a description";
+pub(crate) const CREATE_TEXT_PLACEHOLDER: &str = "Type your snippet here";
+pub(crate) const CREATE_SCRIPT_PLACEHOLDER: &str = "Type your script here";
+
+/// Actionable content hint that follows the action pill: text actions
+/// insert a snippet, script actions run code.
+pub(crate) const fn create_content_placeholder(is_text: bool) -> &'static str {
+    if is_text {
+        CREATE_TEXT_PLACEHOLDER
+    } else {
+        CREATE_SCRIPT_PLACEHOLDER
+    }
+}
+
+/// Pills shown under the trigger, mirroring the saved-trigger header:
+/// invocation type and action type.
+fn create_pill_labels(state: &LibraryCreateModalState) -> Vec<String> {
+    vec![
+        state.type_label().to_string(),
+        state.action_label().to_string(),
+    ]
+}
+
+/// Script pills under the type/action pair: interpreter and behavior.
+fn create_script_pill_labels(state: &LibraryCreateModalState) -> Vec<String> {
+    vec![
+        state.interpreter_label().to_string(),
+        state.behavior_label().to_string(),
+    ]
+}
+
+fn create_pill_focus(state: &LibraryCreateModalState) -> Option<usize> {
+    match state.focus() {
+        LibraryCreateModalField::TriggerType => Some(0),
+        LibraryCreateModalField::Action => Some(1),
+        _ => None,
+    }
+}
+
+fn create_script_pill_focus(state: &LibraryCreateModalState) -> Option<usize> {
+    match state.focus() {
+        LibraryCreateModalField::Interpreter => Some(0),
+        LibraryCreateModalField::Behavior => Some(1),
+        _ => None,
+    }
+}
+
+/// Create popup at 90% of the terminal, like the settings overlay.
+/// Multiply-first math keeps the full 90% on sizes that truncate
+/// under divide-first integer math.
+pub(crate) fn create_popup(area: Rect) -> Rect {
+    util::overlay_popup_sized(area.width * 9 / 10, area.height * 9 / 10, area)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CreateHit {
+    Field(LibraryCreateModalField),
+}
+
+/// Properties content inside the create body. Skip the header band and
+/// its gap, run values to the overlay's right edge so they align with
+/// the title's Esc hint, and clear the error row.
+pub(crate) fn create_props_content(right: Rect) -> Rect {
+    Rect {
+        x: right.x.saturating_add(2),
+        y: right.y.saturating_add(3),
+        width: right.width.saturating_sub(2),
+        height: right.height.saturating_sub(4),
+    }
+}
+
+fn pill_hit(left: Rect, labels: &[String], column: u16) -> Option<usize> {
+    let rel_column = column.saturating_sub(left.x);
+    super::detail::button_layout(left.width, labels)
+        .into_iter()
+        .find(|cell| rel_column >= cell.x && rel_column < cell.x.saturating_add(cell.width))
+        .map(|cell| cell.index)
+}
+
+fn create_props_focus(field: LibraryCreateModalField) -> Option<super::props::PropsHit> {
+    use LibraryCreateModalField as Field;
+    match field {
+        Field::AutoCase => Some(super::props::PropsHit::AutoCase),
+        Field::Allow => Some(super::props::PropsHit::Allow),
+        Field::Block => Some(super::props::PropsHit::Block),
+        Field::Os => Some(super::props::PropsHit::Platform),
+        Field::Tags => Some(super::props::PropsHit::Tags),
+        _ => None,
+    }
+}
+
+/// Click on the create modal: field rows focus (picker rows also
+/// open), and properties rows open their pickers or flip in place.
+/// Takes the draft since rows depend on it.
+pub(crate) fn create_option_hit(
+    draft: &LibraryCreateModalState,
+    area: Rect,
+    column: u16,
+    row: u16,
+) -> Option<CreateHit> {
+    let is_script = !draft.is_text_action();
+    let popup = create_popup(area);
+    if !crate::terminal::mouse::contains(popup, column, row) {
+        return None;
+    }
+    let body = util::overlay_body(popup);
+    if body.width == 0 || body.height == 0 {
+        return None;
+    }
+    if column < body.x || column >= body.x.saturating_add(body.width) {
+        return None;
+    }
+    let layout = create_layout(is_script, body.height);
+    let (left, divider, right) = create_split(body, draft.split());
+    let rel = row.saturating_sub(body.y);
+    if column == divider {
+        return None;
+    }
+    // honey: the trigger field and every content box row focus their
+    // editor; the pill rows open their pickers. Blank gap rows stay
+    // dead.
+    if column >= left.x && column < left.x.saturating_add(left.width) {
+        return match rel {
+            CREATE_TRIGGER_FIELD_ROW => Some(CreateHit::Field(LibraryCreateModalField::Trigger)),
+            CREATE_DESCRIPTION_FIELD_ROW => {
+                Some(CreateHit::Field(LibraryCreateModalField::Description))
+            }
+            CREATE_PILLS_ROW => {
+                let labels = create_pill_labels(draft);
+                pill_hit(left, &labels, column).map(|index| match index {
+                    0 => CreateHit::Field(LibraryCreateModalField::TriggerType),
+                    _ => CreateHit::Field(LibraryCreateModalField::Action),
+                })
+            }
+            CREATE_SCRIPT_PILLS_ROW if is_script => {
+                let labels = create_script_pill_labels(draft);
+                pill_hit(left, &labels, column).map(|index| match index {
+                    0 => CreateHit::Field(LibraryCreateModalField::Interpreter),
+                    _ => CreateHit::Field(LibraryCreateModalField::Behavior),
+                })
+            }
+            _ if rel >= layout.box_first && rel <= layout.box_last => {
+                Some(CreateHit::Field(LibraryCreateModalField::Content))
+            }
+            _ => None,
+        };
+    }
+    if column >= right.x && column < right.x.saturating_add(right.width) {
+        let item = draft.props_item();
+        return match super::props::hit_test_content(
+            create_props_content(right),
+            &item,
+            column,
+            row,
+            false,
+        )? {
+            super::props::PropsHit::AutoCase => {
+                Some(CreateHit::Field(LibraryCreateModalField::AutoCase))
+            }
+            super::props::PropsHit::Allow => Some(CreateHit::Field(LibraryCreateModalField::Allow)),
+            super::props::PropsHit::Block => Some(CreateHit::Field(LibraryCreateModalField::Block)),
+            super::props::PropsHit::Alias => None,
+            super::props::PropsHit::Platform => Some(CreateHit::Field(LibraryCreateModalField::Os)),
+            super::props::PropsHit::Tags => Some(CreateHit::Field(LibraryCreateModalField::Tags)),
+            super::props::PropsHit::UsageToggle => None,
+            super::props::PropsHit::Confirm => None,
+        };
+    }
+    None
+}
+
+/// Hover hit-test for the create form's auto-case switch. Clicks use
+/// `create_option_hit`; this only drives the knob highlight.
+pub(crate) fn create_toggle_hit(
+    draft: &LibraryCreateModalState,
+    area: Rect,
+    column: u16,
+    row: u16,
+) -> Option<ToggleId> {
+    let popup = create_popup(area);
+    if !crate::terminal::mouse::contains(popup, column, row) {
+        return None;
+    }
+    let body = util::overlay_body(popup);
+    if body.width == 0 || body.height == 0 {
+        return None;
+    }
+    let (_, _, right) = create_split(body, draft.split());
+    if column < right.x || column >= right.x.saturating_add(right.width) {
+        return None;
+    }
+    let item = draft.props_item();
+    super::props::toggle_hit_test_content(
+        create_props_content(right),
+        &item,
+        ToggleId::CreateAutoCase,
+        column,
+        row,
+    )
+}
+
+/// One pill row under the trigger, matching the saved-trigger header.
+/// The focused pill is bold; clicking either opens its picker.
+fn render_create_pill_row(
+    frame: &mut Frame,
+    left: Rect,
+    y: u16,
+    bottom: u16,
+    theme: &Theme,
+    labels: &[String],
+    focused: Option<usize>,
+) {
+    if left.width == 0 || y >= bottom {
+        return;
+    }
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut cursor = 0u16;
+    for cell in super::detail::button_layout(left.width, labels) {
+        if cell.x > cursor {
+            spans.push(Span::raw(
+                " ".repeat(cell.x.saturating_sub(cursor) as usize),
+            ));
+        }
+        let mut style = Style::default()
+            .fg(theme.button.text)
+            .bg(theme.button.inactive_bg);
+        if focused == Some(cell.index) {
+            style = style.add_modifier(Modifier::BOLD);
+        }
+        spans.push(Span::styled(
+            format!(" {} {} ", labels[cell.index], super::icons::CHEVRON_DOWN),
+            style,
+        ));
+        cursor = cell.x.saturating_add(cell.width);
+    }
     frame.render_widget(
-        Paragraph::new(state.error().unwrap_or("")).style(feedback_style),
-        sections[3],
+        Paragraph::new(Line::from(spans)),
+        Rect {
+            x: left.x,
+            y,
+            width: left.width,
+            height: 1,
+        },
     );
+}
+
+/// One single-line create field: prompt while empty, caret when focused.
+fn render_create_text_field(
+    frame: &mut Frame,
+    left: Rect,
+    y: u16,
+    theme: &Theme,
+    field: &TextField,
+    placeholder: &str,
+    focused: bool,
+) {
+    let bottom = left.y.saturating_add(left.height);
+    if left.width == 0 || y >= bottom {
+        return;
+    }
+    let (visible, caret) = field.window(left.width);
+    let (shown, style) = if field.is_empty() {
+        (
+            placeholder.to_string(),
+            Style::default().fg(theme.text_muted),
+        )
+    } else {
+        (visible.to_string(), Style::default().fg(theme.text))
+    };
+    frame.render_widget(
+        Paragraph::new(shown).style(style),
+        Rect {
+            x: left.x,
+            y,
+            width: left.width,
+            height: 1,
+        },
+    );
+    if focused {
+        let (cx, cy) = util::caret_position(left.x, y, caret, left.width);
+        frame.set_cursor_position((cx, cy));
+    }
+}
+
+fn render_library_create_modal(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    state: &LibraryCreateModalState,
+    animations: &ToggleAnimations,
+    hovered: Option<ToggleId>,
+) {
+    let is_script = !state.is_text_action();
+    let chrome = util::OverlayChrome::new(create_popup(area));
+    chrome.render(frame, theme, "New Trigger");
+    let popup = chrome.popup;
+    let body = chrome.body;
+    if body.width == 0 || body.height == 0 {
+        return;
+    }
+    let layout = create_layout(is_script, body.height);
+    let bottom = body.y.saturating_add(body.height);
+    let focused = state.focus();
+    let (left, divider, right) = create_split(body, state.split());
+
+    // Left pane: trigger and description fields, type/action pills,
+    // optional script pills, then the content box. Empty fields show
+    // their prompt in place.
+    if left.width > 0 {
+        render_create_text_field(
+            frame,
+            left,
+            body.y.saturating_add(CREATE_TRIGGER_FIELD_ROW),
+            theme,
+            state.trigger_field(),
+            CREATE_TRIGGER_PLACEHOLDER,
+            focused == LibraryCreateModalField::Trigger,
+        );
+        render_create_text_field(
+            frame,
+            left,
+            body.y.saturating_add(CREATE_DESCRIPTION_FIELD_ROW),
+            theme,
+            state.description_field(),
+            CREATE_DESCRIPTION_PLACEHOLDER,
+            focused == LibraryCreateModalField::Description,
+        );
+        render_create_pill_row(
+            frame,
+            left,
+            body.y.saturating_add(CREATE_PILLS_ROW),
+            bottom,
+            theme,
+            &create_pill_labels(state),
+            create_pill_focus(state),
+        );
+        if is_script {
+            render_create_pill_row(
+                frame,
+                left,
+                body.y.saturating_add(CREATE_SCRIPT_PILLS_ROW),
+                bottom,
+                theme,
+                &create_script_pill_labels(state),
+                create_script_pill_focus(state),
+            );
+        }
+    }
+    // Right pane: the same properties renderer the saved-trigger
+    // detail view uses, fed by the draft view model.
+    if right.width > 0 {
+        let item = state.props_item();
+        super::props::render_props_content(
+            frame,
+            create_props_content(right),
+            theme,
+            &item,
+            None,
+            create_props_focus(focused),
+            animations,
+            hovered,
+            None,
+            ToggleId::CreateAutoCase,
+        );
+    }
+
+    // Divider between the panes; start at the header band's bottom edge
+    // so the ribbon stays visually whole.
+    if left.width > 0
+        && right.width > 0
+        && divider > body.x
+        && divider < body.x.saturating_add(body.width)
+    {
+        let height = popup.height.saturating_sub(util::OVERLAY_HEADER_ROWS);
+        if height > 0 {
+            let color = if state.divider_drag() || state.divider_hover() {
+                super::DIVIDER_HOVER_COLOR
+            } else {
+                theme.border
+            };
+            let glyphs = vec![Line::from("│"); height as usize];
+            frame.render_widget(
+                Paragraph::new(glyphs).style(Style::default().fg(color)),
+                Rect {
+                    x: divider,
+                    y: popup.y.saturating_add(util::OVERLAY_HEADER_ROWS),
+                    width: 1,
+                    height,
+                },
+            );
+        }
+    }
+
+    // Left content box: flex rows that follow the caret; long lines
+    // truncate in place like the detail preview.
+    let (caret_row, caret_col) = state.content().cursor();
+    let lines = state.content().lines();
+    let mut box_row = layout.box_first;
+    while box_row <= layout.box_last {
+        let y = body.y.saturating_add(box_row);
+        if y >= bottom || left.width == 0 {
+            break;
+        }
+        let index = (box_row.saturating_sub(layout.box_first)) as usize;
+        let line = lines
+            .get(state.content_scroll().saturating_add(index))
+            .map(String::as_str)
+            .unwrap_or("");
+        let visible: String = line.chars().take(left.width as usize).collect();
+        let is_caret_row = focused == LibraryCreateModalField::Content
+            && caret_row == state.content_scroll().saturating_add(index);
+        let placeholder =
+            index == 0 && state.content_scroll() == 0 && state.content().text().is_empty();
+        // honey: no background fill anywhere in the box; empty content
+        // shows a muted placeholder on its first row, and the caret
+        // row reads bold once there is text.
+        let (shown, style) = if placeholder {
+            (
+                create_content_placeholder(state.is_text_action()).to_string(),
+                Style::default().fg(theme.text_muted),
+            )
+        } else if is_caret_row {
+            (
+                visible,
+                Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+            )
+        } else {
+            (visible, Style::default().fg(theme.text))
+        };
+        frame.render_widget(
+            Paragraph::new(shown).style(style),
+            Rect {
+                x: left.x,
+                y,
+                width: left.width,
+                height: 1,
+            },
+        );
+        if is_caret_row {
+            let (cx, cy) = util::caret_position(
+                left.x,
+                y,
+                caret_col.min(left.width.saturating_sub(1) as usize),
+                left.width,
+            );
+            frame.set_cursor_position((cx, cy));
+        }
+        box_row += 1;
+    }
+
+    let error_y = body.y.saturating_add(body.height).saturating_sub(1);
+    if let Some(error) = state.error()
+        && error_y < bottom
+    {
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                error,
+                Style::default()
+                    .fg(theme.error)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Rect {
+                x: body.x,
+                y: error_y,
+                width: body.width,
+                height: 1,
+            },
+        );
+    }
 }
 
 fn render_library_export_modal(
@@ -359,15 +834,9 @@ fn render_library_export_modal(
     theme: &Theme,
     state: &LibraryExportModalState,
 ) {
-    let width = if area.width > 48 {
-        area.width.saturating_sub(6).min(76)
-    } else {
-        area.width.max(1)
-    };
-    let height = area.height.clamp(1, 10);
-    let popup = centered_rect(width, height, area);
-    frame.render_widget(Clear, popup);
-    let inner = util::render_modal_block(frame, popup, "Export Triggers", theme);
+    let chrome = util::OverlayChrome::new(export_popup(area));
+    chrome.render(frame, theme, "Export Triggers");
+    let inner = chrome.content;
 
     let sections = Layout::default()
         .direction(Direction::Vertical)
@@ -451,22 +920,7 @@ fn render_library_export_modal(
         theme,
     );
 
-    match state.focus() {
-        LibraryExportModalField::Path => {
-            frame.set_cursor_position((
-                sections[1].x + 1 + state.path_cursor() as u16,
-                sections[1].y,
-            ));
-        }
-        LibraryExportModalField::Password => {
-            let label_width = sections[2].width.min(12);
-            frame.set_cursor_position((
-                sections[2].x + label_width + state.password_cursor() as u16,
-                sections[2].y,
-            ));
-        }
-        _ => {}
-    }
+    // honey: text fields position the real caret themselves via util.
 }
 
 fn render_library_import_modal(
@@ -475,14 +929,9 @@ fn render_library_import_modal(
     theme: &Theme,
     state: &LibraryImportModalState,
 ) {
-    let width = if area.width > 48 {
-        area.width.saturating_sub(6).min(76)
-    } else {
-        area.width.max(1)
-    };
-    let popup = centered_rect(width, area.height.clamp(1, 11), area);
-    frame.render_widget(Clear, popup);
-    let inner = util::render_modal_block(frame, popup, "Import Triggers", theme);
+    let chrome = util::OverlayChrome::new(import_popup(area));
+    chrome.render(frame, theme, "Import Triggers");
+    let inner = chrome.content;
 
     let sections = Layout::default()
         .direction(Direction::Vertical)
@@ -580,22 +1029,7 @@ fn render_library_import_modal(
         theme,
     );
 
-    match state.focus() {
-        LibraryImportModalField::Path => {
-            frame.set_cursor_position((
-                sections[1].x + 1 + state.path_cursor() as u16,
-                sections[1].y,
-            ));
-        }
-        LibraryImportModalField::Password if state.is_encrypted() != Some(false) => {
-            let label_width = sections[3].width.min(12);
-            frame.set_cursor_position((
-                sections[3].x + label_width + state.password_cursor() as u16,
-                sections[3].y,
-            ));
-        }
-        _ => {}
-    }
+    // honey: text fields position the real caret themselves via util.
 
     if let Some(selector) = state.selector() {
         render_library_select_modal(frame, area, theme, selector);
@@ -608,14 +1042,9 @@ fn render_library_import_run_variables_modal(
     theme: &Theme,
     state: &LibraryImportRunVariablesModalState,
 ) {
-    let width = if area.width > 52 {
-        area.width.saturating_sub(6).min(72)
-    } else {
-        area.width.max(1)
-    };
-    let popup = centered_rect(width, 9.min(area.height.max(1)), area);
-    frame.render_widget(Clear, popup);
-    let inner = util::render_modal_block(frame, popup, "Run Variables Warning", theme);
+    let chrome = util::OverlayChrome::new(import_run_variables_popup(area));
+    chrome.render(frame, theme, "Run Variables Warning");
+    let inner = chrome.content;
 
     let sections = Layout::default()
         .direction(Direction::Vertical)
@@ -663,18 +1092,9 @@ fn render_library_import_result_modal(
     theme: &Theme,
     state: &LibraryImportResultModalState,
 ) {
-    let width = if area.width > 48 {
-        area.width.saturating_sub(6).min(64)
-    } else {
-        area.width.max(1)
-    };
-    let popup = centered_rect(
-        width,
-        (state.lines().len() as u16 + 4).min(area.height.max(1)),
-        area,
-    );
-    frame.render_widget(Clear, popup);
-    let inner = util::render_modal_block(frame, popup, "Import complete", theme);
+    let chrome = util::OverlayChrome::new(import_result_popup(area, state));
+    chrome.render(frame, theme, "Import complete");
+    let inner = chrome.content;
 
     let sections = Layout::default()
         .direction(Direction::Vertical)
@@ -701,14 +1121,9 @@ fn render_library_export_result_modal(
     theme: &Theme,
     state: &LibraryExportResultModalState,
 ) {
-    let width = if area.width > 48 {
-        area.width.saturating_sub(6).min(76)
-    } else {
-        area.width.max(1)
-    };
-    let popup = centered_rect(width, 5.min(area.height.max(1)), area);
-    frame.render_widget(Clear, popup);
-    let inner = util::render_modal_block(frame, popup, EXPORT_RESULT_MODAL_TITLE, theme);
+    let chrome = util::OverlayChrome::new(export_result_popup(area));
+    chrome.render(frame, theme, EXPORT_RESULT_MODAL_TITLE);
+    let inner = chrome.content;
 
     frame.render_widget(
         Paragraph::new(vec![Line::from(state.body())]).style(Style::default().fg(theme.text_muted)),
@@ -722,35 +1137,437 @@ fn render_library_select_modal(
     theme: &Theme,
     state: &LibrarySelectState,
 ) {
-    let width = if area.width > 24 {
-        area.width.saturating_sub(4).min(44)
-    } else {
-        area.width.max(1)
-    };
-    let body_height = state.options.len().min(8) as u16;
-    let desired_height = body_height + 4;
-    let height = if area.height >= 6 {
-        desired_height.min(area.height.saturating_sub(2).max(6))
-    } else {
-        area.height.max(1)
-    };
-    let popup = centered_rect(width, height, area);
-    frame.render_widget(Clear, popup);
-    let inner = util::render_modal_block(frame, popup, state.title(), theme);
-
-    let items: Vec<ListItem> = state
+    let entries: Vec<util::OverlayEntry> = state
         .options
         .iter()
-        .map(|option| ListItem::new(option.as_str()))
+        .map(|option| util::OverlayEntry {
+            label: option.clone(),
+            detail: String::new(),
+            icon: String::new(),
+        })
         .collect();
-    let mut list_state = ListState::default();
-    list_state.select(Some(state.selected));
+    util::render_overlay_select(frame, area, theme, state.title(), &entries, state.selected);
+}
 
-    let list = List::new(items).highlight_symbol("").highlight_style(
+/// Centered option menu for the detail header buttons (trigger type,
+/// script language, run behavior), rendered through the shared
+/// overlay component.
+fn render_library_header_menu_modal(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    state: &LibraryHeaderMenuState,
+) {
+    let icons = state.icons();
+    let entries: Vec<util::OverlayEntry> = state
+        .options()
+        .iter()
+        .zip(state.details())
+        .zip(icons.iter())
+        .map(|((option, detail), icon)| util::OverlayEntry {
+            label: option.clone(),
+            detail: detail.clone(),
+            icon: icon.clone(),
+        })
+        .collect();
+    util::render_overlay_select(
+        frame,
+        area,
+        theme,
+        state.kind().title(),
+        &entries,
+        state.selected(),
+    );
+}
+
+/// Tags builder overlay on the shared popup geometry: the
+/// trigger's tags as a wrapping cloud of colored chips with a `+`
+/// button trailing it; the `+` swaps for an inline `#` input while
+/// typing. Empty triggers show `No tags available. +`.
+fn render_library_tags_modal(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    state: &LibraryTagsModalState,
+) {
+    let chrome = util::OverlayChrome::new(util::overlay_popup(area));
+    chrome.render(frame, theme, "Tags");
+    let body = chrome.body;
+    if body.width == 0 || body.height == 0 {
+        return;
+    }
+    render_tags_chips(frame, body, chrome.content.y, theme, state);
+    // honey: no hint footer; errors alone take the bottom row so a
+    // failed write stays visible inside the menu.
+    if let Some(error) = state.error() {
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                util::truncate_to_width(error, body.width),
+                Style::default()
+                    .fg(theme.error)
+                    .add_modifier(Modifier::BOLD),
+            ))),
+            Rect {
+                x: body.x,
+                y: body.y.saturating_add(body.height).saturating_sub(1),
+                width: body.width,
+                height: 1,
+            },
+        );
+    }
+}
+
+/// Chips cloud: shared header band and gap, then wrapped `#tag`
+/// chips in the Properties pane colors (text only, no
+/// background), the `+` button trailing the cloud (or the live
+/// `#` input while typing). Only the hovered chip swaps its `#`
+/// for the close icon, in the same cell; keyboard focus
+/// underlines instead, keeping the color.
+fn render_tags_chips(
+    frame: &mut Frame,
+    body: Rect,
+    origin_y: u16,
+    theme: &Theme,
+    state: &LibraryTagsModalState,
+) {
+    use crate::widgets::library::state::{TAGS_EMPTY_LINE, tag_style};
+
+    // honey: the shared header band and its gap sit above the cloud;
+    // the last row stays free for a failed write.
+    let max_rows = body.height.saturating_sub(4);
+    if state.is_empty() && !state.input_active() {
+        let empty = format!("{TAGS_EMPTY_LINE} ");
+        let plus_focused = state.focus_is_add_row();
+        let plus_style = if plus_focused {
+            Style::default()
+                .fg(theme.text)
+                .bg(theme.surface)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme.text_muted)
+        };
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled(empty, Style::default().fg(theme.text_muted)),
+                Span::styled(super::icons::ADD_CHIP.to_string(), plus_style),
+            ])),
+            Rect {
+                x: body.x,
+                y: origin_y,
+                width: body.width,
+                height: 1,
+            },
+        );
+        return;
+    }
+    let (painted, add) = state.paint_layout(body.width, max_rows);
+    // honey: bucket painted chips by relative row for one Paragraph
+    // per row; every chip keeps its Properties pane text color.
+    let mut rows: Vec<Vec<(u16, String, Style)>> = Vec::new();
+    for (cell, rel_y) in &painted {
+        while rows.len() <= *rel_y as usize {
+            rows.push(Vec::new());
+        }
+        let tag = state
+            .checked()
+            .get(cell.index)
+            .map(String::as_str)
+            .unwrap_or_default();
+        // honey: only the hovered chip swaps its `#` for the close
+        // icon, in the same cell so nothing shifts.
+        let hovered = state.hover() == Some(cell.index);
+        let raw = if hovered {
+            format!("{}{tag}", crate::widgets::library::icons::CLOSE_ICON)
+        } else {
+            format!("#{tag}")
+        };
+        let avail = body.width.saturating_sub(cell.x).max(1);
+        let shown = util::truncate_to_width(&raw, avail);
+        rows[*rel_y as usize].push((cell.x, shown, tag_style(theme, cell.index)));
+    }
+    for (offset, chips) in rows.iter().enumerate() {
+        let mut spans = Vec::new();
+        let mut cursor = 0u16;
+        for (x, text, style) in chips {
+            if *x > cursor {
+                spans.push(Span::raw(" ".repeat(x.saturating_sub(cursor) as usize)));
+                cursor = *x;
+            }
+            spans.push(Span::styled(text.clone(), *style));
+            cursor = cursor.saturating_add(text.chars().count() as u16);
+        }
+        let rest = (body.width as usize).saturating_sub(cursor as usize);
+        spans.push(Span::raw(" ".repeat(rest)));
+        frame.render_widget(
+            Paragraph::new(Line::from(spans)),
+            Rect {
+                x: body.x,
+                y: origin_y.saturating_add(offset as u16),
+                width: body.width,
+                height: 1,
+            },
+        );
+    }
+    if let Some(add_rel) = add {
+        let (plus_x, _) = state.plus_cell(body.width);
+        let row_y = origin_y.saturating_add(add_rel);
+        if state.input_active() {
+            // honey: the live `#` input replaces the `+` in place;
+            // the caret sits right after the `#`.
+            let avail = body.width.saturating_sub(plus_x).saturating_sub(1).max(1);
+            let (visible, caret) = state.input().window(avail);
+            frame.render_widget(
+                Paragraph::new(Line::from(vec![
+                    Span::styled("#".to_string(), Style::default().fg(theme.text)),
+                    Span::styled(visible.to_string(), Style::default().fg(theme.text)),
+                ])),
+                Rect {
+                    x: body.x.saturating_add(plus_x),
+                    y: row_y,
+                    width: body.width.saturating_sub(plus_x),
+                    height: 1,
+                },
+            );
+            let (caret_x, caret_y) = util::caret_position(
+                body.x.saturating_add(plus_x).saturating_add(1),
+                row_y,
+                caret,
+                avail,
+            );
+            frame.set_cursor_position((caret_x, caret_y));
+        } else {
+            let focused = state.focus_is_add_row();
+            let style = if focused {
+                Style::default()
+                    .fg(theme.text)
+                    .bg(theme.surface)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(theme.text_muted)
+            };
+            frame.render_widget(
+                Paragraph::new(Line::from(Span::styled(
+                    super::icons::ADD_ICON.to_string(),
+                    style,
+                ))),
+                Rect {
+                    x: body.x.saturating_add(plus_x),
+                    y: row_y,
+                    width: 1,
+                    height: 1,
+                },
+            );
+        }
+    }
+}
+
+/// App-filter picker on its own taller popup: search results left
+/// (stored filters, up to eight foreground apps as two-line `exe`
+/// plus window-title rows), empty right pane behind a divider, search
+/// box pinned to the absolute bottom at the left pane width.
+/// Opposite-list rows render dimmed with their reason and never take
+/// focus. Validation errors ride the title row; there is no footer.
+fn render_library_app_filter_modal(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    state: &LibraryAppFilterState,
+) {
+    use crate::widgets::library::state::{APP_FILTER_PAD, FilterRow, app_filter_geometry};
+
+    let (popup, body, max_lines) = app_filter_geometry(area, state);
+    let chrome = util::OverlayChrome::with_body(popup, body);
+    chrome.paint(frame, theme);
+    if body.width == 0 || body.height < 5 {
+        return;
+    }
+    // honey: title row carries the validation error when one exists;
+    // the bottom row belongs to the search box, so no footer.
+    let title = state.side().title();
+    let hint = "Esc";
+    let error = state.error().unwrap_or("");
+    let err_width = (error.chars().count() as u16).min(body.width);
+    let title_w = body.width.saturating_sub(2);
+    let gap = title_w
+        .saturating_sub(title.chars().count() as u16)
+        .saturating_sub(err_width)
+        .saturating_sub(hint.chars().count() as u16);
+    let mut title_spans = vec![Span::styled(
+        title.to_string(),
+        Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+    )];
+    if !error.is_empty() {
+        title_spans.push(Span::raw(" ".repeat(gap as usize)));
+        title_spans.push(Span::styled(
+            util::truncate_to_width(error, err_width.max(1)),
+            Style::default()
+                .fg(theme.error)
+                .add_modifier(Modifier::BOLD),
+        ));
+    } else {
+        title_spans.push(Span::raw(" ".repeat(gap as usize)));
+    }
+    title_spans.push(Span::styled(
+        hint.to_string(),
+        Style::default().fg(theme.text_muted),
+    ));
+    frame.render_widget(
+        Paragraph::new(Line::from(title_spans)),
+        Rect {
+            x: body.x.saturating_add(1),
+            y: body.y,
+            width: title_w,
+            height: 1,
+        },
+    );
+    let origin_y = chrome.content.y;
+    let (left_w, divider_x, _, _) = state.panes(body.width);
+    // honey: content sits one padded cell in with one blank cell left
+    // before the divider; the divider starts at the header edge and
+    // runs to the popup bottom.
+    let content_x = body.x.saturating_add(APP_FILTER_PAD);
+    let content_w = left_w.saturating_sub(APP_FILTER_PAD.saturating_mul(2));
+    let divider_abs_x = body.x.saturating_add(divider_x);
+    let divider_top = popup.y.saturating_add(util::OVERLAY_HEADER_ROWS);
+    for y in divider_top..popup.y.saturating_add(popup.height) {
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                "│".to_string(),
+                Style::default().fg(theme.border),
+            ))),
+            Rect {
+                x: divider_abs_x,
+                y,
+                width: 1,
+                height: 1,
+            },
+        );
+    }
+    let focused = state.rows().get(state.cursor()).copied();
+    if state.checked().is_empty() && state.matching_indices().is_empty() {
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                "No foreground apps.".to_string(),
+                Style::default().fg(theme.text_muted),
+            ))),
+            Rect {
+                x: body.x,
+                y: origin_y,
+                width: left_w,
+                height: 1,
+            },
+        );
+    }
+    // honey: full-bleed highlight band for the focused row, no fg
+    // override — the overlay option-menu language. Bands pad to the
+    // content width so both lines fill the pane edge to padding.
+    let band = || {
         Style::default()
             .bg(theme.surface)
-            .fg(theme.text)
-            .add_modifier(Modifier::BOLD),
+            .add_modifier(Modifier::BOLD)
+    };
+    let fill = |text: String, style: Style| -> Line {
+        let rest = content_w.saturating_sub(text.chars().count() as u16) as usize;
+        Line::from(vec![
+            Span::styled(text, style),
+            Span::styled(" ".repeat(rest), style),
+        ])
+    };
+    for (row, rel) in state.layout(max_lines) {
+        let row_y = origin_y.saturating_add(rel);
+        let is_focused = Some(row) == focused;
+        match row {
+            FilterRow::Checked(index) => {
+                let value = state.checked().get(index).map(String::as_str).unwrap_or("");
+                let text = util::truncate_to_width(&format!("× {value}"), content_w.max(1));
+                let style = if is_focused {
+                    band().fg(theme.text)
+                } else {
+                    Style::default().fg(theme.text)
+                };
+                frame.render_widget(
+                    Paragraph::new(fill(text, style)),
+                    Rect {
+                        x: content_x,
+                        y: row_y,
+                        width: content_w,
+                        height: 1,
+                    },
+                );
+            }
+            FilterRow::Foreground(index) => {
+                let Some(app) = state.foreground().get(index) else {
+                    continue;
+                };
+                let gray = state.is_gray(index);
+                let exe = util::truncate_to_width(&app.exe, content_w.max(1));
+                let exe_style = if gray {
+                    Style::default().fg(theme.text_muted)
+                } else if is_focused {
+                    band().fg(theme.text)
+                } else {
+                    Style::default().fg(theme.text)
+                };
+                frame.render_widget(
+                    Paragraph::new(fill(exe, exe_style)),
+                    Rect {
+                        x: content_x,
+                        y: row_y,
+                        width: content_w,
+                        height: 1,
+                    },
+                );
+                let detail = if gray {
+                    format!("{} · {}", app.title, state.side().opposite_hint())
+                } else {
+                    app.title.clone()
+                };
+                let detail = util::truncate_to_width(&detail, content_w.max(1));
+                // honey: the focused row bands across both lines; the
+                // description keeps its dimmed tone on the band.
+                let detail_style = if is_focused && !gray {
+                    band().fg(theme.text_muted)
+                } else {
+                    Style::default().fg(theme.text_muted)
+                };
+                frame.render_widget(
+                    Paragraph::new(fill(detail, detail_style)),
+                    Rect {
+                        x: content_x,
+                        y: row_y.saturating_add(1),
+                        width: content_w,
+                        height: 1,
+                    },
+                );
+            }
+        }
+    }
+    // honey: the right pane stays empty for now; the divider still
+    // splits the overlay with padding on both sides.
+    // honey: the search box sits exactly one blank line below the
+    // visible rows at the left pane width; typing always filters.
+    // The caret always shows.
+    let search_y = origin_y.saturating_add(state.search_rel(max_lines));
+    let search_w = content_w.max(1);
+    let (visible, caret) = state.search().window(search_w);
+    let (text, style) = if state.search().is_empty() {
+        (
+            "Search apps".to_string(),
+            Style::default().fg(theme.text_muted),
+        )
+    } else {
+        (visible.to_string(), Style::default().fg(theme.text))
+    };
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(text, style)))
+            .style(Style::default().bg(theme.surface)),
+        Rect {
+            x: content_x,
+            y: search_y,
+            width: search_w,
+            height: 1,
+        },
     );
-    frame.render_stateful_widget(list, inner, &mut list_state);
+    let (caret_x, caret_y) = util::caret_position(content_x, search_y, caret, search_w);
+    frame.set_cursor_position((caret_x, caret_y));
 }

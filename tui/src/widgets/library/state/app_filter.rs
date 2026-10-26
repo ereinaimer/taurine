@@ -1,0 +1,469 @@
+use ratatui::layout::{Margin, Rect};
+
+use crate::widgets::field::TextField;
+use crate::widgets::library::actions::{EditedField, PendingLibraryEdit};
+use taurine_core::db::crud::AppFilterPrefix;
+use taurine_core::system::foreground_apps::ForegroundApp;
+
+/// Explicit popup width for this overlay only; the height fits the
+/// content (capped). The shared overlay component keeps its defaults.
+pub(crate) const APP_FILTER_POPUP_W: u16 = 79;
+pub(crate) const APP_FILTER_MAX_H: u16 = 18;
+
+/// Line budget for measuring content; the fitted popup converges on it.
+pub(crate) const APP_FILTER_MAX_LINES: u16 = 11;
+
+/// Reserved body lines: three header rows, search gap, search.
+pub(crate) const APP_FILTER_RESERVED_LINES: u16 = 5;
+
+/// Rows start below the header band and its gap row.
+pub(crate) const APP_FILTER_ROWS_TOP: u16 = 3;
+
+pub(crate) fn app_filter_popup(area: Rect, content_lines: u16) -> Rect {
+    // honey: header band + gap + rows + search gap + search + bottom
+    // margin; the row budget below converges on this exactly.
+    let height = content_lines.saturating_add(7).min(APP_FILTER_MAX_H);
+    crate::widgets::util::centered_rect(APP_FILTER_POPUP_W, height, area)
+}
+
+/// Uniform one-cell body padding on all sides; the shared overlay
+/// body keeps its own wider margins.
+pub(crate) fn app_filter_body(popup: Rect) -> Rect {
+    popup.inner(Margin::new(1, 1))
+}
+
+/// Shared overlay geometry: fitted popup, body, and row-line budget.
+/// Render, click, and hover all run off this so rows land as drawn.
+pub(crate) fn app_filter_geometry(area: Rect, menu: &LibraryAppFilterState) -> (Rect, Rect, u16) {
+    let popup = app_filter_popup(area, menu.content_lines());
+    let body = app_filter_body(popup);
+    let max_lines = body.height.saturating_sub(APP_FILTER_RESERVED_LINES);
+    (popup, body, max_lines)
+}
+
+/// Foreground cap: Z-order truncation is free most-recent-first,
+/// and stored filters always show regardless of the cap.
+pub(crate) const MAX_FOREGROUND_APPS: usize = 8;
+
+/// Left-pane content padding: one cell in from the body edge and
+/// the divider; rows and search share it.
+pub(crate) const APP_FILTER_PAD: u16 = 1;
+
+/// Default split: exactly half, so both panes share the width and
+/// padding evenly; dragging rewrites it per menu.
+pub(crate) const APP_FILTER_DEFAULT_SPLIT: f32 = 0.5;
+
+/// Pane split in body columns: left width, divider column, right
+/// start, right width. Left always wins the extra cells.
+fn app_filter_panes_split(body_width: u16, split: f32) -> (u16, u16, u16, u16) {
+    let left = ((body_width.saturating_sub(1) as f32 * split) as u16).min(body_width);
+    let divider = left;
+    let right_x = divider.saturating_add(1);
+    let right_w = body_width.saturating_sub(right_x);
+    (left, divider, right_x, right_w)
+}
+
+/// Which props row opened the picker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AppFilterSide {
+    Allow,
+    Block,
+}
+
+impl AppFilterSide {
+    pub(crate) const fn title(self) -> &'static str {
+        match self {
+            Self::Allow => "Allow on",
+            Self::Block => "Block on",
+        }
+    }
+
+    pub(crate) const fn opposite_hint(self) -> &'static str {
+        match self {
+            Self::Allow => "blocked",
+            Self::Block => "allowed",
+        }
+    }
+
+    const fn field(self, apps: Vec<String>) -> EditedField {
+        match self {
+            Self::Allow => EditedField::OnlyApps(apps),
+            Self::Block => EditedField::ExceptApps(apps),
+        }
+    }
+}
+
+/// Gray key: lowercase, known prefix stripped, `.exe` stripped, so
+/// `exe:code`, `CODE`, and `code.exe` all collide.
+pub(crate) fn gray_key(item: &str) -> String {
+    let lower = item.trim().to_lowercase();
+    let bare = match lower.split_once(':') {
+        Some((prefix, rest)) if AppFilterPrefix::parse_prefix(prefix).is_some() => rest,
+        _ => lower.as_str(),
+    };
+    bare.strip_suffix(".exe").unwrap_or(bare).to_string()
+}
+
+/// One pickable row: a stored filter or a foreground app.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FilterRow {
+    Checked(usize),
+    Foreground(usize),
+}
+
+impl FilterRow {
+    pub(crate) const fn height(self) -> u16 {
+        match self {
+            Self::Foreground(_) => 2,
+            _ => 1,
+        }
+    }
+}
+
+/// App-filter picker: stored filters first (toggle off), then up
+/// to eight foreground apps (`exe:` picks with window-title context)
+/// narrowed by the search box. Every write hits the database live.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct LibraryAppFilterState {
+    trigger_id: String,
+    restore_index: usize,
+    side: AppFilterSide,
+    checked: Vec<String>,
+    opposite_keys: Vec<String>,
+    foreground: Vec<ForegroundApp>,
+    search: TextField,
+    cursor: usize,
+    scroll: usize,
+    view_lines: u16,
+    split: f32,
+    divider_drag: bool,
+    error: Option<String>,
+    return_to_create: Option<Box<super::create::LibraryCreateModalState>>,
+}
+
+impl LibraryAppFilterState {
+    pub(crate) fn new(
+        trigger_id: String,
+        restore_index: usize,
+        side: AppFilterSide,
+        checked: Vec<String>,
+        opposite: Vec<String>,
+        foreground: Vec<ForegroundApp>,
+    ) -> Self {
+        Self {
+            trigger_id,
+            restore_index,
+            side,
+            checked,
+            opposite_keys: opposite.iter().map(|item| gray_key(item)).collect(),
+            foreground: foreground.into_iter().take(MAX_FOREGROUND_APPS).collect(),
+            search: TextField::new(""),
+            cursor: 0,
+            scroll: 0,
+            view_lines: 11,
+            split: APP_FILTER_DEFAULT_SPLIT,
+            divider_drag: false,
+            error: None,
+            return_to_create: None,
+        }
+    }
+
+    /// Attach a create draft for the return trip: toggles collect
+    /// into the draft instead of persisting to the database.
+    pub(crate) fn with_create_draft(
+        mut self,
+        draft: super::create::LibraryCreateModalState,
+    ) -> Self {
+        self.return_to_create = Some(Box::new(draft));
+        self
+    }
+
+    pub(crate) fn return_to_create(&self) -> Option<&super::create::LibraryCreateModalState> {
+        self.return_to_create.as_deref()
+    }
+
+    pub(crate) fn draft_mut(&mut self) -> Option<&mut super::create::LibraryCreateModalState> {
+        self.return_to_create.as_deref_mut()
+    }
+
+    /// Replace the checked list from a draft fold. The opposite side
+    /// never changes on this picker's own toggles.
+    pub(crate) fn set_checked(&mut self, checked: Vec<String>) {
+        self.checked = checked;
+    }
+
+    pub(crate) const fn side(&self) -> AppFilterSide {
+        self.side
+    }
+
+    pub(crate) fn set_error(&mut self, error: String) {
+        self.error = Some(error);
+    }
+
+    pub(crate) fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    pub(crate) fn checked(&self) -> &[String] {
+        &self.checked
+    }
+
+    pub(crate) fn foreground(&self) -> &[ForegroundApp] {
+        &self.foreground
+    }
+
+    pub(crate) const fn cursor(&self) -> usize {
+        self.cursor
+    }
+
+    /// Pane split for a body width, following live drags.
+    pub(crate) fn panes(&self, body_width: u16) -> (u16, u16, u16, u16) {
+        app_filter_panes_split(body_width, self.split)
+    }
+
+    pub(crate) const fn divider_drag(&self) -> bool {
+        self.divider_drag
+    }
+
+    pub(crate) fn set_divider_drag(&mut self, drag: bool) {
+        self.divider_drag = drag;
+    }
+
+    /// Resize from a drag column: fraction of the inner width clamped
+    /// so both panes stay usable.
+    pub(crate) fn set_split(&mut self, body_x: u16, body_width: u16, column: u16) {
+        let span = body_width.saturating_sub(1).max(1) as f32;
+        self.split = ((column.saturating_sub(body_x)) as f32 / span).clamp(0.2, 0.85);
+    }
+
+    /// Render/hit line budget refresh. Keyboard moves fall back to
+    /// this when no fresher geometry has arrived.
+    pub(crate) fn set_view_lines(&mut self, body_height: u16) {
+        self.view_lines = body_height.saturating_sub(APP_FILTER_RESERVED_LINES).max(1);
+    }
+
+    pub(crate) fn search(&self) -> &TextField {
+        &self.search
+    }
+
+    pub(crate) fn search_mut(&mut self) -> &mut TextField {
+        &mut self.search
+    }
+
+    /// Foreground indices passing the search query (exe, title, or
+    /// class, case-insensitive); empty query passes everything.
+    pub(crate) fn matching_indices(&self) -> Vec<usize> {
+        let query = self.search.text().trim().to_lowercase();
+        if query.is_empty() {
+            return (0..self.foreground.len()).collect();
+        }
+        self.foreground
+            .iter()
+            .enumerate()
+            .filter(|(_, app)| {
+                app.exe.to_lowercase().contains(&query)
+                    || app.title.to_lowercase().contains(&query)
+                    || app.class.to_lowercase().contains(&query)
+            })
+            .map(|(index, _)| index)
+            .collect()
+    }
+
+    /// Flat pickable rows: stored filters, then matching foreground
+    /// apps. Foreground rows carry full-list indices.
+    pub(crate) fn rows(&self) -> Vec<FilterRow> {
+        let matching = self.matching_indices();
+        let mut rows = Vec::with_capacity(self.checked.len() + matching.len());
+        for index in 0..self.checked.len() {
+            rows.push(FilterRow::Checked(index));
+        }
+        for index in matching {
+            rows.push(FilterRow::Foreground(index));
+        }
+        rows
+    }
+
+    /// `exe:` candidate for a foreground row.
+    pub(crate) fn candidate(&self, index: usize) -> Option<String> {
+        self.foreground
+            .get(index)
+            .map(|app| format!("exe:{}", app.exe))
+    }
+
+    /// True when the foreground row also sits on the opposite list:
+    /// rendered dimmed and strictly unclickable.
+    pub(crate) fn is_gray(&self, index: usize) -> bool {
+        self.candidate(index)
+            .is_some_and(|candidate| self.opposite_keys.contains(&gray_key(&candidate)))
+    }
+
+    /// Laid-out rows for a `max_lines` body: visible rows with
+    /// window-relative y. Rendering and hit-testing share this.
+    pub(crate) fn layout(&self, max_lines: u16) -> Vec<(FilterRow, u16)> {
+        let mut laid = Vec::new();
+        let mut rel = 0u16;
+        for (index, row) in self.rows().iter().enumerate() {
+            if index < self.scroll {
+                continue;
+            }
+            let height = row.height();
+            if rel.saturating_add(height) > max_lines {
+                break;
+            }
+            laid.push((*row, rel));
+            rel = rel.saturating_add(height);
+        }
+        laid
+    }
+
+    /// Window-relative line of the search box: exactly one blank
+    /// line below the visible rows, landing on the bottom row when
+    /// the list fills the window. Rendering and hit-testing share this.
+    pub(crate) fn search_rel(&self, max_lines: u16) -> u16 {
+        let used = self
+            .layout(max_lines)
+            .into_iter()
+            .map(|(row, y)| y.saturating_add(row.height()))
+            .max()
+            .unwrap_or(0);
+        used.saturating_add(1).min(max_lines.saturating_add(1))
+    }
+
+    /// Used content lines under the current filter: laid-out rows
+    /// end, at least one (the empty message owns a row). Sizing the
+    /// popup off this leaves no dead space under the search box.
+    pub(crate) fn content_lines(&self) -> u16 {
+        self.layout(APP_FILTER_MAX_LINES)
+            .into_iter()
+            .map(|(row, y)| y.saturating_add(row.height()))
+            .max()
+            .unwrap_or(0)
+            .max(1)
+    }
+
+    /// Row under a window-relative line, if any.
+    pub(crate) fn row_at(&self, max_lines: u16, rel_y: u16) -> Option<FilterRow> {
+        self.layout(max_lines)
+            .into_iter()
+            .find(|(row, y)| rel_y >= *y && rel_y < y.saturating_add(row.height()))
+            .map(|(row, _)| row)
+    }
+
+    fn ensure_visible(&mut self, max_lines: u16) {
+        let rows = self.rows();
+        if rows.is_empty() {
+            self.scroll = 0;
+            return;
+        }
+        self.cursor = self.cursor.min(rows.len().saturating_sub(1));
+        if self.cursor < self.scroll {
+            self.scroll = self.cursor;
+            return;
+        }
+        // honey: line offsets, not row counts, so two-line
+        // foreground rows never strand the cursor below the window.
+        let mut lines = 0u16;
+        for row in &rows[self.scroll..=self.cursor] {
+            lines = lines.saturating_add(row.height());
+        }
+        while lines > max_lines && self.scroll < self.cursor {
+            lines = lines.saturating_sub(rows[self.scroll].height());
+            self.scroll = self.scroll.saturating_add(1);
+        }
+    }
+
+    /// Arrow-key cursor; gray rows are skipped, never landed on.
+    pub(crate) fn move_cursor(&mut self, delta: i32) {
+        let max_lines = self.view_lines;
+        let rows = self.rows();
+        if rows.is_empty() {
+            return;
+        }
+        let mut next = self.cursor as i32;
+        for _ in 0..rows.len() {
+            next = (next + delta).rem_euclid(rows.len() as i32);
+            let gray =
+                matches!(rows[next as usize], FilterRow::Foreground(index) if self.is_gray(index));
+            if !gray {
+                break;
+            }
+        }
+        self.cursor = next as usize;
+        self.ensure_visible(max_lines);
+    }
+
+    /// Enter toggles the focused row: checked removes, foreground
+    /// adds. Gray rows are unreachable (skipped by the cursor).
+    pub(crate) fn toggle_focused(&self) -> Option<PendingLibraryEdit> {
+        match self.rows().get(self.cursor)? {
+            FilterRow::Checked(index) => {
+                let mut apps = self.checked.clone();
+                apps.remove(*index);
+                Some(self.pending(apps))
+            }
+            FilterRow::Foreground(index) => {
+                if self.is_gray(*index) {
+                    return None;
+                }
+                let mut apps = self.checked.clone();
+                apps.push(self.candidate(*index)?);
+                Some(self.pending(apps))
+            }
+        }
+    }
+
+    /// Delete removes the focused checked row, if any.
+    pub(crate) fn remove_focused(&self) -> Option<PendingLibraryEdit> {
+        match self.rows().get(self.cursor)? {
+            FilterRow::Checked(index) => self.remove_at(*index),
+            _ => None,
+        }
+    }
+
+    /// Remove one stored filter by index, returning the full new list.
+    pub(crate) fn remove_at(&self, index: usize) -> Option<PendingLibraryEdit> {
+        if index >= self.checked.len() {
+            return None;
+        }
+        let mut apps = self.checked.clone();
+        apps.remove(index);
+        Some(self.pending(apps))
+    }
+
+    /// Focus a row directly; gray rows refuse.
+    pub(crate) fn set_cursor(&mut self, row: FilterRow) {
+        let max_lines = self.view_lines;
+        if matches!(row, FilterRow::Foreground(index) if self.is_gray(index)) {
+            return;
+        }
+        if let Some(position) = self.rows().iter().position(|candidate| *candidate == row) {
+            self.cursor = position;
+            self.ensure_visible(max_lines);
+        }
+    }
+
+    fn pending(&self, apps: Vec<String>) -> PendingLibraryEdit {
+        PendingLibraryEdit {
+            trigger_id: self.trigger_id.clone(),
+            trigger: String::new(),
+            field: self.side.field(apps),
+            restore_index: self.restore_index,
+        }
+    }
+
+    /// Re-filter after a search keystroke: restart at the top.
+    pub(crate) fn refilter(&mut self) {
+        self.scroll = 0;
+        self.cursor = self.cursor.min(self.rows().len().saturating_sub(1));
+        self.error = None;
+    }
+
+    /// Re-seed from refreshed rows after a live write; the cursor
+    /// clamps into range.
+    pub(crate) fn reseed(&mut self, checked: Vec<String>, opposite: Vec<String>) {
+        self.checked = checked;
+        self.opposite_keys = opposite.iter().map(|item| gray_key(item)).collect();
+        self.scroll = 0;
+        self.cursor = self.cursor.min(self.rows().len().saturating_sub(1));
+    }
+}

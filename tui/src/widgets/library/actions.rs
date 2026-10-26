@@ -1,24 +1,18 @@
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
 use zeroize::Zeroize;
 
 use taurine_core::db::crud::{
-    ActionType, ExistingTriggerUpdate, NewTrigger, TriggerListItem, TriggerRow, create_trigger,
-    delete_trigger, update_existing_trigger,
+    ActionType, InvocationType, NewEntry, TriggerListItem, TriggerType, create_entry,
+    delete_trigger,
 };
-use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter, decompress};
+use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 use taurine_core::exchange::{
     ExchangePayload, ImportConflictAction, decode_exchange_blob, encode_exchange_blob,
     export_triggers, import_payload_transactionally, payload_contains_run_variables,
     resolve_export_path,
 };
 
-use crate::widgets::library::state::{
-    LibraryImportModalState, LibraryKind, LibraryMetadataRow, LibraryTrigger,
-};
-
-pub(crate) const DEFAULT_SCRIPT_FALLBACK: &str = "Script content unavailable.";
-const DEFAULT_OUTPUT_FALLBACK: &str = "No output available.";
+use crate::widgets::library::state::{LibraryImportModalState, LibraryTrigger};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LibraryImportConflictMode {
@@ -51,102 +45,6 @@ pub enum RememberedConflictChoice {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum PendingLibrarySaveMode {
-    Update {
-        id: String,
-        name: String,
-        description: Option<String>,
-        tags_json: String,
-        usage_count: i64,
-        last_used_at: Option<i64>,
-        interpreter: Option<ScriptInterpreter>,
-        behavior: Option<ScriptBehavior>,
-    },
-    Create,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct PendingLibrarySave {
-    pub(crate) mode: PendingLibrarySaveMode,
-    pub(crate) trigger: String,
-    pub(crate) content: String,
-    pub(crate) kind: LibraryKind,
-    pub(crate) target_os: String,
-    pub(crate) interpreter: Option<ScriptInterpreter>,
-    pub(crate) behavior: Option<ScriptBehavior>,
-}
-
-impl PendingLibrarySave {
-    #[cfg(test)]
-    pub(crate) const fn mode(&self) -> &PendingLibrarySaveMode {
-        &self.mode
-    }
-
-    pub(crate) fn apply(&self) -> taurine_core::Result<String> {
-        let mut conn = taurine_core::db::init::setup()?;
-
-        let trigger_id = match &self.mode {
-            PendingLibrarySaveMode::Update {
-                id,
-                name,
-                description,
-                tags_json,
-                usage_count,
-                last_used_at,
-                interpreter,
-                behavior,
-            } => {
-                let existing_auto_case: bool = conn
-                    .query_row("SELECT auto_case FROM triggers WHERE id = ?1", [id], |r| {
-                        r.get(0)
-                    })
-                    .unwrap_or(false);
-
-                update_existing_trigger(
-                    &mut conn,
-                    ExistingTriggerUpdate {
-                        id,
-                        name,
-                        description: description.as_deref(),
-                        trigger_type: self.kind.trigger_type(),
-                        trigger: &self.trigger,
-                        content: &self.content,
-                        action_type: self.kind.action_type(),
-                        target_os: &self.target_os,
-                        tags_json,
-                        auto_case: existing_auto_case,
-                        usage_count: *usage_count,
-                        last_used_at: *last_used_at,
-                        interpreter: self.interpreter.or(*interpreter),
-                        behavior: self.behavior.or(*behavior),
-                    },
-                )?;
-                id.clone()
-            }
-            PendingLibrarySaveMode::Create => create_trigger(
-                &mut conn,
-                NewTrigger {
-                    name: None,
-                    description: None,
-                    trigger_type: self.kind.trigger_type(),
-                    trigger: &self.trigger,
-                    content: &self.content,
-                    action_type: self.kind.action_type(),
-                    target_os: &self.target_os,
-                    tags_json: "[]",
-                    auto_case: false,
-                    interpreter: self.interpreter,
-                    behavior: self.behavior.or(Some(ScriptBehavior::Inline)),
-                },
-            )?,
-        };
-
-        taurine_core::rpc::notify_daemon_reload();
-        Ok(trigger_id)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PendingLibraryDelete {
     pub(crate) trigger_id: String,
     pub(crate) restore_index: usize,
@@ -165,6 +63,258 @@ impl PendingLibraryDelete {
             ));
         }
         taurine_core::rpc::notify_daemon_reload();
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PendingLibraryCreate {
+    pub(crate) trigger: String,
+    pub(crate) trigger_type: TriggerType,
+    pub(crate) description: Option<String>,
+    pub(crate) content: String,
+    pub(crate) action_type: String,
+    pub(crate) target_os: String,
+    pub(crate) tags: Vec<String>,
+    pub(crate) allow_apps: Vec<String>,
+    pub(crate) block_apps: Vec<String>,
+    pub(crate) auto_case: bool,
+    pub(crate) interpreter: Option<ScriptInterpreter>,
+    pub(crate) behavior: Option<ScriptBehavior>,
+}
+
+impl PendingLibraryCreate {
+    fn invocation_type(&self) -> InvocationType {
+        match self.trigger_type {
+            TriggerType::Word => InvocationType::Word,
+            TriggerType::Hotkey => InvocationType::Hotkey,
+            TriggerType::Regex => InvocationType::Regex,
+        }
+    }
+
+    fn join_filters(items: &[String]) -> Option<String> {
+        (!items.is_empty()).then(|| join_app_filters(items))
+    }
+
+    /// Insert the draft as a new entry, returning its id so the page
+    /// can select the new row. Conflict and validation failures
+    /// surface with the modal still open.
+    pub(crate) fn apply(&self) -> taurine_core::Result<String> {
+        let conn = taurine_core::db::init::setup()?;
+        let tags_json = serde_json::to_string(&self.tags).map_err(|error| {
+            taurine_core::Error::Config(format!("Tags could not be encoded: {error}"))
+        })?;
+        let (id, _) = create_entry(
+            &conn,
+            NewEntry {
+                description: self.description.clone(),
+                content: self.content.clone(),
+                action_type: self.action_type.clone(),
+                target_os: self.target_os.clone(),
+                only_apps: Self::join_filters(&self.allow_apps),
+                except_apps: Self::join_filters(&self.block_apps),
+                tags_json,
+                auto_case: self.auto_case,
+                interpreter: self.interpreter,
+                behavior: self.behavior,
+                invocations: vec![(self.invocation_type(), self.trigger.clone(), false)],
+            },
+        )?;
+        taurine_core::rpc::notify_daemon_reload();
+        Ok(id)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PendingLibraryToggle {
+    pub(crate) trigger_id: String,
+    pub(crate) enabled: bool,
+    pub(crate) restore_index: usize,
+}
+
+impl PendingLibraryToggle {
+    pub(crate) fn apply(&self) -> taurine_core::Result<()> {
+        let conn = taurine_core::db::init::setup()?;
+        taurine_core::db::crud::set_trigger_enabled(&conn, &self.trigger_id, self.enabled)?;
+        taurine_core::rpc::notify_daemon_reload();
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum EditedField {
+    Trigger(String),
+    Description(Option<String>),
+    Content(String),
+    InvocationType(InvocationType),
+    ActionType(ActionType),
+    Interpreter(ScriptInterpreter),
+    Behavior(ScriptBehavior),
+    AutoCase(bool),
+    RequireConfirmation(bool),
+    TargetOs(String),
+    Tags(Vec<String>),
+    OnlyApps(Vec<String>),
+    ExceptApps(Vec<String>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PendingLibraryEdit {
+    pub(crate) trigger_id: String,
+    pub(crate) trigger: String,
+    pub(crate) field: EditedField,
+    pub(crate) restore_index: usize,
+}
+
+/// Join stored filter items for the database, escaping literal
+/// commas the same way the CLI split understands them.
+pub(crate) fn join_app_filters(items: &[String]) -> String {
+    items
+        .iter()
+        .map(|item| item.replace(',', "\\,"))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+#[cfg(test)]
+thread_local! {
+    static MOCK_CLIPBOARD: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Test-only clipboard stand-in; the default suite never touches the host.
+#[cfg(test)]
+pub(crate) fn set_mock_clipboard(text: Option<String>) {
+    MOCK_CLIPBOARD.with(|slot| *slot.borrow_mut() = text);
+}
+
+/// Read the system clipboard. Unit tests read the mock above, so
+/// copy/paste wiring stays hermetic; prod reads the host clipboard
+/// through core like the daemon listener.
+#[cfg(test)]
+pub(crate) fn read_clipboard() -> Option<String> {
+    MOCK_CLIPBOARD.with(|slot| slot.borrow().clone())
+}
+
+/// Read the system clipboard through core like the daemon listener.
+#[cfg(not(test))]
+pub(crate) fn read_clipboard() -> Option<String> {
+    taurine_core::engine::variables::system::clipboard::resolve("")
+}
+
+/// Write the system clipboard (mocked in unit tests, see above).
+#[cfg(test)]
+pub(crate) fn write_clipboard(text: &str) {
+    MOCK_CLIPBOARD.with(|slot| *slot.borrow_mut() = Some(text.to_string()));
+}
+
+/// Write the system clipboard through core like the daemon listener.
+#[cfg(not(test))]
+pub(crate) fn write_clipboard(text: &str) {
+    taurine_core::engine::variables::system::clipboard::store(text);
+}
+
+impl PendingLibraryEdit {
+    /// Renaming an invocation changes what the expander matches, so the
+    /// daemon reloads. Descriptions never reach the expander, so no
+    /// daemon reload. Content changes reload so expansion picks them up.
+    pub(crate) fn apply(&self) -> taurine_core::Result<()> {
+        let conn = taurine_core::db::init::setup()?;
+        match &self.field {
+            EditedField::Trigger(trigger) => {
+                taurine_core::db::crud::rename_alias_invocation(
+                    &conn,
+                    &self.trigger_id,
+                    &self.trigger,
+                    trigger,
+                )?;
+                taurine_core::rpc::notify_daemon_reload();
+            }
+            EditedField::Description(description) => {
+                taurine_core::db::crud::set_trigger_description(
+                    &conn,
+                    &self.trigger_id,
+                    description.as_deref(),
+                )?;
+            }
+            EditedField::Content(body) => {
+                taurine_core::db::crud::set_trigger_content(&conn, &self.trigger_id, body)?;
+                taurine_core::rpc::notify_daemon_reload();
+            }
+            // honey: invocation, action type, language, and behavior all
+            // change what the expander matches or runs, so the daemon
+            // reloads.
+            EditedField::InvocationType(invocation_type) => {
+                taurine_core::db::crud::set_alias_invocation_type(
+                    &conn,
+                    &self.trigger_id,
+                    &self.trigger,
+                    *invocation_type,
+                )?;
+                taurine_core::rpc::notify_daemon_reload();
+            }
+            EditedField::ActionType(action_type) => {
+                taurine_core::db::crud::set_trigger_action_type(
+                    &conn,
+                    &self.trigger_id,
+                    *action_type,
+                )?;
+                taurine_core::rpc::notify_daemon_reload();
+            }
+            EditedField::Interpreter(interpreter) => {
+                taurine_core::db::crud::set_script_interpreter(
+                    &conn,
+                    &self.trigger_id,
+                    *interpreter,
+                )?;
+                taurine_core::rpc::notify_daemon_reload();
+            }
+            EditedField::Behavior(behavior) => {
+                taurine_core::db::crud::set_script_behavior(&conn, &self.trigger_id, *behavior)?;
+                taurine_core::rpc::notify_daemon_reload();
+            }
+            EditedField::AutoCase(auto_case) => {
+                taurine_core::db::crud::set_trigger_auto_case(&conn, &self.trigger_id, *auto_case)?;
+                taurine_core::rpc::notify_daemon_reload();
+            }
+            // honey: confirmation gates voice expansion like auto-case
+            // gates text, so the daemon reloads too.
+            EditedField::RequireConfirmation(confirm) => {
+                taurine_core::db::crud::set_alias_require_confirmation(
+                    &conn,
+                    &self.trigger_id,
+                    &self.trigger,
+                    *confirm,
+                )?;
+                taurine_core::rpc::notify_daemon_reload();
+            }
+            EditedField::TargetOs(target_os) => {
+                taurine_core::db::crud::set_trigger_target_os(&conn, &self.trigger_id, target_os)?;
+                taurine_core::rpc::notify_daemon_reload();
+            }
+            // honey: tags never reach the expander, so no daemon reload.
+            EditedField::Tags(tags) => {
+                taurine_core::db::crud::set_trigger_tags(&conn, &self.trigger_id, tags)?;
+            }
+            // honey: app filters gate expansion, so the daemon reloads.
+            EditedField::OnlyApps(apps) => {
+                let value = (!apps.is_empty()).then(|| join_app_filters(apps));
+                taurine_core::db::crud::set_trigger_only_apps(
+                    &conn,
+                    &self.trigger_id,
+                    value.as_deref(),
+                )?;
+                taurine_core::rpc::notify_daemon_reload();
+            }
+            EditedField::ExceptApps(apps) => {
+                let value = (!apps.is_empty()).then(|| join_app_filters(apps));
+                taurine_core::db::crud::set_trigger_except_apps(
+                    &conn,
+                    &self.trigger_id,
+                    value.as_deref(),
+                )?;
+                taurine_core::rpc::notify_daemon_reload();
+            }
+        }
         Ok(())
     }
 }
@@ -288,17 +438,12 @@ impl PreparedLibraryImport {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum LibraryOpenRequest {
-    Selected(String),
-    Create,
-}
-
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct LibraryInteraction {
-    open_request: Option<LibraryOpenRequest>,
-    pending_save: Option<PendingLibrarySave>,
     pending_delete: Option<PendingLibraryDelete>,
+    pending_create: Option<PendingLibraryCreate>,
+    pending_toggle: Option<PendingLibraryToggle>,
+    pending_edit: Option<PendingLibraryEdit>,
     pending_export: Option<PendingLibraryExport>,
     pending_import_prepare: Option<PendingLibraryImportPrepare>,
     pending_import_commit: Option<PreparedLibraryImport>,
@@ -306,16 +451,20 @@ pub(crate) struct LibraryInteraction {
 }
 
 impl LibraryInteraction {
-    pub(crate) fn into_open_request(self) -> Option<LibraryOpenRequest> {
-        self.open_request
-    }
-
-    pub(crate) const fn pending_save(&self) -> Option<&PendingLibrarySave> {
-        self.pending_save.as_ref()
-    }
-
     pub(crate) const fn pending_delete(&self) -> Option<&PendingLibraryDelete> {
         self.pending_delete.as_ref()
+    }
+
+    pub(crate) const fn pending_create(&self) -> Option<&PendingLibraryCreate> {
+        self.pending_create.as_ref()
+    }
+
+    pub(crate) const fn pending_toggle(&self) -> Option<&PendingLibraryToggle> {
+        self.pending_toggle.as_ref()
+    }
+
+    pub(crate) const fn pending_edit(&self) -> Option<&PendingLibraryEdit> {
+        self.pending_edit.as_ref()
     }
 
     pub(crate) const fn pending_export(&self) -> Option<&PendingLibraryExport> {
@@ -338,47 +487,54 @@ impl LibraryInteraction {
         Self::default()
     }
 
-    pub(crate) fn open_selected(id: String) -> Self {
-        Self {
-            open_request: Some(LibraryOpenRequest::Selected(id)),
-            pending_save: None,
-            pending_delete: None,
-            pending_export: None,
-            pending_import_prepare: None,
-            pending_import_commit: None,
-            close_modal: false,
-        }
-    }
-
-    pub(crate) fn open_create() -> Self {
-        Self {
-            open_request: Some(LibraryOpenRequest::Create),
-            pending_save: None,
-            pending_delete: None,
-            pending_export: None,
-            pending_import_prepare: None,
-            pending_import_commit: None,
-            close_modal: false,
-        }
-    }
-
-    pub(crate) fn save(pending_save: PendingLibrarySave) -> Self {
-        Self {
-            open_request: None,
-            pending_save: Some(pending_save),
-            pending_delete: None,
-            pending_export: None,
-            pending_import_prepare: None,
-            pending_import_commit: None,
-            close_modal: false,
-        }
-    }
-
     pub(crate) fn delete(pending_delete: PendingLibraryDelete) -> Self {
         Self {
-            open_request: None,
-            pending_save: None,
             pending_delete: Some(pending_delete),
+            pending_create: None,
+            pending_toggle: None,
+            pending_edit: None,
+            pending_export: None,
+            pending_import_prepare: None,
+            pending_import_commit: None,
+            close_modal: false,
+        }
+    }
+
+    // honey: the submit UI is temporarily buttonless; keep the
+    // constructor ready for the replacement affordance.
+    #[allow(dead_code)]
+    pub(crate) fn create(pending_create: PendingLibraryCreate) -> Self {
+        Self {
+            pending_delete: None,
+            pending_create: Some(pending_create),
+            pending_toggle: None,
+            pending_edit: None,
+            pending_export: None,
+            pending_import_prepare: None,
+            pending_import_commit: None,
+            close_modal: false,
+        }
+    }
+
+    pub(crate) fn toggle(pending_toggle: PendingLibraryToggle) -> Self {
+        Self {
+            pending_delete: None,
+            pending_create: None,
+            pending_toggle: Some(pending_toggle),
+            pending_edit: None,
+            pending_export: None,
+            pending_import_prepare: None,
+            pending_import_commit: None,
+            close_modal: false,
+        }
+    }
+
+    pub(crate) fn edit(pending_edit: PendingLibraryEdit) -> Self {
+        Self {
+            pending_delete: None,
+            pending_create: None,
+            pending_toggle: None,
+            pending_edit: Some(pending_edit),
             pending_export: None,
             pending_import_prepare: None,
             pending_import_commit: None,
@@ -388,9 +544,10 @@ impl LibraryInteraction {
 
     pub(crate) fn export(pending_export: PendingLibraryExport) -> Self {
         Self {
-            open_request: None,
-            pending_save: None,
             pending_delete: None,
+            pending_create: None,
+            pending_toggle: None,
+            pending_edit: None,
             pending_export: Some(pending_export),
             pending_import_prepare: None,
             pending_import_commit: None,
@@ -400,9 +557,10 @@ impl LibraryInteraction {
 
     pub(crate) fn prepare_import(pending_import_prepare: PendingLibraryImportPrepare) -> Self {
         Self {
-            open_request: None,
-            pending_save: None,
             pending_delete: None,
+            pending_create: None,
+            pending_toggle: None,
+            pending_edit: None,
             pending_export: None,
             pending_import_prepare: Some(pending_import_prepare),
             pending_import_commit: None,
@@ -412,9 +570,10 @@ impl LibraryInteraction {
 
     pub(crate) fn import(prepared: PreparedLibraryImport) -> Self {
         Self {
-            open_request: None,
-            pending_save: None,
             pending_delete: None,
+            pending_create: None,
+            pending_toggle: None,
+            pending_edit: None,
             pending_export: None,
             pending_import_prepare: None,
             pending_import_commit: Some(prepared),
@@ -424,9 +583,10 @@ impl LibraryInteraction {
 
     pub(crate) fn close() -> Self {
         Self {
-            open_request: None,
-            pending_save: None,
             pending_delete: None,
+            pending_create: None,
+            pending_toggle: None,
+            pending_edit: None,
             pending_export: None,
             pending_import_prepare: None,
             pending_import_commit: None,
@@ -448,61 +608,34 @@ pub(crate) fn sort_items(items: &mut [LibraryTrigger]) {
     });
 }
 
-pub(crate) fn char_index_to_byte_index(value: &str, char_index: usize) -> usize {
-    value
-        .char_indices()
-        .nth(char_index)
-        .map(|(byte_index, _)| byte_index)
-        .unwrap_or(value.len())
-}
+const SCRIPT_PREVIEW_FALLBACK: &str = "Script content unavailable.";
 
-pub(crate) fn split_lines_with_trailing(value: &str) -> Vec<&str> {
-    if value.is_empty() {
-        return vec![""];
-    }
-
-    value.split('\n').collect()
-}
-
-pub(crate) fn line_start_positions(value: &str) -> Vec<usize> {
-    let mut starts = vec![0];
-    let mut char_index = 0usize;
-    for ch in value.chars() {
-        char_index += 1;
-        if ch == '\n' {
-            starts.push(char_index);
+/// Full multi-line body for the detail content section: script source for
+/// scripts, raw output for text. Unlike `preview_from_item` (single-line,
+/// description-first for the list subtitle) this never returns the
+/// description.
+pub(crate) fn content_from_item(item: &TriggerListItem) -> String {
+    if ActionType::parse_str(&item.action_type) == Some(ActionType::Script) {
+        if let Some(script) = item.script_content.as_deref() {
+            let trimmed = script.trim();
+            if !trimmed.is_empty() {
+                return script.to_string();
+            }
         }
-    }
-    starts
-}
-
-pub(crate) fn line_lengths(value: &str) -> Vec<usize> {
-    split_lines_with_trailing(value)
-        .into_iter()
-        .map(|line| line.chars().count())
-        .collect()
-}
-
-pub(crate) fn line_col_for_char_index(value: &str, char_index: usize) -> (usize, usize) {
-    let starts = line_start_positions(value);
-    let lengths = line_lengths(value);
-    let safe_index = char_index.min(value.chars().count());
-
-    for (line_index, start) in starts.iter().enumerate().rev() {
-        if safe_index >= *start {
-            let column = safe_index.saturating_sub(*start).min(lengths[line_index]);
-            return (line_index, column);
+        if !item.output.trim().is_empty() {
+            return item.output.clone();
         }
+        return SCRIPT_PREVIEW_FALLBACK.to_string();
     }
-
-    (0, safe_index)
-}
-
-pub(crate) fn char_index_for_line_col(value: &str, line_index: usize, column: usize) -> usize {
-    let starts = line_start_positions(value);
-    let lengths = line_lengths(value);
-    let safe_line = line_index.min(starts.len().saturating_sub(1));
-    starts[safe_line] + column.min(lengths[safe_line])
+    if !item.output.trim().is_empty() {
+        return item.output.clone();
+    }
+    if let Some(script) = item.script_content.as_deref()
+        && !script.trim().is_empty()
+    {
+        return script.to_string();
+    }
+    "No preview available.".to_string()
 }
 
 pub(crate) fn preview_from_item(item: &TriggerListItem) -> String {
@@ -523,7 +656,7 @@ pub(crate) fn preview_from_item(item: &TriggerListItem) -> String {
             return output;
         }
 
-        return DEFAULT_SCRIPT_FALLBACK.to_string();
+        return SCRIPT_PREVIEW_FALLBACK.to_string();
     }
 
     if let Some(output) = normalized_preview_text(Some(item.output.as_str())) {
@@ -537,108 +670,19 @@ pub(crate) fn preview_from_item(item: &TriggerListItem) -> String {
     "No preview available.".to_string()
 }
 
-/// Entry display per CLI `list.rs` §0.11: `display (+N)` where N counts
-/// aliases beyond the display string (all aliases when display is a --name,
-/// else len - 1).
-pub(crate) fn entry_display(item: &TriggerListItem) -> String {
-    let extra = if item.name.is_empty() {
-        item.invocations.len().saturating_sub(1)
-    } else {
-        item.invocations.len()
-    };
-    if extra == 0 {
-        item.display.clone()
-    } else {
-        format!("{} (+{extra})", item.display)
-    }
-}
-
-/// Alias detail line per CLI `list.rs`: `type: invocation` with a
-/// ` (confirm)` suffix on confirming aliases.
-pub(crate) fn alias_line(
-    invocation_type: &str,
-    invocation: &str,
-    require_confirmation: bool,
-) -> String {
-    let mut line = format!("{invocation_type}: {invocation}");
-    if require_confirmation {
-        line.push_str(" (confirm)");
-    }
-    line
-}
-
-pub(crate) fn modal_content_from_row(
-    row: &TriggerRow,
-    kind: LibraryKind,
-) -> taurine_core::Result<String> {
-    if kind.is_script() {
-        if let Some(script_content) = load_script_content(row)? {
-            return Ok(script_content);
-        }
-
-        if let Some(output) = normalized_modal_text(Some(row.output.as_str()))
-            && !is_script_placeholder(&output)
-        {
-            return Ok(output);
-        }
-
-        return Ok(DEFAULT_SCRIPT_FALLBACK.to_string());
-    }
-
-    Ok(normalized_modal_text(Some(row.output.as_str()))
-        .unwrap_or_else(|| DEFAULT_OUTPUT_FALLBACK.to_string()))
-}
-
-pub(crate) fn build_metadata_rows(row: &TriggerRow) -> Vec<LibraryMetadataRow> {
-    let mut rows = Vec::new();
-
-    rows.push(LibraryMetadataRow::new(
-        "Uses",
-        format_usage_count(row.usage_count.max(0) as u64),
-    ));
-
-    if let Some(last_used_at) = row.last_used_at.and_then(format_relative_time) {
-        rows.push(LibraryMetadataRow::new("Last used", last_used_at));
-    }
-
-    if let Some(created_at) = format_relative_time(row.created_at) {
-        rows.push(LibraryMetadataRow::new("Created", created_at));
-    }
-
-    if let Some(updated_at) = format_relative_time(row.updated_at) {
-        rows.push(LibraryMetadataRow::new("Updated", updated_at));
-    }
-
-    for alias in &row.invocations {
-        rows.push(LibraryMetadataRow::new(
-            "Alias",
-            alias_line(
-                alias.invocation_type.as_db_str(),
-                &alias.invocation,
-                alias.require_confirmation,
-            ),
-        ));
-    }
-
-    rows
-}
-
-fn load_script_content(row: &TriggerRow) -> taurine_core::Result<Option<String>> {
-    row.script_binary
-        .as_deref()
-        .map(decompress)
-        .transpose()
-        .map(|content| content.and_then(|content| normalized_modal_text(Some(content.as_str()))))
+/// Alias detail line per CLI `list.rs`: `type: invocation`.
+pub(crate) fn alias_line(invocation_type: &str, invocation: &str) -> String {
+    format!("{invocation_type}: {invocation}")
 }
 
 pub(crate) fn build_search_text(
     item: &TriggerListItem,
     kind_label: &str,
     display_target_os: &str,
+    invocation: &str,
 ) -> String {
     let mut parts = vec![
-        item.name.as_str(),
-        item.display.as_str(),
+        invocation,
         item.output.as_str(),
         kind_label,
         display_target_os,
@@ -651,10 +695,6 @@ pub(crate) fn build_search_text(
 
     if let Some(script_content) = item.script_content.as_deref() {
         parts.push(script_content);
-    }
-
-    for alias in &item.invocations {
-        parts.push(alias.invocation.as_str());
     }
 
     parts
@@ -680,11 +720,6 @@ fn normalized_preview_text(value: Option<&str>) -> Option<String> {
     (!collapsed.is_empty()).then_some(collapsed)
 }
 
-pub(crate) fn normalized_modal_text(value: Option<&str>) -> Option<String> {
-    let value = value?.replace("\r\n", "\n");
-    (!value.is_empty()).then_some(value)
-}
-
 fn is_script_placeholder(value: &str) -> bool {
     let normalized = value.trim();
     (normalized.starts_with("[Script:") && normalized.ends_with(']'))
@@ -698,71 +733,5 @@ pub(crate) fn display_target_os(target_os: &str) -> &str {
         os.display_name()
     } else {
         target_os
-    }
-}
-
-pub(crate) const fn interpreter_label(interpreter: ScriptInterpreter) -> &'static str {
-    interpreter.as_str()
-}
-
-pub(crate) const fn behavior_label(behavior: ScriptBehavior) -> &'static str {
-    behavior.as_str()
-}
-
-pub(crate) fn default_script_interpreter_for_target_os(target_os: &str) -> ScriptInterpreter {
-    let os =
-        taurine_core::db::TargetOs::parse_str(target_os).unwrap_or(taurine_core::db::TargetOs::All);
-    ScriptInterpreter::default_for_target_os(os)
-}
-
-fn format_usage_count(value: u64) -> String {
-    let digits = value.to_string();
-    let mut formatted = String::with_capacity(digits.len() + digits.len() / 3);
-
-    for (index, ch) in digits.chars().rev().enumerate() {
-        if index > 0 && index % 3 == 0 {
-            formatted.push(',');
-        }
-        formatted.push(ch);
-    }
-
-    formatted.chars().rev().collect()
-}
-
-fn format_relative_time(timestamp: i64) -> Option<String> {
-    if timestamp <= 0 {
-        return None;
-    }
-
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .ok()
-        .map(|duration| duration.as_secs() as i64)?;
-    let diff = now.saturating_sub(timestamp);
-
-    if diff < 60 {
-        Some("just now".to_string())
-    } else {
-        let minutes = diff / 60;
-        if minutes < 60 {
-            return Some(format!("{minutes}m ago"));
-        }
-
-        let hours = minutes / 60;
-        if hours < 24 {
-            return Some(format!("{hours}h ago"));
-        }
-
-        let days = hours / 24;
-        if days < 30 {
-            return Some(format!("{days}d ago"));
-        }
-
-        let months = days / 30;
-        if months < 12 {
-            return Some(format!("{months}mo ago"));
-        }
-
-        Some(format!("{}y ago", days / 365))
     }
 }
