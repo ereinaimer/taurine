@@ -2,10 +2,12 @@ use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
+    text::Line,
     widgets::{Block, Paragraph},
 };
 
 use crate::theme::Theme;
+use crate::widgets::hotkey;
 use crate::widgets::library::icons::CHEVRON_DOWN;
 use crate::widgets::settings::state::{EditorKind, SettingKey, SettingKeyMeta};
 use crate::widgets::toggle::{ToggleAnimations, ToggleId, render_toggle, toggle_rect};
@@ -116,17 +118,29 @@ pub fn render_setting_row(
             width: sections[1].width,
             height: 1,
         };
-        let value = util::truncate_to_width(
-            &key.display_value(settings),
-            control_width.saturating_sub(2),
-        );
-        // The pill chevron flags a value that opens its own editor overlay.
-        frame.render_widget(
-            Paragraph::new(format!("{value} {CHEVRON_DOWN}"))
-                .alignment(Alignment::Right)
-                .style(value_style),
-            value_area,
-        );
+        if key.editor_kind() == EditorKind::HotkeyCapture {
+            render_hotkey_value(
+                frame,
+                theme,
+                key,
+                settings,
+                selected,
+                value_area,
+                value_style,
+            );
+        } else {
+            let value = util::truncate_to_width(
+                &key.display_value(settings),
+                control_width.saturating_sub(2),
+            );
+            // The pill chevron flags a value that opens its own editor overlay.
+            frame.render_widget(
+                Paragraph::new(format!("{value} {CHEVRON_DOWN}"))
+                    .alignment(Alignment::Right)
+                    .style(value_style),
+                value_area,
+            );
+        }
     }
 
     let description_style = Style::default().fg(theme.description);
@@ -138,7 +152,7 @@ pub fn render_setting_row(
         let description_area = Rect {
             x: content.x,
             y: content.y + 1 + index as u16,
-            width: content.width,
+            width: sections[0].width,
             height: 1,
         };
         frame.render_widget(
@@ -146,6 +160,42 @@ pub fn render_setting_row(
             description_area,
         );
     }
+}
+
+/// Hotkey values render as right-aligned keycap pills, like the
+/// command palette hints, instead of text plus the editor chevron.
+fn render_hotkey_value(
+    frame: &mut Frame,
+    theme: &Theme,
+    key: &SettingKey,
+    settings: &taurine_core::settings::Settings,
+    selected: bool,
+    area: Rect,
+    style: Style,
+) {
+    let chord = hotkey::display_chord(&key.display_value(settings));
+    let (keycap_bg, base_bg) = if selected {
+        (theme.keycap.on_surface, theme.surface)
+    } else {
+        (theme.keycap.bg, util::OVERLAY_BG)
+    };
+    let spans =
+        hotkey::render_hotkey_spans(&chord, area.width as usize, keycap_bg, theme.text, base_bg);
+    let width = hotkey::spans_width(&spans) as u16;
+    if width == 0 {
+        return;
+    }
+    frame.render_widget(
+        Paragraph::new(Line::from(spans))
+            .alignment(Alignment::Right)
+            .style(style),
+        Rect {
+            x: area.x.saturating_add(area.width.saturating_sub(width)),
+            y: area.y,
+            width,
+            height: 1,
+        },
+    );
 }
 
 /// Maximum wrapped description lines shown under a setting title.
@@ -302,12 +352,20 @@ mod tests {
     }
 
     #[test]
-    fn value_row_renders_without_brackets() {
+    fn hotkey_value_renders_as_keycaps_without_brackets() {
         let line = row_line(SettingKey::PauseHotkey);
-        let value =
-            SettingKey::PauseHotkey.display_value(&taurine_core::settings::Settings::default());
-        assert!(line.contains(&value));
+        assert!(line.contains(" Alt "), "{line:?}");
+        assert!(!line.contains(CHEVRON_DOWN), "{line:?}");
         assert!(!line.contains('['));
+    }
+
+    #[test]
+    fn voice_hotkey_uses_modifier_labels() {
+        let line = row_line(SettingKey::VoicePttHotkey);
+        assert!(line.contains(" Win "), "{line:?}");
+        assert!(line.contains(" Ctrl "), "{line:?}");
+        assert!(!line.contains("win+lctrl"), "{line:?}");
+        assert!(!line.contains(CHEVRON_DOWN), "{line:?}");
     }
 
     #[test]

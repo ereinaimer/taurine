@@ -97,9 +97,12 @@ fn compute_rows(list_area: Rect, state: &SettingsPageState) -> SettingsRows {
 fn row_shapes(width: u16, state: &SettingsPageState) -> (Vec<Vec<String>>, Vec<u16>, u16) {
     let all_keys = state.visible_keys();
     let control_width = control_column_width(state.settings(), width);
+    // honey: descriptions live in the label column only; wrapping at the
+    // full row width would let them run under the value field.
+    let description_width = width.saturating_sub(2).saturating_sub(control_width);
     let descriptions: Vec<Vec<String>> = all_keys
         .iter()
-        .map(|key| wrap_description_lines(key.description(), width.saturating_sub(2)))
+        .map(|key| wrap_description_lines(key.description(), description_width))
         .collect();
     // honey: each row is 1 pad + title + descriptions + 1 pad.
     let heights: Vec<u16> = descriptions
@@ -422,11 +425,18 @@ fn control_column_width(settings: &taurine_core::settings::Settings, area_width:
     use crate::widgets::settings::state::{SettingKey, SettingKeyMeta};
     let longest_value = SettingKey::ALL
         .iter()
-        .map(|key| key.display_value(settings).chars().count())
+        .map(|key| {
+            let value = key.display_value(settings);
+            if key.editor_kind() == EditorKind::HotkeyCapture {
+                crate::widgets::hotkey::display_width(&value) as u16 + 1
+            } else {
+                value.chars().count() as u16 + 4
+            }
+        })
         .max()
-        .unwrap_or(10) as u16;
+        .unwrap_or(10);
 
-    let desired = (longest_value + 4).min(28);
+    let desired = longest_value.min(30);
     let max_width = area_width.saturating_sub(8);
     if max_width >= 10 {
         desired.min(max_width).max(10)
@@ -438,6 +448,30 @@ fn control_column_width(settings: &taurine_core::settings::Settings, area_width:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn descriptions_wrap_within_the_label_column() {
+        let state = SettingsPageState::default();
+        let width = 60;
+        let (descriptions, heights, control_width) = row_shapes(width, &state);
+        let label_width = width.saturating_sub(2).saturating_sub(control_width) as usize;
+        assert!(label_width > 0);
+        for (key, lines) in state.visible_keys().iter().zip(&descriptions) {
+            for line in lines {
+                assert!(
+                    line.chars().count() <= label_width,
+                    "{key:?} overflowed: {line:?}"
+                );
+            }
+        }
+        assert!(
+            descriptions.iter().any(|lines| lines.len() > 1),
+            "expected at least one wrapped description"
+        );
+        for (lines, height) in descriptions.iter().zip(&heights) {
+            assert_eq!(*height, 3 + lines.len() as u16);
+        }
+    }
 
     #[test]
     fn variable_range_fits_all_when_tall_enough() {

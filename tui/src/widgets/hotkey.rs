@@ -22,6 +22,78 @@ pub(crate) fn is_hotkey_chord(text: &str) -> bool {
     parts.next().is_some_and(|key| !key.is_empty()) && MODIFIERS.contains(&modifier.as_str())
 }
 
+/// Friendly keycap label for one chord token. Modifiers collapse to the
+/// names used by the rest of the UI; letters and function keys
+/// capitalize; named keys use their familiar short spelling.
+pub(crate) fn display_label(key: &str) -> String {
+    let lower = key.trim().to_ascii_lowercase();
+    let named = match lower.as_str() {
+        "ctrl" | "control" | "lctrl" | "rctrl" => Some("Ctrl"),
+        "shift" | "lshift" | "rshift" => Some("Shift"),
+        "alt" | "option" | "lalt" | "ralt" => Some("Alt"),
+        "win" | "meta" | "super" | "cmd" | "command" | "lmeta" | "rmeta" | "lwin" | "rwin" => {
+            Some("Win")
+        }
+        "esc" => Some("Esc"),
+        "space" => Some("Space"),
+        "tab" => Some("Tab"),
+        "enter" => Some("Enter"),
+        "backspace" | "bksp" => Some("Bksp"),
+        "delete" | "del" => Some("Del"),
+        "insert" | "ins" => Some("Ins"),
+        "home" => Some("Home"),
+        "end" => Some("End"),
+        "pageup" | "pgup" => Some("PgUp"),
+        "pagedown" | "pgdn" => Some("PgDn"),
+        "up" => Some("Up"),
+        "down" => Some("Down"),
+        "left" => Some("Left"),
+        "right" => Some("Right"),
+        "capslock" | "caps" => Some("Caps"),
+        "menu" => Some("Menu"),
+        "printscreen" | "prtsc" => Some("PrtSc"),
+        "scrolllock" | "scrlk" => Some("ScrLk"),
+        "pause" => Some("Pause"),
+        _ => None,
+    };
+    if let Some(label) = named {
+        return label.to_string();
+    }
+    let trimmed = key.trim();
+    if trimmed.chars().count() == 1 {
+        return trimmed.to_ascii_uppercase();
+    }
+    let function_key = trimmed
+        .strip_prefix('f')
+        .or_else(|| trimmed.strip_prefix('F'))
+        .is_some_and(|digits| !digits.is_empty() && digits.chars().all(|ch| ch.is_ascii_digit()));
+    if function_key {
+        return trimmed.to_ascii_uppercase();
+    }
+    trimmed.to_string()
+}
+
+/// Chord rewritten with [`display_label`] names, for keycap editors
+/// outside the recorder/palette.
+pub(crate) fn display_chord(chord: &str) -> String {
+    labels(chord)
+        .into_iter()
+        .map(display_label)
+        .collect::<Vec<_>>()
+        .join("+")
+}
+
+/// Cell width of the pills [`render_hotkey_spans`] produces for
+/// `chord`, including the one-cell gaps between badges.
+pub(crate) fn display_width(chord: &str) -> usize {
+    let labels = labels(chord);
+    labels
+        .iter()
+        .map(|key| display_label(key).chars().count() + 2)
+        .sum::<usize>()
+        + labels.len().saturating_sub(1)
+}
+
 /// Key labels in a chord, trimmed and without empty segments.
 fn labels(hotkey: &str) -> Vec<&str> {
     hotkey
@@ -122,6 +194,19 @@ mod tests {
             .map(|span| span.content.trim())
             .collect();
         assert_eq!(keys, ["ctrl", "shift", "p"]);
+    }
+
+    #[test]
+    fn display_labels_collapse_modifiers_and_capitalize_keys() {
+        assert_eq!(display_label("lctrl"), "Ctrl");
+        assert_eq!(display_label("rshift"), "Shift");
+        assert_eq!(display_label("win"), "Win");
+        assert_eq!(display_label("lmeta"), "Win");
+        assert_eq!(display_label("f6"), "F6");
+        assert_eq!(display_label("a"), "A");
+        assert_eq!(display_label("`"), "`");
+        assert_eq!(display_chord("win+lctrl"), "Win+Ctrl");
+        assert_eq!(display_width("win+lctrl"), 12);
     }
 
     #[test]
