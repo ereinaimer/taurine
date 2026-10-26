@@ -283,12 +283,13 @@ pub(crate) fn render(
     theme: &Theme,
     state: &mut NavRailState,
     icons: Option<&RailIcons>,
+    dimmed: bool,
 ) {
     let layout = layout(area, state.collapsed);
     state.hitboxes = layout.buttons.clone();
     for (item, rect) in &layout.buttons {
         let icon = icons.map(|icons| icons.for_item(*item));
-        render_button(frame, theme, state, *item, *rect, icon);
+        render_button(frame, theme, state, *item, *rect, icon, dimmed);
     }
 
     if let Some(divider) = layout.divider {
@@ -312,6 +313,7 @@ fn render_button(
     item: NavRailItem,
     rect: Rect,
     variants: Option<&IconVariants>,
+    dimmed: bool,
 ) {
     let active = matches!(
         (state.active_page, item),
@@ -333,12 +335,13 @@ fn render_button(
         // honey: the artwork is centered in a transparent, double-sized
         // canvas at load time, so the full 4x2 button area keeps the
         // icon's aspect while showing it at half size.
+        let set = variants.select(dimmed);
         let protocol = if active {
-            &variants.active
+            &set.active
         } else if hovered {
-            &variants.bright
+            &set.bright
         } else {
-            &variants.idle
+            &set.idle
         };
         frame.render_widget(Image::new(protocol).allow_clipping(true), rect);
         return;
@@ -385,14 +388,18 @@ mod tests {
     }
 
     fn draw(state: &mut NavRailState) -> Terminal<TestBackend> {
-        draw_with(state, None)
+        draw_with(state, None, false)
     }
 
-    fn draw_with(state: &mut NavRailState, icons: Option<&RailIcons>) -> Terminal<TestBackend> {
+    fn draw_with(
+        state: &mut NavRailState,
+        icons: Option<&RailIcons>,
+        dimmed: bool,
+    ) -> Terminal<TestBackend> {
         let mut terminal =
             Terminal::new(TestBackend::new(AREA.width, AREA.height)).expect("test terminal");
         terminal
-            .draw(|frame| render(frame, AREA, &DARK_THEME, state, icons))
+            .draw(|frame| render(frame, AREA, &DARK_THEME, state, icons, dimmed))
             .expect("test draw");
         terminal
     }
@@ -549,7 +556,7 @@ mod tests {
 
         let icons = RailIcons::load(&Picker::halfblocks(), &DARK_THEME).expect("icons load");
         let mut state = NavRailState::default();
-        let terminal = draw_with(&mut state, Some(&icons));
+        let terminal = draw_with(&mut state, Some(&icons), false);
         for x in [0, 5] {
             assert_eq!(
                 bg_at(&terminal, x, 5),
@@ -565,7 +572,7 @@ mod tests {
 
         let icons = RailIcons::load(&Picker::halfblocks(), &DARK_THEME).expect("icons load");
         let mut state = NavRailState::default();
-        let terminal = draw_with(&mut state, Some(&icons));
+        let terminal = draw_with(&mut state, Some(&icons), false);
         for (item, glyph, y) in [
             (NavRailItem::Home, '\u{f015}', 2u16),
             (NavRailItem::Library, '\u{f00bb}', 5),
@@ -594,7 +601,7 @@ mod tests {
         picker.set_protocol_type(ProtocolType::Sixel);
         let icons = RailIcons::load(&picker, &DARK_THEME).expect("icons");
         let mut state = NavRailState::default();
-        let terminal = draw_with(&mut state, Some(&icons));
+        let terminal = draw_with(&mut state, Some(&icons), false);
         for (item, y) in [
             (NavRailItem::Home, 2u16),
             (NavRailItem::Library, 5),
@@ -607,6 +614,44 @@ mod tests {
                 "{item:?} image missing"
             );
         }
+    }
+
+    #[test]
+    fn dimmed_graphics_swap_in_the_prebaked_scrim_variants() {
+        use ratatui_image::picker::{Picker, ProtocolType};
+
+        let mut picker = Picker::halfblocks();
+        picker.set_protocol_type(ProtocolType::Sixel);
+        let icons = RailIcons::load(&picker, &DARK_THEME).expect("icons");
+        assert!(icons.home.dimmed.is_some(), "graphics need a scrim set");
+
+        let library_payload = |dimmed: bool| {
+            let mut state = NavRailState::default();
+            let terminal = draw_with(&mut state, Some(&icons), dimmed);
+            terminal.backend().buffer().content[(5 * AREA.width + 1) as usize]
+                .symbol()
+                .to_string()
+        };
+        assert_ne!(
+            library_payload(false),
+            library_payload(true),
+            "dimmed graphics must paint different pixels"
+        );
+    }
+
+    #[test]
+    fn dimmed_halfblocks_keep_the_same_cells() {
+        use ratatui_image::picker::Picker;
+
+        let icons = RailIcons::load(&Picker::halfblocks(), &DARK_THEME).expect("icons load");
+        assert!(icons.home.dimmed.is_none(), "halfblocks dim as cells");
+
+        let content = |dimmed: bool| {
+            let mut state = NavRailState::default();
+            let terminal = draw_with(&mut state, Some(&icons), dimmed);
+            terminal.backend().buffer().content.clone()
+        };
+        assert_eq!(content(false), content(true));
     }
 
     #[test]

@@ -19,6 +19,7 @@ use ratatui_image::protocol::Protocol;
 use ratatui_image::{FontSize, Resize};
 
 use super::NavRailItem;
+use crate::overlay_fx::OVERLAY_SCRIM_FACTOR;
 use crate::theme::Theme;
 
 /// Muted variant factor, matching the theme's muted text on white.
@@ -35,13 +36,37 @@ pub(crate) struct RailIcons {
     pub(crate) settings: IconVariants,
 }
 
-/// Muted, bright, and active protocols. Idle and bright keep the rail
-/// background transparent for graphics protocols; active is composited
-/// on the active fill so every protocol shows the same filled block.
+/// Normal and pre-baked scrim protocol sets. Halfblocks carry no dimmed
+/// set: their colors live in buffer cells, which the overlay scrim
+/// already darkens.
 pub(crate) struct IconVariants {
+    pub(crate) normal: IconSet,
+    pub(crate) dimmed: Option<IconSet>,
+}
+
+/// Muted, bright, and active protocols at one brightness. Idle and bright
+/// keep the rail background transparent for graphics protocols; active is
+/// composited on the active fill so every protocol shows the same filled
+/// block.
+pub(crate) struct IconSet {
     pub(crate) idle: Protocol,
     pub(crate) bright: Protocol,
     pub(crate) active: Protocol,
+}
+
+impl IconSet {
+    fn load(
+        picker: &Picker,
+        idle: DynamicImage,
+        bright: DynamicImage,
+        active: DynamicImage,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            idle: protocol(picker, idle)?,
+            bright: protocol(picker, bright)?,
+            active: protocol(picker, active)?,
+        })
+    }
 }
 
 impl RailIcons {
@@ -93,11 +118,29 @@ impl IconVariants {
         } else {
             (muted, bright)
         };
-        Ok(Self {
-            idle: protocol(picker, idle)?,
-            bright: protocol(picker, bright)?,
-            active: protocol(picker, active)?,
-        })
+        // honey: graphics paint over the cells, so the overlay scrim
+        // cannot reach them; bake its factor into a second set instead.
+        let dimmed = (!opaque).then(|| {
+            (
+                tint(&idle, OVERLAY_SCRIM_FACTOR),
+                tint(&bright, OVERLAY_SCRIM_FACTOR),
+                tint(&active, OVERLAY_SCRIM_FACTOR),
+            )
+        });
+        let normal = IconSet::load(picker, idle, bright, active)?;
+        let dimmed = dimmed
+            .map(|(idle, bright, active)| IconSet::load(picker, idle, bright, active))
+            .transpose()?;
+        Ok(Self { normal, dimmed })
+    }
+
+    /// Scrim set while an overlay is open, else the normal set. Halfblocks
+    /// have no scrim set because `dim_frame` already darkens their cells.
+    pub(crate) fn select(&self, dimmed: bool) -> &IconSet {
+        match &self.dimmed {
+            Some(set) if dimmed => set,
+            _ => &self.normal,
+        }
     }
 }
 
@@ -262,9 +305,61 @@ mod tests {
             &icons.command_palette,
             &icons.settings,
         ] {
-            assert_eq!(icon.idle.size(), Size::new(4, 2));
-            assert_eq!(icon.bright.size(), Size::new(4, 2));
-            assert_eq!(icon.active.size(), Size::new(4, 2));
+            assert_eq!(icon.normal.idle.size(), Size::new(4, 2));
+            assert_eq!(icon.normal.bright.size(), Size::new(4, 2));
+            assert_eq!(icon.normal.active.size(), Size::new(4, 2));
+            assert!(icon.dimmed.is_none(), "halfblocks dim as buffer cells");
+        }
+    }
+
+    #[test]
+    fn graphics_bake_a_dimmed_set_and_halfblocks_do_not() {
+        use crate::theme::default::DARK_THEME;
+
+        let mut picker = Picker::halfblocks();
+        let halfblocks = RailIcons::load(&picker, &DARK_THEME).expect("icons load");
+        for icon in [
+            &halfblocks.home,
+            &halfblocks.library,
+            &halfblocks.command_palette,
+            &halfblocks.settings,
+        ] {
+            assert!(icon.dimmed.is_none());
+            assert!(std::ptr::eq(icon.select(true), &icon.normal));
+        }
+
+        picker.set_protocol_type(ProtocolType::Sixel);
+        let graphics = RailIcons::load(&picker, &DARK_THEME).expect("icons load");
+        for icon in [
+            &graphics.home,
+            &graphics.library,
+            &graphics.command_palette,
+            &graphics.settings,
+        ] {
+            let dimmed = icon.dimmed.as_ref().expect("graphics need a scrim set");
+            assert!(std::ptr::eq(icon.select(true), dimmed));
+            assert!(std::ptr::eq(icon.select(false), &icon.normal));
+            assert_eq!(dimmed.idle.size(), Size::new(4, 2));
+            assert_eq!(dimmed.bright.size(), Size::new(4, 2));
+            assert_eq!(dimmed.active.size(), Size::new(4, 2));
+        }
+    }
+
+    /// The baked scrim must darken exactly like `dim_frame` darkens the
+    /// cells behind it, so graphics and halfblocks dim in step.
+    #[test]
+    fn dimmed_variants_darken_by_the_scrim_factor() {
+        let font = Picker::halfblocks().font_size();
+        let bright = render_canvas(HOME_SVG, font, false).expect("svg renders");
+        let dimmed = tint(&bright, OVERLAY_SCRIM_FACTOR);
+        let (bright, dimmed) = (bright.to_rgba8(), dimmed.to_rgba8());
+        assert!(bright.pixels().any(|pixel| pixel[3] > 0));
+        for (bright, dimmed) in bright.pixels().zip(dimmed.pixels()) {
+            assert_eq!(bright[3], dimmed[3], "alpha changed");
+            for channel in 0..3 {
+                let expected = (f32::from(bright[channel]) * OVERLAY_SCRIM_FACTOR) as u8;
+                assert_eq!(dimmed[channel], expected);
+            }
         }
     }
 }

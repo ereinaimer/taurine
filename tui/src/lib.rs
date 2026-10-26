@@ -242,7 +242,7 @@ fn render_app(frame: &mut ratatui::Frame, app: &mut App, area: ratatui::layout::
         || app.palette_open()
         || app.hotkey_recorder().is_some();
     let (rail, icons) = app.nav_rail_graphics();
-    nav_rail::render(frame, area, theme, rail, icons);
+    nav_rail::render(frame, area, theme, rail, icons, any_modal);
 
     if let Some(msg) = app.notification() {
         notification::render_notification(frame, area, theme, msg);
