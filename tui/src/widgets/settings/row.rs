@@ -137,6 +137,21 @@ pub(crate) fn volume_slider_rect(area: Rect, control_width: u16, key: SettingKey
     slider::track_rect(value)
 }
 
+/// Selected block starts at the label row; the row's top pad keeps the
+/// popup fill so the single gap under the header ribbon reads as a gap.
+fn paint_selection(frame: &mut Frame, area: Rect, theme: &Theme, selected: bool) {
+    labeled::paint_selection(
+        frame,
+        Rect {
+            y: area.y.saturating_add(1),
+            height: area.height.saturating_sub(1),
+            ..area
+        },
+        theme,
+        selected,
+    );
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn render_setting_row(
     frame: &mut Frame,
@@ -151,7 +166,7 @@ pub fn render_setting_row(
     hovered: Option<ToggleId>,
     inline_edit: Option<&InputModalState>,
 ) {
-    labeled::paint_selection(frame, area, theme, selected);
+    paint_selection(frame, area, theme, selected);
     let content = labeled::content(area);
     if content.width == 0 || content.height == 0 {
         return;

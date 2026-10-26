@@ -230,7 +230,7 @@ pub(crate) fn hit_test(
         return None;
     }
     let rows = compute_rows(list_area, state);
-    let mut row_y = rows_origin(list_area, &rows.heights, rows.start, rows.end);
+    let mut row_y = list_area.y;
     for (index, key) in all_keys[rows.start..rows.end].iter().enumerate() {
         let remaining = (list_area.y + list_area.height).saturating_sub(row_y);
         if remaining == 0 {
@@ -306,18 +306,19 @@ pub(crate) fn overlay_body(popup: Rect) -> Rect {
     crate::widgets::util::overlay_body(popup)
 }
 
-/// List rect below the header band and gap, shared by rendering and
-/// hit-testing so both hand the same area to the page layout code.
+/// List rect starting on the first row below the header band. The first
+/// row's own top pad is the single blank line under the ribbon. Shared by
+/// rendering and hit-testing so both hand the same area to the page
+/// layout code.
 pub(crate) fn overlay_content(body: Rect) -> Rect {
+    let y = body
+        .y
+        .saturating_add(crate::widgets::util::OVERLAY_HEADER_ROWS.saturating_sub(1));
     Rect {
         x: body.x,
-        y: body
-            .y
-            .saturating_add(crate::widgets::util::OVERLAY_HEADER_ROWS),
+        y,
         width: body.width,
-        height: body
-            .height
-            .saturating_sub(crate::widgets::util::OVERLAY_HEADER_ROWS),
+        height: body.y.saturating_add(body.height).saturating_sub(y),
     }
 }
 
@@ -337,10 +338,11 @@ pub fn render_settings_overlay(
     if chrome.body.width == 0 || chrome.body.height == 0 {
         return;
     }
-    if chrome.content.width == 0 || chrome.content.height == 0 {
+    let content = overlay_content(chrome.body);
+    if content.width == 0 || content.height == 0 {
         return;
     }
-    render_settings_content(frame, chrome.content, theme, state, animations, hovered);
+    render_settings_content(frame, content, theme, state, animations, hovered);
 }
 
 pub fn render_settings_content(
@@ -424,7 +426,7 @@ pub fn render_settings_content(
     let rows = compute_rows(list_area, state);
     let (start, end) = (rows.start, rows.end);
 
-    let mut row_y = rows_origin(list_area, &rows.heights, start, end);
+    let mut row_y = list_area.y;
     for (index, key) in all_keys[start..end].iter().enumerate() {
         let height = rows.heights[start + index];
         let remaining = (list_area.y + list_area.height).saturating_sub(row_y);
@@ -452,20 +454,6 @@ pub fn render_settings_content(
             state.inline_edit(),
         );
         row_y = row_y.saturating_add(row_area.height);
-    }
-}
-
-/// First-row y so the visible stack sits directly above the search bar
-/// when it is shorter than the list area; overflowing stacks stay
-/// top-aligned. Shared by rendering and hit-testing.
-fn rows_origin(list_area: Rect, heights: &[u16], start: usize, end: usize) -> u16 {
-    let used: u16 = heights[start..end].iter().sum();
-    if used >= list_area.height {
-        list_area.y
-    } else {
-        list_area
-            .y
-            .saturating_add(list_area.height.saturating_sub(used))
     }
 }
 
@@ -631,7 +619,7 @@ mod tests {
             content_sections(area, false, state.search_field(), state.is_search_active());
         let rows = compute_rows(list_area, &state);
         let all_keys = state.visible_keys();
-        let mut row_y = rows_origin(list_area, &rows.heights, rows.start, rows.end);
+        let mut row_y = list_area.y;
 
         for (index, key) in all_keys[rows.start..rows.end].iter().enumerate() {
             let remaining = (list_area.y + list_area.height).saturating_sub(row_y);
@@ -667,7 +655,7 @@ mod tests {
             content_sections(area, false, state.search_field(), state.is_search_active());
         let rows = compute_rows(list_area, &state);
         let all_keys = state.visible_keys();
-        let mut row_y = rows_origin(list_area, &rows.heights, rows.start, rows.end);
+        let mut row_y = list_area.y;
 
         for (index, key) in all_keys[rows.start..rows.end].iter().enumerate() {
             let remaining = (list_area.y + list_area.height).saturating_sub(row_y);
@@ -713,7 +701,7 @@ mod tests {
             content_sections(area, false, state.search_field(), state.is_search_active());
         let rows = compute_rows(list_area, &state);
         let all_keys = state.visible_keys();
-        let mut row_y = rows_origin(list_area, &rows.heights, rows.start, rows.end);
+        let mut row_y = list_area.y;
 
         for (index, key) in all_keys[rows.start..rows.end].iter().enumerate() {
             let remaining = (list_area.y + list_area.height).saturating_sub(row_y);
@@ -760,7 +748,7 @@ mod tests {
             content_sections(area, false, state.search_field(), state.is_search_active());
         let rows = compute_rows(list_area, &state);
         let all_keys = state.visible_keys();
-        let mut row_y = rows_origin(list_area, &rows.heights, rows.start, rows.end);
+        let mut row_y = list_area.y;
 
         for (index, key) in all_keys[rows.start..rows.end].iter().enumerate() {
             let remaining = (list_area.y + list_area.height).saturating_sub(row_y);
@@ -797,7 +785,7 @@ mod tests {
             content_sections(area, false, state.search_field(), state.is_search_active());
         let rows = compute_rows(list_area, &state);
         let all_keys = state.visible_keys();
-        let mut row_y = rows_origin(list_area, &rows.heights, rows.start, rows.end);
+        let mut row_y = list_area.y;
 
         for (index, key) in all_keys[rows.start..rows.end].iter().enumerate() {
             let remaining = (list_area.y + list_area.height).saturating_sub(row_y);
@@ -845,5 +833,51 @@ mod tests {
         let anchor = visible_window_start(area, &state);
         state.click_setting(key, anchor);
         assert_eq!(hit_test(area, &state, 30, 14), Some(SettingsHit::Row(key)));
+    }
+
+    #[test]
+    fn first_row_sits_one_line_below_the_header_band() {
+        use ratatui::{Terminal, backend::TestBackend};
+
+        use crate::theme::default::DARK_THEME;
+
+        for (w, h) in [(100u16, 30u16), (120, 40), (149, 45)] {
+            let area = Rect::new(0, 0, w, h);
+            let state = SettingsPageState::default();
+            let backend = TestBackend::new(w, h);
+            let mut terminal = Terminal::new(backend).expect("test terminal");
+            terminal
+                .draw(|frame| {
+                    render_settings_overlay(
+                        frame,
+                        area,
+                        &DARK_THEME,
+                        &state,
+                        &ToggleAnimations::default(),
+                        None,
+                    );
+                })
+                .expect("test draw");
+            let buffer = terminal.backend().buffer();
+            let popup = overlay_popup(area);
+            let content = overlay_content(overlay_body(popup));
+            let row_text = |y: u16| -> String {
+                (popup.x..popup.right())
+                    .map(|x| buffer[(x, y)].symbol().to_string())
+                    .collect()
+            };
+
+            // One blank row sits between the header band and the first
+            // label; the row's top pad stays the popup fill.
+            let gap_y = popup.y + crate::widgets::util::OVERLAY_HEADER_ROWS;
+            assert_eq!(content.y, gap_y, "size {w}x{h}");
+            assert_eq!(row_text(gap_y).trim(), "", "size {w}x{h}");
+            assert_eq!(buffer[(popup.x, gap_y)].bg, util::OVERLAY_BG);
+            assert!(
+                row_text(content.y + 1).contains("Pause Hotkey"),
+                "size {w}x{h}: {:?}",
+                row_text(content.y + 1)
+            );
+        }
     }
 }
