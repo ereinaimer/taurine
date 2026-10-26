@@ -8,6 +8,7 @@ use ratatui::{
 
 use crate::theme::Theme;
 use crate::widgets::field::TextField;
+use crate::widgets::icons::{ADD_CHIP, ADD_ICON, AppIcons, CHEVRON_DOWN, CLOSE_ICON};
 use crate::widgets::library::state::{
     LibraryAppFilterState, LibraryCreateModalField, LibraryCreateModalState,
     LibraryDeleteModalState, LibraryExportModalField, LibraryExportModalState,
@@ -32,13 +33,14 @@ pub fn render_library_modal(
     modal: &LibraryModal,
     animations: &ToggleAnimations,
     hovered: Option<ToggleId>,
+    icons: Option<&AppIcons>,
 ) {
     // honey: pickers opened from the create form keep it painted
     // underneath; drawing the picker last puts it on top.
     if let LibraryModal::HeaderMenu(menu) = modal
         && let Some(draft) = menu.return_to_create()
     {
-        render_library_create_modal(frame, area, theme, draft, animations, hovered);
+        render_library_create_modal(frame, area, theme, draft, animations, hovered, icons);
         // honey: the picker is the top layer; dim the form behind it so
         // it reads like every other overlay instead of blending into it.
         crate::overlay_fx::dim_rect(
@@ -63,7 +65,7 @@ pub fn render_library_modal(
             render_library_delete_modal(frame, area, theme, state)
         }
         LibraryModal::Create(state) => {
-            render_library_create_modal(frame, area, theme, state, animations, hovered)
+            render_library_create_modal(frame, area, theme, state, animations, hovered, icons)
         }
         LibraryModal::HeaderMenu(state) => {
             render_library_header_menu_modal(frame, area, theme, state)
@@ -587,7 +589,7 @@ fn render_create_pill_row(
             style = style.add_modifier(Modifier::BOLD);
         }
         spans.push(Span::styled(
-            format!(" {} {} ", labels[cell.index], super::icons::CHEVRON_DOWN),
+            format!(" {} {} ", labels[cell.index], CHEVRON_DOWN),
             style,
         ));
         cursor = cell.x.saturating_add(cell.width);
@@ -648,6 +650,7 @@ fn render_library_create_modal(
     state: &LibraryCreateModalState,
     animations: &ToggleAnimations,
     hovered: Option<ToggleId>,
+    icons: Option<&AppIcons>,
 ) {
     let is_script = !state.is_text_action();
     let chrome = util::OverlayChrome::new(create_popup(area));
@@ -720,6 +723,7 @@ fn render_library_create_modal(
             hovered,
             None,
             ToggleId::CreateAutoCase,
+            icons,
         );
     }
 
@@ -1158,16 +1162,14 @@ fn render_library_header_menu_modal(
     theme: &Theme,
     state: &LibraryHeaderMenuState,
 ) {
-    let icons = state.icons();
     let entries: Vec<util::OverlayEntry> = state
         .options()
         .iter()
         .zip(state.details())
-        .zip(icons.iter())
-        .map(|((option, detail), icon)| util::OverlayEntry {
+        .map(|(option, detail)| util::OverlayEntry {
             label: option.clone(),
             detail: detail.clone(),
-            icon: icon.clone(),
+            icon: String::new(),
         })
         .collect();
     util::render_overlay_select(
@@ -1249,7 +1251,7 @@ fn render_tags_chips(
         frame.render_widget(
             Paragraph::new(Line::from(vec![
                 Span::styled(empty, Style::default().fg(theme.text_muted)),
-                Span::styled(super::icons::ADD_CHIP.to_string(), plus_style),
+                Span::styled(ADD_CHIP.to_string(), plus_style),
             ])),
             Rect {
                 x: body.x,
@@ -1277,7 +1279,7 @@ fn render_tags_chips(
         // icon, in the same cell so nothing shifts.
         let hovered = state.hover() == Some(cell.index);
         let raw = if hovered {
-            format!("{}{tag}", crate::widgets::library::icons::CLOSE_ICON)
+            format!("{}{tag}", CLOSE_ICON)
         } else {
             format!("#{tag}")
         };
@@ -1346,10 +1348,7 @@ fn render_tags_chips(
                 Style::default().fg(theme.text_muted)
             };
             frame.render_widget(
-                Paragraph::new(Line::from(Span::styled(
-                    super::icons::ADD_ICON.to_string(),
-                    style,
-                ))),
+                Paragraph::new(Line::from(Span::styled(ADD_ICON.to_string(), style))),
                 Rect {
                     x: body.x.saturating_add(plus_x),
                     y: row_y,

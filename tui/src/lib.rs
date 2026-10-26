@@ -56,7 +56,7 @@ pub fn run() -> taurine_core::Result<()> {
     refresh_settings_page(&mut app);
 
     let mut terminal = TerminalGuard::new()?;
-    app.load_rail_icons();
+    app.load_icons();
     select_first_visible_library_row(&mut app, &mut terminal);
     select_first_visible_settings_row(&mut app, &mut terminal);
     app.begin_launch_transition();
@@ -262,6 +262,7 @@ fn render_app(frame: &mut ratatui::Frame, app: &mut App, area: ratatui::layout::
             modal,
             app.toggle_animations(),
             app.toggle_hover(),
+            app.icons(),
         );
     }
     if app.is_settings_overlay_open() {
@@ -272,6 +273,7 @@ fn render_app(frame: &mut ratatui::Frame, app: &mut App, area: ratatui::layout::
             app.settings_page(),
             app.toggle_animations(),
             app.toggle_hover(),
+            app.icons(),
         );
         if let Some(modal) = app.settings_page().modal() {
             // honey: a nested popup dims the layer directly beneath it;
@@ -300,6 +302,7 @@ fn render_app(frame: &mut ratatui::Frame, app: &mut App, area: ratatui::layout::
             palette,
             app.daemon_paused(),
             &app.settings_page().settings().pause_hotkey,
+            app.icons(),
         );
     }
 
@@ -446,6 +449,7 @@ fn render_page_content(
         app.toggle_animations(),
         app.toggle_hover(),
         app.props_hover(),
+        app.icons(),
     );
 }
 

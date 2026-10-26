@@ -656,8 +656,11 @@ pub(crate) fn render_modal_key_value_row(
 }
 
 /// Cells the search block spends on chrome: one border and one padding
-/// cell on each side.
-const SEARCH_BLOCK_CHROME_WIDTH: u16 = 4;
+/// cell on each side, plus the magnifier slot and its gap.
+const SEARCH_BLOCK_CHROME_WIDTH: u16 = 9;
+/// Icon slot: a two-cell raster centered in five cells so the ASCII
+/// fallback `[S]` still leaves one cell before the text.
+const SEARCH_ICON_WIDTH: u16 = 5;
 /// Content lines the block grows to before it scrolls.
 pub(crate) const SEARCH_BLOCK_MAX_LINES: usize = 3;
 const SEARCH_BLOCK_MIN_HEIGHT: u16 = 3;
@@ -694,14 +697,16 @@ pub(crate) fn search_block_index_at(
     let visible_rows = usize::from(area.height.saturating_sub(2)).max(1);
     let scroll = wrapped.scroll(visible_rows);
     let line = scroll + usize::from(row.saturating_sub(area.y.saturating_add(1)));
-    let col = usize::from(column.saturating_sub(area.x.saturating_add(2)));
+    let col = usize::from(
+        column.saturating_sub(area.x.saturating_add(2).saturating_add(SEARCH_ICON_WIDTH)),
+    );
     wrapped.index_at(line, col)
 }
 
-/// Shared bottom search box: rounded border, one to three wrapped text
-/// lines, and a caret-anchored viewport that scrolls once the query is
-/// taller than the block. No background fill. `placeholder` shows when
-/// the query is empty and inactive.
+/// Shared bottom search box: rounded border, an optional leading icon,
+/// one to three wrapped text lines, and a caret-anchored viewport that
+/// scrolls once the query is taller than the block. No background fill.
+/// `placeholder` shows when the query is empty and inactive.
 pub(crate) fn render_search_block(
     frame: &mut Frame,
     area: Rect,
@@ -709,6 +714,7 @@ pub(crate) fn render_search_block(
     field: &super::field::TextField,
     is_active: bool,
     placeholder: &str,
+    icon: Option<&ratatui_image::protocol::Protocol>,
 ) {
     if area.width == 0 || area.height == 0 {
         return;
@@ -733,12 +739,35 @@ pub(crate) fn render_search_block(
     };
     // honey: the real terminal caret shows here so the configured cursor
     // style applies; no painted fake block.
-    // honey: one cell of horizontal padding inside the border.
+    // honey: one cell of horizontal padding inside the border, then the
+    // magnifier slot before the text.
     let line_area = Rect {
         x: inner.x.saturating_add(1),
         y: inner.y,
         width: inner.width.saturating_sub(2),
         height: inner.height,
+    };
+    if line_area.width == 0 {
+        return;
+    }
+    let icon_width = SEARCH_ICON_WIDTH.min(line_area.width);
+    crate::widgets::icons::render_icon(
+        frame,
+        Rect {
+            x: line_area.x,
+            y: line_area.y,
+            width: icon_width,
+            height: 1.min(line_area.height),
+        },
+        icon,
+        crate::widgets::icons::SEARCH_FALLBACK,
+        Style::default().fg(theme.text_muted),
+    );
+    let line_area = Rect {
+        x: line_area.x.saturating_add(icon_width),
+        y: line_area.y,
+        width: line_area.width.saturating_sub(icon_width),
+        height: line_area.height,
     };
     if line_area.width == 0 {
         return;
@@ -856,7 +885,7 @@ mod tests {
 
         terminal
             .draw(|frame| {
-                super::render_search_block(frame, area, &DARK_THEME, &field, false, "Search");
+                super::render_search_block(frame, area, &DARK_THEME, &field, false, "Search", None);
                 let buffer = frame.buffer_mut();
                 let row: String = (0..area.width)
                     .map(|x| {
@@ -865,7 +894,8 @@ mod tests {
                             .to_string()
                     })
                     .collect();
-                assert_eq!(row.chars().skip(2).take(6).collect::<String>(), "Search");
+                assert!(row.contains("[S]"), "search icon fallback missing: {row:?}");
+                assert_eq!(row.chars().skip(7).take(6).collect::<String>(), "Search");
             })
             .expect("test draw");
     }
@@ -883,7 +913,7 @@ mod tests {
 
         terminal
             .draw(|frame| {
-                super::render_search_block(frame, area, &DARK_THEME, &field, true, "Search");
+                super::render_search_block(frame, area, &DARK_THEME, &field, true, "Search", None);
                 let buffer = frame.buffer_mut();
                 let row: String = (0..area.width)
                     .map(|x| {
@@ -892,8 +922,8 @@ mod tests {
                             .to_string()
                     })
                     .collect();
-                assert_eq!(row.chars().nth(2), Some('g'));
-                assert_eq!(row.chars().nth(3), Some('m'));
+                assert_eq!(row.chars().nth(7), Some('g'));
+                assert_eq!(row.chars().nth(8), Some('m'));
             })
             .expect("test draw");
     }
@@ -911,12 +941,12 @@ mod tests {
 
         terminal
             .draw(|frame| {
-                super::render_search_block(frame, area, &DARK_THEME, &field, true, "Search");
+                super::render_search_block(frame, area, &DARK_THEME, &field, true, "Search", None);
             })
             .expect("test draw");
 
         let cursor = terminal.backend().cursor_position();
-        assert_eq!((cursor.x, cursor.y), (2, 1));
+        assert_eq!((cursor.x, cursor.y), (7, 1));
     }
 
     #[test]
@@ -924,7 +954,7 @@ mod tests {
         let short = TextField::new("gm");
         assert_eq!(super::search_block_height(&short, true, 20), 3);
 
-        let two_lines = TextField::new("hello world again");
+        let two_lines = TextField::new("hello worlds");
         assert_eq!(super::search_block_height(&two_lines, true, 20), 4);
 
         let many_lines = TextField::new("a".repeat(100));
@@ -937,7 +967,8 @@ mod tests {
 
         use crate::theme::default::DARK_THEME;
 
-        // 20 wide leaves 16 text cells, so the query wraps after "hello world".
+        // 20 wide leaves 11 text cells after the icon slot, so the query
+        // wraps after "hello".
         let area = Rect::new(0, 0, 20, 5);
         let field = TextField::new("hello world again");
         let backend = TestBackend::new(area.width, area.height);
@@ -945,7 +976,7 @@ mod tests {
 
         terminal
             .draw(|frame| {
-                super::render_search_block(frame, area, &DARK_THEME, &field, true, "Search");
+                super::render_search_block(frame, area, &DARK_THEME, &field, true, "Search", None);
                 let buffer = frame.buffer_mut();
                 let row_text = |y: u16| -> String {
                     (0..area.width)
@@ -956,8 +987,8 @@ mod tests {
                         })
                         .collect()
                 };
-                assert!(row_text(1).contains("hello world"));
-                assert!(row_text(2).contains("again"));
+                assert!(row_text(1).contains("hello"));
+                assert!(row_text(2).contains("world again"));
             })
             .expect("test draw");
     }
@@ -968,7 +999,8 @@ mod tests {
 
         use crate::theme::default::DARK_THEME;
 
-        // 12 wide leaves 8 text cells: four wrapped lines in three rows.
+        // 12 wide leaves 4 text cells after the icon slot: the query wraps
+        // one word per row and the viewport follows the caret.
         let area = Rect::new(0, 0, 12, 5);
         let field = TextField::new("aa bb cc dd ee ff gg hh");
         let backend = TestBackend::new(area.width, area.height);
@@ -976,7 +1008,7 @@ mod tests {
 
         terminal
             .draw(|frame| {
-                super::render_search_block(frame, area, &DARK_THEME, &field, true, "Search");
+                super::render_search_block(frame, area, &DARK_THEME, &field, true, "Search", None);
                 let buffer = frame.buffer_mut();
                 let row_text = |y: u16| -> String {
                     (0..area.width)
@@ -988,8 +1020,7 @@ mod tests {
                         .collect()
                 };
                 assert!(!row_text(1).contains("aa"));
-                assert!(row_text(1).contains("cc"));
-                assert!(row_text(3).contains("gg"));
+                assert!(row_text(3).contains("hh"));
             })
             .expect("test draw");
     }

@@ -14,6 +14,7 @@ use ratatui::{
 use crate::theme::Theme;
 use crate::widgets::field::TextField;
 use crate::widgets::hotkey;
+use crate::widgets::icons::AppIcons;
 use crate::widgets::labeled;
 use crate::widgets::util::{self, OverlayChrome};
 
@@ -430,6 +431,7 @@ pub(crate) fn render(
     state: &CommandPaletteState,
     paused: bool,
     pause_hotkey: &str,
+    icons: Option<&AppIcons>,
 ) {
     let chrome = OverlayChrome::new(popup(area));
     chrome.render(frame, theme, PALETTE_TITLE);
@@ -498,6 +500,7 @@ pub(crate) fn render(
         state.search_field(),
         state.is_search_active(),
         "Search",
+        icons.and_then(AppIcons::search),
     );
 }
 
@@ -580,6 +583,7 @@ mod tests {
                     state,
                     paused,
                     pause_hotkey,
+                    None,
                 )
             })
             .expect("test draw");

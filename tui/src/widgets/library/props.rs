@@ -8,10 +8,10 @@ use ratatui::{
 
 use crate::theme::Theme;
 use crate::widgets::hotkey;
+use crate::widgets::icons::{ADD_CHIP, AppIcons, PLATFORM_ICON_WIDTH, PlatformIcon, render_icon};
 use crate::widgets::library::detail::{
     EMPTY_TOKEN, PropertyValue, edge_line, edge_value_width, relative_time,
 };
-use crate::widgets::library::icons::ADD_CHIP;
 use crate::widgets::library::state::LibraryTrigger;
 use crate::widgets::toggle::{
     TOGGLE_WIDTH, ToggleAnimations, ToggleId, toggle_contains, toggle_rect, toggle_spans,
@@ -33,6 +33,7 @@ pub(crate) fn props_content(area: Rect, list_ratio: f32, props_ratio: f32) -> Re
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_props(
     frame: &mut Frame,
     area: Rect,
@@ -41,6 +42,7 @@ pub(crate) fn render_props(
     animations: &ToggleAnimations,
     hovered: Option<ToggleId>,
     hovered_add: Option<PropsHit>,
+    icons: Option<&AppIcons>,
 ) {
     let content = props_content(area, state.split_ratio(), state.detail_ratio());
     let Some(index) = state.selected_index() else {
@@ -60,6 +62,7 @@ pub(crate) fn render_props(
         hovered,
         hovered_add,
         ToggleId::PropAutoCase,
+        icons,
     );
 }
 
@@ -78,6 +81,7 @@ pub(crate) fn render_props_content(
     hovered: Option<ToggleId>,
     hovered_add: Option<PropsHit>,
     auto_case_id: ToggleId,
+    icons: Option<&AppIcons>,
 ) {
     if content.width == 0 || content.height == 0 {
         return;
@@ -160,6 +164,11 @@ pub(crate) fn render_props_content(
                     continue;
                 }
                 render_row(frame, content, theme, offset, label, value, is_focused);
+            }
+            PropertyValue::Platform(value) => {
+                render_platform_row(
+                    frame, content, theme, offset, label, value, is_focused, icons,
+                );
             }
         }
     }
@@ -366,7 +375,7 @@ fn render_toggle(
     expanded: bool,
     focused: bool,
 ) {
-    use crate::widgets::library::icons::{CHEVRON_DOWN, CHEVRON_UP};
+    use crate::widgets::icons::{CHEVRON_DOWN, CHEVRON_UP};
     let chevron = if expanded { CHEVRON_UP } else { CHEVRON_DOWN };
     let label = format!("Usage {chevron}");
     let style = if focused {
@@ -420,6 +429,69 @@ fn render_add_chip_row(
             theme,
         )),
         row,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_platform_row(
+    frame: &mut Frame,
+    content: Rect,
+    theme: &Theme,
+    offset: u16,
+    label: &str,
+    target_os: &str,
+    focused: bool,
+    icons: Option<&AppIcons>,
+) {
+    let row = Rect {
+        x: content.x,
+        y: content.y.saturating_add(offset),
+        width: content.width,
+        height: 1,
+    };
+    let label_width = label.chars().count() as u16;
+    let available = edge_value_width(label, row.width);
+    let text =
+        util::truncate_to_width(target_os, available.saturating_sub(PLATFORM_ICON_WIDTH + 1));
+    let text_width = text.chars().count() as u16;
+    let value_width = PLATFORM_ICON_WIDTH + 1 + text_width;
+    let value_x = row.x.saturating_add(row.width.saturating_sub(value_width));
+    let label_style = Style::default().fg(theme.text).add_modifier(Modifier::DIM);
+    let text_style = if focused {
+        Style::default().fg(theme.text).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme.text)
+    };
+    frame.render_widget(
+        Paragraph::new(label).style(label_style),
+        Rect {
+            x: row.x,
+            y: row.y,
+            width: label_width,
+            height: 1,
+        },
+    );
+    let platform = PlatformIcon::for_target(target_os);
+    render_icon(
+        frame,
+        Rect {
+            x: value_x,
+            y: row.y,
+            width: PLATFORM_ICON_WIDTH,
+            height: 1,
+        },
+        icons.and_then(|icons| icons.platform(platform)),
+        platform.fallback(),
+        text_style,
+    );
+    frame.render_widget(
+        Paragraph::new(text).style(text_style),
+        Rect {
+            x: value_x.saturating_add(PLATFORM_ICON_WIDTH + 1),
+            y: row.y,
+            width: text_width,
+            height: 1,
+        },
     );
 }
 

@@ -45,6 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Navigation Rail**: A collapsible left rail with rasterized SVG icons for Home, Library, the command palette, and settings, falling back to half-blocks when the terminal has no graphics protocol, plus a draggable divider that snaps between open and closed and toggles on double-click.
 
 ### Changed
+- **Built-In Icons**: Search, settings, platform badges, and navigation icons now render from built-in SVGs with readable text fallbacks, so a Nerd Font is no longer required.
 - **Audio Volume Slider**: Audio Volume now uses an inline 0-100% slider with arrow-key, click, and drag adjustment instead of a number field.
 - **Hotkey Settings Keycaps**: Keyboard shortcut settings such as Pause Hotkey and the voice hotkeys now render their values as keycap pills instead of plain text.
 - **Click Hotkey Settings to Record**: Clicking a shortcut setting's keycaps opens the on-screen recorder and saves the chord to that setting.
@@ -52,7 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Full-Width Overlays**: The settings overlay and command palette now use 90% of the terminal width and height.
 - **Nested Overlay Dimming**: Popups stacked over settings now darken the settings page beneath them instead of leaving it at full brightness.
 - **Settings Opens at the Top**: The settings list now starts from the first settings with the cursor on the last visible row above the search bar, instead of opening scrolled to the bottom.
-- **Add Buttons**: Empty property rows and the tag builder use a Nerd Font add icon.
+- **Add Buttons**: Empty property rows and the tag builder use a plain plus icon.
 - **Search Bar**: Shortened the placeholder to Search.
 - **Wrapped Search Queries**: Long search queries now wrap across up to three lines and scroll vertically instead of sliding sideways.
 - **Unified Popup Headers**: Every TUI popup now uses the New Trigger header band and spacing.

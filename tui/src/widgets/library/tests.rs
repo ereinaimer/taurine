@@ -1687,6 +1687,7 @@ fn draw_props(
                 None,
                 hovered_add,
                 ToggleId::PropAutoCase,
+                None,
             );
         })
         .expect("test draw");
@@ -1707,7 +1708,10 @@ fn empty_properties_render_add_chips() {
     for offset in [4u16, 6, 8, 12] {
         let y = content.y + offset;
         assert_eq!(buffer[(chip_x, y)].symbol(), " ");
-        assert_eq!(buffer[(chip_x + 1, y)].symbol(), icons::ADD_ICON);
+        assert_eq!(
+            buffer[(chip_x + 1, y)].symbol(),
+            crate::widgets::icons::ADD_ICON
+        );
         assert_eq!(buffer[(chip_x + 2, y)].symbol(), " ");
         for x in chip_x..chip_x + 3 {
             assert_eq!(buffer[(x, y)].bg, DARK_THEME.button.inactive_bg);
@@ -2599,7 +2603,7 @@ fn search_bar_click_places_caret() {
     for ch in "gm".chars() {
         state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
     }
-    // Search text starts at the search area plus border and padding.
+    // Search text starts after the border, padding, and magnifier slot.
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
     let content = left_content(area, state.split_ratio(), state.detail_ratio());
     let (_, search_area) = content_sections(
@@ -2608,7 +2612,7 @@ fn search_bar_click_places_caret() {
         state.search_field(),
         state.is_search_active(),
     );
-    let line_x = search_area.x + 2;
+    let line_x = search_area.x + 7;
     assert_eq!(
         list::hit_test(area, &state, line_x, search_area.y),
         Some(list::LibraryHit::SearchAt(0))
@@ -2673,6 +2677,7 @@ fn search_bar_renders_wrapped_query_inside_the_left_pane() {
                 &crate::widgets::toggle::ToggleAnimations::default(),
                 None,
                 None,
+                None,
             );
         })
         .expect("test draw");
@@ -2690,8 +2695,8 @@ fn search_bar_renders_wrapped_query_inside_the_left_pane() {
             .map(|x| buffer[(x, y)].symbol().to_string())
             .collect()
     };
-    assert!(row_text(search_area.y + 1).contains("hello world again"));
-    assert!(row_text(search_area.y + 2).contains("and again"));
+    assert!(row_text(search_area.y + 1).contains("hello world"));
+    assert!(row_text(search_area.y + 2).contains("again and again"));
 }
 
 #[test]
@@ -2949,7 +2954,7 @@ fn header_menu_missing_metadata_parks_on_first_option() {
 
 #[test]
 fn open_menu_flips_spawning_button_chevron() {
-    use crate::widgets::library::icons::{CHEVRON_DOWN, CHEVRON_UP};
+    use crate::widgets::icons::{CHEVRON_DOWN, CHEVRON_UP};
     use ratatui::{Terminal, backend::TestBackend};
 
     fn chevrons(state: &LibraryPageState) -> (usize, usize) {
@@ -3510,7 +3515,29 @@ fn platform_hit_targets_value_row() {
 }
 
 #[test]
-fn platform_menu_parks_on_current_os_with_icons() {
+fn platform_row_falls_back_to_ascii_badge() {
+    let state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let content = props::props_content(area, state.split_ratio(), state.detail_ratio());
+    let selected = state.selected_index().expect("selection");
+    let item = state.item_at_filtered(selected).expect("item");
+    let rows = props::info_rows(item);
+    let position = rows
+        .iter()
+        .position(|(label, _)| *label == "Platform")
+        .expect("platform row") as u16;
+    let offset = position.saturating_mul(2).saturating_add(2);
+    let buffer = draw_props(&state, None);
+    let row: String = (content.x..content.x.saturating_add(content.width))
+        .map(|x| buffer[(x, content.y + offset)].symbol().to_string())
+        .collect();
+
+    assert!(row.contains("[Win]"), "{row:?}");
+    assert!(row.contains("windows"), "{row:?}");
+}
+
+#[test]
+fn platform_menu_parks_on_current_os() {
     let mut state = sample_state();
     let menu = open_menu(&mut state, HeaderMenuKind::Platform);
     assert_eq!(menu.kind(), HeaderMenuKind::Platform);
@@ -3520,9 +3547,6 @@ fn platform_menu_parks_on_current_os_with_icons() {
     );
     // First sorted row targets windows.
     assert_eq!(menu.selected_option(), Some("Windows"));
-    let icons = menu.icons();
-    assert_eq!(icons.len(), 6);
-    assert!(icons.iter().all(|icon| !icon.is_empty()));
 }
 
 #[test]
@@ -3665,7 +3689,7 @@ fn tags_menu_add_buttons_use_add_icon() {
     let buffer = render_modal_buffer(&LibraryModal::Tags(empty));
     assert_eq!(
         buffer[(body.x + plus_x, body.y + 3)].symbol(),
-        icons::ADD_ICON
+        crate::widgets::icons::ADD_ICON
     );
 
     let menu = tags_menu(&["work"]);
@@ -3673,7 +3697,7 @@ fn tags_menu_add_buttons_use_add_icon() {
     let buffer = render_modal_buffer(&LibraryModal::Tags(menu));
     assert_eq!(
         buffer[(body.x + plus_x, body.y + 3 + plus_y)].symbol(),
-        icons::ADD_ICON
+        crate::widgets::icons::ADD_ICON
     );
 }
 
@@ -5538,6 +5562,7 @@ fn render_modal_buffer(modal: &LibraryModal) -> ratatui::buffer::Buffer {
                 modal,
                 &crate::widgets::toggle::ToggleAnimations::default(),
                 None,
+                None,
             );
         })
         .expect("test draw");
@@ -5612,6 +5637,7 @@ fn create_form_renders_placeholders_and_stacked_pickers() {
                     &DARK_THEME,
                     modal,
                     &crate::widgets::toggle::ToggleAnimations::default(),
+                    None,
                     None,
                 );
             })

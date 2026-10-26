@@ -2,8 +2,6 @@ use taurine_core::db::TargetOs;
 use taurine_core::db::crud::ActionType;
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 
-use crate::widgets::library::icons::os_icon;
-
 /// Which header button spawned the centered menu: invocation type,
 /// action type, script language and run behavior for scripts, plus
 /// the target platform row from the properties pane.
@@ -165,17 +163,6 @@ impl LibraryHeaderMenuState {
 
     pub(crate) fn details(&self) -> &[String] {
         &self.details
-    }
-
-    /// Nerd-font glyph per option, blank for menus without icons.
-    pub(crate) fn icons(&self) -> Vec<String> {
-        if self.kind != HeaderMenuKind::Platform {
-            return vec![String::new(); self.options.len()];
-        }
-        self.options
-            .iter()
-            .map(|option| os_icon(option).to_string())
-            .collect()
     }
 
     pub(crate) const fn selected(&self) -> usize {

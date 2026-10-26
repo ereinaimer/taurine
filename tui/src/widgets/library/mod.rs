@@ -1,7 +1,6 @@
 pub mod actions;
 pub mod detail;
 pub mod highlight;
-pub mod icons;
 pub mod list;
 pub mod modals;
 pub mod props;
@@ -292,6 +291,7 @@ fn max_search_height(area_height: u16, has_status: bool) -> u16 {
     area_height.saturating_sub(reserved).max(3)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn render_library_content(
     frame: &mut Frame,
     area: Rect,
@@ -300,6 +300,7 @@ pub fn render_library_content(
     animations: &ToggleAnimations,
     hovered: Option<ToggleId>,
     hovered_add: Option<props::PropsHit>,
+    icons: Option<&crate::widgets::icons::AppIcons>,
 ) {
     let content = left_content(area, state.split_ratio(), state.detail_ratio());
 
@@ -346,7 +347,17 @@ pub fn render_library_content(
         theme,
         state.search_field(),
         state.is_search_active(),
+        icons,
     );
     detail::render_detail(frame, area, theme, state, animations, hovered);
-    props::render_props(frame, area, theme, state, animations, hovered, hovered_add);
+    props::render_props(
+        frame,
+        area,
+        theme,
+        state,
+        animations,
+        hovered,
+        hovered_add,
+        icons,
+    );
 }

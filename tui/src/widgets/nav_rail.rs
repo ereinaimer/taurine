@@ -5,24 +5,18 @@
 //! collapsed, and double-clicking it toggles. Collapsed gives every cell
 //! back to the workspace and parks the divider on the left edge,
 //! mirroring how the right pane collapses. Buttons render SVG icons
-//! rasterized at startup, with a bold glyph fallback for headless runs.
+//! rasterized at startup, with an ASCII fallback for headless runs.
 
 use ratatui::{
     Frame,
     layout::Rect,
     style::{Modifier, Style},
-    text::{Line, Span},
+    text::Line,
     widgets::Paragraph,
 };
-use ratatui_image::Image;
-
-mod icons;
-
-pub(crate) use icons::RailIcons;
-
-use icons::IconVariants;
 
 use crate::theme::Theme;
+use crate::widgets::icons::{AppIcons, IconVariants, render_icon};
 use crate::widgets::library::DIVIDER_HOVER_COLOR;
 use crate::widgets::library::state::{DIVIDER_DOUBLE_CLICK_MS, now_millis};
 
@@ -276,12 +270,12 @@ pub(crate) fn render(
     area: Rect,
     theme: &Theme,
     state: &mut NavRailState,
-    icons: Option<&RailIcons>,
+    icons: Option<&AppIcons>,
 ) {
     let layout = layout(area, state.collapsed);
     state.hitboxes = layout.buttons.clone();
     for (item, rect) in &layout.buttons {
-        let icon = icons.map(|icons| icons.for_item(*item));
+        let icon = icons.map(|icons| variants(icons, *item));
         render_button(frame, theme, state, *item, *rect, icon);
     }
 
@@ -313,38 +307,38 @@ fn render_button(
     );
     let hovered = state.hovered_item == Some(item);
     let lit = active || hovered;
-    if let Some(variants) = variants {
-        // honey: the artwork is centered in a transparent, double-sized
-        // canvas at load time, so the full 4x2 button area keeps the
-        // icon's aspect while showing it at half size.
-        let protocol = if lit {
+    let protocol = variants.map(|variants| {
+        if lit {
             &variants.bright
         } else {
             &variants.idle
-        };
-        frame.render_widget(Image::new(protocol).allow_clipping(true), rect);
-        return;
-    }
-    // honey: headless sessions keep the bold glyph fallback; no fill.
+        }
+    });
     let fg = if lit { theme.text } else { theme.text_muted };
-    let pill = Span::styled(
-        format!(" {} ", icon(item)),
+    render_icon(
+        frame,
+        rect,
+        protocol,
+        fallback(item),
         Style::default().fg(fg).add_modifier(Modifier::BOLD),
-    );
-    frame.render_widget(
-        Paragraph::new(Line::from(pill)),
-        Rect::new(rect.x, rect.y, rect.width.min(3), 1),
     );
 }
 
-const fn icon(item: NavRailItem) -> &'static str {
+fn variants(icons: &AppIcons, item: NavRailItem) -> &IconVariants {
     match item {
-        // honey: Nerd Font glyphs; they fill the cell far better than
-        // the ASCII fallbacks.
-        NavRailItem::Home => "\u{f015}",
-        NavRailItem::Library => "\u{f00bb}",
-        NavRailItem::CommandPalette => "\u{f120}",
-        NavRailItem::Settings => "\u{f013}",
+        NavRailItem::Home => &icons.home,
+        NavRailItem::Library => &icons.library,
+        NavRailItem::CommandPalette => &icons.command_palette,
+        NavRailItem::Settings => &icons.settings,
+    }
+}
+
+const fn fallback(item: NavRailItem) -> &'static str {
+    match item {
+        NavRailItem::Home => "[H]",
+        NavRailItem::Library => "[L]",
+        NavRailItem::CommandPalette => "[>]",
+        NavRailItem::Settings => "[S]",
     }
 }
 
@@ -369,7 +363,7 @@ mod tests {
         draw_with(state, None)
     }
 
-    fn draw_with(state: &mut NavRailState, icons: Option<&RailIcons>) -> Terminal<TestBackend> {
+    fn draw_with(state: &mut NavRailState, icons: Option<&AppIcons>) -> Terminal<TestBackend> {
         let mut terminal =
             Terminal::new(TestBackend::new(AREA.width, AREA.height)).expect("test terminal");
         terminal
@@ -505,14 +499,14 @@ mod tests {
     fn graphics_replace_every_glyph_fallback() {
         use ratatui_image::picker::Picker;
 
-        let icons = RailIcons::load(&Picker::halfblocks(), &DARK_THEME).expect("icons load");
+        let icons = AppIcons::load(&Picker::halfblocks(), &DARK_THEME).expect("icons load");
         let mut state = NavRailState::default();
         let terminal = draw_with(&mut state, Some(&icons));
         for (item, glyph, y) in [
-            (NavRailItem::Home, '\u{f015}', 2u16),
-            (NavRailItem::Library, '\u{f00bb}', 5),
-            (NavRailItem::CommandPalette, '\u{f120}', 39),
-            (NavRailItem::Settings, '\u{f013}', 42),
+            (NavRailItem::Home, "[H]", 2u16),
+            (NavRailItem::Library, "[L]", 5),
+            (NavRailItem::CommandPalette, "[>]", 39),
+            (NavRailItem::Settings, "[S]", 42),
         ] {
             let mut painted = String::new();
             for row in y..y + 2 {
@@ -534,7 +528,7 @@ mod tests {
 
         let mut picker = Picker::halfblocks();
         picker.set_protocol_type(ProtocolType::Sixel);
-        let icons = RailIcons::load(&picker, &DARK_THEME).expect("icons");
+        let icons = AppIcons::load(&picker, &DARK_THEME).expect("icons");
         let mut state = NavRailState::default();
         let terminal = draw_with(&mut state, Some(&icons));
         for (item, y) in [
@@ -555,8 +549,21 @@ mod tests {
     fn icon_pills_are_one_bold_span() {
         let mut state = NavRailState::default();
         let terminal = draw(&mut state);
-        let cell = &terminal.backend().buffer().content[2 * AREA.width as usize + 2];
-        assert_eq!(cell.symbol(), "\u{f015}");
+        let row: String = (1..=4)
+            .map(|x| {
+                terminal.backend().buffer().content[2 * AREA.width as usize + x]
+                    .symbol()
+                    .to_string()
+            })
+            .collect();
+        assert!(row.contains("[H]"), "{row:?}");
+        let cell = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .find(|cell| cell.symbol() == "H")
+            .expect("fallback letter");
         assert!(cell.modifier.contains(Modifier::BOLD));
         assert_eq!(cell.bg, ratatui::style::Color::Reset);
         assert_eq!(cell.fg, DARK_THEME.text_muted);

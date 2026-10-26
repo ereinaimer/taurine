@@ -6,10 +6,11 @@ use crate::layout_store::TuiLayout;
 use crate::screen_fx;
 use crate::theme::Theme;
 use crate::theme::default::DARK_THEME;
+use crate::widgets::icons::AppIcons;
 use crate::widgets::library::LibraryPageState;
 use crate::widgets::library::props::PropsHit;
 use crate::widgets::library::recorder::HotkeyRecorderState;
-use crate::widgets::nav_rail::{NavRailState, RailIcons};
+use crate::widgets::nav_rail::NavRailState;
 use crate::widgets::palette::CommandPaletteState;
 use crate::widgets::settings::state::SettingsPageState;
 use crate::widgets::toggle::{ToggleAnimations, ToggleId};
@@ -28,7 +29,7 @@ pub(crate) struct App {
     palette: Option<CommandPaletteState>,
     hotkey_recorder: Option<HotkeyRecorderState>,
     nav_rail: NavRailState,
-    rail_icons: Option<RailIcons>,
+    icons: Option<AppIcons>,
     /// Cached daemon pause flag: the palette labels its toggle from it,
     /// refreshed when the palette opens and after every transition.
     daemon_paused: bool,
@@ -53,7 +54,7 @@ impl Default for App {
             palette: None,
             hotkey_recorder: None,
             nav_rail: NavRailState::default(),
-            rail_icons: None,
+            icons: None,
             daemon_paused: false,
             transition_effect: None,
             last_frame_instant: Instant::now(),
@@ -150,9 +151,9 @@ impl App {
         &mut self.nav_rail
     }
 
-    /// Rasterize the rail glyphs once, after the terminal can answer the
-    /// graphics probe. Failure keeps the glyph fallback.
-    pub(crate) fn load_rail_icons(&mut self) {
+    /// Rasterize the rail and inline glyphs once, after the terminal can
+    /// answer the graphics probe. Failure keeps the ASCII fallbacks.
+    pub(crate) fn load_icons(&mut self) {
         use ratatui_image::picker::Picker;
 
         let picker = Picker::from_query_stdio().unwrap_or_else(|_| Picker::halfblocks());
@@ -175,24 +176,28 @@ impl App {
             protocol = ?picker.protocol_type(),
             cell_w = font.width,
             cell_h = font.height,
-            "navigation rail graphics"
+            "navigation and UI icons"
         );
         if font.width == 0 || font.height == 0 {
-            tracing::warn!("terminal reported a zero-size cell; keeping the glyph fallback");
+            tracing::warn!("terminal reported a zero-size cell; keeping text icon fallbacks");
             return;
         }
-        match RailIcons::load(&picker, self.current_theme) {
-            Ok(icons) => self.rail_icons = Some(icons),
+        match AppIcons::load(&picker, self.current_theme) {
+            Ok(icons) => self.icons = Some(icons),
             Err(error) => {
-                tracing::warn!(%error, "failed to rasterize the navigation rail icons");
+                tracing::warn!(%error, "failed to rasterize the TUI icons");
             }
         }
     }
 
     /// Both rail halves at once so rendering can borrow the state and the
     /// protocols together.
-    pub(crate) fn nav_rail_graphics(&mut self) -> (&mut NavRailState, Option<&RailIcons>) {
-        (&mut self.nav_rail, self.rail_icons.as_ref())
+    pub(crate) fn nav_rail_graphics(&mut self) -> (&mut NavRailState, Option<&AppIcons>) {
+        (&mut self.nav_rail, self.icons.as_ref())
+    }
+
+    pub(crate) const fn icons(&self) -> Option<&AppIcons> {
+        self.icons.as_ref()
     }
 
     pub(crate) const fn daemon_paused(&self) -> bool {
