@@ -10,9 +10,9 @@
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::Paragraph,
+    widgets::{Block, Clear, Paragraph},
 };
 use ratatui_image::Image;
 
@@ -35,6 +35,8 @@ pub(crate) const BUTTON_WIDTH: u16 = 4;
 pub(crate) const BUTTON_HEIGHT: u16 = 2;
 /// Blank rows between stacked buttons.
 const BUTTON_GAP: u16 = 1;
+/// How long the pointer must rest on an icon before its name appears.
+const TOOLTIP_DELAY_MS: u64 = 500;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ActivePage {
@@ -50,6 +52,17 @@ pub(crate) enum NavRailItem {
     Settings,
 }
 
+impl NavRailItem {
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Home => "Home",
+            Self::Library => "Library",
+            Self::CommandPalette => "Command",
+            Self::Settings => "Settings",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct NavRailState {
     pub(crate) active_page: ActivePage,
@@ -59,6 +72,8 @@ pub(crate) struct NavRailState {
     hovered_divider: bool,
     dragging: bool,
     last_divider_click: Option<u64>,
+    hover_started_at: Option<u64>,
+    tooltip: Option<NavRailItem>,
 }
 
 impl Default for NavRailState {
@@ -71,6 +86,8 @@ impl Default for NavRailState {
             hovered_divider: false,
             dragging: false,
             last_divider_click: None,
+            hover_started_at: None,
+            tooltip: None,
         }
     }
 }
@@ -101,17 +118,53 @@ impl NavRailState {
     }
 
     pub(crate) fn hover_at(&mut self, area: Rect, column: u16, row: u16) {
+        self.hover_at_at(area, column, row, now_millis());
+    }
+
+    fn hover_at_at(&mut self, area: Rect, column: u16, row: u16, now: u64) {
         let layout = layout(area, self.collapsed);
         self.hovered_divider = layout
             .divider
             .is_some_and(|rect| crate::terminal::mouse::contains(rect, column, row));
         self.hitboxes = layout.buttons;
-        self.hovered_item = self.hit(column, row);
+        let hovered = self.hit(column, row);
+        if hovered != self.hovered_item {
+            self.hovered_item = hovered;
+            self.hover_started_at = hovered.map(|_| now);
+            self.tooltip = None;
+        }
     }
 
     pub(crate) fn clear_hover(&mut self) {
         self.hovered_item = None;
         self.hovered_divider = false;
+        self.hover_started_at = None;
+        self.tooltip = None;
+    }
+
+    /// Reveals the hovered icon's label once the pointer has rested long
+    /// enough. Called from the event loop so the tooltip appears without
+    /// another mouse move.
+    pub(crate) fn tick(&mut self) {
+        self.tick_at(now_millis());
+    }
+
+    fn tick_at(&mut self, now: u64) {
+        if self.dragging || self.collapsed {
+            self.tooltip = None;
+            return;
+        }
+        let Some(item) = self.hovered_item else {
+            self.tooltip = None;
+            return;
+        };
+        let Some(started) = self.hover_started_at else {
+            self.tooltip = None;
+            return;
+        };
+        if now.saturating_sub(started) >= TOOLTIP_DELAY_MS {
+            self.tooltip = Some(item);
+        }
     }
 
     /// Grabbing the divider starts a snap drag; a double click toggles
@@ -297,6 +350,8 @@ pub(crate) fn render(
             divider,
         );
     }
+
+    render_tooltip(frame, area, theme, state);
 }
 
 fn render_button(
@@ -313,11 +368,28 @@ fn render_button(
     );
     let hovered = state.hovered_item == Some(item);
     let lit = active || hovered;
+    // honey: the active page owns a filled rail-width pill. The pill is
+    // wider than the 4x2 artwork so half-block icons, which paint every
+    // cell with their own colors, cannot cover the fill.
+    if active {
+        let pill = Rect {
+            x: rect.x.saturating_sub(1),
+            y: rect.y,
+            width: rect.width.saturating_add(2),
+            height: rect.height,
+        };
+        frame.render_widget(
+            Block::default().style(Style::default().bg(theme.surface)),
+            pill,
+        );
+    }
     if let Some(variants) = variants {
         // honey: the artwork is centered in a transparent, double-sized
         // canvas at load time, so the full 4x2 button area keeps the
         // icon's aspect while showing it at half size.
-        let protocol = if lit {
+        let protocol = if active {
+            &variants.active
+        } else if hovered {
             &variants.bright
         } else {
             &variants.idle
@@ -325,15 +397,63 @@ fn render_button(
         frame.render_widget(Image::new(protocol).allow_clipping(true), rect);
         return;
     }
-    // honey: headless sessions keep the bold glyph fallback; no fill.
+    // honey: headless sessions keep the bold glyph fallback.
     let fg = if lit { theme.text } else { theme.text_muted };
+    let bg = if active { theme.surface } else { Color::Reset };
     let pill = Span::styled(
         format!(" {} ", icon(item)),
-        Style::default().fg(fg).add_modifier(Modifier::BOLD),
+        Style::default().fg(fg).bg(bg).add_modifier(Modifier::BOLD),
     );
     frame.render_widget(
         Paragraph::new(Line::from(pill)),
         Rect::new(rect.x, rect.y, rect.width.min(3), 1),
+    );
+}
+
+/// Small label pill to the right of the rail, aligned with the hovered
+/// icon. One row tall, one cell of horizontal padding, no border.
+fn tooltip_rect(area: Rect, state: &NavRailState) -> Option<Rect> {
+    let item = state.tooltip?;
+    if area.width == 0 || area.height == 0 {
+        return None;
+    }
+    let button = state
+        .hitboxes
+        .iter()
+        .find(|(candidate, _)| *candidate == item)
+        .map(|(_, rect)| *rect)?;
+    let width = item.label().chars().count() as u16 + 2;
+    let x = area.x.saturating_add(FULL_WIDTH).saturating_add(1);
+    if x.saturating_add(width) > area.right() {
+        return None;
+    }
+    let y = button
+        .y
+        .saturating_add(button.height / 2)
+        .min(area.bottom().saturating_sub(1));
+    Some(Rect::new(x, y, width, 1))
+}
+
+fn render_tooltip(frame: &mut Frame, area: Rect, theme: &Theme, state: &NavRailState) {
+    let Some(rect) = tooltip_rect(area, state) else {
+        return;
+    };
+    let Some(item) = state.tooltip else {
+        return;
+    };
+    frame.render_widget(Clear, rect);
+    frame.render_widget(
+        Block::default().style(Style::default().bg(theme.surface)),
+        rect,
+    );
+    frame.render_widget(
+        Paragraph::new(format!(" {} ", item.label())).style(
+            Style::default()
+                .fg(theme.text)
+                .bg(theme.surface)
+                .add_modifier(Modifier::BOLD),
+        ),
+        rect,
     );
 }
 
@@ -380,6 +500,14 @@ mod tests {
 
     fn bg_at(terminal: &Terminal<TestBackend>, x: u16, y: u16) -> ratatui::style::Color {
         terminal.backend().buffer().content[(y * AREA.width + x) as usize].bg
+    }
+
+    fn text_at(terminal: &Terminal<TestBackend>, x: u16, y: u16, width: u16) -> String {
+        (x..x.saturating_add(width))
+            .map(|column| {
+                terminal.backend().buffer().content[(y * AREA.width + column) as usize].symbol()
+            })
+            .collect()
     }
 
     #[test]
@@ -438,6 +566,79 @@ mod tests {
     }
 
     #[test]
+    fn tooltip_labels_match_the_rail_items() {
+        assert_eq!(NavRailItem::Home.label(), "Home");
+        assert_eq!(NavRailItem::Library.label(), "Library");
+        assert_eq!(NavRailItem::CommandPalette.label(), "Command");
+        assert_eq!(NavRailItem::Settings.label(), "Settings");
+    }
+
+    #[test]
+    fn tooltip_waits_for_the_hover_delay() {
+        let mut state = NavRailState::default();
+        state.hover_at_at(AREA, 2, 5, 1_000);
+
+        state.tick_at(1_499);
+        assert_eq!(state.tooltip, None);
+
+        state.tick_at(1_500);
+        assert_eq!(state.tooltip, Some(NavRailItem::Library));
+    }
+
+    #[test]
+    fn tooltip_resets_when_the_pointer_moves_to_another_icon() {
+        let mut state = NavRailState::default();
+        state.hover_at_at(AREA, 2, 2, 1_000);
+        state.tick_at(1_400);
+        assert_eq!(state.tooltip, None);
+
+        state.hover_at_at(AREA, 2, 5, 1_450);
+        state.tick_at(1_900);
+        assert_eq!(state.tooltip, None, "delay restarts on the new icon");
+        state.tick_at(1_950);
+        assert_eq!(state.tooltip, Some(NavRailItem::Library));
+    }
+
+    #[test]
+    fn tooltip_clears_when_the_pointer_leaves_the_rail() {
+        let mut state = NavRailState::default();
+        state.hover_at_at(AREA, 2, 5, 1_000);
+        state.tick_at(1_600);
+        assert_eq!(state.tooltip, Some(NavRailItem::Library));
+
+        state.hover_at_at(AREA, 20, 20, 1_700);
+        assert_eq!(state.hovered_item, None);
+        assert_eq!(state.tooltip, None);
+        state.tick_at(2_400);
+        assert_eq!(state.tooltip, None);
+    }
+
+    #[test]
+    fn tooltip_stays_hidden_while_the_divider_is_dragged() {
+        let mut state = NavRailState::default();
+        state.hover_at_at(AREA, 2, 5, 1_000);
+        state.tick_at(1_600);
+        assert_eq!(state.tooltip, Some(NavRailItem::Library));
+
+        state.dragging = true;
+        state.tick_at(1_700);
+        assert_eq!(state.tooltip, None);
+    }
+
+    #[test]
+    fn tooltip_renders_a_small_label_to_the_right_of_the_rail() {
+        let mut state = NavRailState::default();
+        state.hover_at_at(AREA, 2, 5, 1_000);
+        state.tick_at(1_600);
+        let terminal = draw(&mut state);
+
+        let rect = tooltip_rect(AREA, &state).expect("tooltip rect");
+        assert_eq!(text_at(&terminal, rect.x, rect.y, rect.width), " Library ");
+        assert_eq!(bg_at(&terminal, rect.x, rect.y), DARK_THEME.surface);
+        assert!(rect.x > AREA.x + RAIL_WIDTH);
+    }
+
+    #[test]
     fn divider_drag_snaps_between_the_two_widths() {
         let mut state = NavRailState::default();
         assert!(state.start_divider_drag(AREA, 6, 20));
@@ -486,19 +687,55 @@ mod tests {
     }
 
     #[test]
-    fn buttons_never_paint_a_background() {
+    fn active_page_paints_only_its_rail_pill() {
+        let mut state = NavRailState::default();
+        let terminal = draw(&mut state);
+        for (x, y) in [(1, 5), (2, 5), (4, 6)] {
+            assert_eq!(
+                bg_at(&terminal, x, y),
+                DARK_THEME.surface,
+                "active Library background missing at {x},{y}"
+            );
+        }
+        for (x, y) in [(1, 2), (2, 2), (1, 39), (1, 42)] {
+            assert_eq!(
+                bg_at(&terminal, x, y),
+                ratatui::style::Color::Reset,
+                "inactive icon painted a background at {x},{y}"
+            );
+        }
+    }
+
+    #[test]
+    fn hovering_a_second_icon_leaves_the_active_background_alone() {
         let mut state = NavRailState {
             hovered_item: Some(NavRailItem::CommandPalette),
             ..NavRailState::default()
         };
         let terminal = draw(&mut state);
-        for (x, y) in [(1, 5), (1, 2), (1, 39), (2, 5), (2, 2)] {
-            assert_eq!(
-                bg_at(&terminal, x, y),
-                ratatui::style::Color::Reset,
-                "background painted at {x},{y}"
-            );
-        }
+        assert_eq!(bg_at(&terminal, 1, 39), ratatui::style::Color::Reset);
+        assert_eq!(bg_at(&terminal, 1, 5), DARK_THEME.surface);
+    }
+
+    #[test]
+    fn active_glyph_fallback_also_paints_the_fill() {
+        let mut state = NavRailState::default();
+        let terminal = draw(&mut state);
+        assert_eq!(bg_at(&terminal, 1, 5), DARK_THEME.surface);
+        assert_eq!(bg_at(&terminal, 2, 6), DARK_THEME.surface);
+    }
+
+    #[test]
+    fn active_fill_survives_the_halfblock_icon() {
+        use ratatui_image::picker::Picker;
+
+        let icons = RailIcons::load(&Picker::halfblocks(), &DARK_THEME).expect("icons load");
+        let mut state = NavRailState::default();
+        let terminal = draw_with(&mut state, Some(&icons));
+        let filled = [0, 5]
+            .into_iter()
+            .any(|x| (5..7).any(|y| bg_at(&terminal, x, y) == DARK_THEME.surface));
+        assert!(filled, "active fill was overwritten by the icon");
     }
 
     #[test]

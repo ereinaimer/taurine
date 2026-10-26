@@ -66,6 +66,7 @@ pub fn run() -> taurine_core::Result<()> {
     let mut previous_layers = overlay_fx::layers(&app);
     let mut previous_rects = Vec::new();
     loop {
+        app.nav_rail_mut().tick();
         let animating = app.advance_toggle_animations(Instant::now());
         let elapsed = app.frame_elapsed();
         terminal.terminal.draw(|frame| {

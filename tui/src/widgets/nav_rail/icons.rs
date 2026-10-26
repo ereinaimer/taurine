@@ -7,7 +7,9 @@
 //! `Picker::new_protocol(.., Resize::Fit(None))` quick start performs no
 //! resize at all and the pixels reach the terminal 1:1. Icons sit
 //! slightly inside the button, scaled uniformly, so their aspect ratio
-//! never changes.
+//! never changes. Muted, bright, and active variants let hover and
+//! active states swap the artwork without reloading it; the active
+//! variant is composited on the rail's active fill.
 
 use image::{DynamicImage, RgbaImage};
 use ratatui::layout::Size;
@@ -33,23 +35,31 @@ pub(crate) struct RailIcons {
     pub(crate) settings: IconVariants,
 }
 
-/// Muted and bright protocols; the button itself never paints a fill.
-/// Halfblocks drop alpha, so only that protocol gets the rail color
-/// merged into transparent pixels.
+/// Muted, bright, and active protocols. Idle and bright keep the rail
+/// background transparent for graphics protocols; active is composited
+/// on the active fill so every protocol shows the same filled block.
 pub(crate) struct IconVariants {
     pub(crate) idle: Protocol,
     pub(crate) bright: Protocol,
+    pub(crate) active: Protocol,
 }
 
 impl RailIcons {
     pub(crate) fn load(picker: &Picker, theme: &Theme) -> Result<Self, String> {
         let halfblocks = picker.protocol_type() == ProtocolType::Halfblocks;
         let rail_bg = rgb(theme.background);
+        let active_bg = rgb(theme.surface);
         Ok(Self {
-            home: IconVariants::load(picker, HOME_SVG, halfblocks, rail_bg)?,
-            library: IconVariants::load(picker, LIBRARY_SVG, halfblocks, rail_bg)?,
-            command_palette: IconVariants::load(picker, COMMAND_PALETTE_SVG, halfblocks, rail_bg)?,
-            settings: IconVariants::load(picker, SETTINGS_SVG, halfblocks, rail_bg)?,
+            home: IconVariants::load(picker, HOME_SVG, halfblocks, rail_bg, active_bg)?,
+            library: IconVariants::load(picker, LIBRARY_SVG, halfblocks, rail_bg, active_bg)?,
+            command_palette: IconVariants::load(
+                picker,
+                COMMAND_PALETTE_SVG,
+                halfblocks,
+                rail_bg,
+                active_bg,
+            )?,
+            settings: IconVariants::load(picker, SETTINGS_SVG, halfblocks, rail_bg, active_bg)?,
         })
     }
 
@@ -64,10 +74,17 @@ impl RailIcons {
 }
 
 impl IconVariants {
-    fn load(picker: &Picker, svg: &str, opaque: bool, background: [u8; 3]) -> Result<Self, String> {
+    fn load(
+        picker: &Picker,
+        svg: &str,
+        opaque: bool,
+        background: [u8; 3],
+        active_background: [u8; 3],
+    ) -> Result<Self, String> {
         let font = picker.font_size();
         let bright = render_canvas(svg, font, opaque)?;
         let muted = tint(&bright, MUTED);
+        let active = on_background(&bright, active_background);
         let (idle, bright) = if opaque {
             (
                 on_background(&muted, background),
@@ -79,6 +96,7 @@ impl IconVariants {
         Ok(Self {
             idle: protocol(picker, idle)?,
             bright: protocol(picker, bright)?,
+            active: protocol(picker, active)?,
         })
     }
 }
@@ -246,6 +264,7 @@ mod tests {
         ] {
             assert_eq!(icon.idle.size(), Size::new(4, 2));
             assert_eq!(icon.bright.size(), Size::new(4, 2));
+            assert_eq!(icon.active.size(), Size::new(4, 2));
         }
     }
 }

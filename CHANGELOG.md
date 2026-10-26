@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Hotkey Keycaps**: Hotkey triggers and aliases render as split keycap badges in the trigger list, detail header, and properties pane.
 - **Hotkey Recorder**: Click a hotkey trigger or alias to record a new chord on a full on-screen keyboard that lights each key as you press it and echoes the chord as keycaps in the header, with left and right modifiers recorded separately, Cancel and Done buttons, and Backspace to clear.
 - **Navigation Rail**: A collapsible left rail with rasterized SVG icons for Home, Library, the command palette, and settings, falling back to half-blocks when the terminal has no graphics protocol, plus a draggable divider that snaps between open and closed and toggles on double-click.
+- **Nav Rail Active State & Tooltips**: The active page icon now shows a filled background, and hovering an icon reveals its name after a short delay.
 
 ### Changed
 - **Audio Volume Slider**: Audio Volume now uses an inline 0-100% slider with arrow-key, click, and drag adjustment instead of a number field.

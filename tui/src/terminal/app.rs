@@ -87,6 +87,7 @@ impl App {
 
     pub(crate) fn open_settings_overlay(&mut self) {
         self.settings_overlay_open = true;
+        self.nav_rail.clear_hover();
         self.toggle_hover = None;
         self.props_hover = None;
     }
@@ -120,6 +121,7 @@ impl App {
         } else {
             Some(CommandPaletteState::default())
         };
+        self.nav_rail.clear_hover();
         self.toggle_hover = None;
         self.props_hover = None;
     }
