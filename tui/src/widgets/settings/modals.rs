@@ -3,12 +3,13 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Clear, List, ListItem, ListState, Paragraph},
+    widgets::Paragraph,
 };
 
 use crate::theme::Theme;
 use crate::widgets::settings::state::{
-    ConfirmResetModalState, InputModalState, SelectModalState, SettingKeyMeta, SettingsModal,
+    ConfirmResetModalState, HotkeyCaptureModalState, InputModalState, SelectModalState,
+    SettingKeyMeta, SettingsModal,
 };
 use crate::widgets::util;
 
@@ -17,42 +18,83 @@ pub fn render_settings_modal(frame: &mut Frame, area: Rect, theme: &Theme, modal
         SettingsModal::Input(state) => render_input_modal(frame, area, theme, state),
         SettingsModal::Select(state) => render_select_modal(frame, area, theme, state),
         SettingsModal::ConfirmReset(state) => render_confirm_reset_modal(frame, area, theme, state),
+        SettingsModal::HotkeyCapture(state) => {
+            render_hotkey_capture_modal(frame, area, theme, state)
+        }
     }
 }
 
-fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
-    let width = width.min(area.width).max(1);
-    let height = height.min(area.height).max(1);
-    let vertical = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length((area.height.saturating_sub(height)) / 2),
-            Constraint::Length(height),
-        ])
-        .split(area);
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Length((area.width.saturating_sub(width)) / 2),
-            Constraint::Length(width),
-        ])
-        .split(vertical[1])[1]
+/// Flat popup shell shared by the editor modals: the shared header
+/// band and gap, then content. Mirrors the library overlays. Returns
+/// the content rect below the gap, or None when too small.
+fn overlay_shell(
+    frame: &mut Frame,
+    area: Rect,
+    width: u16,
+    height: u16,
+    title: &str,
+    theme: &Theme,
+) -> Option<Rect> {
+    let popup = util::centered_rect(width, height, area);
+    let chrome = util::OverlayChrome::new(popup);
+    chrome.render(frame, theme, title);
+    if chrome.body.width == 0 || chrome.content.height == 0 {
+        return None;
+    }
+    Some(chrome.content)
 }
 
-fn render_input_modal(frame: &mut Frame, area: Rect, theme: &Theme, state: &InputModalState) {
+/// Popup rects shared by rendering and the overlay open-transition so
+/// the sweep covers exactly what was painted.
+pub(crate) fn input_popup(area: Rect) -> Rect {
     let width = if area.width > 32 {
         area.width.saturating_sub(4).min(64)
     } else {
         area.width.max(1)
     };
-    let height = if area.height >= 8 {
-        8
+    let height = if area.height >= 9 {
+        9
     } else {
         area.height.max(1)
     };
-    let popup = centered_rect(width, height, area);
-    frame.render_widget(Clear, popup);
-    let inner = util::render_modal_block(frame, popup, state.key().display_name(), theme);
+    util::centered_rect(width, height, area)
+}
+
+pub(crate) fn confirm_popup(area: Rect) -> Rect {
+    let width = if area.width > 44 {
+        area.width.saturating_sub(4).min(64)
+    } else {
+        area.width.max(1)
+    };
+    let height = if area.height >= 9 {
+        9
+    } else {
+        area.height.max(1)
+    };
+    util::centered_rect(width, height, area)
+}
+
+pub(crate) fn hotkey_popup(area: Rect) -> Rect {
+    let content_width = if area.width > 32 {
+        area.width.saturating_sub(4).min(64)
+    } else {
+        area.width.max(1)
+    };
+    util::centered_rect(content_width.saturating_add(4), 5 + 5, area)
+}
+
+fn render_input_modal(frame: &mut Frame, area: Rect, theme: &Theme, state: &InputModalState) {
+    let popup = input_popup(area);
+    let Some(content) = overlay_shell(
+        frame,
+        area,
+        popup.width,
+        popup.height,
+        state.key().display_name(),
+        theme,
+    ) else {
+        return;
+    };
 
     let sections = Layout::default()
         .direction(Direction::Vertical)
@@ -62,21 +104,23 @@ fn render_input_modal(frame: &mut Frame, area: Rect, theme: &Theme, state: &Inpu
             Constraint::Length(1),
             Constraint::Min(0),
         ])
-        .split(inner);
+        .split(content);
 
     frame.render_widget(
-        Paragraph::new(state.key().description()).style(
-            Style::default()
-                .fg(theme.text_muted)
-                .add_modifier(Modifier::DIM),
-        ),
+        Paragraph::new(state.key().description()).style(Style::default().fg(theme.description)),
         sections[0],
     );
+    let (visible, caret) = state.field().window(sections[1].width);
     frame.render_widget(
-        Paragraph::new(util::input_cursor_line(state.value(), state.cursor()))
+        Paragraph::new(visible.to_string())
             .style(Style::default().fg(theme.text).bg(theme.surface)),
         sections[1],
     );
+    if sections[1].width > 0 && sections[1].height > 0 && !crate::overlay_fx::is_cursor_suppressed()
+    {
+        let (cx, cy) = util::caret_position(sections[1].x, sections[1].y, caret, sections[1].width);
+        frame.set_cursor_position((cx, cy));
+    }
 
     let feedback = state.error().unwrap_or("Enter Save   Esc Cancel");
     let feedback_style = if state.error().is_some() {
@@ -91,56 +135,118 @@ fn render_input_modal(frame: &mut Frame, area: Rect, theme: &Theme, state: &Inpu
     frame.render_widget(Paragraph::new(feedback).style(feedback_style), sections[2]);
 }
 
-fn render_select_modal(frame: &mut Frame, area: Rect, theme: &Theme, state: &SelectModalState) {
-    let width = if area.width > 24 {
-        area.width.saturating_sub(4).min(44)
-    } else {
-        area.width.max(1)
+fn render_hotkey_capture_modal(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    state: &HotkeyCaptureModalState,
+) {
+    let popup = hotkey_popup(area);
+    let Some(content) = overlay_shell(
+        frame,
+        area,
+        popup.width,
+        popup.height,
+        state.key().display_name(),
+        theme,
+    ) else {
+        return;
     };
-    let body_height = state.options().len().min(8) as u16;
-    let desired_height = body_height + 5;
-    let height = if area.height >= 6 {
-        desired_height.min(area.height.saturating_sub(2).max(6))
-    } else {
-        area.height.max(1)
-    };
-    let popup = centered_rect(width, height, area);
-    frame.render_widget(Clear, popup);
-    let inner = util::render_modal_block(frame, popup, state.key().display_name(), theme);
 
     let sections = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(0), Constraint::Length(1)])
-        .split(inner);
+        .constraints([
+            Constraint::Length(2),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .split(content);
 
-    let visible_rows = usize::from(sections[0].height.max(1));
-    let (start, end) = visible_range(state.options().len(), state.selected_index(), visible_rows);
-    let items: Vec<ListItem> = state.options()[start..end]
-        .iter()
-        .map(|option| ListItem::new(option.as_str()))
-        .collect();
-    let mut list_state = ListState::default();
-    list_state.select(Some(state.selected_index().saturating_sub(start)));
-
-    let list = List::new(items).highlight_symbol("").highlight_style(
-        Style::default()
-            .bg(theme.surface)
-            .fg(theme.text)
-            .add_modifier(Modifier::BOLD),
+    frame.render_widget(
+        Paragraph::new(state.key().description()).style(Style::default().fg(theme.description)),
+        sections[0],
     );
-    frame.render_stateful_widget(list, sections[0], &mut list_state);
+    frame.render_widget(
+        Paragraph::new(format!("Current: {}", state.current())).style(
+            Style::default()
+                .fg(theme.text_muted)
+                .add_modifier(Modifier::DIM),
+        ),
+        sections[1],
+    );
 
-    let feedback = state.error().unwrap_or("Enter Save   Esc Cancel");
-    let feedback_style = if state.error().is_some() {
-        Style::default()
-            .fg(theme.error)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default()
-            .fg(theme.text_muted)
-            .add_modifier(Modifier::DIM)
+    let capture_line = match state.captured() {
+        Some(captured) => Span::styled(
+            captured.to_string(),
+            Style::default()
+                .fg(theme.text)
+                .bg(theme.surface)
+                .add_modifier(Modifier::BOLD),
+        ),
+        None => Span::styled(
+            state.preview().unwrap_or("Press keys…").to_string(),
+            Style::default()
+                .fg(theme.text_muted)
+                .add_modifier(Modifier::DIM),
+        ),
     };
-    frame.render_widget(Paragraph::new(feedback).style(feedback_style), sections[1]);
+    frame.render_widget(Paragraph::new(Line::from(capture_line)), sections[2]);
+
+    if let Some(error) = state.error() {
+        frame.render_widget(
+            Paragraph::new(error).style(
+                Style::default()
+                    .fg(theme.error)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            sections[3],
+        );
+    }
+}
+
+fn render_select_modal(frame: &mut Frame, area: Rect, theme: &Theme, state: &SelectModalState) {
+    // honey: options render through the shared overlay list; errors ride
+    // the bottom row like the tags builder.
+    let entries: Vec<util::OverlayEntry> = state
+        .options()
+        .iter()
+        .zip(state.details())
+        .map(|(option, detail)| util::OverlayEntry {
+            label: option.clone(),
+            detail: detail.clone(),
+            icon: String::new(),
+        })
+        .collect();
+    util::render_overlay_select(
+        frame,
+        area,
+        theme,
+        state.key().display_name(),
+        &entries,
+        state.selected_index(),
+    );
+    if let Some(error) = state.error() {
+        let popup = util::overlay_popup(area);
+        let body = util::overlay_body(popup);
+        if body.width == 0 || body.height == 0 {
+            return;
+        }
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                util::truncate_to_width(error, body.width),
+                Style::default()
+                    .fg(theme.error)
+                    .add_modifier(Modifier::BOLD),
+            ))),
+            Rect {
+                x: body.x,
+                y: body.y.saturating_add(body.height).saturating_sub(1),
+                width: body.width,
+                height: 1,
+            },
+        );
+    }
 }
 
 fn render_confirm_reset_modal(
@@ -149,19 +255,17 @@ fn render_confirm_reset_modal(
     theme: &Theme,
     state: &ConfirmResetModalState,
 ) {
-    let width = if area.width > 44 {
-        area.width.saturating_sub(4).min(64)
-    } else {
-        area.width.max(1)
+    let popup = confirm_popup(area);
+    let Some(content) = overlay_shell(
+        frame,
+        area,
+        popup.width,
+        popup.height,
+        "Reset Setting",
+        theme,
+    ) else {
+        return;
     };
-    let height = if area.height >= 8 {
-        8
-    } else {
-        area.height.max(1)
-    };
-    let popup = centered_rect(width, height, area);
-    frame.render_widget(Clear, popup);
-    let inner = util::render_modal_block(frame, popup, "Reset Setting", theme);
 
     let sections = Layout::default()
         .direction(Direction::Vertical)
@@ -171,7 +275,7 @@ fn render_confirm_reset_modal(
             Constraint::Length(1),
             Constraint::Min(0),
         ])
-        .split(inner);
+        .split(content);
 
     frame.render_widget(
         Paragraph::new(vec![
@@ -227,6 +331,82 @@ fn render_confirm_reset_modal(
     );
 }
 
-fn visible_range(total: usize, selected: usize, visible_count: usize) -> (usize, usize) {
-    crate::widgets::util::visible_range(total, selected, visible_count)
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::widgets::settings::state::SettingKey;
+    use ratatui::{Terminal, backend::TestBackend};
+
+    fn rendered(modal: &SettingsModal) -> String {
+        let theme = &crate::theme::default::DARK_THEME;
+        let backend = TestBackend::new(100, 30);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal
+            .draw(|frame| {
+                render_settings_modal(frame, frame.area(), theme, modal);
+            })
+            .expect("draw");
+        let buffer = terminal.backend().buffer().clone();
+        (0..30)
+            .map(|y| {
+                (0..100)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn input_modal_uses_flat_overlay_chrome() {
+        let modal = SettingsModal::Input(InputModalState::new(SettingKey::Wpm, "120".to_string()));
+        let screen = rendered(&modal);
+        assert!(screen.contains("Words Per Minute"));
+        assert!(screen.contains("Esc"));
+        assert!(screen.contains("Enter Save"));
+        // honey: shared flat chrome carries no border glyphs.
+        assert!(!screen.contains('╭'));
+    }
+
+    #[test]
+    fn select_modal_renders_through_shared_overlay_list() {
+        let modal = SettingsModal::Select(SelectModalState::new(
+            SettingKey::SpinnerStyle,
+            vec![
+                "classic".to_string(),
+                "braille".to_string(),
+                "arc".to_string(),
+            ],
+            "classic".to_string(),
+        ));
+        let screen = rendered(&modal);
+        assert!(screen.contains("Spinner Style"));
+        assert!(screen.contains("braille"));
+        // honey: shared flat chrome carries no border glyphs.
+        assert!(!screen.contains('╭'));
+    }
+
+    #[test]
+    fn confirm_reset_modal_uses_flat_overlay_chrome() {
+        let modal = SettingsModal::ConfirmReset(ConfirmResetModalState::new(SettingKey::Wpm));
+        let screen = rendered(&modal);
+        assert!(screen.contains("Reset Setting"));
+        assert!(screen.contains("Yes"));
+        assert!(screen.contains("No"));
+        // honey: shared flat chrome carries no border glyphs.
+        assert!(!screen.contains('╭'));
+    }
+
+    #[test]
+    fn hotkey_capture_modal_uses_flat_overlay_chrome() {
+        let modal = SettingsModal::HotkeyCapture(HotkeyCaptureModalState::new(
+            SettingKey::PauseHotkey,
+            "Alt + `".to_string(),
+        ));
+        let screen = rendered(&modal);
+        assert!(screen.contains("Pause Hotkey"));
+        assert!(screen.contains("Current:"));
+        // honey: shared flat chrome carries no border glyphs.
+        assert!(!screen.contains('╭'));
+    }
 }
