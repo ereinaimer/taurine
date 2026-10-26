@@ -240,7 +240,6 @@ mod tests {
         taurine_core::db::crud::create_entry(
             conn,
             taurine_core::db::crud::NewEntry {
-                name: String::new(),
                 description: None,
                 content: output.to_string(),
                 action_type: "text".to_string(),
@@ -275,12 +274,11 @@ mod tests {
 
         with_test_db(|db_path| {
             let conn = open_keyed_db(db_path);
-            taurine_core::db::init::migrate::run_migrations(&conn).unwrap();
+            taurine_core::db::init::schema::ensure_schema(&conn).unwrap();
 
             upsert_trigger_with_type(
                 &conn,
                 "test-uuid-1",
-                "test",
                 None,
                 TriggerType::Hotkey,
                 "shift+alt+2",
@@ -320,12 +318,11 @@ mod tests {
 
         with_test_db(|db_path| {
             let conn = open_keyed_db(db_path);
-            taurine_core::db::init::migrate::run_migrations(&conn).unwrap();
+            taurine_core::db::init::schema::ensure_schema(&conn).unwrap();
 
             upsert_trigger_with_type(
                 &conn,
                 "test-uuid-2",
-                "test",
                 None,
                 TriggerType::Word,
                 "gs",
@@ -366,11 +363,10 @@ mod tests {
 
         with_test_db(|db_path| {
             let conn = open_keyed_db(db_path);
-            taurine_core::db::init::migrate::run_migrations(&conn).unwrap();
+            taurine_core::db::init::schema::ensure_schema(&conn).unwrap();
             taurine_core::db::crud::create_entry(
                 &conn,
                 taurine_core::db::crud::NewEntry {
-                    name: String::new(),
                     description: None,
                     content: "Hello!".to_string(),
                     action_type: "text".to_string(),
@@ -415,7 +411,7 @@ mod tests {
         let db_path = db_guard.db_path();
 
         let conn = open_keyed_db(&db_path);
-        taurine_core::db::init::migrate::run_migrations(&conn).unwrap();
+        taurine_core::db::init::schema::ensure_schema(&conn).unwrap();
 
         seed_word_entry(&conn, "test_foo", "echo 1");
         seed_word_entry(&conn, "test_bar", "echo 2");
@@ -439,7 +435,7 @@ mod tests {
         let db_path = db_guard.db_path();
 
         let conn = open_keyed_db(&db_path);
-        taurine_core::db::init::migrate::run_migrations(&conn).unwrap();
+        taurine_core::db::init::schema::ensure_schema(&conn).unwrap();
 
         seed_word_entry(&conn, "gs", "echo 1");
         drop(conn);
@@ -458,7 +454,7 @@ mod tests {
         let db_path = db_guard.db_path();
 
         let conn = open_keyed_db(&db_path);
-        taurine_core::db::init::migrate::run_migrations(&conn).unwrap();
+        taurine_core::db::init::schema::ensure_schema(&conn).unwrap();
 
         seed_word_entry(&conn, "a", "out");
         seed_word_entry(&conn, "b", "out");
@@ -480,7 +476,7 @@ mod tests {
         let db_path = db_guard.db_path();
 
         let conn = open_keyed_db(&db_path);
-        taurine_core::db::init::migrate::run_migrations(&conn).unwrap();
+        taurine_core::db::init::schema::ensure_schema(&conn).unwrap();
         drop(conn);
 
         // Should not error, just warn
@@ -493,7 +489,7 @@ mod tests {
 
         with_test_db(|db_path| {
             let conn = open_keyed_db(db_path);
-            taurine_core::db::init::migrate::run_migrations(&conn).unwrap();
+            taurine_core::db::init::schema::ensure_schema(&conn).unwrap();
 
             seed_word_entry_with_tags(&conn, "tagged_one", "echo 1", r#"["work"]"#);
             seed_word_entry_with_tags(&conn, "tagged_two", "echo 2", r#"["work"]"#);
@@ -515,7 +511,7 @@ mod tests {
 
         with_test_db(|db_path| {
             let conn = open_keyed_db(db_path);
-            taurine_core::db::init::migrate::run_migrations(&conn).unwrap();
+            taurine_core::db::init::schema::ensure_schema(&conn).unwrap();
             seed_word_entry_with_tags(&conn, "tagged", "echo 1", r#"["work"]"#);
             drop(conn);
 

@@ -28,7 +28,6 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
         include_apps,
         exclude_apps,
         tag,
-        name,
         description,
         auto_case,
         workspace,
@@ -109,15 +108,14 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
     };
     audit_script_payload_tags(&content, audit_type)?;
 
-    // R2: reuse the existing entry's name/description/tags for absent flags.
-    let (reuse_name, reuse_description, reuse_tags) = existing_entry_defaults(
+    // R2: reuse the existing entry's description/tags for absent flags.
+    let (reuse_description, reuse_tags) = existing_entry_defaults(
         &conn,
         &invocations,
         &os,
         include_apps.as_deref(),
         exclude_apps.as_deref(),
     )?;
-    let name = name.unwrap_or(reuse_name);
     let description = description.or(reuse_description);
     let tags_json = match tag {
         Some(tags) => {
@@ -149,7 +147,6 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
     let outcome = upsert_entry_full(
         &conn,
         NewEntry {
-            name: name.clone(),
             description,
             content,
             action_type: "script".to_string(),
@@ -176,7 +173,7 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
         }
     }
 
-    let (display, aliases) = resolve_display(&conn, &name, &invocations);
+    let (display, aliases) = resolve_display(&conn, &invocations);
     report_outcome(
         outcome,
         &display,
@@ -230,7 +227,7 @@ pub fn execute(
             TriggerType::Word
         },
     )?;
-    let (name, description, tags_json) = existing_entry_defaults(
+    let (description, tags_json) = existing_entry_defaults(
         &conn,
         &invocations,
         &os,
@@ -248,7 +245,6 @@ pub fn execute(
     let outcome = upsert_entry_full(
         &conn,
         NewEntry {
-            name: name.clone(),
             description,
             content,
             action_type: "script".to_string(),
@@ -263,7 +259,7 @@ pub fn execute(
         },
     )?;
 
-    let (display, aliases) = resolve_display(&conn, &name, &invocations);
+    let (display, aliases) = resolve_display(&conn, &invocations);
     report_outcome(
         outcome,
         &display,

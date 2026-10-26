@@ -146,7 +146,7 @@ mod test_db {
 
         let conn = crate::db::key::open_keyed_connection(&db_path).expect("failed to open test DB");
 
-        crate::db::init::migrate::run_migrations(&conn).expect("run_migrations failed");
+        crate::db::init::schema::ensure_schema(&conn).expect("ensure_schema failed");
         crate::db::init::seed::ensure_defaults(&conn).expect("ensure_defaults failed");
         (dir, conn)
     }

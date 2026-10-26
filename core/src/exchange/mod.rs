@@ -49,7 +49,6 @@ impl ExchangePayload {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TriggerExport {
-    pub name: String,
     pub description: Option<String>,
     #[serde(default)]
     pub trigger_type: TriggerType,
@@ -150,7 +149,6 @@ mod tests {
         upsert_trigger(
             conn,
             "uuid-text",
-            "Greeting",
             Some("Portable greeting"),
             "gm",
             "Good morning!",
@@ -167,7 +165,6 @@ mod tests {
         upsert_trigger(
             conn,
             "uuid-script",
-            "Refresh Repo",
             Some("Runs git pull"),
             "repo",
             "[Script: bash]",
@@ -203,7 +200,6 @@ mod tests {
         upsert_trigger_with_type(
             conn,
             "uuid-hotkey",
-            "Open Git Status",
             Some("Hotkey example"),
             TriggerType::Hotkey,
             "ctrl+shift+g",
@@ -229,7 +225,6 @@ mod tests {
         assert_eq!(payload.triggers.len(), 1);
 
         let trigger = &payload.triggers[0];
-        assert_eq!(trigger.name, "Refresh Repo");
         assert_eq!(trigger.description.as_deref(), Some("Runs git pull"));
         assert_eq!(trigger.trigger_type, TriggerType::Word);
         assert_eq!(trigger.trigger, "repo");
@@ -289,7 +284,6 @@ mod tests {
     #[test]
     fn tau_blob_round_trips_without_password() {
         let payload = ExchangePayload::new(vec![TriggerExport {
-            name: "Greeting".to_string(),
             description: None,
             trigger_type: TriggerType::Word,
             trigger: "gm".to_string(),
@@ -333,7 +327,6 @@ mod tests {
     #[test]
     fn payload_contains_run_variables_detects_output_and_script_content() {
         let mut payload = ExchangePayload::new(vec![TriggerExport {
-            name: "Run".to_string(),
             description: None,
             trigger_type: TriggerType::Word,
             trigger: "gm".to_string(),
@@ -474,7 +467,6 @@ mod tests {
             br#"{
                 "schema_version": 1,
                 "triggers": [{
-                    "name": "Greeting",
                     "description": null,
                     "trigger": "gm",
                     "output": "Good morning!",
@@ -496,7 +488,6 @@ mod tests {
             br#"{
                 "schema_version": 1,
                 "triggers": [{
-                    "name": "Greeting",
                     "description": null,
                     "trigger_type": "gesture",
                     "trigger": "gm",
@@ -541,7 +532,6 @@ mod tests {
         upsert_trigger_with_type(
             &conn,
             "uuid-asset-test",
-            "Asset Test",
             Some("Testing img and script file compilation"),
             TriggerType::Word,
             trigger,

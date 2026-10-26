@@ -13,12 +13,12 @@ pub fn find_trigger_id(conn: &Connection, identifier: &str) -> Result<String> {
         return Ok(row.id);
     }
 
-    // 2. Lookup by trigger name (case-insensitive)
+    // 2. Lookup by trigger description (case-insensitive)
     let mut stmt = conn.prepare(
-        "SELECT id FROM triggers WHERE LOWER(name) = LOWER(?1) AND is_deleted = 0 LIMIT 1",
+        "SELECT id FROM triggers WHERE LOWER(description) = LOWER(?1) AND is_deleted = 0 LIMIT 1",
     )?;
-    let by_name: Option<String> = stmt.query_row([identifier], |row| row.get(0)).ok();
-    if let Some(id) = by_name {
+    let by_desc: Option<String> = stmt.query_row([identifier], |row| row.get(0)).ok();
+    if let Some(id) = by_desc {
         return Ok(id);
     }
 
@@ -43,7 +43,7 @@ pub fn execute_enable(trigger: &str, json: bool) -> Result<()> {
     set_trigger_enabled(&conn, &trigger_id, true)?;
 
     let name = get_trigger(&conn, &trigger_id)?
-        .map(|r| r.name)
+        .map(|r| r.display)
         .unwrap_or_else(|| trigger_id.clone());
 
     if json {
@@ -68,7 +68,7 @@ pub fn execute_disable(trigger: &str, json: bool) -> Result<()> {
     set_trigger_enabled(&conn, &trigger_id, false)?;
 
     let name = get_trigger(&conn, &trigger_id)?
-        .map(|r| r.name)
+        .map(|r| r.display)
         .unwrap_or_else(|| trigger_id.clone());
 
     if json {

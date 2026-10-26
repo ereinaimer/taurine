@@ -150,7 +150,6 @@ mod tests {
 
     fn sample_trigger() -> TriggerExport {
         TriggerExport {
-            name: "Imported".to_string(),
             description: None,
             trigger_type: TriggerType::Word,
             trigger: "gm".to_string(),
@@ -168,7 +167,6 @@ mod tests {
     fn sample_existing() -> ExistingTriggerConflict {
         ExistingTriggerConflict {
             id: "local-id".to_string(),
-            name: "Local".to_string(),
             description: None,
             invocations: vec![taurine_core::db::crud::TriggerAliasRow {
                 id: "alias-1".to_string(),

@@ -522,7 +522,6 @@ mod tests {
         upsert_trigger_with_type(
             &conn,
             "hotkey-id",
-            "Hotkey",
             None,
             TriggerType::Hotkey,
             "ctrl+shift+g",

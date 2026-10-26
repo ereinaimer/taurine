@@ -19,16 +19,17 @@ publish = false
 [workspace.dependencies]
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "time", "local-time"] }
+# Single tokio feature set for the whole workspace (union of what core/daemon/cli/tui use).
+# cli/tui previously asked for `full`; audited use is runtime/signal/time only, so the
+# trimmed set below preserves behavior while avoiding extra tokio modules everywhere.
+tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "net", "time", "signal", "sync", "io-util", "macros", "process"] }
+# Single reqwest line: genai 0.6.5 requires 0.13, so all first-party crates use 0.13.
+reqwest = { version = "0.13.4", default-features = false, features = ["json", "rustls"] }
 
 [profile.dev]
+opt-level = 0
 debug = 1
 split-debuginfo = "unpacked"
-
-[profile.dev.build-override]
-opt-level = 3
-
-[profile.dev.package."*"]
-opt-level = 2
 
 [profile.release]
 opt-level = "z"      # Optimize for size

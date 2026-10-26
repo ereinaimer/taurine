@@ -141,7 +141,7 @@ pub fn get_conn() -> Result<DbConnection, crate::error::Error> {
         let conn = key::open_keyed_connection(&db_path).map_err(|e| {
             crate::error::Error::Service(format!("Failed to open test connection: {}", e))
         })?;
-        init::migrate::run_migrations(&conn).map_err(|e| {
+        init::schema::ensure_schema(&conn).map_err(|e| {
             crate::error::Error::Service(format!("Failed to run migrations in test conn: {}", e))
         })?;
         return Ok(DbConnection::Raw(conn));
@@ -248,9 +248,9 @@ mod tests {
 
         let now = 1_700_000_000_i64;
         conn.execute(
-            "INSERT INTO triggers (id, name, output, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            ("uuid-1", "Good Morning", "Good morning!", now, now),
+            "INSERT INTO triggers (id, output, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            ("uuid-1", "Good morning!", now, now),
         )
         .unwrap();
         conn.execute(
@@ -262,13 +262,19 @@ mod tests {
 
         let mut stmt = conn
             .prepare(
-                "SELECT name, action_type, is_deleted, is_synced, version
+                "SELECT output, action_type, is_deleted, is_synced, version
                  FROM triggers WHERE id = ?1",
             )
             .unwrap();
 
-        let (name, action_type, is_deleted, is_synced, version): (String, String, bool, bool, i64) =
-            stmt.query_row(["uuid-1"], |row| {
+        let (output, action_type, is_deleted, is_synced, version): (
+            String,
+            String,
+            bool,
+            bool,
+            i64,
+        ) = stmt
+            .query_row(["uuid-1"], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
@@ -279,7 +285,7 @@ mod tests {
             })
             .unwrap();
 
-        assert_eq!(name, "Good Morning");
+        assert_eq!(output, "Good morning!");
         assert_eq!(action_type, "text");
         assert!(!is_deleted);
         assert!(is_synced);
@@ -335,17 +341,12 @@ mod tests {
     }
 
     #[test]
-    fn test_migrations_are_idempotent() {
+    fn test_schema_setup_is_idempotent() {
         init_tracing_for_tests();
         let (_dir, conn) = open_test_db(); // already applied
 
         // Running again must be a no-op, not an error
-        init::migrate::run_migrations(&conn).expect("Second run_migrations call must not fail");
-
-        let version: u32 = conn
-            .query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))
-            .unwrap();
-        assert_eq!(version, 1);
+        init::schema::ensure_schema(&conn).expect("Second ensure_schema call must not fail");
     }
 
     #[test]

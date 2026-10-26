@@ -637,8 +637,8 @@ fn keystroke_path_uses_use_cache_until_reload() {
 
     let conn = crate::db::key::open_keyed_connection(&crate::paths::get_db_path()).unwrap();
     conn.execute(
-        "INSERT OR REPLACE INTO triggers (id, output, action_type, target_os, name, tags, is_deleted, created_at, updated_at)
-         VALUES ('uuni_inner_id', 'hello', 'text', 'all', 'uuni_inner', '[]', 0, 1719878400, 1719878400)",
+        "INSERT OR REPLACE INTO triggers (id, output, action_type, target_os, tags, is_deleted, created_at, updated_at)
+         VALUES ('uuni_inner_id', 'hello', 'text', 'all', '[]', 0, 1719878400, 1719878400)",
         [],
     )
     .unwrap();

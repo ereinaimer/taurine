@@ -15,7 +15,7 @@ use taurine_core::voice::{
 
 fn setup_test_db() -> Connection {
     let conn = Connection::open_in_memory().expect("failed to open in-memory sqlite db");
-    taurine_core::db::init::migrate::run_migrations(&conn).expect("run_migrations failed");
+    taurine_core::db::init::schema::ensure_schema(&conn).expect("ensure_schema failed");
     taurine_core::db::init::seed::ensure_defaults(&conn).expect("ensure_defaults failed");
     conn
 }
@@ -165,7 +165,6 @@ fn voice_entry(
         (None, None)
     };
     NewEntry {
-        name: String::new(),
         description: None,
         content: content.to_string(),
         action_type: action_type.to_string(),

@@ -152,6 +152,226 @@ pub fn add_alias(
     )?)
 }
 
+/// Rewrites one alias row's invocation type in place, revalidating the
+/// stored text for the new type with the same rules as the add path.
+/// Scope conflicts fail like a duplicate alias; confirmation flags and
+/// row identity survive. Bumps the parent version and marks it unsynced.
+/// Returns false when the trigger is unknown/deleted or the row is gone.
+pub fn set_alias_invocation_type(
+    conn: &Connection,
+    trigger_id: &str,
+    invocation: &str,
+    new_type: InvocationType,
+) -> Result<bool> {
+    let live: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM triggers WHERE id = ?1 AND is_deleted = 0)",
+        [trigger_id],
+        |row| row.get(0),
+    )?;
+    if !live {
+        return Ok(false);
+    }
+    let current: Option<(String, String)> = conn
+        .query_row(
+            "SELECT id, invocation_type FROM trigger_aliases
+              WHERE trigger_id = ?1 AND invocation = ?2",
+            rusqlite::params![trigger_id, invocation],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    let Some((alias_id, current_type)) = current else {
+        return Ok(false);
+    };
+    if InvocationType::parse_str(&current_type) == Some(new_type) {
+        return Ok(true);
+    }
+    // honey: same per-type normalization as add_alias; the stored text
+    // may change shape (hotkey canonicalization, voice normalization).
+    let (stored, strict_threshold): (String, Option<f32>) = match new_type {
+        InvocationType::Word => {
+            if invocation.trim().is_empty() {
+                return Err(Error::Config("Trigger cannot be empty.".to_string()));
+            }
+            if invocation.len() > MAX_TRIGGER_LENGTH {
+                return Err(Error::Config(format!(
+                    "Trigger exceeds {} character limit",
+                    MAX_TRIGGER_LENGTH
+                )));
+            }
+            if invocation.contains('\n') || invocation.contains('\r') {
+                return Err(Error::Config(
+                    "Word triggers cannot contain newlines.".to_string(),
+                ));
+            }
+            (invocation.to_string(), None)
+        }
+        InvocationType::Hotkey => {
+            let prepared = prepare_trigger_with_type(invocation, TriggerType::Hotkey, "all")?;
+            (prepared.stored_trigger, None)
+        }
+        InvocationType::Regex => {
+            regex::Regex::new(invocation)
+                .map_err(|e| Error::Config(format!("Invalid regular expression: {e}")))?;
+            (invocation.to_string(), None)
+        }
+        InvocationType::Voice => {
+            let normalized = validate_voice_phrase(invocation)?;
+            let threshold = threshold_for_phrase(&normalized);
+            (normalized, Some(threshold))
+        }
+    };
+    with_transaction(conn, || {
+        check_alias_scope_conflict(conn, trigger_id, new_type, &stored)?;
+        conn.execute(
+            "UPDATE trigger_aliases
+              SET invocation = ?1, invocation_type = ?2, strict_threshold = ?3
+              WHERE id = ?4",
+            rusqlite::params![stored, new_type.as_db_str(), strict_threshold, alias_id],
+        )?;
+        conn.execute(
+            "UPDATE triggers
+              SET version = version + 1, updated_at = ?1, is_synced = 0
+              WHERE id = ?2 AND is_deleted = 0",
+            rusqlite::params![crate::db::now_unix_secs(), trigger_id],
+        )?;
+        Ok(true)
+    })
+}
+
+/// Rewrites one alias row's invocation text in place, keeping its type.
+/// The new text validates with the same per-type rules as the add path
+/// (word length/newlines, hotkey canonicalization, regex compile, voice
+/// normalization). Scope conflicts fail like a duplicate alias; the row
+/// keeps its confirmation flag and identity. Bumps the parent version
+/// and marks it unsynced. Returns false when the trigger is
+/// unknown/deleted or the row is gone.
+pub fn rename_alias_invocation(
+    conn: &Connection,
+    trigger_id: &str,
+    old_invocation: &str,
+    new_invocation: &str,
+) -> Result<bool> {
+    let live: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM triggers WHERE id = ?1 AND is_deleted = 0)",
+        [trigger_id],
+        |row| row.get(0),
+    )?;
+    if !live {
+        return Ok(false);
+    }
+    let current: Option<(String, String, String)> = conn
+        .query_row(
+            "SELECT id, invocation_type, invocation FROM trigger_aliases
+              WHERE trigger_id = ?1 AND invocation = ?2",
+            rusqlite::params![trigger_id, old_invocation],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?;
+    let Some((alias_id, current_type, current_invocation)) = current else {
+        return Ok(false);
+    };
+    let invocation_type = InvocationType::parse_str(&current_type)
+        .ok_or_else(|| Error::Config(format!("Invalid invocation_type '{current_type}'.")))?;
+    // honey: same per-type normalization as add_alias; the stored text
+    // may change shape (hotkey canonicalization, voice normalization).
+    let (stored, strict_threshold): (String, Option<f32>) = match invocation_type {
+        InvocationType::Word => {
+            if new_invocation.trim().is_empty() {
+                return Err(Error::Config("Trigger cannot be empty.".to_string()));
+            }
+            if new_invocation.len() > MAX_TRIGGER_LENGTH {
+                return Err(Error::Config(format!(
+                    "Trigger exceeds {} character limit",
+                    MAX_TRIGGER_LENGTH
+                )));
+            }
+            if new_invocation.contains('\n') || new_invocation.contains('\r') {
+                return Err(Error::Config(
+                    "Word triggers cannot contain newlines.".to_string(),
+                ));
+            }
+            (new_invocation.to_string(), None)
+        }
+        InvocationType::Hotkey => {
+            let prepared = prepare_trigger_with_type(new_invocation, TriggerType::Hotkey, "all")?;
+            (prepared.stored_trigger, None)
+        }
+        InvocationType::Regex => {
+            regex::Regex::new(new_invocation)
+                .map_err(|e| Error::Config(format!("Invalid regular expression: {e}")))?;
+            (new_invocation.to_string(), None)
+        }
+        InvocationType::Voice => {
+            let normalized = validate_voice_phrase(new_invocation)?;
+            let threshold = threshold_for_phrase(&normalized);
+            (normalized, Some(threshold))
+        }
+    };
+    with_transaction(conn, || {
+        // honey: normalizing onto the identical stored text is a
+        // no-op success; skipping the write also skips the
+        // same-parent duplicate check tripping on our own row.
+        if stored == current_invocation {
+            return Ok(true);
+        }
+        check_alias_scope_conflict(conn, trigger_id, invocation_type, &stored)?;
+        conn.execute(
+            "UPDATE trigger_aliases
+              SET invocation = ?1, strict_threshold = ?2
+              WHERE id = ?3",
+            rusqlite::params![stored, strict_threshold, alias_id],
+        )?;
+        conn.execute(
+            "UPDATE triggers
+              SET version = version + 1, updated_at = ?1, is_synced = 0
+              WHERE id = ?2 AND is_deleted = 0",
+            rusqlite::params![crate::db::now_unix_secs(), trigger_id],
+        )?;
+        Ok(true)
+    })
+}
+
+/// Flips one alias row's confirmation flag, bumping the parent version
+/// and marking it unsynced like other mutations. Returns false when the
+/// trigger is unknown/deleted or the invocation row is gone.
+pub fn set_alias_require_confirmation(
+    conn: &Connection,
+    trigger_id: &str,
+    invocation: &str,
+    require_confirmation: bool,
+) -> Result<bool> {
+    let live: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM triggers WHERE id = ?1 AND is_deleted = 0)",
+        [trigger_id],
+        |row| row.get(0),
+    )?;
+    if !live {
+        return Ok(false);
+    }
+    with_transaction(conn, || {
+        let changed = conn.execute(
+            "UPDATE trigger_aliases
+              SET require_confirmation = ?1
+              WHERE trigger_id = ?2 AND invocation = ?3",
+            rusqlite::params![
+                if require_confirmation { 1 } else { 0 },
+                trigger_id,
+                invocation
+            ],
+        )?;
+        if changed == 0 {
+            return Ok(false);
+        }
+        conn.execute(
+            "UPDATE triggers
+              SET version = version + 1, updated_at = ?1, is_synced = 0
+              WHERE id = ?2 AND is_deleted = 0",
+            rusqlite::params![crate::db::now_unix_secs(), trigger_id],
+        )?;
+        Ok(true)
+    })
+}
+
 /// Scope-aware duplicate check for one normalized invocation (§0.5/§0.14).
 /// Same type+invocation on the SAME parent is always a conflict; on ANOTHER
 /// live parent it conflicts only when scopes overlap (`target_os` +
@@ -390,15 +610,15 @@ mod tests {
 
     fn fresh_db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
-        crate::db::init::migrate::run_migrations(&conn).unwrap();
+        crate::db::init::schema::ensure_schema(&conn).unwrap();
         conn
     }
 
     fn seed_parent(conn: &Connection) -> String {
         let id = uuid::Uuid::new_v4().to_string();
         conn.execute(
-            "INSERT INTO triggers (id, name, output, action_type, target_os, tags, created_at, updated_at)
-             VALUES (?1, '', 'Hello!', 'text', 'all', '[]', unixepoch(), unixepoch())",
+            "INSERT INTO triggers (id, output, action_type, target_os, tags, created_at, updated_at)
+             VALUES (?1, 'Hello!', 'text', 'all', '[]', unixepoch(), unixepoch())",
             [id.clone()],
         )
         .unwrap();

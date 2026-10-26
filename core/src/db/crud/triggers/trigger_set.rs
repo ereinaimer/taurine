@@ -4,7 +4,7 @@ use super::aliases::{
 use super::app_filter::AppFilterPrefix;
 use super::assets::*;
 use super::overlap::*;
-use super::trigger_types::TriggerLimits;
+use super::trigger_types::{ActionType, TriggerLimits};
 use super::validate::*;
 use unicode_normalization::UnicodeNormalization;
 
@@ -27,7 +27,7 @@ pub(crate) const MAX_TAG_LENGTH: usize = 50;
 
 pub(crate) const MAX_TAGS_COUNT: usize = 20;
 
-pub(crate) const MAX_TRIGGER_LENGTH: usize = 200;
+pub const MAX_TRIGGER_LENGTH: usize = 200;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedTrigger {
@@ -38,7 +38,6 @@ pub struct PreparedTrigger {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExistingTriggerUpdate<'a> {
     pub id: &'a str,
-    pub name: &'a str,
     pub description: Option<&'a str>,
     pub trigger_type: TriggerType,
     pub trigger: &'a str,
@@ -55,7 +54,6 @@ pub struct ExistingTriggerUpdate<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewTrigger<'a> {
-    pub name: Option<&'a str>,
     pub description: Option<&'a str>,
     pub trigger_type: TriggerType,
     pub trigger: &'a str,
@@ -160,7 +158,6 @@ pub fn prepare_trigger_with_type(
 pub fn upsert_trigger(
     conn: &Connection,
     id: &str,
-    name: &str,
     description: Option<&str>,
     trigger: &str,
     output: &str,
@@ -173,7 +170,6 @@ pub fn upsert_trigger(
     upsert_trigger_with_type_and_case(
         conn,
         id,
-        name,
         description,
         TriggerType::Word,
         trigger,
@@ -192,7 +188,6 @@ pub fn upsert_trigger(
 pub fn upsert_trigger_with_type(
     conn: &Connection,
     id: &str,
-    name: &str,
     description: Option<&str>,
     trigger_type: TriggerType,
     trigger: &str,
@@ -206,7 +201,6 @@ pub fn upsert_trigger_with_type(
     upsert_trigger_with_type_and_case(
         conn,
         id,
-        name,
         description,
         trigger_type,
         trigger,
@@ -232,7 +226,6 @@ pub fn upsert_trigger_with_type(
 pub fn upsert_trigger_with_type_and_case(
     conn: &Connection,
     id: &str,
-    name: &str,
     description: Option<&str>,
     trigger_type: TriggerType,
     trigger: &str,
@@ -250,13 +243,12 @@ pub fn upsert_trigger_with_type_and_case(
         // Keep created_at stable across updates.
         conn.execute(
             "INSERT INTO triggers
-            (id, name, description, output, action_type, target_os, tags,
+            (id, description, output, action_type, target_os, tags,
              usage_count, last_used_at, created_at, updated_at, version, is_deleted, auto_case)
          VALUES
             (?1, ?2, ?3, ?4, ?5, ?6, ?7,
-             ?8, ?9, ?10, ?10, 1, 0, ?11)
+             ?8, ?9, ?9, 1, 0, ?10)
          ON CONFLICT(id) DO UPDATE SET
-            name         = excluded.name,
             description  = excluded.description,
             output       = excluded.output,
             action_type  = excluded.action_type,
@@ -270,7 +262,6 @@ pub fn upsert_trigger_with_type_and_case(
             updated_at   = excluded.updated_at",
             (
                 id,
-                name,
                 description,
                 output,
                 action_type,
@@ -361,12 +352,9 @@ pub fn upsert_script(
 
 /// Multi-invocation entry payload for the alias model.
 ///
-/// `name` is stored EXACTLY as passed — including the empty string, which
-/// means auto-display per §0.11 (never defaulted to trigger text).
 /// Each invocation is `(type, text, require_confirmation)`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NewEntry {
-    pub name: String,
     pub description: Option<String>,
     pub content: String,
     pub action_type: String,
@@ -497,7 +485,7 @@ fn validate_voice_slot_parity(
     Ok(())
 }
 
-/// Validates entry content/tags/name/description; returns
+/// Validates entry content/tags/description; returns
 /// `(content_nfc, normalized_tags)`. Limit validation runs once per word
 /// invocation (word-catalog keys); entries without one still get a single
 /// pass so dead `[use()]` refs are always caught.
@@ -506,7 +494,6 @@ fn validate_entry_payload(
     content: &str,
     action_type: &str,
     invocations: &[(InvocationType, String, bool)],
-    name: &str,
     description: Option<&str>,
     tags_json: &str,
 ) -> Result<(String, String)> {
@@ -530,12 +517,6 @@ fn validate_entry_payload(
             .unwrap_or("");
         validate_trigger_limits(conn, fallback, &content_nfc, action_type)?;
     }
-    if name.len() > trigger_types::MAX_NAME_LENGTH {
-        return Err(crate::Error::Config(format!(
-            "Trigger name exceeds {} character limit",
-            trigger_types::MAX_NAME_LENGTH
-        )));
-    }
     if let Some(desc) = description
         && desc.len() > trigger_types::MAX_DESCRIPTION_LENGTH
     {
@@ -546,37 +527,6 @@ fn validate_entry_payload(
     }
     let tags_json = normalize_tags(tags_json)?;
     Ok((content_nfc, tags_json))
-}
-
-/// Warns (never errors) when `name` is already used by another live entry.
-/// Empty names mean auto-display and are never warned about.
-fn warn_on_duplicate_name(conn: &Connection, name: &str, exclude_id: Option<&str>) {
-    if name.trim().is_empty() {
-        return;
-    }
-    let duplicate_count: i64 = match exclude_id {
-        Some(id) => conn
-            .query_row(
-                "SELECT COUNT(*) FROM triggers WHERE name = ?1 AND is_deleted = 0 AND id != ?2",
-                rusqlite::params![name, id],
-                |r| r.get(0),
-            )
-            .unwrap_or(0),
-        None => conn
-            .query_row(
-                "SELECT COUNT(*) FROM triggers WHERE name = ?1 AND is_deleted = 0",
-                rusqlite::params![name],
-                |r| r.get(0),
-            )
-            .unwrap_or(0),
-    };
-    if duplicate_count > 0 {
-        tracing::warn!(
-            "Trigger name '{}' is already used by {} other trigger(s).",
-            name,
-            duplicate_count,
-        );
-    }
 }
 
 /// Resolves interpreter/behavior for a script entry, mirroring the old
@@ -649,14 +599,12 @@ fn create_entry_inner(
         &entry.content,
         &entry.action_type,
         &invocations,
-        &entry.name,
         entry.description.as_deref(),
         &entry.tags_json,
     )?;
     if is_text {
         validate_voice_slot_parity(&content_nfc, &invocations)?;
     }
-    warn_on_duplicate_name(conn, &entry.name, None);
     // Overlap pre-check (catches hotkey overlaps that share no UNIQUE row).
     for (invocation_type, invocation, _) in &invocations {
         check_invocation_conflict(
@@ -677,12 +625,11 @@ fn create_entry_inner(
             resolve_script_parts(&content_nfc, entry.interpreter, entry.behavior)?;
         conn.execute(
             "INSERT INTO triggers
-                (id, name, description, output, action_type, target_os, tags,
+                (id, description, output, action_type, target_os, tags,
                  usage_count, last_used_at, created_at, updated_at, version, is_deleted, auto_case)
-             VALUES (?1, ?2, ?3, ?4, 'script', ?5, ?6, 0, NULL, ?7, ?7, 1, 0, ?8)",
+             VALUES (?1, ?2, ?3, 'script', ?4, ?5, 0, NULL, ?6, ?6, 1, 0, ?7)",
             (
                 &id,
-                &entry.name,
                 entry.description.as_deref(),
                 &script_output,
                 &entry.target_os,
@@ -701,12 +648,11 @@ fn create_entry_inner(
         )?;
         conn.execute(
             "INSERT INTO triggers
-                (id, name, description, output, action_type, target_os, tags,
+                (id, description, output, action_type, target_os, tags,
                  usage_count, last_used_at, created_at, updated_at, version, is_deleted, auto_case)
-             VALUES (?1, ?2, ?3, ?4, 'text', ?5, ?6, 0, NULL, ?7, ?7, 1, 0, ?8)",
+             VALUES (?1, ?2, ?3, 'text', ?4, ?5, 0, NULL, ?6, ?6, 1, 0, ?7)",
             (
                 &id,
-                &entry.name,
                 entry.description.as_deref(),
                 &content_nfc,
                 &entry.target_os,
@@ -744,8 +690,8 @@ fn create_entry_inner(
     Ok((id, aliases))
 }
 
-/// Inserts a new multi-invocation entry: one parent row (name stored
-/// EXACTLY, empty included) plus one alias row per invocation, atomically.
+/// Inserts a new multi-invocation entry: one parent row plus one alias
+/// row per invocation, atomically.
 pub fn create_entry(conn: &Connection, entry: NewEntry) -> Result<(String, Vec<TriggerAliasRow>)> {
     with_transaction(conn, || create_entry_inner(conn, &entry))
 }
@@ -758,14 +704,13 @@ struct ParentSnapshot {
     only_apps: Option<String>,
     except_apps: Option<String>,
     tags: String,
-    name: String,
     description: Option<String>,
     auto_case: bool,
 }
 
 fn load_parent_snapshot(conn: &Connection, parent_id: &str) -> Result<ParentSnapshot> {
     Ok(conn.query_row(
-        "SELECT output, action_type, target_os, only_apps, except_apps, tags, name, description, auto_case
+        "SELECT output, action_type, target_os, only_apps, except_apps, tags, description, auto_case
           FROM triggers WHERE id = ?1",
         [parent_id],
         |row| {
@@ -776,9 +721,8 @@ fn load_parent_snapshot(conn: &Connection, parent_id: &str) -> Result<ParentSnap
                 only_apps: row.get(3)?,
                 except_apps: row.get(4)?,
                 tags: row.get(5)?,
-                name: row.get(6)?,
-                description: row.get(7)?,
-                auto_case: row.get(8)?,
+                description: row.get(6)?,
+                auto_case: row.get(7)?,
             })
         },
     )?)
@@ -829,14 +773,12 @@ fn update_entry_inner(
         &entry.content,
         &entry.action_type,
         requested,
-        &entry.name,
         entry.description.as_deref(),
         &entry.tags_json,
     )?;
     if is_text {
         validate_voice_slot_parity(&content_nfc, requested)?;
     }
-    warn_on_duplicate_name(conn, &entry.name, Some(parent_id));
 
     let current = load_parent_snapshot(conn, parent_id)?;
 
@@ -868,7 +810,6 @@ fn update_entry_inner(
         && current.only_apps == only_cleaned
         && current.except_apps == except_cleaned;
     let meta_same = current.tags == tags_json
-        && current.name == entry.name
         && current.description == entry.description
         && current.auto_case == entry.auto_case;
 
@@ -887,11 +828,10 @@ fn update_entry_inner(
             return Ok(AddOutcome::AlreadyExists);
         }
         conn.execute(
-            "UPDATE triggers SET name = ?1, description = ?2, output = ?3, action_type = 'script',
-                    target_os = ?4, tags = ?5, auto_case = ?6, is_deleted = 0,
-                    version = version + 1, updated_at = ?7 WHERE id = ?8",
+            "UPDATE triggers SET description = ?1, output = ?2, action_type = 'script',
+                    target_os = ?3, tags = ?4, auto_case = ?5, is_deleted = 0,
+                    version = version + 1, updated_at = ?6 WHERE id = ?7",
             (
-                &entry.name,
                 entry.description.as_deref(),
                 &script_output,
                 &entry.target_os,
@@ -919,11 +859,10 @@ fn update_entry_inner(
             return Ok(AddOutcome::AlreadyExists);
         }
         conn.execute(
-            "UPDATE triggers SET name = ?1, description = ?2, output = ?3, action_type = 'text',
-                    target_os = ?4, tags = ?5, auto_case = ?6, is_deleted = 0,
-                    version = version + 1, updated_at = ?7 WHERE id = ?8",
+            "UPDATE triggers SET description = ?1, output = ?2, action_type = 'text',
+                    target_os = ?3, tags = ?4, auto_case = ?5, is_deleted = 0,
+                    version = version + 1, updated_at = ?6 WHERE id = ?7",
             (
-                &entry.name,
                 entry.description.as_deref(),
                 &content_nfc,
                 &entry.target_os,
@@ -1076,12 +1015,6 @@ pub fn update_existing_trigger(
         // We only enforce limits for text snippets, as nested limits apply to the `use` variable
         validate_trigger_limits(conn, &trigger_nfc, &content_nfc, update.action_type)?;
 
-        if update.name.len() > trigger_types::MAX_NAME_LENGTH {
-            return Err(crate::Error::Config(format!(
-                "Trigger name exceeds {} character limit",
-                trigger_types::MAX_NAME_LENGTH
-            )));
-        }
         if let Some(desc) = update.description
             && desc.len() > trigger_types::MAX_DESCRIPTION_LENGTH
         {
@@ -1092,8 +1025,6 @@ pub fn update_existing_trigger(
         }
 
         let tags_json = normalize_tags(update.tags_json)?;
-
-        warn_on_duplicate_name(conn, update.name, Some(update.id));
 
         let prepared =
             prepare_trigger_with_type(&trigger_nfc, update.trigger_type, update.target_os)?;
@@ -1123,12 +1054,11 @@ pub fn update_existing_trigger(
             let script_output = format!("[Script: {}]", script_interpreter_tag(interpreter));
 
             conn.execute(
-                "UPDATE triggers SET name = ?1, description = ?2, output = ?3, action_type = 'script',
-                        target_os = ?4, tags = ?5, usage_count = ?6, last_used_at = ?7,
-                        auto_case = ?8, is_deleted = 0, version = version + 1, updated_at = ?9
-                  WHERE id = ?10",
+                "UPDATE triggers SET description = ?1, output = ?2, action_type = 'script',
+                        target_os = ?3, tags = ?4, usage_count = ?5, last_used_at = ?6,
+                        auto_case = ?7, is_deleted = 0, version = version + 1, updated_at = ?8
+                  WHERE id = ?9",
                 (
-                    update.name,
                     update.description,
                     &script_output,
                     update.target_os,
@@ -1150,12 +1080,11 @@ pub fn update_existing_trigger(
         } else {
             validate_output(&content_nfc, Some(&prepared.stored_trigger))?;
             conn.execute(
-                "UPDATE triggers SET name = ?1, description = ?2, output = ?3, action_type = 'text',
-                        target_os = ?4, tags = ?5, usage_count = ?6, last_used_at = ?7,
-                        auto_case = ?8, is_deleted = 0, version = version + 1, updated_at = ?9
-                  WHERE id = ?10",
+                "UPDATE triggers SET description = ?1, output = ?2, action_type = 'text',
+                        target_os = ?3, tags = ?4, usage_count = ?5, last_used_at = ?6,
+                        auto_case = ?7, is_deleted = 0, version = version + 1, updated_at = ?8
+                  WHERE id = ?9",
                 (
-                    update.name,
                     update.description,
                     &content_nfc,
                     update.target_os,
@@ -1200,8 +1129,6 @@ pub fn update_existing_trigger(
 
 pub fn create_trigger(conn: &mut Connection, new_trigger: NewTrigger<'_>) -> Result<String> {
     let entry = NewEntry {
-        // Stored EXACTLY (empty included); display falls back to the invocation.
-        name: new_trigger.name.unwrap_or("").to_string(),
         description: new_trigger.description.map(str::to_string),
         content: new_trigger.content.to_string(),
         action_type: new_trigger.action_type.to_string(),
@@ -1346,6 +1273,346 @@ pub fn update_trigger_app_filters(
     Ok(())
 }
 
+/// Rewrites the allow-list of one trigger. Values validate like the
+/// CLI flags (comma-separated, `exe:`/`class:`/`title:` prefixes).
+/// Bumps version and marks the row unsynced like other mutations.
+/// Returns false when the id is unknown or already deleted.
+pub fn set_trigger_only_apps(conn: &Connection, id: &str, only_apps: Option<&str>) -> Result<bool> {
+    let cleaned = clean_app_filter_value(only_apps)?;
+    let changed = conn.execute(
+        "UPDATE triggers
+         SET only_apps = ?1, version = version + 1, updated_at = ?2, is_synced = 0
+         WHERE id = ?3 AND is_deleted = 0",
+        rusqlite::params![cleaned, crate::db::now_unix_secs(), id],
+    )?;
+    Ok(changed > 0)
+}
+
+/// Rewrites the block-list of one trigger. Same validation and
+/// version bump as the allow-list setter.
+pub fn set_trigger_except_apps(
+    conn: &Connection,
+    id: &str,
+    except_apps: Option<&str>,
+) -> Result<bool> {
+    let cleaned = clean_app_filter_value(except_apps)?;
+    let changed = conn.execute(
+        "UPDATE triggers
+         SET except_apps = ?1, version = version + 1, updated_at = ?2, is_synced = 0
+         WHERE id = ?3 AND is_deleted = 0",
+        rusqlite::params![cleaned, crate::db::now_unix_secs(), id],
+    )?;
+    Ok(changed > 0)
+}
+
+/// Rewrites the description of one trigger. Blank becomes NULL.
+/// Returns false when the id is unknown or already deleted.
+pub fn set_trigger_description(
+    conn: &Connection,
+    id: &str,
+    description: Option<&str>,
+) -> Result<bool> {
+    let cleaned = description.map(str::trim).filter(|d| !d.is_empty());
+    trigger_types::TriggerLimits::validate_description(cleaned)?;
+    let changed = conn.execute(
+        "UPDATE triggers
+         SET description = ?1, version = version + 1, updated_at = ?2, is_synced = 0
+         WHERE id = ?3 AND is_deleted = 0",
+        rusqlite::params![cleaned, crate::db::now_unix_secs(), id],
+    )?;
+    Ok(changed > 0)
+}
+
+/// Rewrites the body of one trigger: raw output for text triggers,
+/// script source for scripts (recompressed, interpreter kept).
+/// Text output is validated like the full update path. Whitespace is
+/// significant and never trimmed. Returns false when the id is unknown
+/// or already deleted.
+pub fn set_trigger_content(conn: &Connection, id: &str, content: &str) -> Result<bool> {
+    let row = super::trigger_get::get_trigger(conn, id)?;
+    let Some(row) = row else {
+        return Ok(false);
+    };
+    if row.is_deleted {
+        return Ok(false);
+    }
+    let now = crate::db::now_unix_secs();
+    if row.action_type == "script" {
+        let (Some(interpreter), Some(behavior)) = (row.interpreter, row.behavior) else {
+            return Err(crate::Error::Config(
+                "Script is missing its language metadata.".to_string(),
+            ));
+        };
+        let compressed = crate::engine::shell::compress(content)?;
+        upsert_script(conn, id, interpreter, behavior, &compressed)?;
+        let changed = conn.execute(
+            "UPDATE triggers
+             SET version = version + 1, updated_at = ?1, is_synced = 0
+             WHERE id = ?2 AND is_deleted = 0",
+            rusqlite::params![now, id],
+        )?;
+        return Ok(changed > 0);
+    }
+    let key = row
+        .invocations
+        .iter()
+        .find(|a| a.invocation_type == super::aliases::InvocationType::Word)
+        .map(|a| a.invocation.as_str())
+        .unwrap_or(&row.display);
+    validate_trigger_limits(conn, key, content, &row.action_type)?;
+    let changed = conn.execute(
+        "UPDATE triggers
+         SET output = ?1, version = version + 1, updated_at = ?2, is_synced = 0
+         WHERE id = ?3 AND is_deleted = 0",
+        rusqlite::params![content, now, id],
+    )?;
+    Ok(changed > 0)
+}
+
+/// Switches one trigger between text and script actions in place.
+///
+/// The body carries over: text output becomes the script source, and
+/// script source becomes the text output. Invocations, filters, tags,
+/// and usage counters are untouched. Scripts keep their stored language
+/// when one exists; otherwise the platform default applies. Bumps
+/// version and marks the row unsynced.
+pub fn set_trigger_action_type(
+    conn: &Connection,
+    id: &str,
+    action_type: ActionType,
+) -> Result<bool> {
+    let Some(row) = super::trigger_get::get_trigger(conn, id)? else {
+        return Ok(false);
+    };
+    if row.is_deleted {
+        return Ok(false);
+    }
+    let current = ActionType::parse_str(&row.action_type).ok_or_else(|| {
+        crate::Error::Config(format!(
+            "Unsupported action_type '{}'. Expected 'text' or 'script'.",
+            row.action_type
+        ))
+    })?;
+    if current == action_type {
+        return Ok(true);
+    }
+
+    with_transaction(conn, || {
+        let now = now_unix_secs();
+        if action_type.is_script() {
+            let content: String = row.output.nfc().collect();
+            let target_os =
+                crate::db::TargetOs::parse_str(&row.target_os).unwrap_or(crate::db::TargetOs::All);
+            let interpreter = row
+                .interpreter
+                .unwrap_or_else(|| ScriptInterpreter::default_for_target_os(target_os));
+            let behavior = row.behavior.unwrap_or(ScriptBehavior::Inline);
+            let (interpreter, behavior, script_output) =
+                resolve_script_parts(&content, Some(interpreter), Some(behavior))?;
+            upsert_script(conn, id, interpreter, behavior, &compress(&content)?)?;
+            let changed = conn.execute(
+                "UPDATE triggers
+                 SET action_type = 'script', output = ?1, version = version + 1,
+                     updated_at = ?2, is_synced = 0
+                 WHERE id = ?3 AND is_deleted = 0",
+                rusqlite::params![script_output, now, id],
+            )?;
+            if changed == 0 {
+                return Err(crate::Error::NotFound(
+                    "Trigger no longer exists.".to_string(),
+                ));
+            }
+        } else {
+            let content = match row.script_binary.as_deref() {
+                Some(compressed) => decompress(compressed)?,
+                None => row.output.clone(),
+            };
+            let content: String = content.nfc().collect();
+            validate_output(&content, Some(&row.display))?;
+            let key = row
+                .invocations
+                .iter()
+                .find(|alias| alias.invocation_type == InvocationType::Word)
+                .map(|alias| alias.invocation.as_str())
+                .unwrap_or(row.display.as_str());
+            validate_trigger_limits(conn, key, &content, action_type.as_str())?;
+            let changed = conn.execute(
+                "UPDATE triggers
+                 SET action_type = 'text', output = ?1, version = version + 1,
+                     updated_at = ?2, is_synced = 0
+                 WHERE id = ?3 AND is_deleted = 0",
+                rusqlite::params![&content, now, id],
+            )?;
+            if changed == 0 {
+                return Err(crate::Error::NotFound(
+                    "Trigger no longer exists.".to_string(),
+                ));
+            }
+            conn.execute(
+                "DELETE FROM scripts WHERE trigger_id = ?1",
+                rusqlite::params![id],
+            )?;
+            let processed_output = compile_and_save_assets(conn, id, &content)?;
+            if processed_output != content {
+                conn.execute(
+                    "UPDATE triggers SET output = ?1, updated_at = ?2 WHERE id = ?3",
+                    rusqlite::params![processed_output, now, id],
+                )?;
+            }
+        }
+        Ok(true)
+    })
+}
+
+/// Rewrites the target platform of one trigger. Only the six known
+/// identifiers validate; conflict checks are the caller's job, mirroring
+/// the enable toggle. Bumps version and marks the row unsynced.
+/// Returns false when the id is unknown or already deleted.
+pub fn set_trigger_target_os(conn: &Connection, id: &str, target_os: &str) -> Result<bool> {
+    super::validate::validate_target_os_value(target_os)?;
+    let changed = conn.execute(
+        "UPDATE triggers
+         SET target_os = ?1, version = version + 1, updated_at = ?2, is_synced = 0
+         WHERE id = ?3 AND is_deleted = 0",
+        rusqlite::params![target_os, crate::db::now_unix_secs(), id],
+    )?;
+    Ok(changed > 0)
+}
+
+/// Rewrites the tag list of one trigger. Tags normalize strictly
+/// (lowercase, at most 50 chars each, at most 20 per trigger);
+/// violations error back to the caller. Bumps version and marks the
+/// row unsynced. Returns false when the id is unknown or already
+/// deleted.
+pub fn set_trigger_tags(conn: &Connection, id: &str, tags: &[String]) -> Result<bool> {
+    let cleaned = super::validate::normalize_tags(&serde_json::to_string(tags)?)?;
+    let changed = conn.execute(
+        "UPDATE triggers
+         SET tags = ?1, version = version + 1, updated_at = ?2, is_synced = 0
+         WHERE id = ?3 AND is_deleted = 0",
+        rusqlite::params![cleaned, crate::db::now_unix_secs(), id],
+    )?;
+    Ok(changed > 0)
+}
+
+/// Flips the per-trigger auto-case flag. Bumps version and marks the
+/// row unsynced like other mutations. Returns false when the id is
+/// unknown or already deleted.
+pub fn set_trigger_auto_case(conn: &Connection, id: &str, auto_case: bool) -> Result<bool> {
+    let changed = conn.execute(
+        "UPDATE triggers
+         SET auto_case = ?1, version = version + 1, updated_at = ?2, is_synced = 0
+         WHERE id = ?3 AND is_deleted = 0",
+        rusqlite::params![
+            if auto_case { 1 } else { 0 },
+            crate::db::now_unix_secs(),
+            id
+        ],
+    )?;
+    Ok(changed > 0)
+}
+
+/// Flips the per-trigger enable flag. Disabled triggers stay in the DB but
+/// are excluded from expansion and listing queries. Bumps version and marks
+/// the row unsynced like other mutations. Returns false when the id is
+/// unknown or already deleted (no version churn on repeat calls).
+pub fn set_trigger_enabled(conn: &Connection, id: &str, enabled: bool) -> Result<bool> {
+    let changed = conn.execute(
+        "UPDATE triggers
+         SET is_enabled = ?1, version = version + 1, updated_at = ?2, is_synced = 0
+         WHERE id = ?3 AND is_deleted = 0",
+        rusqlite::params![if enabled { 1 } else { 0 }, crate::db::now_unix_secs(), id],
+    )?;
+    if changed > 0 {
+        crate::system::rpc::notify_daemon_reload();
+    }
+    Ok(changed > 0)
+}
+
+/// Rewrites the script language of one trigger without touching its
+/// content. Errors when the trigger has no script attachment, mirroring
+/// the content path. Bumps version and marks the row unsynced.
+pub fn set_script_interpreter(
+    conn: &Connection,
+    id: &str,
+    interpreter: ScriptInterpreter,
+) -> Result<bool> {
+    let live: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM triggers WHERE id = ?1 AND is_deleted = 0)",
+        [id],
+        |row| row.get(0),
+    )?;
+    if !live {
+        return Ok(false);
+    }
+    let attached: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM scripts WHERE trigger_id = ?1)",
+        [id],
+        |row| row.get(0),
+    )?;
+    if !attached {
+        return Err(crate::Error::Config(
+            "Script is missing its language metadata.".to_string(),
+        ));
+    }
+    conn.execute(
+        "UPDATE scripts SET interpreter = ?1, version = version + 1, updated_at = ?2
+         WHERE trigger_id = ?3",
+        rusqlite::params![
+            serde_json::to_string(&interpreter)?,
+            crate::db::now_unix_secs(),
+            id
+        ],
+    )?;
+    let changed = conn.execute(
+        "UPDATE triggers
+         SET version = version + 1, updated_at = ?1, is_synced = 0
+         WHERE id = ?2 AND is_deleted = 0",
+        rusqlite::params![crate::db::now_unix_secs(), id],
+    )?;
+    Ok(changed > 0)
+}
+
+/// Rewrites the run behavior (inline/silent) of one script trigger
+/// without touching its content. Same attachment contract as the
+/// interpreter path.
+pub fn set_script_behavior(conn: &Connection, id: &str, behavior: ScriptBehavior) -> Result<bool> {
+    let live: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM triggers WHERE id = ?1 AND is_deleted = 0)",
+        [id],
+        |row| row.get(0),
+    )?;
+    if !live {
+        return Ok(false);
+    }
+    let attached: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM scripts WHERE trigger_id = ?1)",
+        [id],
+        |row| row.get(0),
+    )?;
+    if !attached {
+        return Err(crate::Error::Config(
+            "Script is missing its language metadata.".to_string(),
+        ));
+    }
+    conn.execute(
+        "UPDATE scripts SET behavior = ?1, version = version + 1, updated_at = ?2
+         WHERE trigger_id = ?3",
+        rusqlite::params![
+            serde_json::to_string(&behavior)?,
+            crate::db::now_unix_secs(),
+            id
+        ],
+    )?;
+    let changed = conn.execute(
+        "UPDATE triggers
+         SET version = version + 1, updated_at = ?1, is_synced = 0
+         WHERE id = ?2 AND is_deleted = 0",
+        rusqlite::params![crate::db::now_unix_secs(), id],
+    )?;
+    Ok(changed > 0)
+}
+
 /// Lenient tag normalization for the `add_trigger` path (drops over-long
 /// tags, truncates to the cap — the user isn't directly managing tags).
 fn normalize_add_tags(tags: Option<Vec<String>>) -> Result<String> {
@@ -1400,7 +1667,6 @@ pub fn add_trigger(
         except_apps,
         tags,
         None,
-        None,
         false,
     )
 }
@@ -1426,7 +1692,6 @@ pub fn add_trigger_by_type(
         except_apps,
         tags,
         None,
-        None,
         false,
     )
 }
@@ -1440,7 +1705,6 @@ pub fn add_trigger_with_case(
     only_apps: Option<&str>,
     except_apps: Option<&str>,
     tags: Option<Vec<String>>,
-    name: Option<&str>,
     description: Option<&str>,
     auto_case: bool,
 ) -> Result<AddOutcome> {
@@ -1453,7 +1717,6 @@ pub fn add_trigger_with_case(
         only_apps,
         except_apps,
         tags,
-        name,
         description,
         auto_case,
     )
@@ -1469,16 +1732,9 @@ pub fn add_trigger_by_type_with_case(
     only_apps: Option<&str>,
     except_apps: Option<&str>,
     tags: Option<Vec<String>>,
-    name: Option<&str>,
     description: Option<&str>,
     auto_case: bool,
 ) -> Result<AddOutcome> {
-    if name.is_some_and(|n| n.len() > trigger_types::MAX_NAME_LENGTH) {
-        return Err(crate::Error::Config(format!(
-            "Name exceeds {} character limit",
-            trigger_types::MAX_NAME_LENGTH
-        )));
-    }
     if description.is_some_and(|d| d.len() > trigger_types::MAX_DESCRIPTION_LENGTH) {
         return Err(crate::Error::Config(format!(
             "Description exceeds {} character limit",
@@ -1490,8 +1746,6 @@ pub fn add_trigger_by_type_with_case(
     upsert_entry_full(
         conn,
         NewEntry {
-            // Stored EXACTLY (empty included); display falls back to the invocation.
-            name: name.unwrap_or("").to_string(),
             description: description.map(str::to_string),
             content: output.to_string(),
             action_type: "text".to_string(),

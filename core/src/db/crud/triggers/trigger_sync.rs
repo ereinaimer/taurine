@@ -51,7 +51,10 @@ pub fn serialize_trigger_to_cloud_snippet(
     CloudSnippetPayload {
         id: trigger.id.clone(),
         workspace_id: trigger.workspace_id.clone(),
-        name: trigger.name.clone(),
+        name: trigger
+            .description
+            .clone()
+            .unwrap_or_else(|| trigger.display.clone()),
         output: trigger.output.clone(),
         description: trigger.description.clone(),
         action_type: trigger.action_type.clone(),
@@ -105,17 +108,25 @@ pub fn reconcile_cloud_snippet(
                 rusqlite::params![snippet.workspace_id, snippet.created_at],
             )?;
 
+            let description = snippet
+                .description
+                .as_deref()
+                .or(if snippet.name.is_empty() {
+                    None
+                } else {
+                    Some(&snippet.name)
+                });
+
             conn.execute(
                 "INSERT INTO triggers (
-                    id, workspace_id, name, description, output, action_type,
+                    id, workspace_id, description, output, action_type,
                     target_os, only_apps, except_apps, tags, is_enabled, auto_case,
                     version, is_deleted, is_synced, created_at, updated_at
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, 1, ?15, ?16)",
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 1, ?14, ?15)",
                 rusqlite::params![
                     snippet.id,
                     snippet.workspace_id,
-                    snippet.name,
-                    snippet.description,
+                    description,
                     snippet.output,
                     snippet.action_type,
                     snippet.target_os.as_deref().unwrap_or("all"),
@@ -161,28 +172,36 @@ pub fn reconcile_cloud_snippet(
                         rusqlite::params![snippet.workspace_id, snippet.created_at],
                     )?;
 
+                    let description =
+                        snippet
+                            .description
+                            .as_deref()
+                            .or(if snippet.name.is_empty() {
+                                None
+                            } else {
+                                Some(&snippet.name)
+                            });
+
                     conn.execute(
                         "UPDATE triggers SET
                             workspace_id = ?1,
-                            name = ?2,
-                            description = ?3,
-                            output = ?4,
-                            action_type = ?5,
-                            target_os = ?6,
-                            only_apps = ?7,
-                            except_apps = ?8,
-                            tags = ?9,
-                            is_enabled = ?10,
-                            auto_case = ?11,
-                            version = ?12,
-                            is_deleted = ?13,
+                            description = ?2,
+                            output = ?3,
+                            action_type = ?4,
+                            target_os = ?5,
+                            only_apps = ?6,
+                            except_apps = ?7,
+                            tags = ?8,
+                            is_enabled = ?9,
+                            auto_case = ?10,
+                            version = ?11,
+                            is_deleted = ?12,
                             is_synced = 1,
-                            updated_at = ?14
-                         WHERE id = ?15",
+                            updated_at = ?13
+                         WHERE id = ?14",
                         rusqlite::params![
                             snippet.workspace_id,
-                            snippet.name,
-                            snippet.description,
+                            description,
                             snippet.output,
                             snippet.action_type,
                             snippet.target_os.as_deref().unwrap_or("all"),
@@ -268,7 +287,6 @@ pub fn get_unsynced_triggers(conn: &Connection) -> Result<Vec<TriggerRow>> {
     let mut stmt = conn.prepare_cached(
         "SELECT
             a.id,
-            a.name,
             a.description,
             a.output,
             a.action_type,
@@ -296,8 +314,8 @@ pub fn get_unsynced_triggers(conn: &Connection) -> Result<Vec<TriggerRow>> {
     )?;
 
     let rows = stmt.query_map([], |row| {
-        let interpreter_str: Option<String> = row.get(18)?;
-        let behavior_str: Option<String> = row.get(19)?;
+        let interpreter_str: Option<String> = row.get(17)?;
+        let behavior_str: Option<String> = row.get(18)?;
 
         let interpreter = interpreter_str
             .and_then(|s| serde_json::from_str::<ScriptInterpreter>(&format!("\"{}\"", s)).ok());
@@ -306,29 +324,28 @@ pub fn get_unsynced_triggers(conn: &Connection) -> Result<Vec<TriggerRow>> {
 
         Ok(TriggerRow {
             id: row.get(0)?,
-            name: row.get(1)?,
-            description: row.get(2)?,
+            description: row.get(1)?,
             invocations: Vec::new(),
             display: String::new(),
-            output: row.get(3)?,
-            action_type: row.get(4)?,
-            target_os: row.get(5)?,
-            only_apps: row.get(6)?,
-            except_apps: row.get(7)?,
-            tags: row.get(8)?,
-            usage_count: row.get(9)?,
-            last_used_at: row.get(10)?,
-            created_at: row.get(11)?,
-            updated_at: row.get(12)?,
-            version: row.get(13)?,
-            is_deleted: row.get(14)?,
-            is_synced: row.get(15)?,
-            is_enabled: row.get(16)?,
-            auto_case: row.get(17)?,
-            workspace_id: row.get(21)?,
+            output: row.get(2)?,
+            action_type: row.get(3)?,
+            target_os: row.get(4)?,
+            only_apps: row.get(5)?,
+            except_apps: row.get(6)?,
+            tags: row.get(7)?,
+            usage_count: row.get(8)?,
+            last_used_at: row.get(9)?,
+            created_at: row.get(10)?,
+            updated_at: row.get(11)?,
+            version: row.get(12)?,
+            is_deleted: row.get(13)?,
+            is_synced: row.get(14)?,
+            is_enabled: row.get(15)?,
+            auto_case: row.get(16)?,
+            workspace_id: row.get(20)?,
             interpreter,
             behavior,
-            script_binary: row.get(20)?,
+            script_binary: row.get(19)?,
         })
     })?;
 
@@ -347,7 +364,7 @@ pub fn get_unsynced_triggers(conn: &Connection) -> Result<Vec<TriggerRow>> {
                 Box::new(other),
             ),
         })?;
-        row.display = display_for_aliases(&row.name, &row.invocations);
+        row.display = display_for_aliases(&row.invocations);
     }
 
     Ok(results)
@@ -358,7 +375,6 @@ pub fn get_syncable_triggers(conn: &Connection) -> Result<Vec<TriggerRow>> {
     let mut stmt = conn.prepare_cached(
         "SELECT
             a.id,
-            a.name,
             a.description,
             a.output,
             a.action_type,
@@ -386,8 +402,8 @@ pub fn get_syncable_triggers(conn: &Connection) -> Result<Vec<TriggerRow>> {
     )?;
 
     let rows = stmt.query_map([], |row| {
-        let interpreter_str: Option<String> = row.get(18)?;
-        let behavior_str: Option<String> = row.get(19)?;
+        let interpreter_str: Option<String> = row.get(17)?;
+        let behavior_str: Option<String> = row.get(18)?;
 
         let interpreter = interpreter_str
             .and_then(|s| serde_json::from_str::<ScriptInterpreter>(&format!("\"{}\"", s)).ok());
@@ -396,29 +412,28 @@ pub fn get_syncable_triggers(conn: &Connection) -> Result<Vec<TriggerRow>> {
 
         Ok(TriggerRow {
             id: row.get(0)?,
-            name: row.get(1)?,
-            description: row.get(2)?,
+            description: row.get(1)?,
             invocations: Vec::new(),
             display: String::new(),
-            output: row.get(3)?,
-            action_type: row.get(4)?,
-            target_os: row.get(5)?,
-            only_apps: row.get(6)?,
-            except_apps: row.get(7)?,
-            tags: row.get(8)?,
-            usage_count: row.get(9)?,
-            last_used_at: row.get(10)?,
-            created_at: row.get(11)?,
-            updated_at: row.get(12)?,
-            version: row.get(13)?,
-            is_deleted: row.get(14)?,
-            is_synced: row.get(15)?,
-            is_enabled: row.get(16)?,
-            auto_case: row.get(17)?,
-            workspace_id: row.get(21)?,
+            output: row.get(2)?,
+            action_type: row.get(3)?,
+            target_os: row.get(4)?,
+            only_apps: row.get(5)?,
+            except_apps: row.get(6)?,
+            tags: row.get(7)?,
+            usage_count: row.get(8)?,
+            last_used_at: row.get(9)?,
+            created_at: row.get(10)?,
+            updated_at: row.get(11)?,
+            version: row.get(12)?,
+            is_deleted: row.get(13)?,
+            is_synced: row.get(14)?,
+            is_enabled: row.get(15)?,
+            auto_case: row.get(16)?,
+            workspace_id: row.get(20)?,
             interpreter,
             behavior,
-            script_binary: row.get(20)?,
+            script_binary: row.get(19)?,
         })
     })?;
 
@@ -437,7 +452,7 @@ pub fn get_syncable_triggers(conn: &Connection) -> Result<Vec<TriggerRow>> {
                 Box::new(other),
             ),
         })?;
-        row.display = display_for_aliases(&row.name, &row.invocations);
+        row.display = display_for_aliases(&row.invocations);
     }
 
     Ok(results)

@@ -42,23 +42,5 @@ pub fn set_user_tier(conn: &Connection, tier: UserTier) -> Result<()> {
     Ok(())
 }
 
-/// Toggles a trigger's enabled status.
-///
-/// Notifies the daemon to hot-reload if the service is running.
-pub fn set_trigger_enabled(conn: &Connection, trigger_id: &str, enabled: bool) -> Result<()> {
-    let updated = conn.execute(
-        "UPDATE triggers 
-         SET is_enabled = ?1, is_synced = 0, updated_at = unixepoch() 
-         WHERE id = ?2 AND is_deleted = 0",
-        rusqlite::params![if enabled { 1 } else { 0 }, trigger_id],
-    )?;
-
-    if updated == 0 {
-        return Err(crate::Error::NotFound(format!(
-            "Trigger '{trigger_id}' not found"
-        )));
-    }
-
-    crate::system::rpc::notify_daemon_reload();
-    Ok(())
-}
+/// Re-export set_trigger_enabled from triggers module for backward compatibility.
+pub use super::triggers::set_trigger_enabled;

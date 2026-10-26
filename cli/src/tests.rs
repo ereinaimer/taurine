@@ -933,7 +933,6 @@ fn test_enable_disable_execution_hermetically() {
 
     let conn = taurine_core::db::init::setup().expect("setup");
     let entry = taurine_core::db::crud::NewEntry {
-        name: "Toggle Test Snippet".to_string(),
         description: None,
         content: "Hello from toggle test".to_string(),
         action_type: "text".to_string(),

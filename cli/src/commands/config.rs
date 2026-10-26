@@ -172,6 +172,18 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
     Ok(())
 }
 
+fn reject_tui_only_key(actual_key: &str) -> taurine_core::error::Result<()> {
+    if actual_key == SettingKey::TuiCursorStyle.storage_key() {
+        let diag = taurine_core::diagnostic::Diagnostic::problem(format!(
+            "{actual_key} is only available in TUI settings"
+        ))
+        .help("Open the TUI settings page to change the cursor style.")
+        .render();
+        return Err(taurine_core::error::Error::Config(diag));
+    }
+    Ok(())
+}
+
 pub fn execute_set(
     key: Option<String>,
     value: Option<String>,
@@ -197,6 +209,7 @@ pub fn execute_set(
         }
     };
     let actual_key = Settings::resolve_key(&key);
+    reject_tui_only_key(actual_key)?;
     apply_setting_input(actual_key, Some(&value))?;
 
     if actual_key == "voice_model" {
@@ -239,6 +252,7 @@ pub fn execute_set(
 }
 pub fn execute_reset(key: String, json: bool) -> taurine_core::error::Result<()> {
     let actual_key = Settings::resolve_key(&key);
+    reject_tui_only_key(actual_key)?;
     reset_setting_to_default(actual_key)?;
 
     if json {
@@ -251,7 +265,7 @@ pub fn execute_reset(key: String, json: bool) -> taurine_core::error::Result<()>
 }
 
 pub fn execute_reset_all(json: bool) -> taurine_core::error::Result<()> {
-    for key in SettingKey::ALL {
+    for key in SettingKey::ALL.iter().filter(|key| key.cli_visible()) {
         reset_setting_to_default(key.storage_key())?;
     }
 
@@ -286,7 +300,11 @@ fn render_optional_setting(value: Option<&str>) -> &str {
 }
 
 pub fn format_settings_json(settings: &Settings) -> String {
-    let val = serde_json::to_value(settings).unwrap_or_default();
+    let mut val = serde_json::to_value(settings).unwrap_or_default();
+    // honey: tui_cursor_style is TUI-only; keep it out of CLI output.
+    if let Some(map) = val.as_object_mut() {
+        map.remove(SettingKey::TuiCursorStyle.storage_key());
+    }
     serde_json::to_string(&val).unwrap_or_default()
 }
 
@@ -354,6 +372,68 @@ mod tests {
         assert!(auto_update);
         assert!(emoji_trigger_char);
         assert!(scripts_enabled);
+    }
+
+    #[test]
+    fn tui_cursor_style_is_rejected_by_cli_set_and_reset() {
+        let set_err = with_test_db(|| {
+            execute_set(
+                Some("tui_cursor_style".to_string()),
+                Some("block".to_string()),
+                false,
+            )
+            .unwrap_err()
+            .to_string()
+        });
+        assert!(
+            set_err.contains("only available in TUI settings"),
+            "expected TUI-only rejection, got: {set_err}"
+        );
+
+        let reset_err = with_test_db(|| {
+            execute_reset("tui_cursor_style".to_string(), false)
+                .unwrap_err()
+                .to_string()
+        });
+        assert!(
+            reset_err.contains("only available in TUI settings"),
+            "expected TUI-only rejection, got: {reset_err}"
+        );
+
+        let cursor_alias_err = with_test_db(|| {
+            execute_set(
+                Some("cursor_style".to_string()),
+                Some("block".to_string()),
+                false,
+            )
+            .unwrap_err()
+            .to_string()
+        });
+        assert!(
+            cursor_alias_err.contains("only available in TUI settings"),
+            "expected TUI-only rejection for alias, got: {cursor_alias_err}"
+        );
+    }
+
+    #[test]
+    fn tui_cursor_style_survives_cli_reset_all_and_stays_out_of_json() {
+        with_test_db(|| {
+            let conn = init::setup()?;
+            let manager = SettingsManager::new(&conn);
+            manager.update_setting("tui_cursor_style", "block")?;
+            execute_reset_all(false)?;
+            let conn = init::setup()?;
+            let manager = SettingsManager::new(&conn);
+            assert_eq!(
+                manager.load_all().tui_cursor_style,
+                taurine_core::settings::TuiCursorStyle::Block
+            );
+            let value: serde_json::Value =
+                serde_json::from_str(&format_settings_json(&manager.load_all())).unwrap();
+            assert!(value.get("tui_cursor_style").is_none());
+            Ok::<(), taurine_core::error::Error>(())
+        })
+        .unwrap();
     }
 
     #[test]

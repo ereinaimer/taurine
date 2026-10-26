@@ -13,6 +13,7 @@ mod validate;
 pub use aliases::{
     InvocationType, ResolvedInvocation, TriggerAliasRow, add_alias, count_aliases, delete_alias,
     find_parent_by_invocation, increment_usage_count_by_id, list_aliases, normalize_voice_phrase,
+    rename_alias_invocation, set_alias_invocation_type, set_alias_require_confirmation,
     threshold_for_phrase, tombstone_entry, validate_voice_phrase,
 };
 pub use app_filter::AppFilterPrefix;
@@ -24,8 +25,8 @@ pub use trigger_delete::{
 
 pub use trigger_get::{
     get_action_by_trigger, get_all_active_hotkey_triggers, get_all_active_regex_triggers,
-    get_all_active_triggers, get_trigger, get_triggers_list, list_active_voice_invocations,
-    search_triggers,
+    get_all_active_triggers, get_library_triggers, get_trigger, get_triggers_list,
+    list_active_voice_invocations, list_distinct_tags, search_triggers,
 };
 pub use validate::{
     audit_payload_tags, audit_payload_tags_with_trigger_type, audit_script_payload_tags,
@@ -40,9 +41,12 @@ pub use overlap::{
 pub use usage::{increment_usage_count_by_trigger, record_expansion_usage};
 
 pub use trigger_set::{
-    AddOutcome, ExistingTriggerUpdate, NewEntry, NewTrigger, PreparedTrigger, add_trigger,
-    add_trigger_by_type, add_trigger_by_type_with_case, add_trigger_with_case, create_entry,
-    create_trigger, prepare_trigger, prepare_trigger_with_type, update_existing_trigger,
+    AddOutcome, ExistingTriggerUpdate, MAX_TRIGGER_LENGTH, NewEntry, NewTrigger, PreparedTrigger,
+    add_trigger, add_trigger_by_type, add_trigger_by_type_with_case, add_trigger_with_case,
+    create_entry, create_trigger, prepare_trigger, prepare_trigger_with_type, set_script_behavior,
+    set_script_interpreter, set_trigger_action_type, set_trigger_auto_case, set_trigger_content,
+    set_trigger_description, set_trigger_enabled, set_trigger_except_apps, set_trigger_only_apps,
+    set_trigger_tags, set_trigger_target_os, split_app_filters, update_existing_trigger,
     update_trigger_app_filters, upsert_entry_full, upsert_script, upsert_trigger,
     upsert_trigger_with_type, upsert_trigger_with_type_and_case,
 };

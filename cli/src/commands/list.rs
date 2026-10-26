@@ -216,7 +216,6 @@ mod tests {
     fn test_json_output_with_all_fields() {
         let items = vec![TriggerListItem {
             id: "1".to_string(),
-            name: "".to_string(),
             description: None,
             invocations: vec![alias_row("gs", InvocationType::Word)],
             display: "gs".to_string(),
@@ -225,6 +224,8 @@ mod tests {
             target_os: "all".to_string(),
             only_apps: Some("terminal".to_string()),
             except_apps: None,
+            auto_case: false,
+            is_enabled: true,
             usage_count: 42,
             last_used_at: Some(1720000000),
             created_at: 1710000000,
@@ -246,7 +247,6 @@ mod tests {
     fn test_json_output_with_script_trigger() {
         let items = vec![TriggerListItem {
             id: "s1".to_string(),
-            name: "".to_string(),
             description: Some("deploy script".to_string()),
             invocations: vec![alias_row("ctrl+shift+d", InvocationType::Hotkey)],
             display: "ctrl+shift+d".to_string(),
@@ -255,6 +255,8 @@ mod tests {
             target_os: "linux".to_string(),
             only_apps: None,
             except_apps: None,
+            auto_case: false,
+            is_enabled: true,
             usage_count: 7,
             last_used_at: None,
             created_at: 1700000000,
@@ -282,7 +284,6 @@ mod tests {
     fn test_json_output_all_nullable_fields_null() {
         let items = vec![TriggerListItem {
             id: "n1".to_string(),
-            name: "".to_string(),
             description: None,
             invocations: vec![alias_row("foo", InvocationType::Regex)],
             display: "foo".to_string(),
@@ -291,6 +292,8 @@ mod tests {
             target_os: "win".to_string(),
             only_apps: None,
             except_apps: None,
+            auto_case: false,
+            is_enabled: true,
             usage_count: 0,
             last_used_at: None,
             created_at: 0,
@@ -339,7 +342,6 @@ mod tests {
     fn test_script_shows_content_not_label() {
         let item = TriggerListItem {
             id: "s1".to_string(),
-            name: "".to_string(),
             description: Some("script".to_string()),
             invocations: vec![alias_row("test", InvocationType::Hotkey)],
             display: "test".to_string(),
@@ -348,6 +350,8 @@ mod tests {
             target_os: "all".to_string(),
             only_apps: None,
             except_apps: None,
+            auto_case: false,
+            is_enabled: true,
             usage_count: 0,
             last_used_at: None,
             created_at: 0,
@@ -371,7 +375,6 @@ mod tests {
     fn test_script_content_truncated_in_plain_output() {
         let item = TriggerListItem {
             id: "s2".to_string(),
-            name: "".to_string(),
             description: None,
             invocations: vec![alias_row("long", InvocationType::Word)],
             display: "long".to_string(),
@@ -380,6 +383,8 @@ mod tests {
             target_os: "all".to_string(),
             only_apps: None,
             except_apps: None,
+            auto_case: false,
+            is_enabled: true,
             usage_count: 0,
             last_used_at: None,
             created_at: 0,
@@ -404,7 +409,6 @@ mod tests {
         let items = vec![
             TriggerListItem {
                 id: "a".to_string(),
-                name: "".to_string(),
                 description: None,
                 invocations: vec![alias_row("b", InvocationType::Word)],
                 display: "b".to_string(),
@@ -413,6 +417,8 @@ mod tests {
                 target_os: "all".to_string(),
                 only_apps: None,
                 except_apps: None,
+                auto_case: false,
+                is_enabled: true,
                 usage_count: 2,
                 last_used_at: None,
                 created_at: 100,
@@ -423,7 +429,6 @@ mod tests {
             },
             TriggerListItem {
                 id: "b".to_string(),
-                name: "".to_string(),
                 description: None,
                 invocations: vec![alias_row("a", InvocationType::Word)],
                 display: "a".to_string(),
@@ -432,6 +437,8 @@ mod tests {
                 target_os: "all".to_string(),
                 only_apps: None,
                 except_apps: None,
+                auto_case: false,
+                is_enabled: true,
                 usage_count: 1,
                 last_used_at: None,
                 created_at: 200,
@@ -481,7 +488,6 @@ mod tests {
     ) -> TriggerListItem {
         TriggerListItem {
             id: id.to_string(),
-            name: "".to_string(),
             description: None,
             invocations,
             display: display.to_string(),
@@ -490,6 +496,8 @@ mod tests {
             target_os: "all".to_string(),
             only_apps: None,
             except_apps: None,
+            auto_case: false,
+            is_enabled: true,
             usage_count: 0,
             last_used_at: None,
             created_at: 0,

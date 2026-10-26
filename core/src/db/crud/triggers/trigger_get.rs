@@ -83,7 +83,6 @@ pub fn get_trigger(conn: &Connection, id: &str) -> Result<Option<TriggerRow>> {
     let mut stmt = conn.prepare_cached(
         "SELECT
             a.id,
-            a.name,
             a.description,
             a.output,
             a.action_type,
@@ -110,41 +109,40 @@ pub fn get_trigger(conn: &Connection, id: &str) -> Result<Option<TriggerRow>> {
     )?;
 
     let result = stmt.query_row([id], |row| {
-        let interpreter = parse_json_variant(row.get(18)?);
-        let behavior = parse_json_variant(row.get(19)?);
+        let interpreter = parse_json_variant(row.get(17)?);
+        let behavior = parse_json_variant(row.get(18)?);
 
         Ok(TriggerRow {
             id: row.get(0)?,
-            name: row.get(1)?,
-            description: row.get(2)?,
+            description: row.get(1)?,
             invocations: Vec::new(),
             display: String::new(),
-            output: row.get(3)?,
-            action_type: row.get(4)?,
-            target_os: row.get(5)?,
-            only_apps: row.get(6)?,
-            except_apps: row.get(7)?,
-            tags: row.get(8)?,
-            usage_count: row.get(9)?,
-            last_used_at: row.get(10)?,
-            created_at: row.get(11)?,
-            updated_at: row.get(12)?,
-            version: row.get(13)?,
-            is_deleted: row.get(14)?,
-            is_synced: row.get(15)?,
-            is_enabled: row.get(16)?,
-            auto_case: row.get(17)?,
-            workspace_id: row.get(21)?,
+            output: row.get(2)?,
+            action_type: row.get(3)?,
+            target_os: row.get(4)?,
+            only_apps: row.get(5)?,
+            except_apps: row.get(6)?,
+            tags: row.get(7)?,
+            usage_count: row.get(8)?,
+            last_used_at: row.get(9)?,
+            created_at: row.get(10)?,
+            updated_at: row.get(11)?,
+            version: row.get(12)?,
+            is_deleted: row.get(13)?,
+            is_synced: row.get(14)?,
+            is_enabled: row.get(15)?,
+            auto_case: row.get(16)?,
+            workspace_id: row.get(20)?,
             interpreter,
             behavior,
-            script_binary: row.get(20)?,
+            script_binary: row.get(19)?,
         })
     });
 
     match result {
         Ok(mut row) => {
             row.invocations = list_aliases(conn, &row.id).map_err(alias_err)?;
-            row.display = display_for_aliases(&row.name, &row.invocations);
+            row.display = display_for_aliases(&row.invocations);
             Ok(Some(row))
         }
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
@@ -319,6 +317,17 @@ AND (t.target_os = 'all' OR t.target_os = ?1)",
     Ok(actions)
 }
 
+/// Every distinct tag across live triggers, sorted, backing tag
+/// pickers. Empty tags never persist, so none surface here.
+pub fn list_distinct_tags(conn: &Connection) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT DISTINCT json_each.value FROM triggers, json_each(triggers.tags)
+         WHERE triggers.is_deleted = 0 ORDER BY 1",
+    )?;
+    stmt.query_map([], |row| row.get(0))?
+        .collect::<rusqlite::Result<Vec<String>>>()
+}
+
 /// Fetches all active voice invocations with their parent payloads.
 ///
 /// Voice aliases JOIN parents (+ scripts join for script actions), filling
@@ -382,66 +391,92 @@ pub fn list_active_voice_invocations(conn: &Connection) -> Result<Vec<ResolvedIn
 /// Fetches all active triggers with enough metadata for sorting/listing in CLI.
 pub fn get_triggers_list(conn: &Connection) -> Result<Vec<TriggerListItem>> {
     let os_str = get_current_os_db_string();
-    let mut stmt = conn.prepare_cached(
-        "SELECT a.id, a.name, a.description, a.output, a.action_type, a.target_os,
-                a.only_apps, a.except_apps, a.usage_count, a.last_used_at, a.created_at,
-                a.tags, s.interpreter, s.behavior, s.compressed_content
-         FROM   triggers a
-         LEFT JOIN scripts s ON a.id = s.trigger_id
-         WHERE  a.is_deleted = 0
+    get_triggers_list_filtered(
+        conn,
+        "a.is_deleted = 0
            AND  a.is_enabled = 1
            AND  (a.target_os = 'all' OR a.target_os = ?1)",
-    )?;
+        Some(os_str),
+    )
+}
 
-    let rows = stmt.query_map([os_str], |row| {
-        let interpreter = parse_json_variant(row.get(12)?);
-        let behavior = parse_json_variant(row.get(13)?);
+/// Fetches every non-deleted trigger for library management: disabled
+/// entries included so they can be inspected and re-enabled, all
+/// platforms so cross-OS triggers stay manageable.
+pub fn get_library_triggers(conn: &Connection) -> Result<Vec<TriggerListItem>> {
+    get_triggers_list_filtered(conn, "a.is_deleted = 0", None)
+}
+
+fn get_triggers_list_filtered(
+    conn: &Connection,
+    where_clause: &str,
+    os_str: Option<&str>,
+) -> Result<Vec<TriggerListItem>> {
+    let query = format!(
+        "SELECT a.id, a.description, a.output, a.action_type, a.target_os,
+                a.only_apps, a.except_apps, a.auto_case, a.is_enabled, a.usage_count,
+                a.last_used_at, a.created_at, a.tags, s.interpreter, s.behavior,
+                s.compressed_content
+          FROM   triggers a
+          LEFT JOIN scripts s ON a.id = s.trigger_id
+          WHERE  {where_clause}"
+    );
+    let mut stmt = conn.prepare_cached(&query)?;
+
+    let map_row = |row: &rusqlite::Row<'_>| {
+        let interpreter = parse_json_variant(row.get(13)?);
+        let behavior = parse_json_variant(row.get(14)?);
         let script_content = row
-            .get::<_, Option<Vec<u8>>>(14)?
+            .get::<_, Option<Vec<u8>>>(15)?
             .map(|compressed| {
                 decompress(&compressed).map_err(|err| {
-                    rusqlite::Error::FromSqlConversionFailure(14, Type::Blob, Box::new(err))
+                    rusqlite::Error::FromSqlConversionFailure(15, Type::Blob, Box::new(err))
                 })
             })
             .transpose()?;
 
         Ok(TriggerListItem {
             id: row.get(0)?,
-            name: row.get(1)?,
-            description: row.get(2)?,
+            description: row.get(1)?,
             invocations: Vec::new(),
             display: String::new(),
-            output: row.get(3)?,
-            action_type: row.get(4)?,
-            target_os: row.get(5)?,
-            only_apps: row.get(6)?,
-            except_apps: row.get(7)?,
-            usage_count: row.get(8)?,
-            last_used_at: row.get(9)?,
-            created_at: row.get(10)?,
-            tags: row.get(11)?,
+            output: row.get(2)?,
+            action_type: row.get(3)?,
+            target_os: row.get(4)?,
+            only_apps: row.get(5)?,
+            except_apps: row.get(6)?,
+            auto_case: row.get(7)?,
+            is_enabled: row.get(8)?,
+            usage_count: row.get(9)?,
+            last_used_at: row.get(10)?,
+            created_at: row.get(11)?,
+            tags: row.get(12)?,
             script_content,
             interpreter,
             behavior,
         })
-    })?;
+    };
 
-    let mut list = Vec::new();
-    for row in rows {
-        list.push(row?);
-    }
+    let mut list = match os_str {
+        Some(os) => stmt
+            .query_map([os], map_row)?
+            .collect::<rusqlite::Result<Vec<_>>>(),
+        None => stmt
+            .query_map([], map_row)?
+            .collect::<rusqlite::Result<Vec<_>>>(),
+    }?;
     drop(stmt);
 
     // N+1, fine under ~1k rows; batch with a single IN query if it grows
     for item in &mut list {
         item.invocations = list_aliases(conn, &item.id).map_err(alias_err)?;
-        item.display = display_for_aliases(&item.name, &item.invocations);
+        item.display = display_for_aliases(&item.invocations);
     }
 
     Ok(list)
 }
 
-/// Fuzzy-finder search over active triggers by name and trigger.
+/// Fuzzy-finder search over active triggers by invocation.
 ///
 /// Returns a small list of summaries ordered by `usage_count` (most-used first),
 /// then by most recently updated as a tie-breaker.
@@ -450,13 +485,12 @@ pub fn search_triggers(conn: &Connection, query: &str, limit: i64) -> Result<Vec
 
     let os_str = get_current_os_db_string();
     let mut stmt = conn.prepare_cached(
-        "SELECT id, name, description, usage_count
+        "SELECT id, description, usage_count
          FROM   triggers
          WHERE  is_deleted = 0
            AND  is_enabled = 1
            AND  (target_os = 'all' OR target_os = ?3)
-           AND  (name    LIKE ?1
-                 OR EXISTS (SELECT 1 FROM trigger_aliases al WHERE al.trigger_id = triggers.id AND al.invocation LIKE ?1))
+           AND  EXISTS (SELECT 1 FROM trigger_aliases al WHERE al.trigger_id = triggers.id AND al.invocation LIKE ?1)
          ORDER BY (target_os != 'all') DESC, usage_count DESC, updated_at DESC
         LIMIT  ?2",
     )?;
@@ -464,11 +498,10 @@ pub fn search_triggers(conn: &Connection, query: &str, limit: i64) -> Result<Vec
     let rows = stmt.query_map((pattern, limit, os_str), |row| {
         Ok(TriggerSummary {
             id: row.get(0)?,
-            name: row.get(1)?,
-            description: row.get(2)?,
+            description: row.get(1)?,
             invocations: Vec::new(),
             display: String::new(),
-            usage_count: row.get(3)?,
+            usage_count: row.get(2)?,
         })
     })?;
 
@@ -481,7 +514,7 @@ pub fn search_triggers(conn: &Connection, query: &str, limit: i64) -> Result<Vec
     // N+1, fine under ~1k rows; batch with a single IN query if it grows
     for item in &mut results {
         item.invocations = list_aliases(conn, &item.id).map_err(alias_err)?;
-        item.display = display_for_aliases(&item.name, &item.invocations);
+        item.display = display_for_aliases(&item.invocations);
     }
 
     Ok(results)

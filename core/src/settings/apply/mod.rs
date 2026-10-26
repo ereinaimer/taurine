@@ -1,4 +1,4 @@
-use super::{Settings, SettingsManager, SpinnerStyle};
+use super::{Settings, SettingsManager, SpinnerStyle, TuiCursorStyle};
 use crate::{
     ai::AiProvider,
     diagnostic::Diagnostic,
@@ -172,6 +172,13 @@ pub fn apply_setting_input_with_manager(
             )?;
             crate::settings::set_cached_pause_media_while_dictating(enabled);
             manager.update_setting(actual_key, enabled)?;
+            ApplySettingOutcome::default()
+        }
+        "tui_cursor_style" => {
+            manager.update_setting(
+                actual_key,
+                parse_tui_cursor_style(require_non_empty(value, actual_key)?)?,
+            )?;
             ApplySettingOutcome::default()
         }
         "clipboard_history_enabled" => {
@@ -455,6 +462,22 @@ pub fn parse_spinner_style(value: &str) -> Result<SpinnerStyle> {
                 .suggest(other, &["classic", "braille", "arc"])
                 .options("Available styles", &["classic", "braille", "arc"])
                 .example("taurine config set spinner_style braille")
+                .render();
+            Err(Error::Config(diag))
+        }
+    }
+}
+
+pub fn parse_tui_cursor_style(value: &str) -> Result<TuiCursorStyle> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "block" => Ok(TuiCursorStyle::Block),
+        "bar" => Ok(TuiCursorStyle::Bar),
+        "underscore" => Ok(TuiCursorStyle::Underscore),
+        other => {
+            let diag = Diagnostic::problem(format!("{other} is not an available cursor style"))
+                .suggest(other, &["block", "bar", "underscore"])
+                .options("Available styles", &["block", "bar", "underscore"])
+                .help("Pick the caret shape in TUI settings under Cursor Style")
                 .render();
             Err(Error::Config(diag))
         }

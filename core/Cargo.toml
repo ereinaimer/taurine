@@ -11,12 +11,19 @@ publish = false
 [lib]
 crate-type = ["lib", "cdylib", "staticlib"]
 
+[features]
+# Default build links a self-contained OpenSSL (no machine setup).
+# Fast dev loop links the system libcrypto instead — same SQLCipher,
+# same encrypted DB bytes, minus the multi-minute source build:
+#   cargo check -p taurine_core --no-default-features
+default = ["vendored-openssl"]
+vendored-openssl = ["rusqlite/bundled-sqlcipher-vendored-openssl", "r2d2_sqlite/bundled-sqlcipher-vendored-openssl"]
+
 [dependencies]
 tracing = { workspace = true }
-rusqlite = { version = "0.39", features = ["bundled-sqlcipher-vendored-openssl"] }
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+rusqlite = { version = "0.39", features = ["bundled-sqlcipher"] }
 r2d2 = "0.8"
-r2d2_sqlite = { version = "0.34", features = ["bundled-sqlcipher-vendored-openssl"] }
+r2d2_sqlite = { version = "0.34", features = ["bundled-sqlcipher"] }
 directories = "6.0"
 tracing-appender = "0.2.4"
 tracing-subscriber = { workspace = true, features = ["env-filter", "time", "local-time"] }
@@ -27,8 +34,9 @@ hyper-util = { version = "0.1", features = ["tokio"] }
 tonic-prost = "0.14"
 tower = { version = "0.5", features = ["util"] }
 prost = "0.14"
-# Trimmed from full: core uses rt, net, time, and sync outside tests.
-tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "net", "time", "signal", "sync", "io-util", "macros"] }
+# Trimmed from full: audited surface is rt, net, time, signal, sync, io-util, macros, process.
+tokio = { workspace = true }
+reqwest = { workspace = true }
 ahash = "0.8"
 parking_lot = "0.12"
 smallvec = "1.13"
@@ -44,6 +52,7 @@ base64 = "0.23"
 strsim = "0.11"
 deunicode = "1.6"
 
+cpal = "0.18"
 sha2 = "0.11"
 regex = "1.12"
 hex = "0.4"
@@ -93,7 +102,9 @@ windows = { version = "0.62", default-features = false, features = [
     "Win32_Foundation",
     "Win32_System_Com",
     "Win32_System_TaskScheduler",
+    "Win32_System_Threading",
     "Win32_System_Variant",
+    "Win32_UI_WindowsAndMessaging",
 ] }
 
 [target."cfg(unix)".dependencies]

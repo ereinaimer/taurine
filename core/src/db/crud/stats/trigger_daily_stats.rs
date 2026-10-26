@@ -201,7 +201,7 @@ mod tests {
         run_migrations(&conn).unwrap();
         // Insert dummy triggers for foreign key references
         conn.execute(
-            "INSERT INTO triggers (id, name, output, created_at, updated_at) VALUES ('trig-1', 'test_trig', 'output', 100, 100)",
+            "INSERT INTO triggers (id, description, output, created_at, updated_at) VALUES ('trig-1', 'test_trig', 'output', 100, 100)",
             [],
         ).unwrap();
         conn
@@ -241,7 +241,7 @@ mod tests {
     fn test_top_triggers_daily_aggregation() {
         let conn = setup_test_db();
         conn.execute(
-            "INSERT INTO triggers (id, name, output, created_at, updated_at) VALUES ('trig-2', 'second_trig', 'output2', 100, 100)",
+            "INSERT INTO triggers (id, description, output, created_at, updated_at) VALUES ('trig-2', 'second_trig', 'output2', 100, 100)",
             [],
         ).unwrap();
 
@@ -275,7 +275,7 @@ mod tests {
     fn test_top_triggers_daily_with_date_range() {
         let conn = setup_test_db();
         conn.execute(
-            "INSERT INTO triggers (id, name, output, created_at, updated_at) VALUES ('trig-2', 'second_trig', 'output2', 100, 100)",
+            "INSERT INTO triggers (id, description, output, created_at, updated_at) VALUES ('trig-2', 'second_trig', 'output2', 100, 100)",
             [],
         ).unwrap();
 
@@ -316,7 +316,7 @@ mod tests {
     fn test_get_trigger_daily_stats_by_date() {
         let conn = setup_test_db();
         conn.execute(
-            "INSERT INTO triggers (id, name, output, created_at, updated_at) VALUES ('trig-2', 'second_trig', 'output2', 100, 100)",
+            "INSERT INTO triggers (id, description, output, created_at, updated_at) VALUES ('trig-2', 'second_trig', 'output2', 100, 100)",
             [],
         ).unwrap();
 

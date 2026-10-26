@@ -6,7 +6,6 @@ use rusqlite::Connection;
 
 fn make_entry(trigger: &str) -> NewEntry {
     NewEntry {
-        name: format!("Snippet {trigger}"),
         description: None,
         content: format!("Output for {trigger}"),
         action_type: "text".to_string(),

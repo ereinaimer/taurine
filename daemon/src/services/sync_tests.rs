@@ -15,7 +15,6 @@ fn test_sync_serializes_multi_trigger_aliases() {
     let trigger = TriggerRow {
         id: "trig-123".to_string(),
         workspace_id: "default".to_string(),
-        name: "My Snippet".to_string(),
         output: "Hello World".to_string(),
         description: Some("Description here".to_string()),
         action_type: "text".to_string(),
@@ -66,7 +65,7 @@ fn test_sync_serializes_multi_trigger_aliases() {
 
     assert_eq!(payload.id, "trig-123");
     assert_eq!(payload.workspace_id, "default");
-    assert_eq!(payload.name, "My Snippet");
+    assert_eq!(payload.name, "Description here");
     assert_eq!(payload.output, "Hello World");
     assert_eq!(payload.description, Some("Description here".to_string()));
     assert_eq!(payload.action_type, "text");
@@ -104,9 +103,9 @@ fn test_lww_remote_newer_overwrites_local_and_aliases() {
     // Insert local trigger at version 1
     conn.execute(
         "INSERT INTO triggers (
-            id, name, description, output, action_type, target_os, only_apps, except_apps,
+            id, description, output, action_type, target_os, only_apps, except_apps,
             tags, is_enabled, auto_case, version, is_deleted, is_synced, created_at, updated_at
-        ) VALUES (?1, 'Old Name', 'Old Desc', 'old output', 'text', 'all', NULL, NULL,
+        ) VALUES (?1, 'Old Desc', 'old output', 'text', 'all', NULL, NULL,
                   '[]', 1, 0, 1, 0, 1, 1000, 1000)",
         [trigger_id],
     )
@@ -165,9 +164,9 @@ fn test_lww_remote_newer_overwrites_local_and_aliases() {
     assert_eq!(outcome, ReconcileOutcome::UpdatedFromRemote);
 
     // Verify trigger row updated
-    let (name, output, version, updated_at, auto_case): (String, String, i64, i64, bool) = conn
+    let (description, output, version, updated_at, auto_case): (Option<String>, String, i64, i64, bool) = conn
         .query_row(
-            "SELECT name, output, version, updated_at, auto_case FROM triggers WHERE id = ?1",
+            "SELECT description, output, version, updated_at, auto_case FROM triggers WHERE id = ?1",
             [trigger_id],
             |row| {
                 Ok((
@@ -181,7 +180,7 @@ fn test_lww_remote_newer_overwrites_local_and_aliases() {
         )
         .unwrap();
 
-    assert_eq!(name, "Remote Name");
+    assert_eq!(description.as_deref(), Some("New Desc"));
     assert_eq!(output, "new remote output");
     assert_eq!(version, 2);
     assert_eq!(updated_at, 2000);
@@ -212,9 +211,9 @@ fn test_lww_local_newer_preserved() {
     // Local trigger at version 3, updated_at 3000
     conn.execute(
         "INSERT INTO triggers (
-            id, name, description, output, action_type, target_os, only_apps, except_apps,
+            id, description, output, action_type, target_os, only_apps, except_apps,
             tags, is_enabled, auto_case, version, is_deleted, is_synced, created_at, updated_at
-        ) VALUES (?1, 'Local New Name', NULL, 'local output', 'text', 'all', NULL, NULL,
+        ) VALUES (?1, 'Local New Name', 'local output', 'text', 'all', NULL, NULL,
                   '[]', 1, 0, 3, 0, 0, 1000, 3000)",
         [trigger_id],
     )
@@ -261,14 +260,14 @@ fn test_lww_local_newer_preserved() {
     assert_eq!(outcome, ReconcileOutcome::LocalNewer);
 
     // Local trigger preserved
-    let (name, output, version): (String, String, i64) = conn
+    let (description, output, version): (Option<String>, String, i64) = conn
         .query_row(
-            "SELECT name, output, version FROM triggers WHERE id = ?1",
+            "SELECT description, output, version FROM triggers WHERE id = ?1",
             [trigger_id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .unwrap();
-    assert_eq!(name, "Local New Name");
+    assert_eq!(description.as_deref(), Some("Local New Name"));
     assert_eq!(output, "local output");
     assert_eq!(version, 3);
 
@@ -287,9 +286,9 @@ fn test_sync_reconciles_soft_delete_tombstone() {
     // Local active trigger at version 1, updated_at 1000, is_deleted = 0
     conn.execute(
         "INSERT INTO triggers (
-            id, name, description, output, action_type, target_os, only_apps, except_apps,
+            id, description, output, action_type, target_os, only_apps, except_apps,
             tags, is_enabled, auto_case, version, is_deleted, is_synced, created_at, updated_at
-        ) VALUES (?1, 'Active Snippet', NULL, 'content', 'text', 'all', NULL, NULL,
+        ) VALUES (?1, 'Active Snippet', 'content', 'text', 'all', NULL, NULL,
                   '[]', 1, 0, 1, 0, 1, 1000, 1000)",
         [trigger_id],
     )
@@ -358,7 +357,7 @@ fn test_tombstone_gc_purges_old_deleted_rows() {
     // 1. Soft-deleted row older than 30 days
     conn.execute(
         "INSERT INTO triggers (
-            id, name, output, action_type, target_os, tags,
+            id, description, output, action_type, target_os, tags,
             is_enabled, auto_case, version, is_deleted, is_synced, created_at, updated_at
         ) VALUES ('tomb-old', 'Old Deleted', '', 'text', 'all', '[]',
                   1, 0, 2, 1, 1, ?1, ?1)",
@@ -369,7 +368,7 @@ fn test_tombstone_gc_purges_old_deleted_rows() {
     // 2. Soft-deleted row recent (5 days ago)
     conn.execute(
         "INSERT INTO triggers (
-            id, name, output, action_type, target_os, tags,
+            id, description, output, action_type, target_os, tags,
             is_enabled, auto_case, version, is_deleted, is_synced, created_at, updated_at
         ) VALUES ('tomb-recent', 'Recent Deleted', '', 'text', 'all', '[]',
                   1, 0, 2, 1, 1, ?1, ?1)",
@@ -380,7 +379,7 @@ fn test_tombstone_gc_purges_old_deleted_rows() {
     // 3. Active row old (40 days ago) - should NOT be purged
     conn.execute(
         "INSERT INTO triggers (
-            id, name, output, action_type, target_os, tags,
+            id, description, output, action_type, target_os, tags,
             is_enabled, auto_case, version, is_deleted, is_synced, created_at, updated_at
         ) VALUES ('active-old', 'Active Old', 'out', 'text', 'all', '[]',
                   1, 0, 1, 0, 1, ?1, ?1)",
@@ -470,9 +469,9 @@ async fn test_sync_worker_authenticated_two_way_cycle() {
     // Insert an unsynced local trigger (is_synced = 0)
     conn.execute(
         "INSERT INTO triggers (
-            id, name, description, output, action_type, target_os, only_apps, except_apps,
+            id, description, output, action_type, target_os, only_apps, except_apps,
             tags, is_enabled, auto_case, version, is_deleted, is_synced, created_at, updated_at
-        ) VALUES ('local-push-1', 'Push Me', NULL, 'pushed output', 'text', 'all', NULL, NULL,
+        ) VALUES ('local-push-1', 'Push Me', 'pushed output', 'text', 'all', NULL, NULL,
                   '[]', 1, 0, 1, 0, 0, 1000, 1000)",
         [],
     )
@@ -964,7 +963,7 @@ async fn test_sync_trigger_daily_stats_and_global_stats_upload() {
 
     // Insert dummy trigger for foreign key reference
     conn.execute(
-        "INSERT INTO triggers (id, name, output, created_at, updated_at) VALUES ('trig-stat-1', 'test_trig', 'out', 100, 100)",
+        "INSERT INTO triggers (id, description, output, created_at, updated_at) VALUES ('trig-stat-1', 'test_trig', 'out', 100, 100)",
         [],
     )
     .unwrap();

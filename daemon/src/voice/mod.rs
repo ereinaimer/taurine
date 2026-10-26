@@ -4,6 +4,7 @@ pub mod device_monitor;
 pub mod factory;
 pub mod media_suspend;
 pub mod modes;
+#[cfg(feature = "voice")]
 pub mod parakeet;
 pub mod session;
 pub mod trigger_dispatch;
@@ -17,6 +18,7 @@ pub use capture::{
 };
 pub use factory::create_transcriber;
 pub use modes::VoiceMode;
+#[cfg(feature = "voice")]
 pub use parakeet::ParakeetTranscriber;
 pub use session::VoiceSessionManager;
 pub use trigger_dispatch::{fire_voice_trigger, fire_voice_trigger_with_args};

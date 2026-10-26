@@ -8,17 +8,10 @@ use crate::exchange::AssetExport;
 use crate::exchange::export::export_triggers;
 use crate::testing::{init_tracing_for_tests, open_test_db};
 
-fn insert_entry_word(
-    conn: &rusqlite::Connection,
-    name: &str,
-    trigger: &str,
-    output: &str,
-    target_os: &str,
-) {
+fn insert_entry_word(conn: &rusqlite::Connection, trigger: &str, output: &str, target_os: &str) {
     create_entry(
         conn,
         NewEntry {
-            name: name.to_string(),
             description: None,
             content: output.to_string(),
             action_type: "text".to_string(),
@@ -42,7 +35,6 @@ fn text_export(
     output: &str,
 ) -> TriggerExport {
     TriggerExport {
-        name: format!("Imported {trigger}"),
         description: Some("Imported trigger".to_string()),
         trigger_type,
         trigger: trigger.to_string(),
@@ -59,7 +51,6 @@ fn text_export(
 
 fn entry_fixture(invocations: Vec<(InvocationType, &str)>) -> NewEntry {
     NewEntry {
-        name: String::new(),
         description: None,
         content: "Hello!".to_string(),
         action_type: "text".to_string(),
@@ -107,7 +98,6 @@ fn export_import_roundtrip_preserves_aliases() {
 fn legacy_single_trigger_payload_still_imports() {
     init_tracing_for_tests();
     let payload = ExchangePayload::new(vec![TriggerExport {
-        name: String::new(),
         description: None,
         trigger_type: TriggerType::Word,
         trigger: "hi".into(),
@@ -136,7 +126,6 @@ fn skip_conflict_preserves_existing_local_row() {
     upsert_trigger(
         &conn,
         "local-id",
-        "Local GM",
         Some("local"),
         "gm",
         "Local output",
@@ -174,7 +163,6 @@ fn overwrite_conflict_replaces_existing_row_with_fresh_import() {
     upsert_trigger(
         &conn,
         "local-id",
-        "Local GM",
         Some("local"),
         "gm",
         "Local output",
@@ -306,7 +294,6 @@ fn import_non_canonical_hotkey_detects_conflict_with_canonical_stored() {
     upsert_trigger_with_type(
         &conn,
         "local-hotkey",
-        "Existing",
         None,
         TriggerType::Hotkey,
         "shift+alt+2",
@@ -360,7 +347,6 @@ fn import_conflict_identity_keeps_word_and_hotkey_triggers_independent() {
     upsert_trigger(
         &conn,
         "local-word",
-        "Word",
         None,
         "tab",
         "local",
@@ -404,7 +390,6 @@ fn failed_import_can_be_rolled_back_atomically() {
     let (_dir, mut conn) = open_test_db();
 
     let valid_script = TriggerExport {
-        name: "Valid Script".to_string(),
         description: Some("script".to_string()),
         trigger_type: TriggerType::Word,
         trigger: "script_ok".to_string(),
@@ -422,7 +407,6 @@ fn failed_import_can_be_rolled_back_atomically() {
         aliases: vec![],
     };
     let invalid_script = TriggerExport {
-        name: "Broken Script".to_string(),
         description: Some("broken".to_string()),
         trigger_type: TriggerType::Word,
         trigger: "script_bad".to_string(),
@@ -459,11 +443,10 @@ fn overwrite_conflict_respects_target_os_overlap_for_same_trigger_type() {
     init_tracing_for_tests();
     let (_dir, mut conn) = open_test_db();
 
-    insert_entry_word(&conn, "Windows only", "gm", "win output", "win");
+    insert_entry_word(&conn, "gm", "win output", "win");
     let (linux_id, _) = create_entry(
         &conn,
         NewEntry {
-            name: "Linux only".to_string(),
             description: None,
             content: "linux output".to_string(),
             action_type: "text".to_string(),
@@ -513,7 +496,6 @@ fn non_overlapping_target_os_values_do_not_conflict_for_same_trigger_type() {
     upsert_trigger_with_type(
         &conn,
         "local-hotkey",
-        "Windows hotkey",
         None,
         TriggerType::Hotkey,
         "ctrl+shift+g",
@@ -563,7 +545,6 @@ fn test_import_rewrites_asset_uuids() {
     let payload = ExchangePayload {
         schema_version: super::EXCHANGE_SCHEMA_VERSION,
         triggers: vec![TriggerExport {
-            name: "Test Asset".to_string(),
             description: None,
             trigger_type: TriggerType::Word,
             trigger: "test_asset".to_string(),

@@ -148,14 +148,14 @@ pub fn resolve_trigger_id(
         return Ok(Some(id));
     }
 
-    let name_match: Option<String> = conn
+    let desc_match: Option<String> = conn
         .query_row(
-            "SELECT id FROM triggers WHERE name = ?1 AND is_deleted = 0 LIMIT 1",
+            "SELECT id FROM triggers WHERE description = ?1 AND is_deleted = 0 LIMIT 1",
             rusqlite::params![trigger],
             |row| row.get(0),
         )
         .optional()?;
-    if let Some(id) = name_match {
+    if let Some(id) = desc_match {
         return Ok(Some(id));
     }
 
@@ -320,7 +320,7 @@ mod tests {
 
         // Insert trigger and alias
         conn.execute(
-            "INSERT INTO triggers (id, name, output, created_at, updated_at) VALUES ('trig-abc', 'test_name', 'hello world', 100, 100)",
+            "INSERT INTO triggers (id, description, output, created_at, updated_at) VALUES ('trig-abc', 'test_name', 'hello world', 100, 100)",
             [],
         ).unwrap();
         conn.execute(
@@ -356,7 +356,7 @@ mod tests {
         let (_dir, conn) = crate::testing::open_test_db();
 
         conn.execute(
-            "INSERT INTO triggers (id, name, output, created_at, updated_at) VALUES ('trig-1', 'Name 1', 'output', 100, 100)",
+            "INSERT INTO triggers (id, description, output, created_at, updated_at) VALUES ('trig-1', 'Name 1', 'output', 100, 100)",
             [],
         ).unwrap();
         conn.execute(
@@ -385,7 +385,7 @@ mod tests {
         let (_dir, conn) = crate::testing::open_test_db();
 
         conn.execute(
-            "INSERT INTO triggers (id, name, output, created_at, updated_at) VALUES ('trig-voice', 'Voice Trigger', 'output', 100, 100)",
+            "INSERT INTO triggers (id, description, output, created_at, updated_at) VALUES ('trig-voice', 'Voice Trigger', 'output', 100, 100)",
             [],
         ).unwrap();
         conn.execute(
@@ -414,7 +414,7 @@ mod tests {
         let (_dir, conn) = crate::testing::open_test_db();
 
         conn.execute(
-            "INSERT INTO triggers (id, name, output, created_at, updated_at) VALUES ('trig-hotkey', 'Hotkey Trigger', 'output', 100, 100)",
+            "INSERT INTO triggers (id, description, output, created_at, updated_at) VALUES ('trig-hotkey', 'Hotkey Trigger', 'output', 100, 100)",
             [],
         ).unwrap();
         conn.execute(
@@ -443,7 +443,7 @@ mod tests {
         let (_dir, conn) = crate::testing::open_test_db();
 
         conn.execute(
-            "INSERT INTO triggers (id, name, output, created_at, updated_at) VALUES ('trig-direct', 'Unique Snippet Name', 'output', 100, 100)",
+            "INSERT INTO triggers (id, description, output, created_at, updated_at) VALUES ('trig-direct', 'Unique Snippet Name', 'output', 100, 100)",
             [],
         ).unwrap();
 
@@ -501,7 +501,7 @@ mod tests {
         let (_dir, mut conn) = crate::testing::open_test_db();
 
         conn.execute(
-            "INSERT INTO triggers (id, name, output, created_at, updated_at) VALUES ('trig-noapp', 'no app test', 'hello world', 100, 100)",
+            "INSERT INTO triggers (id, description, output, created_at, updated_at) VALUES ('trig-noapp', 'no app test', 'hello world', 100, 100)",
             [],
         ).unwrap();
         conn.execute(
@@ -536,7 +536,7 @@ mod tests {
         let (_dir, mut conn) = crate::testing::open_test_db();
 
         conn.execute(
-            "INSERT INTO triggers (id, name, output, created_at, updated_at) VALUES ('trig-accum', 'accum test', 'output', 100, 100)",
+            "INSERT INTO triggers (id, description, output, created_at, updated_at) VALUES ('trig-accum', 'accum test', 'output', 100, 100)",
             [],
         ).unwrap();
         conn.execute(
