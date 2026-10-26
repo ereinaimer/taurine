@@ -94,6 +94,7 @@ impl App {
     pub(crate) fn close_settings_overlay(&mut self) {
         self.settings_overlay_open = false;
         self.settings_page.clear_modal();
+        self.settings_page.clear_inline_edit();
         self.toggle_hover = None;
         self.props_hover = None;
     }

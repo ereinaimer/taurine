@@ -13,7 +13,8 @@ use ratatui::{
 use crate::terminal::mouse;
 use crate::theme::Theme;
 use crate::widgets::settings::row::{
-    hotkey_value_rect, render_setting_row, setting_toggle_rect, wrap_description_lines,
+    hotkey_value_rect, inline_value_rect, render_setting_row, select_value_rect,
+    setting_toggle_rect, wrap_description_lines,
 };
 use crate::widgets::settings::state::{EditorKind, SettingKeyMeta, SettingsPageState};
 use crate::widgets::toggle::{ToggleAnimations, ToggleId};
@@ -24,6 +25,10 @@ pub(crate) enum SettingsHit {
     Toggle(SettingKey),
     /// Keycap pills of a hotkey setting; opens the on-screen recorder.
     HotkeyValue(SettingKey),
+    /// Filled value field of a short setting; starts editing in place.
+    InlineValue(SettingKey),
+    /// Value of a picker setting; opens its option overlay.
+    SelectValue(SettingKey),
     SearchAt(usize),
 }
 
@@ -219,6 +224,21 @@ pub(crate) fn hit_test(
             {
                 return Some(SettingsHit::HotkeyValue(*key));
             }
+            if let Some(field) = inline_value_rect(
+                row_area,
+                rows.control_width,
+                *key,
+                state.settings(),
+                state.inline_edit(),
+            ) && mouse::contains(field, column, row)
+            {
+                return Some(SettingsHit::InlineValue(*key));
+            }
+            if let Some(value) = select_value_rect(row_area, rows.control_width, *key)
+                && mouse::contains(value, column, row)
+            {
+                return Some(SettingsHit::SelectValue(*key));
+            }
             return Some(SettingsHit::Row(*key));
         }
         row_y = row_y.saturating_add(height);
@@ -385,6 +405,7 @@ pub fn render_settings_content(
             theme,
             animations,
             hovered,
+            state.inline_edit(),
         );
         row_y = row_y.saturating_add(row_area.height);
     }
@@ -617,6 +638,93 @@ mod tests {
             row_y = row_y.saturating_add(height);
         }
         panic!("no hotkey setting row");
+    }
+
+    #[test]
+    fn inline_value_hit_returns_inline_value() {
+        let area = ratatui::layout::Rect::new(26, 2, 71, 24);
+        let mut state = SettingsPageState::default();
+        // honey: anchor the window on a known short field so the scan
+        // is not limited to whichever rows happen to fit at default
+        // selection.
+        let key = SettingKey::ClipboardHistoryRetentionSecs;
+        state.selected = state
+            .visible_keys()
+            .iter()
+            .position(|candidate| *candidate == key)
+            .expect("visible inline key");
+        let (list_area, _) =
+            content_sections(area, false, state.search_field(), state.is_search_active());
+        let rows = compute_rows(list_area, &state);
+        let all_keys = state.visible_keys();
+        let mut row_y = rows_origin(list_area, &rows.heights, rows.start, rows.end);
+
+        for (index, key) in all_keys[rows.start..rows.end].iter().enumerate() {
+            let remaining = (list_area.y + list_area.height).saturating_sub(row_y);
+            let height = rows.heights[rows.start + index].min(remaining);
+            let row_area = Rect {
+                x: list_area.x,
+                y: row_y,
+                width: list_area.width,
+                height,
+            };
+            if let Some(field) = inline_value_rect(
+                row_area,
+                rows.control_width,
+                *key,
+                state.settings(),
+                state.inline_edit(),
+            ) {
+                assert_eq!(
+                    hit_test(area, &state, field.x + field.width / 2, field.y),
+                    Some(SettingsHit::InlineValue(*key))
+                );
+                assert_eq!(
+                    hit_test(area, &state, field.x.saturating_sub(1), field.y),
+                    Some(SettingsHit::Row(*key))
+                );
+                return;
+            }
+            row_y = row_y.saturating_add(height);
+        }
+        panic!("no inline setting row");
+    }
+
+    #[test]
+    fn select_value_hit_returns_select_value() {
+        let area = ratatui::layout::Rect::new(26, 2, 71, 24);
+        let mut state = SettingsPageState::default();
+        let key = SettingKey::VoiceModel;
+        state.selected = state
+            .visible_keys()
+            .iter()
+            .position(|candidate| *candidate == key)
+            .expect("visible select key");
+        let (list_area, _) =
+            content_sections(area, false, state.search_field(), state.is_search_active());
+        let rows = compute_rows(list_area, &state);
+        let all_keys = state.visible_keys();
+        let mut row_y = rows_origin(list_area, &rows.heights, rows.start, rows.end);
+
+        for (index, key) in all_keys[rows.start..rows.end].iter().enumerate() {
+            let remaining = (list_area.y + list_area.height).saturating_sub(row_y);
+            let height = rows.heights[rows.start + index].min(remaining);
+            let row_area = Rect {
+                x: list_area.x,
+                y: row_y,
+                width: list_area.width,
+                height,
+            };
+            if let Some(value) = select_value_rect(row_area, rows.control_width, *key) {
+                assert_eq!(
+                    hit_test(area, &state, value.x + value.width / 2, value.y),
+                    Some(SettingsHit::SelectValue(*key))
+                );
+                return;
+            }
+            row_y = row_y.saturating_add(height);
+        }
+        panic!("no select setting row");
     }
 
     #[test]

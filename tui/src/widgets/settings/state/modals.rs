@@ -153,24 +153,56 @@ impl InputModalState {
     }
 }
 
+/// One picker row: the label the user reads, an optional explanation,
+/// and the value stored in settings.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SelectChoice {
+    pub(crate) label: String,
+    pub(crate) detail: String,
+    pub(crate) value: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SelectModalState {
     key: SettingKey,
     options: Vec<String>,
+    details: Vec<String>,
+    values: Vec<String>,
     selected: usize,
     pub(crate) error: Option<String>,
 }
 
 impl SelectModalState {
     pub(crate) fn new(key: SettingKey, options: Vec<String>, current_value: String) -> Self {
-        let selected = options
+        let choices = options
+            .into_iter()
+            .map(|option| SelectChoice {
+                label: option.clone(),
+                detail: String::new(),
+                value: option,
+            })
+            .collect();
+        Self::new_choices(key, choices, &current_value)
+    }
+
+    pub(crate) fn new_choices(
+        key: SettingKey,
+        choices: Vec<SelectChoice>,
+        current_value: &str,
+    ) -> Self {
+        let selected = choices
             .iter()
-            .position(|option| option.eq_ignore_ascii_case(&current_value))
+            .position(|choice| choice.value.eq_ignore_ascii_case(current_value.trim()))
             .unwrap_or_default();
+        let options = choices.iter().map(|choice| choice.label.clone()).collect();
+        let details = choices.iter().map(|choice| choice.detail.clone()).collect();
+        let values = choices.into_iter().map(|choice| choice.value).collect();
 
         Self {
             key,
             options,
+            details,
+            values,
             selected,
             error: None,
         }
@@ -182,6 +214,10 @@ impl SelectModalState {
 
     pub(crate) fn options(&self) -> &[String] {
         &self.options
+    }
+
+    pub(crate) fn details(&self) -> &[String] {
+        &self.details
     }
 
     pub(crate) const fn selected_index(&self) -> usize {
@@ -198,7 +234,7 @@ impl SelectModalState {
         match (key.code, key.modifiers) {
             (KeyCode::Esc, KeyModifiers::NONE) => SettingsInteraction::cancel(),
             (KeyCode::Enter, KeyModifiers::NONE) => {
-                SettingsInteraction::save(self.key, Some(self.options[self.selected].clone()))
+                SettingsInteraction::save(self.key, Some(self.values[self.selected].clone()))
             }
             (KeyCode::Char('j'), KeyModifiers::NONE) | (KeyCode::Down, KeyModifiers::NONE) => {
                 self.selected = (self.selected + 1).min(self.options.len().saturating_sub(1));

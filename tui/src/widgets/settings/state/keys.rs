@@ -9,6 +9,9 @@ pub(crate) trait SettingKeyMeta {
     fn display_value(self, settings: &Settings) -> String;
     fn edit_value(self, settings: &Settings) -> String;
     fn toggle_value(self, settings: &Settings) -> Option<bool>;
+    /// Short values edit in the row itself; overlays stay for pickers,
+    /// long text, and the hotkey recorder.
+    fn inline_edit(self) -> bool;
 }
 
 impl SettingKeyMeta for SettingKey {
@@ -191,12 +194,13 @@ impl SettingKeyMeta for SettingKey {
             Self::TuiCursorStyle => EditorKind::CursorStyleSelect,
             Self::AudioTheme => EditorKind::AudioThemeSelect,
             Self::AiProvider => EditorKind::AiProviderSelect,
-            Self::AiCustomEndpoint
-            | Self::AiTemperature
-            | Self::AiSystemPrompt
-            | Self::VoiceInputDevice => EditorKind::OptionalTextInput,
+            Self::AiCustomEndpoint | Self::AiTemperature | Self::AiSystemPrompt => {
+                EditorKind::OptionalTextInput
+            }
             Self::InlineDictionaryMode => EditorKind::InlineDictionaryModeSelect,
             Self::InlineEmojiTriggerChar => EditorKind::SingleCharInput,
+            Self::VoiceModel => EditorKind::VoiceModelSelect,
+            Self::VoiceInputDevice => EditorKind::VoiceInputDeviceSelect,
             Self::PauseHotkey | Self::VoicePttHotkey | Self::VoiceHandsfreeHotkey => {
                 EditorKind::HotkeyCapture
             }
@@ -205,7 +209,6 @@ impl SettingKeyMeta for SettingKey {
             | Self::InlineDatetimeTimeFormat
             | Self::InlineDatetimeDatetimeFormat
             | Self::InlineDatetimeDialect
-            | Self::VoiceModel
             | Self::VoiceDictionary => EditorKind::TextInput,
         }
     }
@@ -232,6 +235,30 @@ impl SettingKeyMeta for SettingKey {
             Self::VoiceKeepLoaded => Some(settings.voice_keep_loaded),
             Self::PauseMediaWhileDictating => Some(settings.pause_media_while_dictating),
             _ => None,
+        }
+    }
+
+    fn inline_edit(self) -> bool {
+        match self.editor_kind() {
+            EditorKind::NumberInput | EditorKind::SingleCharInput => true,
+            EditorKind::TextInput => matches!(
+                self,
+                Self::AiModel
+                    | Self::InlineDatetimeDateFormat
+                    | Self::InlineDatetimeTimeFormat
+                    | Self::InlineDatetimeDatetimeFormat
+                    | Self::InlineDatetimeDialect
+            ),
+            EditorKind::OptionalTextInput => matches!(self, Self::AiTemperature),
+            EditorKind::Toggle
+            | EditorKind::HotkeyCapture
+            | EditorKind::SpinnerSelect
+            | EditorKind::CursorStyleSelect
+            | EditorKind::AudioThemeSelect
+            | EditorKind::AiProviderSelect
+            | EditorKind::VoiceModelSelect
+            | EditorKind::VoiceInputDeviceSelect
+            | EditorKind::InlineDictionaryModeSelect => false,
         }
     }
 
@@ -296,7 +323,7 @@ impl SettingKeyMeta for SettingKey {
             Self::NotifyOnUpdate => settings.notify_on_update.to_string(),
             Self::VoiceKeepLoaded => settings.voice_keep_loaded.to_string(),
             Self::PauseMediaWhileDictating => settings.pause_media_while_dictating.to_string(),
-            Self::VoiceModel => settings.voice_model.clone(),
+            Self::VoiceModel => voice_model_label(&settings.voice_model).to_string(),
             Self::VoicePttHotkey => settings.voice_ptt_hotkey.clone(),
             Self::VoiceHandsfreeHotkey => settings.voice_handsfree_hotkey.clone(),
             Self::VoiceDictionary => {
@@ -306,9 +333,12 @@ impl SettingKeyMeta for SettingKey {
                     settings.voice_dictionary.clone()
                 }
             }
-            Self::VoiceInputDevice => {
-                optional_value_label(settings.voice_input_device.as_deref()).to_string()
-            }
+            Self::VoiceInputDevice => settings
+                .voice_input_device
+                .as_deref()
+                .filter(|device| !device.trim().is_empty())
+                .unwrap_or("System Default")
+                .to_string(),
         }
     }
 
@@ -323,11 +353,9 @@ impl SettingKeyMeta for SettingKey {
             Self::AiProvider => settings.ai_provider.clone().unwrap_or_default(),
             Self::AiModel => settings.ai_model.clone().unwrap_or_default(),
             Self::AiCustomEndpoint => settings.ai_custom_endpoint.clone().unwrap_or_default(),
-            Self::VoiceModel => settings.voice_model.clone(),
             Self::VoicePttHotkey => settings.voice_ptt_hotkey.clone(),
             Self::VoiceHandsfreeHotkey => settings.voice_handsfree_hotkey.clone(),
             Self::VoiceDictionary => settings.voice_dictionary.clone(),
-            Self::VoiceInputDevice => settings.voice_input_device.clone().unwrap_or_default(),
             Self::PauseNotificationsEnabled
             | Self::PauseAudioEnabled
             | Self::AudioTheme
@@ -355,15 +383,17 @@ impl SettingKeyMeta for SettingKey {
             | Self::NotifyOnUpdate
             | Self::VoiceKeepLoaded
             | Self::PauseMediaWhileDictating
+            | Self::VoiceModel
+            | Self::VoiceInputDevice
             | Self::TuiCursorStyle => self.display_value(settings),
-            Self::AiTemperature => {
-                optional_value_label(settings.ai_temperature.map(|v| v.to_string()).as_deref())
-                    .to_string()
-            }
-            Self::AiMaxTokens => {
-                optional_value_label(settings.ai_max_tokens.map(|v| v.to_string()).as_deref())
-                    .to_string()
-            }
+            Self::AiTemperature => settings
+                .ai_temperature
+                .map(|value| value.to_string())
+                .unwrap_or_default(),
+            Self::AiMaxTokens => settings
+                .ai_max_tokens
+                .map(|value| value.to_string())
+                .unwrap_or_default(),
             Self::AiSystemPrompt => settings
                 .ai_system_prompt
                 .as_deref()
@@ -385,7 +415,26 @@ pub(crate) enum EditorKind {
     CursorStyleSelect,
     AudioThemeSelect,
     AiProviderSelect,
+    VoiceModelSelect,
+    VoiceInputDeviceSelect,
     InlineDictionaryModeSelect,
+}
+
+impl EditorKind {
+    /// Values backed by a centered option overlay, which open from a
+    /// single click on the value column.
+    pub(crate) const fn opens_select(self) -> bool {
+        matches!(
+            self,
+            Self::SpinnerSelect
+                | Self::CursorStyleSelect
+                | Self::AudioThemeSelect
+                | Self::AiProviderSelect
+                | Self::VoiceModelSelect
+                | Self::VoiceInputDeviceSelect
+                | Self::InlineDictionaryModeSelect
+        )
+    }
 }
 
 pub(crate) const fn spinner_style_label(style: SpinnerStyle) -> &'static str {
@@ -416,4 +465,81 @@ pub(crate) const fn cursor_set_cursor_style(
 
 pub(crate) fn optional_value_label(value: Option<&str>) -> &str {
     value.filter(|value| !value.is_empty()).unwrap_or("<unset>")
+}
+
+/// Friendly tier name for a stored voice model, hiding catalog IDs from
+/// the settings value.
+pub(crate) fn voice_model_label(model: &str) -> &str {
+    match model.trim().to_ascii_lowercase().as_str() {
+        "auto" => "Auto",
+        "best" | "parakeet-unified-en-0.6b" => "Best",
+        "balanced" | "parakeet-tdt-0.6b-v2" => "Balanced",
+        "fast" | "parakeet-tdt-ctc-110m" => "Fast",
+        _ => model,
+    }
+}
+
+/// Tier value the picker highlights for a stored model. `auto` follows
+/// the same RAM tier the daemon would load, so the field and picker
+/// agree without surfacing model IDs.
+pub(crate) fn voice_model_tier(model: &str) -> &'static str {
+    match model.trim().to_ascii_lowercase().as_str() {
+        "best" | "parakeet-unified-en-0.6b" => "best",
+        "balanced" | "parakeet-tdt-0.6b-v2" => "balanced",
+        "fast" | "parakeet-tdt-ctc-110m" => "fast",
+        _ => match taurine_core::voice::resolve_auto_model() {
+            "parakeet-unified-en-0.6b" => "best",
+            "parakeet-tdt-ctc-110m" => "fast",
+            _ => "balanced",
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn short_values_edit_inline_while_choices_and_long_text_do_not() {
+        assert!(SettingKey::ClipboardHistoryRetentionSecs.inline_edit());
+        assert!(SettingKey::InlineEmojiTriggerChar.inline_edit());
+        assert!(SettingKey::InlineDatetimeDateFormat.inline_edit());
+        assert!(SettingKey::AiTemperature.inline_edit());
+        assert!(!SettingKey::AiSystemPrompt.inline_edit());
+        assert!(!SettingKey::VoiceDictionary.inline_edit());
+        assert!(!SettingKey::VoiceModel.inline_edit());
+        assert!(!SettingKey::VoiceInputDevice.inline_edit());
+        assert!(!SettingKey::AudioTheme.inline_edit());
+        assert!(!SettingKey::PauseHotkey.inline_edit());
+    }
+
+    #[test]
+    fn unset_optional_numbers_edit_from_an_empty_field() {
+        let settings = Settings::default();
+        assert_eq!(SettingKey::AiTemperature.edit_value(&settings), "");
+        assert_eq!(SettingKey::AiMaxTokens.edit_value(&settings), "");
+    }
+
+    #[test]
+    fn voice_model_labels_hide_catalog_ids() {
+        assert_eq!(voice_model_label("auto"), "Auto");
+        assert_eq!(voice_model_label("parakeet-unified-en-0.6b"), "Best");
+        assert_eq!(voice_model_label("parakeet-tdt-0.6b-v2"), "Balanced");
+        assert_eq!(voice_model_label("parakeet-tdt-ctc-110m"), "Fast");
+        assert_eq!(voice_model_label("legacy-model"), "legacy-model");
+    }
+
+    #[test]
+    fn voice_device_display_falls_back_to_system_default() {
+        let mut settings = Settings::default();
+        assert_eq!(
+            SettingKey::VoiceInputDevice.display_value(&settings),
+            "System Default"
+        );
+        settings.voice_input_device = Some("USB Microphone".to_string());
+        assert_eq!(
+            SettingKey::VoiceInputDevice.display_value(&settings),
+            "USB Microphone"
+        );
+    }
 }

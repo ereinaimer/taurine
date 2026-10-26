@@ -5,8 +5,10 @@ mod modals;
 pub(crate) use hotkey_capture::HotkeyCaptureModalState;
 #[cfg(test)]
 pub(crate) use keys::cursor_style_label;
-pub(crate) use keys::{EditorKind, SettingKey, SettingKeyMeta, cursor_set_cursor_style};
-pub(crate) use modals::{ConfirmResetModalState, InputModalState, SelectModalState};
+pub(crate) use keys::{
+    EditorKind, SettingKey, SettingKeyMeta, cursor_set_cursor_style, voice_model_tier,
+};
+pub(crate) use modals::{ConfirmResetModalState, InputModalState, SelectChoice, SelectModalState};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use taurine_core::{
@@ -26,6 +28,52 @@ const AUDIO_THEME_OPTIONS: [&str; 7] = [
     "zen",
 ];
 
+/// Voice model tiers, ordered best quality to lightest footprint.
+const VOICE_MODEL_OPTIONS: [(&str, &str, &str); 3] = [
+    (
+        "Best",
+        "Highest accuracy; slower and uses the most RAM",
+        "best",
+    ),
+    (
+        "Balanced",
+        "Great accuracy with faster dictation and moderate RAM",
+        "balanced",
+    ),
+    (
+        "Fast",
+        "Quickest and lightest; best for low-RAM machines",
+        "fast",
+    ),
+];
+
+fn voice_model_choices() -> Vec<SelectChoice> {
+    VOICE_MODEL_OPTIONS
+        .iter()
+        .map(|(label, detail, value)| SelectChoice {
+            label: (*label).to_string(),
+            detail: (*detail).to_string(),
+            value: (*value).to_string(),
+        })
+        .collect()
+}
+
+/// Choices for the microphone picker: the system default plus every live
+/// input device reported by the shared tray enumeration.
+fn voice_device_choices(devices: Vec<String>) -> Vec<SelectChoice> {
+    let mut choices = vec![SelectChoice {
+        label: "System Default".to_string(),
+        detail: "Use the microphone the system selects".to_string(),
+        value: String::new(),
+    }];
+    choices.extend(devices.into_iter().map(|name| SelectChoice {
+        label: name.clone(),
+        detail: String::new(),
+        value: name,
+    }));
+    choices
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct SettingsPageState {
     pub(crate) settings: Settings,
@@ -36,6 +84,7 @@ pub(crate) struct SettingsPageState {
     pub(crate) search: crate::widgets::field::TextField,
     pub(crate) search_active: bool,
     pub(crate) window_anchor: Option<usize>,
+    pub(crate) inline: Option<InputModalState>,
 }
 
 impl SettingsPageState {
@@ -109,9 +158,56 @@ impl SettingsPageState {
             return self.toggle_selected_setting();
         }
         if was_selected {
-            self.open_editor_for_selected();
+            if key.inline_edit() {
+                self.begin_inline_edit(key);
+            } else {
+                self.open_editor_for_selected();
+            }
         }
         SettingsInteraction::handled()
+    }
+
+    /// Start editing a short value in the row itself. The click-time
+    /// anchor keeps the clicked row in place; keyboard entry passes
+    /// `None` so the window follows the selection instead.
+    pub(crate) fn start_inline_edit(&mut self, key: SettingKey, anchor: Option<usize>) {
+        if !key.inline_edit() {
+            return;
+        }
+        if let Some(anchor) = anchor {
+            self.select_key(key, anchor);
+        } else {
+            if let Some(position) = self.visible_keys().iter().position(|k| *k == key) {
+                self.selected = position;
+            }
+            self.window_anchor = None;
+        }
+        self.begin_inline_edit(key);
+    }
+
+    /// Select a value row and open its picker from the same click.
+    pub(crate) fn open_editor_for_key(&mut self, key: SettingKey, anchor: usize) {
+        self.select_key(key, anchor);
+        self.open_editor_for_selected();
+    }
+
+    pub(crate) fn clear_inline_edit(&mut self) {
+        self.inline = None;
+        self.status_message = None;
+    }
+
+    pub(crate) const fn inline_edit(&self) -> Option<&InputModalState> {
+        self.inline.as_ref()
+    }
+
+    pub(crate) fn inline_key(&self) -> Option<SettingKey> {
+        self.inline.as_ref().map(InputModalState::key)
+    }
+
+    fn begin_inline_edit(&mut self, key: SettingKey) {
+        self.search_active = false;
+        self.status_message = None;
+        self.inline = Some(InputModalState::new(key, key.edit_value(&self.settings)));
     }
 
     pub(crate) fn selected_key(&self) -> SettingKey {
@@ -147,9 +243,12 @@ impl SettingsPageState {
     pub(crate) fn replace_settings(&mut self, settings: Settings) {
         self.settings = settings;
         self.modal = None;
+        self.inline = None;
         self.load_error = None;
         self.status_message = None;
-        self.window_anchor = None;
+        // honey: a save refreshes settings from disk; keep the click-time
+        // window anchor so toggling a row cannot re-anchor the list on
+        // the search bar and move the next click to another row.
     }
 
     pub(crate) fn set_load_error(&mut self, error: String) {
@@ -171,6 +270,13 @@ impl SettingsPageState {
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> SettingsInteraction {
         if self.modal.is_some() {
             return self.handle_modal_key(key);
+        }
+
+        if let Some(inline) = self.inline.as_mut() {
+            let interaction = inline.handle_key(key);
+            let error = inline.error().map(str::to_string);
+            self.status_message = error;
+            return interaction;
         }
 
         if self.search_active {
@@ -206,8 +312,12 @@ impl SettingsPageState {
                 if self.visible_keys().is_empty() {
                     return SettingsInteraction::handled();
                 }
-                if self.selected_key().editor_kind() == EditorKind::Toggle {
+                let key = self.selected_key();
+                if key.editor_kind() == EditorKind::Toggle {
                     self.toggle_selected_setting()
+                } else if key.inline_edit() {
+                    self.begin_inline_edit(key);
+                    SettingsInteraction::handled()
                 } else {
                     self.open_editor_for_selected();
                     SettingsInteraction::handled()
@@ -314,6 +424,29 @@ impl SettingsPageState {
                     .collect(),
                 self.settings.ai_provider.clone().unwrap_or_default(),
             ))),
+            EditorKind::VoiceModelSelect => {
+                Some(SettingsModal::Select(SelectModalState::new_choices(
+                    key,
+                    voice_model_choices(),
+                    voice_model_tier(&self.settings.voice_model),
+                )))
+            }
+            EditorKind::VoiceInputDeviceSelect => {
+                let current = self
+                    .settings
+                    .voice_input_device
+                    .as_deref()
+                    .filter(|device| !device.trim().is_empty())
+                    .unwrap_or("");
+                // honey: query on open, not from a cache, so newly plugged
+                // microphones appear exactly like the tray menu.
+                let devices = taurine_core::voice::devices::list_input_devices();
+                Some(SettingsModal::Select(SelectModalState::new_choices(
+                    key,
+                    voice_device_choices(devices),
+                    current,
+                )))
+            }
             EditorKind::InlineDictionaryModeSelect => {
                 Some(SettingsModal::Select(SelectModalState::new(
                     key,
@@ -466,6 +599,116 @@ impl SettingsInteraction {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn replacing_settings_keeps_the_click_anchor() {
+        let mut state = SettingsPageState {
+            window_anchor: Some(4),
+            ..SettingsPageState::default()
+        };
+
+        state.replace_settings(Settings::default());
+
+        assert_eq!(state.window_anchor, Some(4));
+    }
+
+    #[test]
+    fn enter_starts_editing_a_short_value_in_place() {
+        let mut state = SettingsPageState::default();
+        state.selected = state
+            .visible_keys()
+            .iter()
+            .position(|key| *key == SettingKey::ClipboardHistoryRetentionSecs)
+            .expect("visible inline key");
+
+        let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert!(state.modal().is_none());
+        assert_eq!(
+            state.inline_key(),
+            Some(SettingKey::ClipboardHistoryRetentionSecs)
+        );
+        assert!(!interaction.should_close_modal());
+        assert!(interaction.pending_save().is_none());
+    }
+
+    #[test]
+    fn inline_single_char_validation_reports_in_the_status_line() {
+        let mut state = SettingsPageState::default();
+        state.selected = state
+            .visible_keys()
+            .iter()
+            .position(|key| *key == SettingKey::InlineEmojiTriggerChar)
+            .expect("visible inline key");
+        state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        for ch in ['a', 'b'] {
+            state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+        }
+        state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert!(state.inline_edit().is_some());
+        assert!(
+            state
+                .status_message()
+                .is_some_and(|message| message.contains("exactly one character")),
+            "{:?}",
+            state.status_message()
+        );
+    }
+
+    #[test]
+    fn voice_model_picker_offers_tiers_with_descriptions() {
+        let choices = voice_model_choices();
+        let labels: Vec<&str> = choices.iter().map(|choice| choice.label.as_str()).collect();
+        let values: Vec<&str> = choices.iter().map(|choice| choice.value.as_str()).collect();
+        assert_eq!(labels, ["Best", "Balanced", "Fast"]);
+        assert_eq!(values, ["best", "balanced", "fast"]);
+        assert!(choices.iter().all(|choice| !choice.detail.is_empty()));
+    }
+
+    #[test]
+    fn voice_device_picker_keeps_system_default_first() {
+        let choices = voice_device_choices(vec!["Mic A".to_string(), "Mic B".to_string()]);
+        let labels: Vec<&str> = choices.iter().map(|choice| choice.label.as_str()).collect();
+        let values: Vec<&str> = choices.iter().map(|choice| choice.value.as_str()).collect();
+        assert_eq!(labels, ["System Default", "Mic A", "Mic B"]);
+        assert_eq!(values, ["", "Mic A", "Mic B"]);
+    }
+
+    #[test]
+    fn voice_model_picker_saves_the_tier_value_not_the_label() {
+        let mut picker = SelectModalState::new_choices(
+            SettingKey::VoiceModel,
+            voice_model_choices(),
+            "balanced",
+        );
+        let interaction = picker.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert_eq!(
+            interaction
+                .pending_save()
+                .map(|pending| pending.value.clone()),
+            Some(Some("balanced".to_string()))
+        );
+    }
+
+    #[test]
+    fn voice_model_opens_the_tier_picker() {
+        let mut state = SettingsPageState::default();
+        state.selected = state
+            .visible_keys()
+            .iter()
+            .position(|key| *key == SettingKey::VoiceModel)
+            .expect("visible voice model");
+        state.open_editor_for_selected();
+
+        let Some(SettingsModal::Select(modal)) = state.modal else {
+            panic!("voice model should open a select modal");
+        };
+        assert_eq!(modal.key(), SettingKey::VoiceModel);
+        assert_eq!(modal.options(), ["Best", "Balanced", "Fast"]);
+    }
 
     #[test]
     fn test_audio_theme_selection_modal_opens() {

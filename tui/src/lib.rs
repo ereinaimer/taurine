@@ -550,6 +550,7 @@ fn handle_tui_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
             && key.modifiers == crossterm::event::KeyModifiers::NONE
             && !app.settings_page().is_modal_open()
             && !app.settings_page().is_search_active()
+            && app.settings_page().inline_edit().is_none()
         {
             app.close_settings_overlay();
             return;
@@ -1264,20 +1265,35 @@ fn handle_tui_mouse_event(
                 let content = settings::overlay_content(settings::overlay_body(popup));
                 match settings::hit_test(content, app.settings_page(), mouse.column, mouse.row) {
                     Some(settings::SettingsHit::Row(key) | settings::SettingsHit::Toggle(key)) => {
+                        app.settings_page_mut().clear_inline_edit();
                         let anchor = settings::visible_window_start(content, app.settings_page());
                         let interaction = app.settings_page_mut().click_setting(key, anchor);
                         apply_settings_interaction(app, interaction);
                     }
                     Some(settings::SettingsHit::SearchAt(cursor)) => {
+                        app.settings_page_mut().clear_inline_edit();
                         app.settings_page_mut().activate_search_at(cursor);
                     }
                     Some(settings::SettingsHit::HotkeyValue(key)) => {
+                        app.settings_page_mut().clear_inline_edit();
                         let anchor = settings::visible_window_start(content, app.settings_page());
                         app.settings_page_mut().select_key(key, anchor);
                         app.set_hotkey_recorder(Some(library::recorder::HotkeyRecorderState::new(
                             library::recorder::HotkeyTarget::Setting(key),
                         )));
                     }
+                    Some(settings::SettingsHit::SelectValue(key)) => {
+                        app.settings_page_mut().clear_inline_edit();
+                        let anchor = settings::visible_window_start(content, app.settings_page());
+                        app.settings_page_mut().open_editor_for_key(key, anchor);
+                    }
+                    Some(settings::SettingsHit::InlineValue(key))
+                        if app.settings_page().inline_key() != Some(key) =>
+                    {
+                        let anchor = settings::visible_window_start(content, app.settings_page());
+                        app.settings_page_mut().start_inline_edit(key, Some(anchor));
+                    }
+                    Some(settings::SettingsHit::InlineValue(_)) => {}
                     None => {}
                 }
                 return;
@@ -1521,6 +1537,7 @@ fn handle_tui_mouse_event(
 fn apply_settings_interaction(app: &mut App, interaction: settings::SettingsInteraction) {
     if interaction.should_close_modal() {
         app.settings_page_mut().clear_modal();
+        app.settings_page_mut().clear_inline_edit();
         return;
     }
 
@@ -1549,6 +1566,7 @@ fn apply_settings_interaction(app: &mut App, interaction: settings::SettingsInte
 
     match pending_save.apply() {
         Ok(()) => {
+            app.settings_page_mut().clear_inline_edit();
             refresh_settings_page(app);
             apply_saved_cursor_style();
             if let Some(from_on) = from_on
@@ -2563,6 +2581,111 @@ mod tests {
                 "{at_rest:?} -> {nested:?}"
             );
         }
+    }
+
+    #[test]
+    fn clicking_voice_model_value_opens_the_tier_picker() {
+        use crate::widgets::settings::state::SettingKey;
+
+        let mut app = App::default();
+        app.open_settings_overlay();
+        let position = app
+            .settings_page()
+            .visible_keys()
+            .iter()
+            .position(|key| *key == SettingKey::VoiceModel)
+            .expect("voice model key");
+        app.settings_page_mut().selected = position;
+        let popup = settings::overlay_popup(TEST_AREA);
+        let content = settings::overlay_content(settings::overlay_body(popup));
+        let mut target = None;
+        for row in 0..TEST_AREA.height {
+            for column in 0..TEST_AREA.width {
+                if let Some(settings::SettingsHit::SelectValue(found)) =
+                    settings::hit_test(content, app.settings_page(), column, row)
+                    && found == SettingKey::VoiceModel
+                {
+                    target = Some((found, column, row));
+                    break;
+                }
+            }
+            if target.is_some() {
+                break;
+            }
+        }
+        let (key, column, row) = target.expect("select setting value");
+
+        handle_tui_mouse_event(&mut app, left_click(column, row), TEST_AREA);
+
+        let Some(settings::SettingsModal::Select(modal)) = app.settings_page().modal() else {
+            panic!("picker should open");
+        };
+        assert_eq!(modal.key(), key);
+        assert_eq!(modal.options(), ["Best", "Balanced", "Fast"]);
+        assert!(app.is_settings_overlay_open());
+    }
+
+    #[test]
+    fn clicking_an_inline_setting_field_starts_editing() {
+        use crate::widgets::settings::state::SettingKeyMeta;
+
+        let mut app = App::default();
+        app.open_settings_overlay();
+        // honey: anchor the window on a known short field before scanning
+        // the hit path; the first rows that fit may all be toggles.
+        let position = app
+            .settings_page()
+            .visible_keys()
+            .iter()
+            .position(|key| key.inline_edit())
+            .expect("inline key");
+        app.settings_page_mut().selected = position;
+        let popup = settings::overlay_popup(TEST_AREA);
+        let content = settings::overlay_content(settings::overlay_body(popup));
+        let mut target = None;
+        for row in 0..TEST_AREA.height {
+            for column in 0..TEST_AREA.width {
+                if let Some(settings::SettingsHit::InlineValue(key)) =
+                    settings::hit_test(content, app.settings_page(), column, row)
+                {
+                    target = Some((key, column, row));
+                    break;
+                }
+            }
+            if target.is_some() {
+                break;
+            }
+        }
+        let (key, column, row) = target.expect("inline setting field");
+
+        handle_tui_mouse_event(&mut app, left_click(column, row), TEST_AREA);
+
+        assert!(app.is_settings_overlay_open());
+        assert_eq!(app.settings_page().inline_key(), Some(key));
+        let before = app
+            .settings_page()
+            .inline_edit()
+            .expect("inline editor")
+            .field()
+            .text()
+            .to_string();
+
+        handle_tui_key_event(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('7'), KeyModifiers::NONE),
+        );
+        let after = app
+            .settings_page()
+            .inline_edit()
+            .expect("inline editor")
+            .field()
+            .text()
+            .to_string();
+        assert_eq!(after, format!("{before}7"));
+
+        handle_tui_key_event(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(app.settings_page().inline_edit().is_none());
+        assert!(app.is_settings_overlay_open());
     }
 
     #[test]

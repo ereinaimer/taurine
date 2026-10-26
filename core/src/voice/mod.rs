@@ -1,3 +1,4 @@
+pub mod devices;
 pub mod dictionary;
 pub mod downloader;
 pub mod format;

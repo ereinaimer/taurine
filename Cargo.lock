@@ -5894,6 +5894,7 @@ dependencies = [
  "base64 0.23.1",
  "chrono",
  "chrono-tz",
+ "cpal 0.18.2",
  "csscolorparser",
  "deunicode",
  "directories",

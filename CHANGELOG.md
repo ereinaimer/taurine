@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Cleaner Trigger List**: Listing shows one line per trigger with just the trigger and result, plus multi-tag filtering.
 - **Always-Visible Setting Descriptions**: Every setting now shows its explanation under the title at any window size, wrapping to extra lines when narrow.
 - **Press-to-Set Hotkeys**: Capture the pause and voice dictation hotkeys by pressing them instead of typing, with clashing system shortcuts rejected.
+- **Inline Setting Editing**: Short settings like Clipboard History Retention and the Inline Emoji Trigger Character now show a value field and are edited directly in the row instead of in an overlay.
+- **Voice Pickers**: Voice Model now offers Best, Balanced, and Fast with speed and RAM guidance, while Voice Input Device lists the microphones currently connected each time it opens.
 - **Bottom Search Bars**: Library search moved to the bottom next to the footer hints, and settings gained the same filterable search matching names and descriptions, focused automatically on page entry.
 - **One Row Per Trigger**: Library entries with several word, hotkey, or regex triggers now list each trigger on its own row instead of a grouped count.
 - **Click Anything**: Switch pages from the navigation rail, pick settings and library rows (clicked rows stay in place), focus search bars, and scroll lists with the wheel.
@@ -89,6 +91,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Type to Filter**: Typing anywhere on the library or settings page starts filtering immediately with no need to press slash first, and arrow keys keep moving while search is focused.
 
 ### Fixed
+- **Stable Settings Clicks**: Toggling a setting or saving a value no longer scrolls the list to the search bar and makes the next click land on a different row.
+- **Unset AI Values**: Empty AI temperature and max-token settings now open with a blank field instead of showing the unset placeholder.
 - **Visible Variable Defaults**: Template highlighting now shows the `=` between a variable and its default value instead of hiding it.
 - **New Trigger Alignment**: Properties values now line up with the Esc hint.
 

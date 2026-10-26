@@ -578,27 +578,7 @@ mod win_com {
     }
 }
 
-/// User-facing device name on cpal 0.18.
-///
-/// WASAPI `description().name()` is the generic class (`DeviceDesc`, e.g.
-/// "Microphone"/"Speakers") shared by every endpoint, while the specific
-/// label users recognize (`FriendlyName`, e.g. "Microphone Array
-/// (Realtek(R) Audio)") rides in `extended().next()` when it differs. Other
-/// backends already put the specific label in `name()` with the first
-/// extended line equal (ALSA) or empty (CoreAudio), so preferring the first
-/// extended line restores the pre-0.17 `device.name()` behavior everywhere
-/// with no cfg.
-pub fn friendly_device_name(device: &cpal::Device) -> Option<String> {
-    use cpal::traits::DeviceTrait;
-    let desc = device.description().ok()?;
-    let mut extended = desc.extended();
-    if let Some(first) = extended.next()
-        && !first.trim().is_empty()
-    {
-        return Some(first.to_owned());
-    }
-    Some(desc.name().to_owned())
-}
+pub use taurine_core::voice::devices::friendly_device_name;
 
 /// Query the system default communications audio capture device name on Windows.
 ///
@@ -866,19 +846,7 @@ impl AudioCapture {
 
     /// Enumerate all unique audio input device names currently available on the system.
     pub fn list_input_devices() -> Vec<String> {
-        use cpal::traits::HostTrait;
-        let host = cpal::default_host();
-        let mut names = Vec::new();
-        if let Ok(devices) = host.input_devices() {
-            for device in devices {
-                if let Some(name) = friendly_device_name(&device)
-                    && !names.contains(&name)
-                {
-                    names.push(name);
-                }
-            }
-        }
-        names
+        taurine_core::voice::devices::list_input_devices()
     }
 
     /// Resolve the appropriate audio input device: checks configured `voice_input_device`

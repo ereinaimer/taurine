@@ -211,9 +211,10 @@ fn render_select_modal(frame: &mut Frame, area: Rect, theme: &Theme, state: &Sel
     let entries: Vec<util::OverlayEntry> = state
         .options()
         .iter()
-        .map(|option| util::OverlayEntry {
+        .zip(state.details())
+        .map(|(option, detail)| util::OverlayEntry {
             label: option.clone(),
-            detail: String::new(),
+            detail: detail.clone(),
             icon: String::new(),
         })
         .collect();
