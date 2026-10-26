@@ -119,6 +119,36 @@ fn row_shapes(width: u16, state: &SettingsPageState) -> (Vec<Vec<String>>, Vec<u
     (descriptions, heights, control_width)
 }
 
+/// Startup selection: highlight the last row that fits in the first
+/// window, so the list opens at the top with the cursor on the row
+/// touching the search bar. Mirrors the library list startup rule.
+pub(crate) fn select_first_window_bottom(area: Rect, state: &mut SettingsPageState) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let (list_area, _) = content_sections(
+        area,
+        state.status_message().is_some(),
+        state.search_field(),
+        state.is_search_active(),
+    );
+    if list_area.height == 0 {
+        return;
+    }
+    let (_, heights, _) = row_shapes(list_area.width, state);
+    let mut used = 0u16;
+    let mut selected = 0usize;
+    for (index, height) in heights.iter().enumerate() {
+        if used.saturating_add(*height) > list_area.height {
+            break;
+        }
+        used = used.saturating_add(*height);
+        selected = index;
+    }
+    state.selected = selected;
+    state.window_anchor = None;
+}
+
 /// Window start for the current state, used to anchor the view when a
 /// visible row is clicked so the list does not jump.
 pub(crate) fn visible_window_start(area: Rect, state: &SettingsPageState) -> usize {
@@ -500,6 +530,37 @@ mod tests {
         for (lines, height) in descriptions.iter().zip(&heights) {
             assert_eq!(*height, 3 + lines.len() as u16);
         }
+    }
+
+    #[test]
+    fn startup_selection_fills_the_first_window_from_the_top() {
+        let area = ratatui::layout::Rect::new(26, 2, 71, 24);
+        let mut state = SettingsPageState::default();
+
+        select_first_window_bottom(area, &mut state);
+
+        let (list_area, _) = content_sections(
+            area,
+            state.status_message().is_some(),
+            state.search_field(),
+            state.is_search_active(),
+        );
+        let (_, heights, _) = row_shapes(list_area.width, &state);
+        let rows = compute_rows(list_area, &state);
+        assert_eq!(rows.start, 0, "the first window should start at the top");
+        let selected = state.selected_index();
+        assert_eq!(
+            selected,
+            rows.end - 1,
+            "the cursor should hug the search bar"
+        );
+        let used: u16 = heights[..=selected].iter().sum();
+        assert!(used <= list_area.height);
+        assert!(
+            used.saturating_add(heights.get(selected + 1).copied().unwrap_or(u16::MAX))
+                > list_area.height,
+            "one more row should not fit"
+        );
     }
 
     #[test]

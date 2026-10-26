@@ -49,6 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Wrapped Setting Descriptions**: Long setting descriptions now wrap inside the label column and grow the row instead of running under the value field.
 - **Full-Width Overlays**: The settings overlay and command palette now use 90% of the terminal width and height.
 - **Nested Overlay Dimming**: Popups stacked over settings now darken the settings page beneath them instead of leaving it at full brightness.
+- **Settings Opens at the Top**: The settings list now starts from the first settings with the cursor on the last visible row above the search bar, instead of opening scrolled to the bottom.
 - **Add Buttons**: Empty property rows and the tag builder use a Nerd Font add icon.
 - **Search Bar**: Shortened the placeholder to Search.
 - **Wrapped Search Queries**: Long search queries now wrap across up to three lines and scroll vertically instead of sliding sideways.

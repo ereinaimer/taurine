@@ -54,12 +54,11 @@ pub fn run() -> taurine_core::Result<()> {
     }
     refresh_library_page(&mut app);
     refresh_settings_page(&mut app);
-    // honey: bottom-anchored lists open on the row touching the search bar.
-    app.settings_page_mut().select_last();
 
     let mut terminal = TerminalGuard::new()?;
     app.load_rail_icons();
     select_first_visible_library_row(&mut app, &mut terminal);
+    select_first_visible_settings_row(&mut app, &mut terminal);
     app.begin_launch_transition();
     setup_signal_handler(|code| std::process::exit(code));
     let mut events = EventHandler::new(EVENT_TICK_RATE);
@@ -1832,6 +1831,18 @@ fn select_first_visible_library_row(app: &mut App, terminal: &mut TerminalGuard)
     );
     let capacity = widgets::util::visible_library_item_capacity(list_area.height);
     app.library_page_mut().select_first_window_bottom(capacity);
+}
+
+/// Settings startup mirrors the library list: open at the top of the
+/// settings, with the highlight on the last row above the search bar.
+fn select_first_visible_settings_row(app: &mut App, terminal: &mut TerminalGuard) {
+    let Ok(size) = terminal.terminal.size() else {
+        return;
+    };
+    let area = ratatui::layout::Rect::new(0, 0, size.width, size.height);
+    let popup = settings::overlay_popup(area);
+    let content = settings::overlay_content(settings::overlay_body(popup));
+    settings::select_first_window_bottom(content, app.settings_page_mut());
 }
 
 struct TerminalGuard {
