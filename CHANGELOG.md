@@ -72,6 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Create Form Submit**: The bottom Create button is temporarily removed while the submit flow is reworked.
 - **Actionable Create Hints**: The content box now shows text or script wording based on the action pill.
 - **Stacked Create Pickers**: Type and action pickers now open above the dimmed new-trigger form instead of replacing it.
+- **Unbracketed Setting Values**: Settings overlay values now show on their own without the surrounding brackets.
 
 ### Removed
 - **Trigger Display Names**: Triggers no longer have a separate name label; the library header shows the trigger itself and the --name flag is gone.

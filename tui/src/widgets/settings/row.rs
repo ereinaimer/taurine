@@ -116,12 +116,9 @@ pub fn render_setting_row(
             height: 1,
         };
         frame.render_widget(
-            Paragraph::new(format!(
-                "[ {} ]",
-                util::truncate_to_width(
-                    &key.display_value(settings),
-                    control_width.saturating_sub(4)
-                )
+            Paragraph::new(util::truncate_to_width(
+                &key.display_value(settings),
+                control_width,
             ))
             .alignment(Alignment::Right)
             .style(value_style),
@@ -288,5 +285,38 @@ mod tests {
             assert_eq!(cell.symbol(), " ");
             assert_ne!(cell.bg, ratatui::style::Color::Reset);
         }
+    }
+
+    #[test]
+    fn value_row_renders_without_brackets() {
+        use ratatui::{Terminal, backend::TestBackend};
+
+        let area = Rect::new(0, 0, 60, 8);
+        let settings = taurine_core::settings::Settings::default();
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal
+            .draw(|frame| {
+                render_setting_row(
+                    frame,
+                    area,
+                    &SettingKey::PauseHotkey,
+                    &settings,
+                    false,
+                    20,
+                    &[],
+                    &crate::theme::default::DARK_THEME,
+                    &ToggleAnimations::default(),
+                    None,
+                );
+            })
+            .expect("test draw");
+
+        let buffer = terminal.backend().buffer();
+        let line: String = (0..area.width)
+            .map(|x| buffer[(x, area.y + 1)].symbol())
+            .collect();
+        assert!(line.contains(&SettingKey::PauseHotkey.display_value(&settings)));
+        assert!(!line.contains('['));
     }
 }
