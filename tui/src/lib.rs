@@ -275,10 +275,25 @@ fn render_app(frame: &mut ratatui::Frame, app: &mut App, area: ratatui::layout::
             app.toggle_hover(),
         );
         if let Some(modal) = app.settings_page().modal() {
+            // honey: a nested popup dims the layer directly beneath it;
+            // the workspace already carries the global scrim, so only
+            // the settings popup gets the extra pass.
+            overlay_fx::dim_rect(
+                frame,
+                settings::overlay_popup(area),
+                overlay_fx::OVERLAY_SCRIM_FACTOR,
+            );
             settings::modals::render_settings_modal(frame, area, theme, modal);
         }
     }
     if let Some(palette) = app.palette() {
+        if app.is_settings_overlay_open() {
+            overlay_fx::dim_rect(
+                frame,
+                settings::overlay_popup(area),
+                overlay_fx::OVERLAY_SCRIM_FACTOR,
+            );
+        }
         palette::render(
             frame,
             area,
@@ -292,6 +307,19 @@ fn render_app(frame: &mut ratatui::Frame, app: &mut App, area: ratatui::layout::
     // honey: the hotkey recorder sits above every other layer; it is
     // the only thing that can be open while it captures a chord.
     if let Some(recorder) = app.hotkey_recorder() {
+        if app.palette().is_some() {
+            overlay_fx::dim_rect(
+                frame,
+                palette::popup(area),
+                overlay_fx::OVERLAY_SCRIM_FACTOR,
+            );
+        } else if app.is_settings_overlay_open() {
+            overlay_fx::dim_rect(
+                frame,
+                settings::overlay_popup(area),
+                overlay_fx::OVERLAY_SCRIM_FACTOR,
+            );
+        }
         library::recorder::render(frame, area, theme, recorder);
     }
 }
@@ -2493,6 +2521,48 @@ mod tests {
         handle_tui_key_event(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(app.is_settings_overlay_open());
         assert!(!app.settings_page().is_modal_open());
+    }
+
+    #[test]
+    fn nested_settings_modal_dims_the_settings_overlay() {
+        use crate::widgets::settings::state::{EditorKind, SettingKeyMeta};
+
+        let mut app = App::default();
+        app.open_settings_overlay();
+        let position = app
+            .settings_page()
+            .visible_keys()
+            .iter()
+            .position(|key| key.editor_kind() != EditorKind::Toggle)
+            .expect("editor key");
+        app.settings_page_mut().selected = position;
+
+        let popup = settings::overlay_popup(TEST_AREA);
+        let sample = (popup.x + 1, popup.y + 1);
+        let render_bg = |app: &mut App| {
+            let backend = ratatui::backend::TestBackend::new(TEST_AREA.width, TEST_AREA.height);
+            let mut terminal = ratatui::Terminal::new(backend).expect("terminal");
+            terminal
+                .draw(|frame| render_app(frame, app, TEST_AREA))
+                .expect("draw");
+            terminal.backend().buffer()[(sample.0, sample.1)].bg
+        };
+
+        let at_rest = render_bg(&mut app);
+        handle_tui_key_event(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(app.settings_page().is_modal_open());
+        let nested = render_bg(&mut app);
+
+        assert_ne!(nested, at_rest);
+        if let (ratatui::style::Color::Rgb(r, g, b), ratatui::style::Color::Rgb(dr, dg, db)) =
+            (at_rest, nested)
+        {
+            assert!(
+                u32::from(dr) + u32::from(dg) + u32::from(db)
+                    < u32::from(r) + u32::from(g) + u32::from(b),
+                "{at_rest:?} -> {nested:?}"
+            );
+        }
     }
 
     #[test]
