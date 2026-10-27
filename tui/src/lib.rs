@@ -203,17 +203,6 @@ fn render_page_dividers(
                 |row| library::divider_glyph(side, row, content_divider_row),
             );
         }
-    } else if home_visible(app) {
-        let page = app.home_page();
-        for (side, column) in home::visible_divider_columns(full, page.activity_ratio()) {
-            panes::render_divider(
-                frame,
-                area,
-                column,
-                page.dividers().color(theme, side),
-                |_| "│",
-            );
-        }
     }
 }
 
@@ -476,7 +465,6 @@ fn switch_page(app: &mut App, page: ActivePage) {
     let flush = app.library_page_mut().commit_edit();
     apply_library_interaction(app, flush);
     app.library_page_mut().set_divider_hover(None);
-    app.home_page_mut().set_divider_hover(None);
     app.set_toggle_hover(None);
     app.set_props_hover(None);
     app.nav_rail_mut().set_active_page(page);
@@ -640,14 +628,14 @@ fn handle_tui_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
         // honey: the activity feed owns Up/Down/Page/Home/End on Home;
         // the page step comes from the viewport the last frame drew.
         if matches!(key.modifiers, KeyModifiers::NONE | KeyModifiers::SHIFT) {
-            let page = app.home_page().activity_page().max(1) as isize;
             match key.code {
-                KeyCode::Up => app.home_page_mut().scroll_activity(-1),
-                KeyCode::Down => app.home_page_mut().scroll_activity(1),
-                KeyCode::PageUp => app.home_page_mut().scroll_activity(-page),
-                KeyCode::PageDown => app.home_page_mut().scroll_activity(page),
-                KeyCode::Home => app.home_page_mut().scroll_activity_to_start(),
-                KeyCode::End => app.home_page_mut().scroll_activity_to_end(),
+                KeyCode::Up => app.home_page_mut().move_selection(-1),
+                KeyCode::Down => app.home_page_mut().move_selection(1),
+                KeyCode::PageUp => app.home_page_mut().page_selection(-1),
+                KeyCode::PageDown => app.home_page_mut().page_selection(1),
+                KeyCode::Home => app.home_page_mut().select_first(),
+                KeyCode::End => app.home_page_mut().select_last(),
+                KeyCode::Char('c') | KeyCode::Enter => copy_selected_home_event(app),
                 _ => {}
             }
         }
@@ -962,21 +950,6 @@ fn handle_tui_mouse_event(
     // honey: grabbing a divider starts a drag; pointer motion after that
     // moves the split freely without re-hitting the gutter column.
     fn grab_divider(app: &mut App, page: ratatui::layout::Rect, column: u16, row: u16) -> bool {
-        if home_visible(app) {
-            let Some(side) = home::divider_hit(page, app.home_page().activity_ratio(), column, row)
-            else {
-                return false;
-            };
-            // honey: double-click resets the pane instead of grabbing.
-            if app
-                .home_page_mut()
-                .divider_double_click_at(side, library::now_millis())
-            {
-                return true;
-            }
-            app.home_page_mut().set_divider_drag(Some(side));
-            return true;
-        }
         let ratios = (
             app.library_page().split_ratio(),
             app.library_page().detail_ratio(),
@@ -993,14 +966,6 @@ fn handle_tui_mouse_event(
     }
 
     fn drag_divider_to(app: &mut App, page: ratatui::layout::Rect, column: u16) {
-        if home_visible(app) {
-            if app.home_page().divider_drag().is_none() {
-                return;
-            }
-            app.home_page_mut()
-                .set_activity_ratio(home::ratio_for_column(page, column));
-            return;
-        }
         let Some(side) = app.library_page().divider_drag() else {
             return;
         };
@@ -1060,18 +1025,9 @@ fn handle_tui_mouse_event(
                 return;
             }
             if home_visible(app) {
-                let full = workspace_full(app, area);
-                if home::activity_contains(
-                    full,
-                    app.home_page().activity_ratio(),
-                    mouse.column,
-                    mouse.row,
-                ) {
-                    // honey: one wheel notch moves one activity item.
-                    let down = mouse.kind == MouseEventKind::ScrollDown;
-                    app.home_page_mut()
-                        .scroll_activity(if down { 3 } else { -3 });
-                }
+                let down = mouse.kind == MouseEventKind::ScrollDown;
+                app.home_page_mut()
+                    .move_selection(if down { 1 } else { -1 });
                 return;
             }
             if !library_visible(app) {
@@ -1125,18 +1081,6 @@ fn handle_tui_mouse_event(
                 return;
             }
             if home_visible(app) {
-                let full = workspace_full(app, area);
-                if app.home_page().divider_drag().is_some() {
-                    drag_divider_to(app, full, mouse.column);
-                } else {
-                    let hover = home::divider_hit(
-                        full,
-                        app.home_page().activity_ratio(),
-                        mouse.column,
-                        mouse.row,
-                    );
-                    app.home_page_mut().set_divider_hover(hover);
-                }
                 app.set_toggle_hover(None);
                 return;
             }
@@ -1261,10 +1205,6 @@ fn handle_tui_mouse_event(
                 return;
             }
             if home_visible(app) {
-                if app.home_page().divider_drag().is_some() {
-                    let full = workspace_full(app, area);
-                    drag_divider_to(app, full, mouse.column);
-                }
                 return;
             }
             if !library_visible(app) {
@@ -1314,7 +1254,6 @@ fn handle_tui_mouse_event(
             }
             app.nav_rail_mut().end_drag();
             app.library_page_mut().set_divider_drag(None);
-            app.home_page_mut().set_divider_drag(None);
             app.library_page_mut().release_app_filter_divider();
             app.library_page_mut().release_create_divider();
         }
@@ -1529,8 +1468,11 @@ fn handle_tui_mouse_event(
                 return;
             }
             if home_visible(app) {
-                let full = workspace_full(app, area);
-                grab_divider(app, full, mouse.column, mouse.row);
+                if let Some(index) = app.home_page().copy_at(mouse.column, mouse.row) {
+                    copy_home_event(app, index);
+                } else if let Some(index) = app.home_page().event_at(mouse.column, mouse.row) {
+                    app.home_page_mut().select(index);
+                }
                 return;
             }
             if !library_visible(app) {
@@ -2008,6 +1950,26 @@ fn refresh_library_page(app: &mut App) {
             error!(error = %error, "Failed to refresh TUI library state");
             app.library_page_mut().set_load_error(error.to_string());
         }
+    }
+}
+
+/// Copies one activity event's stored text; silent scripts have nothing to
+/// copy, so the toast only appears when something was written.
+fn copy_home_event(app: &mut App, index: usize) {
+    let Some(event) = app.home_page().stats().recent_activity.get(index) else {
+        return;
+    };
+    let body = home::event_body(event).trim();
+    if body.is_empty() {
+        return;
+    }
+    library::actions::write_clipboard(body);
+    app.set_notification("Copied to clipboard".to_string());
+}
+
+fn copy_selected_home_event(app: &mut App) {
+    if let Some(index) = app.home_page().selected() {
+        copy_home_event(app, index);
     }
 }
 
@@ -3526,26 +3488,16 @@ mod tests {
             text.push('\n');
         }
         assert!(text.contains("TIME SAVED"), "home cards missing");
-        assert!(text.contains("Most Used Triggers"), "home usage missing");
         assert!(text.contains("Recent Activity"), "home activity missing");
         assert!(
             text.contains("No activity yet."),
             "home empty state missing"
         );
-
-        // The shared gutter runs the whole terminal height, not just the
-        // page's vertical margins.
-        let (_, divider) = home::visible_divider_columns(full, app.home_page().activity_ratio())
-            .into_iter()
-            .next()
-            .expect("home divider");
-        for y in TEST_AREA.top()..TEST_AREA.bottom() {
-            assert_eq!(
-                buffer[(divider, y)].symbol(),
-                "│",
-                "divider missing at row {y}"
-            );
-        }
+        assert!(
+            !text.contains("Most Used Triggers"),
+            "usage section removed"
+        );
+        assert!(!text.contains('│'), "home is one column with no divider");
 
         let library = nav_button(&app, NavRailItem::Library);
         handle_tui_mouse_event(
@@ -3563,50 +3515,27 @@ mod tests {
     }
 
     #[test]
-    fn home_divider_drags_like_the_library_panes() {
+    fn home_page_has_no_divider() {
         let mut app = library_app();
         let home = nav_button(&app, NavRailItem::Home);
         handle_tui_mouse_event(&mut app, left_click(home.x + 2, home.y + 1), TEST_AREA);
 
         let full = workspace_full(&app, TEST_AREA);
-        let before = app.home_page().activity_ratio();
-        let (_, divider) = home::visible_divider_columns(full, before)
-            .into_iter()
-            .next()
-            .expect("home divider");
+        let middle = full.x + full.width / 2;
         let row = full.y + 5;
-
-        handle_tui_mouse_event(&mut app, left_click(divider, row), TEST_AREA);
-        assert_eq!(
-            app.home_page().divider_drag(),
-            Some(panes::DividerSide::Props)
-        );
-
+        handle_tui_mouse_event(&mut app, left_click(middle, row), TEST_AREA);
         handle_tui_mouse_event(
             &mut app,
             mouse_at(
-                divider.saturating_sub(8),
+                middle.saturating_sub(8),
                 row,
                 MouseEventKind::Drag(MouseButton::Left),
             ),
             TEST_AREA,
         );
-        assert!(
-            app.home_page().activity_ratio() > before,
-            "dragging the gutter left widens the activity pane"
-        );
-        assert!(app.layout_needs_save());
 
-        handle_tui_mouse_event(
-            &mut app,
-            mouse_at(
-                divider.saturating_sub(8),
-                row,
-                MouseEventKind::Up(MouseButton::Left),
-            ),
-            TEST_AREA,
-        );
-        assert!(app.home_page().divider_drag().is_none());
+        assert!(app.library_page().divider_drag().is_none());
+        assert!(!app.layout_needs_save(), "home has no draggable pane");
     }
 
     #[test]
@@ -3621,63 +3550,129 @@ mod tests {
         assert!(app.library_page().search_query().is_empty());
     }
 
-    #[test]
-    fn home_activity_keys_scroll_the_feed() {
+    fn home_app_with_events(count: usize) -> App {
+        use taurine_core::db::crud::ActivityCategory;
+        use taurine_core::stats::{HomeStats, RecentActivity};
+
         let mut app = library_app();
         let home = nav_button(&app, NavRailItem::Home);
         handle_tui_mouse_event(&mut app, left_click(home.x + 2, home.y + 1), TEST_AREA);
-
-        let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
-        handle_tui_key_event(&mut app, key(KeyCode::Down));
-        assert_eq!(app.home_page().activity_scroll(), 1);
-        handle_tui_key_event(&mut app, key(KeyCode::PageDown));
-        assert_eq!(app.home_page().activity_scroll(), 2, "one-row page step");
-        handle_tui_key_event(&mut app, key(KeyCode::End));
-        assert_eq!(app.home_page().activity_scroll(), usize::MAX);
-        handle_tui_key_event(&mut app, key(KeyCode::Up));
-        assert_eq!(
-            app.home_page().activity_scroll(),
-            usize::MAX - 1,
-            "scrolling back from the end stays put until render clamps"
-        );
-        handle_tui_key_event(&mut app, key(KeyCode::Home));
-        assert_eq!(app.home_page().activity_scroll(), 0);
+        let now = library::now_millis() as i64;
+        app.home_page_mut().replace_stats(HomeStats {
+            recent_activity: (0..count)
+                .map(|index| RecentActivity {
+                    timestamp: now - index as i64 * 1_000,
+                    category: ActivityCategory::Text,
+                    trigger: format!("t{index}"),
+                    detail: String::new(),
+                    content: Some(format!("body {index}")),
+                    app: String::new(),
+                    word_count: 0,
+                })
+                .collect(),
+            ..HomeStats::default()
+        });
+        app
     }
 
     #[test]
-    fn home_wheel_over_the_activity_pane_scrolls_the_feed() {
-        let mut app = library_app();
-        let home = nav_button(&app, NavRailItem::Home);
-        handle_tui_mouse_event(&mut app, left_click(home.x + 2, home.y + 1), TEST_AREA);
+    fn home_keys_move_the_activity_selection() {
+        let mut app = home_app_with_events(5);
 
+        let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
+        handle_tui_key_event(&mut app, key(KeyCode::Down));
+        assert_eq!(app.home_page().selected(), Some(1));
+        handle_tui_key_event(&mut app, key(KeyCode::PageDown));
+        assert_eq!(
+            app.home_page().selected(),
+            Some(2),
+            "one-row page step before the first draw"
+        );
+        handle_tui_key_event(&mut app, key(KeyCode::End));
+        assert_eq!(app.home_page().selected(), Some(4));
+        handle_tui_key_event(&mut app, key(KeyCode::Up));
+        assert_eq!(app.home_page().selected(), Some(3));
+        handle_tui_key_event(&mut app, key(KeyCode::Home));
+        assert_eq!(app.home_page().selected(), Some(0));
+    }
+
+    #[test]
+    fn home_wheel_moves_the_activity_selection() {
+        let mut app = home_app_with_events(3);
         let full = workspace_full(&app, TEST_AREA);
-        let split = home::split_home(full, app.home_page().activity_ratio());
-        let column = split.props.x + 2;
-        let row = full.y + 6;
+        let (column, row) = (full.x + 4, full.y + 6);
 
         handle_tui_mouse_event(
             &mut app,
             mouse_at(column, row, MouseEventKind::ScrollDown),
             TEST_AREA,
         );
-        assert_eq!(app.home_page().activity_scroll(), 3);
+        assert_eq!(app.home_page().selected(), Some(1));
         handle_tui_mouse_event(
             &mut app,
             mouse_at(column, row, MouseEventKind::ScrollUp),
             TEST_AREA,
         );
-        assert_eq!(app.home_page().activity_scroll(), 0);
-
-        let content_column = split.center.x + 2;
+        assert_eq!(app.home_page().selected(), Some(0));
         handle_tui_mouse_event(
             &mut app,
-            mouse_at(content_column, row, MouseEventKind::ScrollDown),
+            mouse_at(column, row, MouseEventKind::ScrollUp),
             TEST_AREA,
         );
+        assert_eq!(app.home_page().selected(), Some(0), "top of the feed stops");
+    }
+
+    #[test]
+    fn home_keys_copy_the_selected_event() {
+        let mut app = home_app_with_events(2);
+        library::actions::set_mock_clipboard(None);
+
+        let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
+        handle_tui_key_event(&mut app, key(KeyCode::Char('c')));
         assert_eq!(
-            app.home_page().activity_scroll(),
-            0,
-            "wheel over the content pane leaves the feed alone"
+            library::actions::read_clipboard().as_deref(),
+            Some("body 0")
+        );
+        assert_eq!(app.notification(), Some("Copied to clipboard"));
+
+        handle_tui_key_event(&mut app, key(KeyCode::Down));
+        handle_tui_key_event(&mut app, key(KeyCode::Enter));
+        assert_eq!(
+            library::actions::read_clipboard().as_deref(),
+            Some("body 1")
+        );
+    }
+
+    #[test]
+    fn home_copy_button_click_writes_the_clipboard() {
+        use ratatui::{Terminal, backend::TestBackend};
+
+        let mut app = home_app_with_events(2);
+        library::actions::set_mock_clipboard(None);
+        let backend = TestBackend::new(TEST_AREA.width, TEST_AREA.height);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal
+            .draw(|frame| render_app(frame, &mut app, TEST_AREA))
+            .expect("test draw");
+
+        let buffer = terminal.backend().buffer();
+        let mut button = None;
+        'rows: for y in TEST_AREA.top()..TEST_AREA.bottom() {
+            for x in TEST_AREA.left()..TEST_AREA.right().saturating_sub(5) {
+                let label: String = (x..x + 6).map(|x| buffer[(x, y)].symbol()).collect();
+                if label == " copy " {
+                    button = Some((x, y));
+                    break 'rows;
+                }
+            }
+        }
+        let (x, y) = button.expect("copy button drawn");
+
+        handle_tui_mouse_event(&mut app, left_click(x + 1, y), TEST_AREA);
+
+        assert_eq!(
+            library::actions::read_clipboard().as_deref(),
+            Some("body 0")
         );
     }
 

@@ -4,31 +4,35 @@ use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Paragraph},
+    widgets::{Block, Clear, Paragraph},
 };
 use taurine_core::db::crud::ActivityCategory;
-use taurine_core::stats::{HomeStats, MostUsedTrigger, RecentActivity};
+use taurine_core::stats::{HomeStats, RecentActivity};
 
 use crate::theme::Theme;
 use crate::widgets::hotkey;
 use crate::widgets::library::detail::relative_time;
-use crate::widgets::panes::{self, DividerSide, PaneSplit};
 
 pub mod state;
 
-use self::state::{HomePageState, STAT_CARD_COUNT, format_count, format_time_saved};
+use self::state::{ActivityHit, HomePageState, STAT_CARD_COUNT, format_count, format_time_saved};
 
 const PANE_PAD_X: u16 = 2;
 const CARD_HEIGHT: u16 = 4;
 const CARD_GAP: u16 = 1;
 const CARD_MIN_WIDTH: u16 = 16;
 const MAX_CARDS_PER_ROW: usize = 2;
-const MOST_USED_ROWS: usize = 8;
 
 /// Date header plus the blank row beneath it.
 const GROUP_HEADER_LINES: usize = 2;
-/// Trigger line, detail line, and the blank row that follows each event.
+/// Trigger line, body line, and the blank row that follows each event.
 const ITEM_LINES: usize = 3;
+/// Section title plus the blank row beneath it.
+const TITLE_LINES: usize = 2;
+/// Blank row between the cards and the section title.
+const CARDS_GAP_LINES: usize = 1;
+
+const COPY_LABEL: &str = " copy ";
 
 const MONTHS: [&str; 12] = [
     "January",
@@ -45,62 +49,8 @@ const MONTHS: [&str; 12] = [
     "December",
 ];
 
-/// The home workspace is the library split with the list collapsed:
-/// content on the left, recent activity in the props slot.
-const HOME_LIST_RATIO: f32 = 0.0;
-
-pub(crate) fn split_home(area: Rect, activity_ratio: f32) -> PaneSplit {
-    if area.width < 5 {
-        return PaneSplit {
-            list: Rect::default(),
-            center: area,
-            props: Rect::default(),
-            list_divider: None,
-            props_divider: None,
-        };
-    }
-    panes::split_panes(area, HOME_LIST_RATIO, activity_ratio)
-}
-
-pub(crate) fn visible_divider_columns(area: Rect, activity_ratio: f32) -> Vec<(DividerSide, u16)> {
-    let split = split_home(area, activity_ratio);
-    split
-        .list_divider
-        .map(|column| (DividerSide::List, column))
-        .into_iter()
-        .chain(
-            split
-                .props_divider
-                .map(|column| (DividerSide::Props, column)),
-        )
-        .collect()
-}
-
-pub(crate) fn divider_hit(
-    area: Rect,
-    activity_ratio: f32,
-    column: u16,
-    row: u16,
-) -> Option<DividerSide> {
-    if row < area.y || row >= area.y.saturating_add(area.height) {
-        return None;
-    }
-    let split = split_home(area, activity_ratio);
-    (split.props_divider == Some(column)).then_some(DividerSide::Props)
-}
-
-pub(crate) fn ratio_for_column(area: Rect, column: u16) -> f32 {
-    panes::detail_ratio_for_column(area, HOME_LIST_RATIO, column)
-}
-
-pub(crate) fn activity_contains(area: Rect, activity_ratio: f32, column: u16, row: u16) -> bool {
-    if row < area.y || row >= area.y.saturating_add(area.height) {
-        return false;
-    }
-    let split = split_home(area, activity_ratio);
-    split.props.width > 0 && column >= split.props.x && column < split.props.right()
-}
-
+/// Home is one scrollable document: cards, then the activity feed. The
+/// date header of the group under the viewport's top edge sticks there.
 pub(crate) fn render_home_content(
     frame: &mut Frame,
     area: Rect,
@@ -110,59 +60,89 @@ pub(crate) fn render_home_content(
     if area.width == 0 || area.height == 0 {
         return;
     }
+    let content = padded(area, PANE_PAD_X, 0);
+    if content.width < 4 || content.height == 0 {
+        return;
+    }
     if let Some(error) = state.load_error() {
-        let content = padded(area, PANE_PAD_X, 1);
         frame.render_widget(
             Paragraph::new(error).style(
                 Style::default()
                     .fg(theme.error)
                     .add_modifier(Modifier::BOLD),
             ),
-            content,
+            padded(area, PANE_PAD_X, 1),
         );
         return;
     }
 
-    let split = split_home(area, state.activity_ratio());
-    render_center(frame, split.center, theme, state.stats());
-    if split.props.width > 0 {
-        let rows = activity_rows(split.props);
-        let total = activity_line_count(&state.stats().recent_activity);
-        state.clamp_activity_scroll(total.saturating_sub(rows.height as usize));
-        state.set_activity_page(rows.height as usize);
-        render_activity(
-            frame,
-            split.props,
-            theme,
-            state.stats(),
-            state.activity_scroll(),
-        );
+    let cards_height = cards_height(content.width);
+    let feed_start =
+        cards_height as usize + usize::from(cards_height > 0) * CARDS_GAP_LINES + TITLE_LINES;
+    let rows = feed_rows(&state.stats().recent_activity);
+    let feed_lines = rows_height(&rows).max(1);
+    let viewport = content.height as usize;
+    let max_scroll = (feed_start + feed_lines).saturating_sub(viewport);
+
+    // The cursor owns the scroll: moving it past an edge pulls the page
+    // just far enough to show the event again. Selecting the newest
+    // event also scrolls back to the document top so the cards return.
+    if let Some(selected) = state.selected()
+        && let Some(line) = item_line(&rows, selected)
+    {
+        let start = if selected == 0 { 0 } else { feed_start + line };
+        state.reveal(start, feed_start + line + ITEM_LINES, viewport, max_scroll);
     }
+    let scroll = state.scroll().min(max_scroll);
+    state.set_scroll(scroll);
+    state.set_page(viewport);
+
+    render_cards(frame, content, theme, state.stats(), cards_height, scroll);
+    render_title(frame, content, theme, cards_height, scroll);
+
+    let view = FeedViewport {
+        content,
+        start: feed_start,
+        scroll,
+    };
+    let mut hits = Vec::new();
+    render_feed(
+        frame,
+        theme,
+        state.stats(),
+        state.selected(),
+        &rows,
+        view,
+        &mut hits,
+    );
+    if scroll > feed_start {
+        // honey: the pinned date covers the first feed row, so clicks
+        // there must not reach the event underneath it.
+        hits.retain(|hit| hit.area.y != content.y);
+    }
+    state.set_hits(hits);
+
+    render_sticky_date(frame, theme, &rows, view);
 }
 
-fn render_center(frame: &mut Frame, area: Rect, theme: &Theme, stats: &HomeStats) {
-    let content = padded(area, PANE_PAD_X, 0);
-    if content.width < 4 || content.height == 0 {
-        return;
-    }
+/// At most two cards share a row; narrower panes stack them.
+fn cards_per_row(width: u16) -> usize {
+    ((width + CARD_GAP) / (CARD_MIN_WIDTH + CARD_GAP)).clamp(1, MAX_CARDS_PER_ROW as u16) as usize
+}
 
-    let cards_height = render_cards(frame, content, theme, stats);
-    let most_used_y = content
-        .y
-        .saturating_add(cards_height)
-        .saturating_add(u16::from(cards_height > 0));
-    if most_used_y < content.bottom() {
-        render_most_used(
-            frame,
-            Rect {
-                y: most_used_y,
-                height: content.bottom().saturating_sub(most_used_y),
-                ..content
-            },
-            theme,
-            stats,
-        );
+fn card_width(width: u16, per_row: usize) -> u16 {
+    width.saturating_sub(CARD_GAP * (per_row as u16 - 1)) / per_row as u16
+}
+
+/// Height of the whole card grid, including the gaps between rows.
+fn cards_height(width: u16) -> u16 {
+    let per_row = cards_per_row(width);
+    if card_width(width, per_row) < 8 {
+        return 0;
     }
+    let rows = STAT_CARD_COUNT.div_ceil(per_row) as u16;
+    rows.saturating_mul(CARD_HEIGHT)
+        .saturating_add(rows.saturating_sub(1).saturating_mul(CARD_GAP))
 }
 
 struct StatCard {
@@ -200,54 +180,51 @@ fn streak_days(days: u32) -> String {
     }
 }
 
-/// At most two cards share a row; narrower panes stack them.
-fn cards_per_row(width: u16) -> usize {
-    ((width + CARD_GAP) / (CARD_MIN_WIDTH + CARD_GAP)).clamp(1, MAX_CARDS_PER_ROW as u16) as usize
-}
-
-/// Draws every card that fits and returns the height the grid used.
-fn render_cards(frame: &mut Frame, area: Rect, theme: &Theme, stats: &HomeStats) -> u16 {
-    if area.width == 0 || area.height < CARD_HEIGHT {
-        return 0;
+fn render_cards(
+    frame: &mut Frame,
+    content: Rect,
+    theme: &Theme,
+    stats: &HomeStats,
+    cards_height: u16,
+    scroll: usize,
+) {
+    if cards_height == 0 {
+        return;
     }
+    let per_row = cards_per_row(content.width);
+    let width = card_width(content.width, per_row);
     let cards = stat_cards(stats);
-    let per_row = cards_per_row(area.width);
-    let card_width = area.width.saturating_sub(CARD_GAP * (per_row as u16 - 1)) / per_row as u16;
-    if card_width < 8 {
-        return 0;
-    }
 
-    let mut used = 0;
     for (index, card) in cards.iter().enumerate() {
         let row = (index / per_row) as u16;
         let column = (index % per_row) as u16;
-        let y = area
-            .y
-            .saturating_add(row.saturating_mul(CARD_HEIGHT + CARD_GAP));
-        if y.saturating_add(CARD_HEIGHT) > area.bottom() {
-            break;
+        let top = row.saturating_mul(CARD_HEIGHT + CARD_GAP);
+        let shifted_top = top as i32 - scroll as i32;
+        let visible_top = shifted_top.max(0);
+        let visible_bottom = (shifted_top + CARD_HEIGHT as i32).min(content.height as i32);
+        if visible_bottom <= visible_top {
+            continue;
         }
         render_card(
             frame,
             Rect {
-                x: area
+                x: content
                     .x
-                    .saturating_add(column.saturating_mul(card_width + CARD_GAP)),
-                y,
-                width: card_width,
-                height: CARD_HEIGHT,
+                    .saturating_add(column.saturating_mul(width + CARD_GAP)),
+                y: content.y.saturating_add(visible_top as u16),
+                width,
+                height: (visible_bottom - visible_top) as u16,
             },
+            (visible_top - shifted_top) as u16,
             theme,
             card,
         );
-        used = (row + 1)
-            .saturating_mul(CARD_HEIGHT)
-            .saturating_add(row.saturating_mul(CARD_GAP));
     }
-    used
 }
 
-fn render_card(frame: &mut Frame, area: Rect, theme: &Theme, card: &StatCard) {
+/// `clipped` rows were scrolled off the card's top, so its label and
+/// value lines shift up by that much.
+fn render_card(frame: &mut Frame, area: Rect, clipped: u16, theme: &Theme, card: &StatCard) {
     frame.render_widget(
         Block::default().style(Style::default().bg(theme.surface)),
         area,
@@ -258,200 +235,184 @@ fn render_card(frame: &mut Frame, area: Rect, theme: &Theme, card: &StatCard) {
         width: area.width.saturating_sub(4),
         height: area.height,
     };
-    if inner.width == 0 || inner.height < 3 {
+    if inner.width == 0 {
         return;
     }
 
-    let line = |offset: u16| Rect {
-        x: inner.x,
-        y: inner.y.saturating_add(offset),
-        width: inner.width,
-        height: 1,
-    };
-    frame.render_widget(
-        Paragraph::new(card.label.to_uppercase()).style(Style::default().fg(theme.text_muted)),
-        line(1),
-    );
-    frame.render_widget(
-        Paragraph::new(card.value.clone())
-            .style(Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
-        line(2),
-    );
-}
-
-fn render_most_used(frame: &mut Frame, area: Rect, theme: &Theme, stats: &HomeStats) {
-    frame.render_widget(
-        Paragraph::new("Most Used Triggers")
-            .style(Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
-        Rect {
-            x: area.x,
-            y: area.y,
-            width: area.width,
+    let line = |offset: u16| -> Option<Rect> {
+        let row = offset.checked_sub(clipped)?;
+        (row < area.height).then(|| Rect {
+            x: inner.x,
+            y: area.y.saturating_add(row),
+            width: inner.width,
             height: 1,
-        },
-    );
-
-    let rows = Rect {
-        x: area.x,
-        y: area.y.saturating_add(2),
-        width: area.width,
-        height: area.height.saturating_sub(2),
+        })
     };
-    if rows.width == 0 || rows.height == 0 {
-        return;
+    if let Some(area) = line(1) {
+        frame.render_widget(
+            Paragraph::new(card.label.to_uppercase()).style(Style::default().fg(theme.text_muted)),
+            area,
+        );
     }
-
-    let mut triggers = stats
-        .most_used_words
-        .iter()
-        .chain(stats.most_used_hotkeys.iter())
-        .collect::<Vec<&MostUsedTrigger>>();
-    triggers.sort_by_key(|item| std::cmp::Reverse(item.uses));
-
-    if triggers.is_empty() {
-        render_muted(frame, rows, theme, "No usage yet.");
-        return;
-    }
-
-    for (index, trigger) in triggers
-        .iter()
-        .take(MOST_USED_ROWS.min(rows.height as usize))
-        .enumerate()
-    {
-        render_most_used_row(
-            frame,
-            Rect {
-                x: rows.x,
-                y: rows.y.saturating_add(index as u16),
-                width: rows.width,
-                height: 1,
-            },
-            theme,
-            trigger,
+    if let Some(area) = line(2) {
+        frame.render_widget(
+            Paragraph::new(card.value.clone())
+                .style(Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
+            area,
         );
     }
 }
 
-fn render_most_used_row(frame: &mut Frame, area: Rect, theme: &Theme, trigger: &MostUsedTrigger) {
-    let uses = format_count(trigger.uses);
-    let uses_width = cell_width(&uses) as u16;
-    let display_width = area.width.saturating_sub(uses_width.saturating_add(1)) as usize;
-    let display = truncate(&trigger.display, display_width);
-
-    let mut spans = vec![Span::styled(
-        display.clone(),
-        Style::default().fg(theme.text),
-    )];
-    spans.push(Span::raw(
-        " ".repeat(display_width.saturating_sub(cell_width(&display))),
-    ));
-    spans.push(Span::styled(uses, Style::default().fg(theme.description)));
-    frame.render_widget(Paragraph::new(Line::from(spans)), area);
-}
-
-fn activity_content(area: Rect) -> Rect {
-    Rect {
-        x: area.x.saturating_add(PANE_PAD_X),
-        y: area.y,
-        width: area.width.saturating_sub(PANE_PAD_X * 2),
-        height: area.height,
+fn render_title(frame: &mut Frame, content: Rect, theme: &Theme, cards_height: u16, scroll: usize) {
+    let line = cards_height as usize + usize::from(cards_height > 0) * CARDS_GAP_LINES;
+    if let Some(area) = visible_line(content, scroll, line) {
+        frame.render_widget(
+            Paragraph::new("Recent Activity")
+                .style(Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
+            area,
+        );
     }
 }
 
-/// Feed viewport: the title sits two rows above, one of them blank.
-fn activity_rows(area: Rect) -> Rect {
-    let content = activity_content(area);
-    Rect {
-        y: content.y.saturating_add(3),
-        height: content.height.saturating_sub(3),
-        ..content
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FeedRow {
+    Date(NaiveDate),
+    Item(usize),
 }
 
-fn render_activity(frame: &mut Frame, area: Rect, theme: &Theme, stats: &HomeStats, scroll: usize) {
-    let content = activity_content(area);
-    if content.width < 4 || content.height < 4 {
-        return;
-    }
-
-    frame.render_widget(
-        Paragraph::new("Recent Activity")
-            .style(Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
-        Rect {
-            x: content.x,
-            y: content.y.saturating_add(1),
-            width: content.width,
-            height: 1,
-        },
-    );
-
-    let rows = activity_rows(area);
-    if rows.width == 0 || rows.height == 0 {
-        return;
-    }
-    if stats.recent_activity.is_empty() {
-        render_muted(frame, rows, theme, "No activity yet.");
-        return;
-    }
-
-    // honey: grouping dates is an O(n) pass per frame; move the line
-    // count into HomeStats if the history ever reaches ~10k events.
-    let total = activity_line_count(&stats.recent_activity);
-    let viewport = rows.height as usize;
-    let start = scroll.min(total.saturating_sub(viewport));
-    let end = start.saturating_add(viewport);
-
-    let today = Local::now().date_naive();
-    let mut line = 0usize;
+/// One entry per drawn line, in document order.
+fn feed_rows(activity: &[RecentActivity]) -> Vec<FeedRow> {
+    let mut rows = Vec::with_capacity(activity.len() + 4);
     let mut previous: Option<NaiveDate> = None;
-    for event in &stats.recent_activity {
-        let at = local_datetime(event.timestamp);
-        let date = at.date_naive();
-        if previous != Some(date) {
-            if let Some(row) = visible_row(rows, start, end, line) {
-                render_group_header(frame, row, theme, date, today);
-            }
-            line += GROUP_HEADER_LINES;
-            previous = Some(date);
-            if line >= end {
-                break;
-            }
-        }
-        let when = activity_time(at, today);
-        let text_width = activity_text_width(rows.width, &when);
-        if let Some(row) = visible_row(rows, start, end, line) {
-            render_activity_trigger(frame, row, theme, event, &when, text_width);
-        }
-        if let Some(row) = visible_row(rows, start, end, line.saturating_add(1)) {
-            render_activity_detail(frame, row, theme, &event.detail, text_width);
-        }
-        line += ITEM_LINES;
-        if line >= end {
-            break;
-        }
-    }
-}
-
-fn activity_line_count(activity: &[RecentActivity]) -> usize {
-    let mut lines = 0usize;
-    let mut previous: Option<NaiveDate> = None;
-    for event in activity {
+    for (index, event) in activity.iter().enumerate() {
         let date = local_datetime(event.timestamp).date_naive();
         if previous != Some(date) {
-            lines += GROUP_HEADER_LINES;
+            rows.push(FeedRow::Date(date));
             previous = Some(date);
         }
-        lines += ITEM_LINES;
+        rows.push(FeedRow::Item(index));
     }
-    lines
+    rows
 }
 
-fn visible_row(rows: Rect, start: usize, end: usize, line: usize) -> Option<Rect> {
-    (line >= start && line < end).then(|| Rect {
-        x: rows.x,
-        y: rows.y.saturating_add((line - start) as u16),
-        width: rows.width,
+/// Drawn height of the whole feed, headers included.
+fn rows_height(rows: &[FeedRow]) -> usize {
+    rows.iter()
+        .map(|row| match row {
+            FeedRow::Date(_) => GROUP_HEADER_LINES,
+            FeedRow::Item(_) => ITEM_LINES,
+        })
+        .sum()
+}
+
+fn item_line(rows: &[FeedRow], event: usize) -> Option<usize> {
+    let mut line = 0usize;
+    for row in rows {
+        match *row {
+            FeedRow::Date(_) => line += GROUP_HEADER_LINES,
+            FeedRow::Item(index) => {
+                if index == event {
+                    return Some(line);
+                }
+                line += ITEM_LINES;
+            }
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+fn activity_line_count(activity: &[RecentActivity]) -> usize {
+    rows_height(&feed_rows(activity))
+}
+
+/// Where the feed starts in the document and how far the page is scrolled.
+#[derive(Debug, Clone, Copy)]
+struct FeedViewport {
+    content: Rect,
+    start: usize,
+    scroll: usize,
+}
+
+fn render_feed(
+    frame: &mut Frame,
+    theme: &Theme,
+    stats: &HomeStats,
+    selected: Option<usize>,
+    rows: &[FeedRow],
+    view: FeedViewport,
+    hits: &mut Vec<ActivityHit>,
+) {
+    let FeedViewport {
+        content,
+        start,
+        scroll,
+    } = view;
+    let viewport_end = scroll.saturating_add(content.height as usize);
+    let today = Local::now().date_naive();
+
+    if rows.is_empty() {
+        if let Some(area) = visible_line(content, scroll, start) {
+            render_muted(frame, area, theme, "No activity yet.");
+        }
+        return;
+    }
+
+    let mut line = start;
+    for row in rows {
+        if line >= viewport_end {
+            break;
+        }
+        match *row {
+            FeedRow::Date(date) => {
+                if let Some(area) = visible_line(content, scroll, line) {
+                    render_group_header(frame, area, theme, date, today);
+                }
+                line += GROUP_HEADER_LINES;
+            }
+            FeedRow::Item(index) => {
+                let event = &stats.recent_activity[index];
+                let is_selected = selected == Some(index);
+                let at = local_datetime(event.timestamp);
+                let when = activity_time(at, today);
+                let body = event_body(event);
+
+                if let Some(area) = visible_line(content, scroll, line) {
+                    render_trigger(
+                        frame,
+                        area,
+                        theme,
+                        event,
+                        &when,
+                        activity_text_width(area.width, &when),
+                        is_selected,
+                    );
+                    hits.push(ActivityHit {
+                        event: index,
+                        area,
+                        copy: None,
+                    });
+                }
+                if let Some(area) = visible_line(content, scroll, line.saturating_add(1)) {
+                    let copy = render_body(frame, area, theme, body, is_selected);
+                    hits.push(ActivityHit {
+                        event: index,
+                        area,
+                        copy,
+                    });
+                }
+                line += ITEM_LINES;
+            }
+        }
+    }
+}
+
+fn visible_line(content: Rect, scroll: usize, line: usize) -> Option<Rect> {
+    let offset = line.checked_sub(scroll)?;
+    (offset < content.height as usize).then(|| Rect {
+        y: content.y.saturating_add(offset as u16),
         height: 1,
+        ..content
     })
 }
 
@@ -489,6 +450,51 @@ fn render_group_header(
     );
 }
 
+/// Pins the date of the group at the viewport's top edge, so the feed
+/// always says which day it is showing while the cards scroll away.
+fn render_sticky_date(frame: &mut Frame, theme: &Theme, rows: &[FeedRow], view: FeedViewport) {
+    let FeedViewport {
+        content,
+        start,
+        scroll,
+    } = view;
+    if scroll <= start {
+        return;
+    }
+    let mut line = start;
+    let mut sticky = None;
+    for row in rows {
+        if line > scroll {
+            break;
+        }
+        match *row {
+            FeedRow::Date(date) => {
+                if line < scroll {
+                    sticky = Some(date);
+                }
+                line += GROUP_HEADER_LINES;
+            }
+            FeedRow::Item(_) => line += ITEM_LINES,
+        }
+    }
+    let Some(date) = sticky else {
+        return;
+    };
+    let area = Rect {
+        y: content.y,
+        height: 1,
+        ..content
+    };
+    // honey: the header floats over the feed, so it clears its own row
+    // first; otherwise the line underneath would show through the gaps.
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Block::default().style(Style::default().bg(theme.background)),
+        area,
+    );
+    render_group_header(frame, area, theme, date, Local::now().date_naive());
+}
+
 /// Today's events read as relative times; older groups carry the clock
 /// time under their date header.
 fn activity_time(at: DateTime<Local>, today: NaiveDate) -> String {
@@ -515,23 +521,29 @@ fn activity_text_width(width: u16, when: &str) -> u16 {
     width.saturating_sub(when_width.saturating_add(1))
 }
 
-fn render_activity_trigger(
+fn render_trigger(
     frame: &mut Frame,
     area: Rect,
     theme: &Theme,
     event: &RecentActivity,
     when: &str,
     text_width: u16,
+    selected: bool,
 ) {
     let trigger_width = text_width as usize;
+    let (keycap_bg, base_bg) = if selected {
+        (theme.keycap.on_surface, theme.surface)
+    } else {
+        (theme.keycap.bg, theme.background)
+    };
 
     let mut spans = if is_hotkey_activity(event) {
         hotkey::render_hotkey_spans(
             &event.trigger,
             trigger_width,
-            theme.keycap.bg,
+            keycap_bg,
             theme.text,
-            theme.background,
+            base_bg,
         )
     } else {
         vec![Span::styled(
@@ -545,23 +557,74 @@ fn render_activity_trigger(
         when.to_string(),
         Style::default().fg(theme.description),
     ));
-    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+
+    let style = if selected {
+        Style::default().bg(theme.surface)
+    } else {
+        Style::default()
+    };
+    frame.render_widget(Paragraph::new(Line::from(spans)).style(style), area);
 }
 
-fn render_activity_detail(frame: &mut Frame, area: Rect, theme: &Theme, detail: &str, width: u16) {
-    if detail.is_empty() || width == 0 {
-        return;
+/// Draws the event's text and its copy button; returns the button's rect.
+fn render_body(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    body: &str,
+    selected: bool,
+) -> Option<Rect> {
+    if body.trim().is_empty() || area.width == 0 {
+        return None;
     }
-    // honey: content can be multi-line; the preview is one flat line.
-    let flat: String = detail
-        .chars()
-        .map(|c| if c.is_control() { ' ' } else { c })
-        .collect();
+    let button_width = cell_width(COPY_LABEL) as u16;
+    let text_width = area.width.saturating_sub(button_width.saturating_add(1));
+    let row_style = if selected {
+        Style::default().bg(theme.surface)
+    } else {
+        Style::default()
+    };
+
+    if text_width > 0 {
+        // honey: content can be multi-line; the preview is one flat line.
+        let flat: String = body
+            .chars()
+            .map(|c| if c.is_control() { ' ' } else { c })
+            .collect();
+        frame.render_widget(
+            Paragraph::new(truncate(flat.trim(), text_width as usize))
+                .style(row_style.fg(theme.description)),
+            Rect {
+                width: text_width,
+                ..area
+            },
+        );
+    }
+
+    let button = Rect {
+        x: area.right().saturating_sub(button_width),
+        width: button_width,
+        ..area
+    };
+    let button_bg = if selected {
+        theme.keycap.on_surface
+    } else {
+        theme.keycap.bg
+    };
     frame.render_widget(
-        Paragraph::new(truncate(flat.trim(), width as usize))
-            .style(Style::default().fg(theme.description)),
-        area,
+        Paragraph::new(COPY_LABEL).style(Style::default().bg(button_bg).fg(theme.text)),
+        button,
     );
+    Some(button)
+}
+
+/// The text an event produced, with the trigger description as the
+/// fallback for events recorded before content capture.
+pub(crate) fn event_body(event: &RecentActivity) -> &str {
+    match event.content.as_deref() {
+        Some(content) if !content.trim().is_empty() => content,
+        _ => &event.detail,
+    }
 }
 
 fn is_hotkey_activity(event: &RecentActivity) -> bool {
@@ -618,8 +681,7 @@ fn truncate(text: &str, width: usize) -> String {
 mod tests {
     use ratatui::{Terminal, backend::TestBackend};
 
-    use taurine_core::db::crud::{StreakInfo, TriggerType};
-    use taurine_core::stats::RecentActivity;
+    use taurine_core::db::crud::StreakInfo;
 
     use super::*;
     use crate::theme::default::DARK_THEME;
@@ -641,21 +703,12 @@ mod tests {
                 category: ActivityCategory::Text,
                 trigger: "gs".to_string(),
                 detail: "Open taurine tui".to_string(),
+                content: Some("tautui --home".to_string()),
                 app: "Windowsterminal".to_string(),
                 word_count: 42,
             }],
-            most_used_words: vec![MostUsedTrigger {
-                display: "gs".to_string(),
-                trigger_type: TriggerType::Word,
-                uses: 124,
-                alias_count: 1,
-            }],
-            most_used_hotkeys: vec![MostUsedTrigger {
-                display: "ralt+m".to_string(),
-                trigger_type: TriggerType::Hotkey,
-                uses: 98,
-                alias_count: 1,
-            }],
+            most_used_words: Vec::new(),
+            most_used_hotkeys: Vec::new(),
             top_apps: Vec::new(),
         });
         state
@@ -694,12 +747,13 @@ mod tests {
             .timestamp_millis()
     }
 
-    fn activity_event(timestamp: i64, trigger: &str, detail: &str) -> RecentActivity {
+    fn activity_event(timestamp: i64, trigger: &str, body: &str) -> RecentActivity {
         RecentActivity {
             timestamp,
             category: ActivityCategory::Text,
             trigger: trigger.to_string(),
-            detail: detail.to_string(),
+            detail: String::new(),
+            content: Some(body.to_string()),
             app: String::new(),
             word_count: 0,
         }
@@ -712,6 +766,14 @@ mod tests {
             ..HomeStats::default()
         });
         state
+    }
+
+    /// Content pane the page draws into, and the first feed line inside it.
+    fn content_area(width: u16, height: u16) -> (Rect, usize) {
+        let content = padded(Rect::new(0, 0, width, height), PANE_PAD_X, 0);
+        let cards = cards_height(content.width);
+        let feed_start = cards as usize + usize::from(cards > 0) * CARDS_GAP_LINES + TITLE_LINES;
+        (content, feed_start)
     }
 
     #[test]
@@ -734,53 +796,7 @@ mod tests {
     }
 
     #[test]
-    fn activity_items_have_a_blank_row_between_them() {
-        let mut state = sample_state();
-        let mut first = state.stats().recent_activity[0].clone();
-        first.detail = "first detail".to_string();
-        let mut second = first.clone();
-        second.trigger = "zz".to_string();
-        second.detail = "second detail".to_string();
-        let mut base = state.stats().clone();
-        base.recent_activity = vec![first, second];
-        state.replace_stats(base);
-
-        let area = Rect::new(0, 0, 120, 40);
-        let split = split_home(area, state.activity_ratio());
-        let backend = TestBackend::new(area.width, area.height);
-        let mut terminal = Terminal::new(backend).expect("test terminal");
-        terminal
-            .draw(|frame| render_home_content(frame, area, &DARK_THEME, &mut state))
-            .expect("test draw");
-        let buffer = terminal.backend().buffer();
-
-        let pane = Rect {
-            x: split.props.x.saturating_add(PANE_PAD_X),
-            y: split.props.y,
-            width: split.props.width.saturating_sub(PANE_PAD_X * 2),
-            height: split.props.height,
-        };
-        let header = pane.y.saturating_add(3);
-        let first_trigger = header.saturating_add(GROUP_HEADER_LINES as u16);
-        let blank = |row: u16| {
-            (pane.x..pane.x.saturating_add(pane.width)).all(|x| buffer[(x, row)].symbol() == " ")
-        };
-        assert!(!blank(header), "date header missing");
-        assert!(blank(header.saturating_add(1)), "header gap missing");
-        assert!(!blank(first_trigger), "first trigger missing");
-        assert!(!blank(first_trigger.saturating_add(1)), "detail missing");
-        assert!(
-            blank(first_trigger.saturating_add(2)),
-            "gap row is not blank"
-        );
-        assert!(
-            !blank(first_trigger.saturating_add(3)),
-            "second trigger missing"
-        );
-    }
-
-    #[test]
-    fn home_renders_cards_activity_and_most_used() {
+    fn home_renders_cards_and_activity_without_most_used() {
         let mut state = sample_state();
         let text = draw(&mut state, 120, 40);
 
@@ -791,23 +807,48 @@ mod tests {
         assert!(text.contains("Recent Activity"));
         assert!(text.contains("Today"));
         assert!(text.contains("gs"));
-        assert!(text.contains("Open taurine tui"), "activity detail missing");
+        assert!(text.contains("tautui --home"), "activity body missing");
         assert!(
-            !text.contains("Windowsterminal"),
-            "recent activity hides the source app"
+            !text.contains("Open taurine tui"),
+            "the stored content wins over the description"
         );
-        assert!(!text.contains("TEXT"), "category replaced by the detail");
+        assert!(!text.contains("Most Used Triggers"), "section removed");
+        assert!(!text.contains("Windowsterminal"), "source app is hidden");
         assert!(!text.contains("42w"), "word count removed from activity");
         assert!(text.contains("2m ago"));
-        assert!(text.contains("Most Used Triggers"));
-        assert!(text.contains("ralt+m"));
-        assert!(text.contains("124"));
         for border in ["┌", "┐", "└", "┘", "─"] {
             assert!(!text.contains(border), "home page draws no borders");
         }
-        assert!(!text.contains("KEY"), "no trigger kind column");
         assert!(!text.contains("█"), "no usage bars");
         assert!(!text.contains("●"), "no carousel dots");
+    }
+
+    #[test]
+    fn activity_items_have_a_blank_row_between_them() {
+        let noon = today_noon_millis();
+        let mut state = state_with_activity(vec![
+            activity_event(noon + 1_000, "aa", "first body"),
+            activity_event(noon, "zz", "second body"),
+        ]);
+
+        let text = draw(&mut state, 120, 40);
+        let (content, feed_start) = content_area(120, 40);
+        let first_trigger = content.y as usize + feed_start + GROUP_HEADER_LINES;
+        let lines: Vec<&str> = text.lines().collect();
+        let blank = |row: usize| lines[row].trim().is_empty();
+
+        assert!(!blank(first_trigger), "first trigger missing");
+        assert!(!lines[first_trigger].contains("first body"));
+        assert!(
+            lines[first_trigger + 1].contains("first body"),
+            "body missing"
+        );
+        assert!(blank(first_trigger + 2), "gap row is not blank");
+        assert!(
+            lines[first_trigger + 3].contains("zz"),
+            "second trigger missing"
+        );
+        assert!(lines[first_trigger + 4].contains("second body"));
     }
 
     #[test]
@@ -832,77 +873,104 @@ mod tests {
     }
 
     #[test]
-    fn activity_detail_truncates_with_an_ellipsis() {
+    fn body_falls_back_to_the_description_when_content_is_missing() {
+        let mut event = activity_event(today_noon_millis(), "gs", "");
+        event.content = None;
+        event.detail = "Open taurine tui".to_string();
+        let mut state = state_with_activity(vec![event]);
+        let text = draw(&mut state, 120, 40);
+
+        assert!(text.contains("Open taurine tui"));
+    }
+
+    #[test]
+    fn activity_body_truncates_with_an_ellipsis() {
         let mut state = state_with_activity(vec![activity_event(
             today_noon_millis(),
             "gs",
-            &"a long description that will not fit in the narrow activity pane ".repeat(4),
+            &"a long description that will not fit in the pane ".repeat(8),
         )]);
         let text = draw(&mut state, 80, 30);
 
-        assert!(text.contains('…'), "long detail is truncated");
+        assert!(text.contains('…'), "long body is truncated");
     }
 
     #[test]
-    fn detail_width_follows_the_time_column() {
-        assert_eq!(activity_text_width(30, "2m ago"), 23);
-        assert_eq!(activity_text_width(30, "11:30 AM"), 21);
-        assert_eq!(activity_text_width(3, "2m ago"), 0);
-    }
-
-    #[test]
-    fn truncate_counts_terminal_cells_not_chars() {
-        assert_eq!(truncate("日本語テキスト", 5), "日本…");
-        assert_eq!(truncate("abc", 3), "abc");
-        assert_eq!(truncate("abc", 0), "");
-    }
-
-    /// Renders one event and hands back the activity pane buffer.
-    fn render_detail(detail: &str) -> (ratatui::buffer::Buffer, Rect, u16, u16) {
-        let noon = today_noon_millis();
-        let mut state = state_with_activity(vec![activity_event(noon, "gs", detail)]);
+    fn body_stops_before_the_copy_button() {
+        let mut state = state_with_activity(vec![activity_event(
+            today_noon_millis(),
+            "gs",
+            &"a long description ".repeat(40),
+        )]);
         let area = Rect::new(0, 0, 120, 40);
-        let split = split_home(area, state.activity_ratio());
         let backend = TestBackend::new(area.width, area.height);
         let mut terminal = Terminal::new(backend).expect("test terminal");
         terminal
             .draw(|frame| render_home_content(frame, area, &DARK_THEME, &mut state))
             .expect("test draw");
-        let buffer = terminal.backend().buffer().clone();
+        let buffer = terminal.backend().buffer();
 
-        let rows = activity_rows(split.props);
-        let detail_row = rows
-            .y
-            .saturating_add(GROUP_HEADER_LINES as u16)
-            .saturating_add(1);
-        let when = activity_time(local_datetime(noon), Local::now().date_naive());
-        let text_width = activity_text_width(rows.width, &when);
-        (buffer, rows, detail_row, text_width)
+        let (content, feed_start) = content_area(area.width, area.height);
+        let body_row = content.y + (feed_start + GROUP_HEADER_LINES + 1) as u16;
+        let button_x = content.right() - cell_width(COPY_LABEL) as u16;
+
+        let line: String = (content.x..button_x)
+            .map(|x| buffer[(x, body_row)].symbol())
+            .collect();
+        assert!(line.trim_end().ends_with('…'), "body truncated: {line}");
+        let button: String = (button_x..content.right())
+            .map(|x| buffer[(x, body_row)].symbol())
+            .collect();
+        assert_eq!(button, COPY_LABEL, "copy button keeps its column");
     }
 
-    fn assert_detail_stops_before_the_time_column(detail: &str) {
-        let (buffer, rows, detail_row, text_width) = render_detail(detail);
-        assert!(text_width > 0);
+    #[test]
+    fn wide_body_stays_left_of_the_copy_button() {
+        let mut state = state_with_activity(vec![activity_event(
+            today_noon_millis(),
+            "gs",
+            &"描述文字内容".repeat(30),
+        )]);
+        let area = Rect::new(0, 0, 120, 40);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal
+            .draw(|frame| render_home_content(frame, area, &DARK_THEME, &mut state))
+            .expect("test draw");
+        let buffer = terminal.backend().buffer();
 
-        let line: String = (rows.x..rows.right())
-            .map(|x| buffer[(x, detail_row)].symbol())
+        let (content, feed_start) = content_area(area.width, area.height);
+        let body_row = content.y + (feed_start + GROUP_HEADER_LINES + 1) as u16;
+        let button_x = content.right() - cell_width(COPY_LABEL) as u16;
+        let button: String = (button_x..content.right())
+            .map(|x| buffer[(x, body_row)].symbol())
             .collect();
-        assert!(line.trim_end().ends_with('…'), "detail truncated: {line}");
+        assert_eq!(button, COPY_LABEL);
         assert!(
-            (rows.x.saturating_add(text_width)..rows.right())
-                .all(|x| buffer[(x, detail_row)].symbol() == " "),
-            "detail runs under the time column: {line}"
+            (content.x..button_x).any(|x| buffer[(x, body_row)].symbol() == "…"),
+            "wide body is truncated before the button"
         );
     }
 
     #[test]
-    fn activity_detail_stops_before_the_time_column() {
-        assert_detail_stops_before_the_time_column(&"a long description ".repeat(20));
-    }
+    fn copy_button_hit_test_selects_the_event() {
+        let mut state = state_with_activity(vec![activity_event(
+            today_noon_millis(),
+            "gs",
+            "tautui --home",
+        )]);
+        let _ = draw(&mut state, 120, 40);
+        let (content, feed_start) = content_area(120, 40);
+        let body_row = content.y + (feed_start + GROUP_HEADER_LINES + 1) as u16;
+        let button_x = content.right() - cell_width(COPY_LABEL) as u16;
 
-    #[test]
-    fn wide_detail_stops_before_the_time_column() {
-        assert_detail_stops_before_the_time_column(&"描述文字内容".repeat(20));
+        assert_eq!(state.copy_at(button_x + 1, body_row), Some(0));
+        assert_eq!(
+            state.event_at(button_x + 1, body_row),
+            Some(0),
+            "the button row still selects its event"
+        );
+        assert_eq!(state.copy_at(content.x + 1, body_row), None);
     }
 
     #[test]
@@ -919,43 +987,7 @@ mod tests {
     }
 
     #[test]
-    fn activity_feed_scrolls_to_the_end() {
-        let noon = today_noon_millis();
-        let activity = (0..40)
-            .map(|index| {
-                activity_event(
-                    noon + index as i64 * 1_000,
-                    &format!("t{index}"),
-                    &format!("detail {index}"),
-                )
-            })
-            .collect();
-        let mut state = state_with_activity(activity);
-
-        let first_page = draw(&mut state, 120, 40);
-        assert!(first_page.contains("t0"));
-        assert!(!first_page.contains("t39"), "oldest event starts offscreen");
-
-        state.scroll_activity_to_end();
-        let last_page = draw(&mut state, 120, 40);
-        assert!(last_page.contains("t39"), "end reaches the first usage");
-        assert!(!last_page.contains("t0 "), "newest event scrolled away");
-        let rows =
-            activity_rows(split_home(Rect::new(0, 0, 120, 40), state.activity_ratio()).props);
-        let expected = GROUP_HEADER_LINES + 40 * ITEM_LINES - rows.height as usize;
-        assert_eq!(
-            state.activity_scroll(),
-            expected,
-            "scroll clamps to the last page"
-        );
-
-        state.scroll_activity_to_start();
-        let first_page = draw(&mut state, 120, 40);
-        assert!(first_page.contains("t0"));
-    }
-
-    #[test]
-    fn activity_line_count_includes_group_headers() {
+    fn cards_scroll_up_and_the_date_stays_pinned() {
         use chrono::{Local, TimeZone};
 
         let old = Local
@@ -964,16 +996,104 @@ mod tests {
             .expect("local time")
             .timestamp_millis();
         let noon = today_noon_millis();
-        let activity = vec![
-            activity_event(noon + 1_000, "b", "detail"),
-            activity_event(noon, "a", "detail"),
-            activity_event(old, "c", "detail"),
-        ];
+        let mut activity: Vec<RecentActivity> = (0..30)
+            .map(|index| {
+                activity_event(
+                    noon + index as i64 * 1_000,
+                    &format!("t{index}"),
+                    &format!("today body {index}"),
+                )
+            })
+            .collect();
+        activity.extend((0..10).map(|index| {
+            activity_event(
+                old + index as i64 * 1_000,
+                &format!("o{index}"),
+                &format!("old body {index}"),
+            )
+        }));
+        let mut state = state_with_activity(activity);
 
-        assert_eq!(
-            activity_line_count(&activity),
-            (GROUP_HEADER_LINES + 2 * ITEM_LINES) + (GROUP_HEADER_LINES + ITEM_LINES)
+        let first = draw(&mut state, 100, 30);
+        assert!(first.contains("TIME SAVED"), "cards start at the top");
+        assert!(!first.contains("old body"), "older day starts offscreen");
+
+        state.select(20);
+        let middle = draw(&mut state, 100, 30);
+        assert!(!middle.contains("TIME SAVED"), "cards scrolled away");
+        assert!(
+            middle
+                .lines()
+                .next()
+                .is_some_and(|line| line.trim() == "Today"),
+            "today's header pins while its group is on screen: {:?}",
+            middle.lines().next()
         );
+
+        state.select_last();
+        let last = draw(&mut state, 100, 30);
+        assert!(
+            last.lines()
+                .next()
+                .is_some_and(|line| line.trim() == "October 20 2024"),
+            "the next day's header takes over at the top: {:?}",
+            last.lines().next()
+        );
+        assert!(last.contains("old body 9"), "oldest event reachable");
+        assert!(last.contains("copy"), "copy button drawn");
+    }
+
+    #[test]
+    fn selecting_past_the_viewport_scrolls_the_page() {
+        let noon = today_noon_millis();
+        let activity = (0..40)
+            .map(|index| {
+                activity_event(
+                    noon + index as i64 * 1_000,
+                    &format!("t{index}"),
+                    &format!("body {index}"),
+                )
+            })
+            .collect();
+        let mut state = state_with_activity(activity);
+
+        let first_page = draw(&mut state, 120, 30);
+        assert!(first_page.contains("t0"));
+        assert!(!first_page.contains("t39"), "oldest event starts offscreen");
+        assert_eq!(state.scroll(), 0);
+
+        state.select_last();
+        let last_page = draw(&mut state, 120, 30);
+        assert!(last_page.contains("t39"), "end reaches the oldest event");
+        assert!(!last_page.contains("t0 "), "newest event scrolled away");
+
+        let (_, feed_start) = content_area(120, 30);
+        let total = feed_start + activity_line_count(&state.stats().recent_activity);
+        let viewport = padded(Rect::new(0, 0, 120, 30), PANE_PAD_X, 0).height as usize;
+        assert_eq!(
+            state.scroll(),
+            total.saturating_sub(viewport),
+            "scroll clamps to the last page"
+        );
+
+        state.select_first();
+        let first_page = draw(&mut state, 120, 30);
+        assert!(first_page.contains("t0"));
+        assert!(first_page.contains("TIME SAVED"), "cards scroll back in");
+    }
+
+    #[test]
+    fn truncate_counts_terminal_cells_not_chars() {
+        assert_eq!(truncate("日本語テキスト", 5), "日本…");
+        assert_eq!(truncate("abc", 3), "abc");
+        assert_eq!(truncate("abc", 0), "");
+    }
+
+    #[test]
+    fn detail_width_follows_the_time_column() {
+        assert_eq!(activity_text_width(30, "2m ago"), 23);
+        assert_eq!(activity_text_width(30, "11:30 AM"), 21);
+        assert_eq!(activity_text_width(3, "2m ago"), 0);
     }
 
     #[test]
@@ -1009,43 +1129,11 @@ mod tests {
     }
 
     #[test]
-    fn home_uses_the_shared_two_pane_split() {
-        let area = Rect::new(0, 0, 120, 40);
-        let split = split_home(area, state::DEFAULT_ACTIVITY_RATIO);
-
-        assert!(split.center.width >= 28);
-        assert!(split.props.width >= 24);
-        assert_eq!(
-            split.props_divider,
-            Some(split.center.x.saturating_add(split.center.width))
-        );
-        assert_eq!(visible_divider_columns(area, 0.3).len(), 1);
-        assert_eq!(
-            divider_hit(
-                area,
-                0.3,
-                split.props_divider.expect("activity divider"),
-                area.y.saturating_add(1),
-            ),
-            Some(DividerSide::Props)
-        );
-    }
-
-    #[test]
-    fn narrow_terminals_keep_the_content_pane() {
-        let text = draw(&mut sample_state(), 60, 24);
-
-        assert!(text.contains("TIME SAVED"));
-        assert!(text.contains("Most Used Triggers"));
-        assert!(text.contains("Recent"));
-    }
-
-    #[test]
     fn empty_stats_show_quiet_empty_states() {
         let text = draw(&mut HomePageState::default(), 120, 40);
 
         assert!(text.contains("No activity yet."));
-        assert!(text.contains("No usage yet."));
+        assert!(!text.contains("No usage yet."), "most used section removed");
         assert!(text.contains("0s"));
     }
 }

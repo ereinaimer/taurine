@@ -1,42 +1,30 @@
+use ratatui::layout::Rect;
 use taurine_core::stats::HomeStats;
 
-use crate::widgets::panes::{DividerPointer, DividerSide};
-
-/// Stat cards rendered above the most-used list.
+/// Stat cards rendered above the activity feed.
 pub(crate) const STAT_CARD_COUNT: usize = 4;
-
-/// Activity pane's default share of the content remainder.
-pub(crate) const DEFAULT_ACTIVITY_RATIO: f32 = 0.3;
-pub(crate) const MIN_ACTIVITY_RATIO: f32 = 0.0;
-pub(crate) const MAX_ACTIVITY_RATIO: f32 = 2.0;
 
 const REFRESH_INTERVAL_MS: u64 = 10_000;
 
-#[derive(Debug)]
+/// One drawn activity line, recorded so the pointer can hit it. `copy` is
+/// set only on the body line, which carries the copy button.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ActivityHit {
+    pub(crate) event: usize,
+    pub(crate) area: Rect,
+    pub(crate) copy: Option<Rect>,
+}
+
+#[derive(Debug, Default)]
 pub(crate) struct HomePageState {
     stats: HomeStats,
     load_error: Option<String>,
-    activity_ratio: f32,
-    activity_scroll: usize,
-    activity_page: usize,
-    dividers: DividerPointer,
+    selected: Option<usize>,
+    scroll: usize,
+    page: usize,
+    hits: Vec<ActivityHit>,
     last_refresh_ms: u64,
     refresh_requested: bool,
-}
-
-impl Default for HomePageState {
-    fn default() -> Self {
-        Self {
-            stats: HomeStats::default(),
-            load_error: None,
-            activity_ratio: DEFAULT_ACTIVITY_RATIO,
-            activity_scroll: 0,
-            activity_page: 0,
-            dividers: DividerPointer::default(),
-            last_refresh_ms: 0,
-            refresh_requested: false,
-        }
-    }
 }
 
 impl HomePageState {
@@ -51,93 +39,97 @@ impl HomePageState {
     pub(crate) fn replace_stats(&mut self, stats: HomeStats) {
         self.stats = stats;
         self.load_error = None;
+        self.selected = self.clamp_selection(self.selected.unwrap_or(0));
     }
 
     pub(crate) fn set_load_error(&mut self, error: String) {
         self.load_error = Some(error);
     }
 
-    pub(crate) fn activity_ratio(&self) -> f32 {
-        self.activity_ratio
-            .clamp(MIN_ACTIVITY_RATIO, MAX_ACTIVITY_RATIO)
+    pub(crate) const fn selected(&self) -> Option<usize> {
+        self.selected
     }
 
-    pub(crate) fn set_activity_ratio(&mut self, ratio: f32) {
-        self.activity_ratio = ratio.clamp(MIN_ACTIVITY_RATIO, MAX_ACTIVITY_RATIO);
+    fn clamp_selection(&self, index: usize) -> Option<usize> {
+        let len = self.stats.recent_activity.len();
+        (len > 0).then(|| index.min(len - 1))
     }
 
-    pub(crate) const fn activity_scroll(&self) -> usize {
-        self.activity_scroll
+    pub(crate) fn select(&mut self, index: usize) {
+        self.selected = self.clamp_selection(index);
     }
 
-    /// Viewport height recorded by the last render, used as the
-    /// PageUp/PageDown step.
-    pub(crate) const fn activity_page(&self) -> usize {
-        self.activity_page
-    }
-
-    pub(crate) const fn set_activity_page(&mut self, page: usize) {
-        self.activity_page = page;
-    }
-
-    pub(crate) fn scroll_activity(&mut self, delta: isize) {
-        self.activity_scroll = if delta >= 0 {
-            self.activity_scroll.saturating_add(delta as usize)
-        } else {
-            self.activity_scroll.saturating_sub(delta.unsigned_abs())
+    /// Moves the cursor between events; the render keeps it in view.
+    pub(crate) fn move_selection(&mut self, delta: isize) {
+        let Some(current) = self.selected else {
+            self.selected = self.clamp_selection(0);
+            return;
         };
-    }
-
-    pub(crate) fn scroll_activity_to_start(&mut self) {
-        self.activity_scroll = 0;
-    }
-
-    pub(crate) fn scroll_activity_to_end(&mut self) {
-        self.activity_scroll = usize::MAX;
-    }
-
-    /// Render clamps the offset to the last full page so overscroll
-    /// never strands the view past the end.
-    pub(crate) fn clamp_activity_scroll(&mut self, max: usize) {
-        self.activity_scroll = self.activity_scroll.min(max);
-    }
-
-    pub(crate) const fn dividers(&self) -> &DividerPointer {
-        &self.dividers
-    }
-
-    pub(crate) const fn divider_drag(&self) -> Option<DividerSide> {
-        self.dividers.drag()
-    }
-
-    pub(crate) fn set_divider_hover(&mut self, hover: Option<DividerSide>) {
-        self.dividers.set_hover(hover);
-    }
-
-    pub(crate) fn set_divider_drag(&mut self, drag: Option<DividerSide>) {
-        self.dividers.set_drag(drag);
-    }
-
-    /// Second click on the divider toggles the activity pane: a pane at
-    /// its default width collapses, a collapsed pane restores the
-    /// default, and any custom width resets to default. Returns true
-    /// when the width changed.
-    pub(crate) fn divider_double_click_at(&mut self, side: DividerSide, now: u64) -> bool {
-        if !self.dividers.double_click_at(side, now) {
-            return false;
-        }
-        // honey: drag math rarely lands exactly on a constant, so
-        // near-enough counts for both ends of the toggle.
-        const NEAR: f32 = 0.0001;
-        let ratio = self.activity_ratio();
-        if ratio <= MIN_ACTIVITY_RATIO + NEAR {
-            self.set_activity_ratio(DEFAULT_ACTIVITY_RATIO);
-        } else if (ratio - DEFAULT_ACTIVITY_RATIO).abs() <= NEAR {
-            self.set_activity_ratio(MIN_ACTIVITY_RATIO);
+        let next = if delta >= 0 {
+            current.saturating_add(delta as usize)
         } else {
-            self.set_activity_ratio(DEFAULT_ACTIVITY_RATIO);
+            current.saturating_sub(delta.unsigned_abs())
+        };
+        self.selected = self.clamp_selection(next);
+    }
+
+    /// PageUp/PageDown step, using the viewport height the last frame drew.
+    pub(crate) fn page_selection(&mut self, delta: isize) {
+        let page = self.page.max(1) as isize;
+        self.move_selection(delta.saturating_mul(page));
+    }
+
+    pub(crate) fn select_first(&mut self) {
+        self.selected = self.clamp_selection(0);
+    }
+
+    pub(crate) fn select_last(&mut self) {
+        let len = self.stats.recent_activity.len();
+        self.selected = len.checked_sub(1);
+    }
+
+    pub(crate) const fn scroll(&self) -> usize {
+        self.scroll
+    }
+
+    /// Viewport height recorded by the last render, used as the page step.
+    pub(crate) const fn set_page(&mut self, page: usize) {
+        self.page = page;
+    }
+
+    pub(crate) const fn set_scroll(&mut self, scroll: usize) {
+        self.scroll = scroll;
+    }
+
+    /// Scrolls the document just enough to show `start..end`, then clamps
+    /// to the last full page so the cards can scroll fully out of view.
+    pub(crate) fn reveal(&mut self, start: usize, end: usize, viewport: usize, max: usize) {
+        if start < self.scroll {
+            self.scroll = start;
+        } else if end > self.scroll.saturating_add(viewport) {
+            self.scroll = end.saturating_sub(viewport);
         }
-        true
+        self.scroll = self.scroll.min(max);
+    }
+
+    pub(crate) fn set_hits(&mut self, hits: Vec<ActivityHit>) {
+        self.hits = hits;
+    }
+
+    /// Event under the pointer, if any drawn line covers it.
+    pub(crate) fn event_at(&self, column: u16, row: u16) -> Option<usize> {
+        self.hits
+            .iter()
+            .find(|hit| contains(hit.area, column, row))
+            .map(|hit| hit.event)
+    }
+
+    /// Event whose copy button covers the pointer.
+    pub(crate) fn copy_at(&self, column: u16, row: u16) -> Option<usize> {
+        self.hits.iter().find_map(|hit| {
+            let button = hit.copy?;
+            contains(button, column, row).then_some(hit.event)
+        })
     }
 
     pub(crate) fn refresh_due(&self, now_ms: u64) -> bool {
@@ -153,6 +145,10 @@ impl HomePageState {
     pub(crate) fn on_show(&mut self) {
         self.refresh_requested = true;
     }
+}
+
+fn contains(area: Rect, column: u16, row: u16) -> bool {
+    column >= area.x && column < area.right() && row >= area.y && row < area.bottom()
 }
 
 /// Compact counts for the stat cards: grouped below ten thousand,
@@ -215,7 +211,28 @@ pub(crate) fn format_time_saved(ms: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::widgets::panes::DIVIDER_DOUBLE_CLICK_MS;
+    use taurine_core::stats::RecentActivity;
+
+    fn event(trigger: &str) -> RecentActivity {
+        RecentActivity {
+            timestamp: 0,
+            category: taurine_core::db::crud::ActivityCategory::Text,
+            trigger: trigger.to_string(),
+            detail: String::new(),
+            content: None,
+            app: String::new(),
+            word_count: 0,
+        }
+    }
+
+    fn state_with(len: usize) -> HomePageState {
+        let mut state = HomePageState::default();
+        state.replace_stats(HomeStats {
+            recent_activity: (0..len).map(|i| event(&format!("t{i}"))).collect(),
+            ..HomeStats::default()
+        });
+        state
+    }
 
     #[test]
     fn refresh_is_due_after_the_interval() {
@@ -234,38 +251,97 @@ mod tests {
     }
 
     #[test]
-    fn activity_ratio_clamps_to_its_range() {
-        let mut state = HomePageState::default();
-        assert_eq!(state.activity_ratio(), DEFAULT_ACTIVITY_RATIO);
+    fn selection_starts_on_the_newest_event_and_clamps() {
+        let mut state = state_with(3);
+        assert_eq!(state.selected(), Some(0));
 
-        state.set_activity_ratio(-1.0);
-        assert_eq!(state.activity_ratio(), MIN_ACTIVITY_RATIO);
+        state.move_selection(-1);
+        assert_eq!(state.selected(), Some(0), "top of the feed stops");
 
-        state.set_activity_ratio(9.0);
-        assert_eq!(state.activity_ratio(), MAX_ACTIVITY_RATIO);
+        state.move_selection(10);
+        assert_eq!(state.selected(), Some(2), "bottom of the feed stops");
+
+        state.select_last();
+        assert_eq!(state.selected(), Some(2));
+        state.select_first();
+        assert_eq!(state.selected(), Some(0));
     }
 
     #[test]
-    fn divider_double_click_toggles_default_and_collapsed() {
+    fn page_selection_steps_by_the_viewport() {
+        let mut state = state_with(50);
+        state.set_page(10);
+
+        state.page_selection(1);
+        assert_eq!(state.selected(), Some(10));
+        state.page_selection(-1);
+        assert_eq!(state.selected(), Some(0));
+    }
+
+    #[test]
+    fn empty_activity_has_no_selection() {
+        let mut state = state_with(0);
+        assert_eq!(state.selected(), None);
+
+        state.move_selection(1);
+        assert_eq!(state.selected(), None);
+        state.select_last();
+        assert_eq!(state.selected(), None);
+    }
+
+    #[test]
+    fn shrinking_the_feed_keeps_the_selection_in_range() {
+        let mut state = state_with(10);
+        state.select_last();
+        assert_eq!(state.selected(), Some(9));
+
+        state.replace_stats(HomeStats {
+            recent_activity: vec![event("only")],
+            ..HomeStats::default()
+        });
+        assert_eq!(state.selected(), Some(0));
+    }
+
+    #[test]
+    fn reveal_scrolls_only_when_the_selection_leaves_the_viewport() {
         let mut state = HomePageState::default();
-        let side = DividerSide::Props;
 
-        assert!(!state.divider_double_click_at(side, 1_000));
-        assert!(state.divider_double_click_at(side, 1_100));
-        assert_eq!(state.activity_ratio(), MIN_ACTIVITY_RATIO);
+        state.reveal(5, 8, 10, 100);
+        assert_eq!(state.scroll(), 0, "already visible");
 
-        assert!(!state.divider_double_click_at(side, 2_000));
-        assert!(state.divider_double_click_at(side, 2_100));
-        assert_eq!(state.activity_ratio(), DEFAULT_ACTIVITY_RATIO);
+        state.reveal(20, 23, 10, 100);
+        assert_eq!(state.scroll(), 13, "selection at the bottom edge");
 
-        state.set_activity_ratio(0.9);
-        assert!(!state.divider_double_click_at(side, 3_000));
-        assert!(state.divider_double_click_at(side, 3_000 + DIVIDER_DOUBLE_CLICK_MS));
-        assert_eq!(
-            state.activity_ratio(),
-            DEFAULT_ACTIVITY_RATIO,
-            "a custom width resets to default"
-        );
+        state.reveal(2, 5, 10, 100);
+        assert_eq!(state.scroll(), 2, "selection at the top edge");
+
+        state.reveal(90, 93, 10, 40);
+        assert_eq!(state.scroll(), 40, "never past the last page");
+    }
+
+    #[test]
+    fn hit_testing_finds_rows_and_copy_buttons() {
+        let mut state = HomePageState::default();
+        let row = Rect::new(0, 10, 80, 1);
+        let button = Rect::new(70, 11, 6, 1);
+        state.set_hits(vec![
+            ActivityHit {
+                event: 3,
+                area: row,
+                copy: None,
+            },
+            ActivityHit {
+                event: 3,
+                area: Rect::new(0, 11, 80, 1),
+                copy: Some(button),
+            },
+        ]);
+
+        assert_eq!(state.event_at(4, 10), Some(3));
+        assert_eq!(state.event_at(4, 11), Some(3));
+        assert_eq!(state.event_at(4, 12), None);
+        assert_eq!(state.copy_at(72, 11), Some(3));
+        assert_eq!(state.copy_at(4, 11), None, "body text is not the button");
     }
 
     #[test]

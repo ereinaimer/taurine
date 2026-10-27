@@ -31,6 +31,10 @@ pub struct RecentActivity {
     /// Trigger description, falling back to the expanded output when the
     /// trigger has no description. Empty for entries with no trigger.
     pub detail: String,
+    /// The text the event actually produced: dictation transcript,
+    /// rendered expansion, or AI output. Null for silent scripts and
+    /// events recorded before content capture.
+    pub content: Option<String>,
     pub app: String,
     pub word_count: u64,
 }
@@ -102,7 +106,8 @@ fn load_recent_activity(conn: &Connection) -> crate::Result<Vec<RecentActivity>>
                   LIMIT 1),
                 t.description,
                 t.output,
-                s.compressed_content
+                s.compressed_content,
+                a.content
          FROM activity_events a
          LEFT JOIN triggers t ON t.id = a.trigger_id
          LEFT JOIN scripts s ON s.trigger_id = a.trigger_id
@@ -119,12 +124,14 @@ fn load_recent_activity(conn: &Connection) -> crate::Result<Vec<RecentActivity>>
         let description: Option<String> = row.get(5)?;
         let output: Option<String> = row.get(6)?;
         let compressed: Option<Vec<u8>> = row.get(7)?;
+        let content: Option<String> = row.get(8)?;
 
         Ok(RecentActivity {
             timestamp: row.get(0)?,
             category,
             trigger: alias.unwrap_or_else(|| activity_fallback_label(category).to_string()),
             detail: activity_detail(description, output, compressed),
+            content,
             app: if app_key.is_empty() {
                 String::new()
             } else {
@@ -501,6 +508,34 @@ mod tests {
         assert_eq!(event.trigger, "deploy");
         assert_eq!(event.detail, "Write-Host 'deploy now'");
         assert!(!event.detail.contains("[Script:"));
+    }
+
+    #[test]
+    fn recent_activity_exposes_the_stored_content() {
+        init_tracing_for_tests();
+        let (_dir, conn) = open_test_db();
+
+        insert_activity_event(
+            &conn,
+            &NewActivityEvent {
+                id: None,
+                trigger_id: None,
+                timestamp: Some(1_700_000_000_000),
+                date: Some("2026-04-01".to_string()),
+                category: ActivityCategory::Voice,
+                app_key: Some(String::new()),
+                word_count: 4,
+                time_saved_ms: 0,
+                content: Some("remind me to call mom".to_string()),
+            },
+        )
+        .unwrap();
+
+        let stats = load_home_stats(&conn).unwrap();
+
+        let event = &stats.recent_activity[0];
+        assert_eq!(event.trigger, "Dictation");
+        assert_eq!(event.content.as_deref(), Some("remind me to call mom"));
     }
 
     #[test]
