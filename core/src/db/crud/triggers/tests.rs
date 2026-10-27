@@ -1444,6 +1444,7 @@ fn test_record_expansion_usage_updates_trigger_and_stats() {
             wpm: None,
             app: None,
             words_count: None,
+            content: None,
         },
     )
     .unwrap();

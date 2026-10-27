@@ -340,10 +340,10 @@ fn test_voice_trigger_database_crud_lifecycle() {
     assert_eq!(updated.usage_count, 1);
 
     // 6. Record trigger usage log
-    record_voice_trigger_usage("take screenshot", 19, Some("foot".to_string()));
+    record_voice_trigger_usage("take screenshot", 19, Some("foot".to_string()), None);
 
     // 7. Record voice dictation log
-    record_voice_dictation_usage(42, 210, Some("code".to_string()));
+    record_voice_dictation_usage(42, 210, Some("code".to_string()), None);
 
     // 8. Delete the last alias tombstones the parent entry
     let deleted =

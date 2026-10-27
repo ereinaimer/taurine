@@ -182,18 +182,50 @@ pub(crate) fn dispatch_expansion_with<I, L>(
         delete_count,
         step_count, has_follow_up, track_usage, "Starting expansion dispatch"
     );
-    let words_count = {
+    let is_silent_script = steps.iter().any(|s| match s {
+        taurine_core::engine::variables::ExpansionStep::Script(m)
+        | taurine_core::engine::variables::ExpansionStep::InlineRun(m, _) => {
+            m.behavior == taurine_core::engine::shell::ScriptBehavior::Silent
+        }
+        _ => false,
+    });
+    let (content, words_count) = if is_silent_script {
+        (None, Some(0))
+    } else {
         let mut text_buf = String::new();
         for s in &steps {
             if let taurine_core::engine::variables::ExpansionStep::Text(t) = s {
                 text_buf.push_str(t);
-                text_buf.push(' ');
             }
         }
-        if text_buf.trim().is_empty() {
-            None
+        if text_buf.is_empty() {
+            let script_content: Option<String> = steps.iter().find_map(|s| match s {
+                taurine_core::engine::variables::ExpansionStep::Script(m)
+                | taurine_core::engine::variables::ExpansionStep::InlineRun(m, _)
+                    if m.behavior == taurine_core::engine::shell::ScriptBehavior::Inline =>
+                {
+                    taurine_core::engine::shell::decompress(&m.compressed_content).ok()
+                }
+                _ => None,
+            });
+            match script_content {
+                Some(sc) => {
+                    let wc = if sc.trim().is_empty() {
+                        None
+                    } else {
+                        Some(taurine_core::stats::count_words(&sc))
+                    };
+                    (Some(sc), wc)
+                }
+                None => (None, None),
+            }
         } else {
-            Some(taurine_core::stats::count_words(&text_buf))
+            let wc = if text_buf.trim().is_empty() {
+                None
+            } else {
+                Some(taurine_core::stats::count_words(&text_buf))
+            };
+            (Some(text_buf), wc)
         }
     };
     let injection = inject_expansion(steps, delete_count, spinner_style);
@@ -220,7 +252,11 @@ pub(crate) fn dispatch_expansion_with<I, L>(
             trigger: Some(trigger.clone()),
             trigger_chars: trigger.chars().count(),
             success: injection.completed,
-            output_chars: injection.successful_chars,
+            output_chars: if is_silent_script {
+                0
+            } else {
+                injection.successful_chars
+            },
             kind: if is_calculation {
                 taurine_core::db::crud::TriggerStatKind::Calculation
             } else {
@@ -229,6 +265,7 @@ pub(crate) fn dispatch_expansion_with<I, L>(
             wpm: None,
             app,
             words_count,
+            content,
         });
     }
 }

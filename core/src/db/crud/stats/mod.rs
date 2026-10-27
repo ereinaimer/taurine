@@ -13,7 +13,8 @@ use crate::stats::TriggerStatKind;
 
 pub use activity_events::{
     ActivityCategory, ActivityEventRow, NewActivityEvent, get_activity_events,
-    get_unsynced_activity_events, insert_activity_event, mark_activity_events_synced,
+    get_recent_activity_events, get_unsynced_activity_events, insert_activity_event,
+    mark_activity_events_synced, prune_expired_activity_events,
 };
 pub use app_stats::{
     AppStatRow, AppStatsSortBy, TopAppStat, format_app_display_name, get_top_app_stats_with_conn,
@@ -57,6 +58,7 @@ pub fn record_calculation_usage(output_len: usize, delete_count: usize, left_arr
         wpm: None,
         app: None,
         words_count: None,
+        content: None,
     });
 }
 
@@ -247,6 +249,7 @@ mod tests {
                 wpm: Some(60),
                 app: None,
                 words_count: Some(2),
+                content: None,
             },
         )
         .unwrap();
@@ -291,6 +294,7 @@ mod tests {
                 wpm: Some(60),
                 app: None,
                 words_count: Some(20),
+                content: None,
             },
         )
         .unwrap();
@@ -327,6 +331,7 @@ mod tests {
                 wpm: Some(60),
                 app: None,
                 words_count: Some(30),
+                content: None,
             },
         )
         .unwrap();
@@ -344,6 +349,7 @@ mod tests {
                 wpm: Some(60),
                 app: None,
                 words_count: Some(0),
+                content: None,
             },
         )
         .unwrap();
@@ -374,6 +380,7 @@ mod tests {
                 wpm: Some(60),
                 app: Some("google-chrome.exe".to_string()),
                 words_count: Some(10),
+                content: None,
             },
         )
         .unwrap();
@@ -404,6 +411,7 @@ mod tests {
                 wpm: Some(60),
                 app: None,
                 words_count: Some(10),
+                content: None,
             },
         )
         .unwrap();
@@ -421,6 +429,7 @@ mod tests {
                 wpm: Some(60),
                 app: None,
                 words_count: Some(25),
+                content: None,
             },
         )
         .unwrap();

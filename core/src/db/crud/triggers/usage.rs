@@ -29,5 +29,6 @@ pub fn record_expansion_usage(
         wpm: None,
         app: None,
         words_count: None,
+        content: None,
     });
 }

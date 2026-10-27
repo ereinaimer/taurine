@@ -58,6 +58,8 @@ fn init_database(db_path: &Path) -> Result<Connection> {
     schema::ensure_schema(&conn)?;
     seed::ensure_defaults(&conn)?;
 
+    let _ = crate::db::crud::stats::prune_expired_activity_events(&conn, 30);
+
     // Skip the rescan only when this exact file already passed it in this
     // process. Boot always checks because the record starts empty, and any
     // size or timestamp change rechecks. Failures are never recorded.

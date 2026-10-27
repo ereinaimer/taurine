@@ -634,6 +634,124 @@ fn test_dispatch_expansion_skips_ai_stats() {
 
     // Cleanup env
     let _ = std::fs::remove_dir_all(&test_dir);
+    // SAFETY: Restoring environment variable after test.
+    unsafe {
+        std::env::remove_var("TAURINE_DATA_DIR");
+    }
+}
+
+#[test]
+fn test_dispatch_expansion_captures_content_and_silent_scripts() {
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    mock_keystore::use_mock_keystore();
+    taurine_core::logs::init_tracing_for_tests();
+    let test_dir = std::env::temp_dir().join(format!(
+        "taurine_dispatch_content_test_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    // SAFETY: Setting environment variables for test DB isolation.
+    unsafe {
+        std::env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap());
+    }
+    let _ = std::fs::remove_dir_all(&test_dir);
+    std::fs::create_dir_all(&test_dir).unwrap();
+
+    let _rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime should build");
+    let state = Arc::new(taurine_core::engine::EngineState::new());
+
+    let conn = taurine_core::db::init::setup().unwrap();
+    let _ = conn.execute("DELETE FROM activity_events", []);
+
+    // 1. Dispatch text expansion
+    let expansion_text = taurine_core::engine::ExpansionResult {
+        delete_count: 0,
+        steps: vec![taurine_core::engine::variables::ExpansionStep::Text(
+            "Hello World!".to_string(),
+        )],
+        trigger: "hw".to_string(),
+        undo_trigger: None,
+        is_calculation: false,
+        stat_kind: taurine_core::db::crud::TriggerStatKind::Snippet,
+        track_usage: true,
+        follow_up: None,
+    };
+    dispatch_expansion_with(
+        expansion_text,
+        taurine_core::settings::SpinnerStyle::default(),
+        state.clone(),
+        move |_, _, _| crate::injector::InjectionReport {
+            successful_chars: 12,
+            completed: true,
+        },
+        move |_, _| {},
+    );
+
+    // 2. Dispatch silent script
+    let metadata = taurine_core::engine::shell::ScriptMetadata {
+        interpreter: taurine_core::engine::shell::ScriptInterpreter::Bash,
+        behavior: taurine_core::engine::shell::ScriptBehavior::Silent,
+        compressed_content: taurine_core::engine::shell::compress("echo silent").unwrap(),
+    };
+    let expansion_silent = taurine_core::engine::ExpansionResult {
+        delete_count: 0,
+        steps: vec![taurine_core::engine::variables::ExpansionStep::Script(
+            metadata,
+        )],
+        trigger: "silent".to_string(),
+        undo_trigger: None,
+        is_calculation: false,
+        stat_kind: taurine_core::db::crud::TriggerStatKind::Script,
+        track_usage: true,
+        follow_up: None,
+    };
+    dispatch_expansion_with(
+        expansion_silent,
+        taurine_core::settings::SpinnerStyle::default(),
+        state,
+        move |_, _, _| crate::injector::InjectionReport {
+            successful_chars: 0,
+            completed: true,
+        },
+        move |_, _| {},
+    );
+
+    let mut events = Vec::new();
+    for _ in 0..30 {
+        if let Ok(evts) = taurine_core::db::crud::get_activity_events(&conn, 10, 0)
+            && evts.len() >= 2
+        {
+            events = evts;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert_eq!(events.len(), 2);
+
+    // Events are ordered by timestamp DESC
+    let silent_evt = events
+        .iter()
+        .find(|e| e.category == taurine_core::db::crud::ActivityCategory::Script)
+        .unwrap();
+    assert_eq!(silent_evt.word_count, 0);
+    assert_eq!(silent_evt.content, None);
+
+    let text_evt = events
+        .iter()
+        .find(|e| e.category == taurine_core::db::crud::ActivityCategory::Text)
+        .unwrap();
+    assert_eq!(text_evt.word_count, 2);
+    assert_eq!(text_evt.content.as_deref(), Some("Hello World!"));
+
+    // Cleanup env
+    let _ = std::fs::remove_dir_all(&test_dir);
+    // SAFETY: Restoring environment variables after test DB isolation.
     unsafe {
         std::env::remove_var("TAURINE_DATA_DIR");
     }

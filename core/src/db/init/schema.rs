@@ -170,6 +170,7 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
             app_key       TEXT    NOT NULL DEFAULT '',
             word_count    INTEGER NOT NULL DEFAULT 0,
             time_saved_ms INTEGER NOT NULL DEFAULT 0,
+            content       TEXT,
             version       INTEGER NOT NULL DEFAULT 1,
             is_synced     BOOLEAN NOT NULL DEFAULT 0,
             created_at    INTEGER NOT NULL DEFAULT (unixepoch())
@@ -240,12 +241,12 @@ mod tests {
 
         let count: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('activity_events') WHERE name IN ('id', 'trigger_id', 'timestamp', 'date', 'category', 'app_key', 'word_count', 'time_saved_ms', 'version', 'is_synced', 'created_at')",
+                "SELECT COUNT(*) FROM pragma_table_info('activity_events') WHERE name IN ('id', 'trigger_id', 'timestamp', 'date', 'category', 'app_key', 'word_count', 'time_saved_ms', 'content', 'version', 'is_synced', 'created_at')",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(count, 11, "activity_events must contain all 11 columns");
+        assert_eq!(count, 12, "activity_events must contain all 12 columns");
     }
 
     #[test]

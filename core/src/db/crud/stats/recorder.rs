@@ -19,6 +19,7 @@ pub struct TriggerStatEvent {
     pub wpm: Option<u32>,
     pub app: Option<String>,
     pub words_count: Option<usize>,
+    pub content: Option<String>,
 }
 
 impl TriggerStatEvent {
@@ -322,6 +323,7 @@ pub fn record_trigger_stat_with_conn(
             app_key: event.app.clone(),
             word_count: event_word_count,
             time_saved_ms: event_time_saved,
+            content: event.content.clone(),
         },
     )?;
 
@@ -336,7 +338,12 @@ fn effective_wpm(_conn: &Connection, event_wpm: Option<u32>) -> u32 {
 }
 
 /// Records stats for a completed voice dictation session.
-pub fn record_voice_dictation_usage(words_count: usize, chars_count: usize, app: Option<String>) {
+pub fn record_voice_dictation_usage(
+    words_count: usize,
+    chars_count: usize,
+    app: Option<String>,
+    content: Option<String>,
+) {
     record_trigger_stat(TriggerStatEvent {
         trigger_id: None,
         trigger: None,
@@ -347,11 +354,17 @@ pub fn record_voice_dictation_usage(words_count: usize, chars_count: usize, app:
         wpm: None,
         app,
         words_count: Some(words_count),
+        content,
     });
 }
 
 /// Records stats for a successfully triggered voice phrase expansion.
-pub fn record_voice_trigger_usage(phrase: &str, output_chars: usize, app: Option<String>) {
+pub fn record_voice_trigger_usage(
+    phrase: &str,
+    output_chars: usize,
+    app: Option<String>,
+    content: Option<String>,
+) {
     record_trigger_stat(TriggerStatEvent {
         trigger_id: None,
         trigger: Some(phrase.to_string()),
@@ -362,6 +375,7 @@ pub fn record_voice_trigger_usage(phrase: &str, output_chars: usize, app: Option
         wpm: None,
         app,
         words_count: None,
+        content: content.or_else(|| Some(phrase.to_string())),
     });
 }
 
@@ -393,6 +407,7 @@ mod tests {
             wpm: Some(60),
             app: Some("code.exe".to_string()),
             words_count: Some(4),
+            content: None,
         };
 
         record_trigger_stat_with_conn(&mut conn, &event).unwrap();
@@ -437,6 +452,7 @@ mod tests {
             wpm: Some(60),
             app: Some("terminal.exe".to_string()),
             words_count: Some(5),
+            content: None,
         };
 
         record_trigger_stat_with_conn(&mut conn, &event).unwrap();
@@ -481,6 +497,7 @@ mod tests {
             wpm: None,
             app: None,
             words_count: None,
+            content: None,
         };
 
         let resolved = resolve_trigger_id(&conn, &event).unwrap();
@@ -510,6 +527,7 @@ mod tests {
             wpm: None,
             app: None,
             words_count: None,
+            content: None,
         };
 
         let resolved = resolve_trigger_id(&conn, &event).unwrap();
@@ -539,6 +557,7 @@ mod tests {
             wpm: None,
             app: None,
             words_count: None,
+            content: None,
         };
 
         let resolved = resolve_trigger_id(&conn, &event).unwrap();
@@ -565,6 +584,7 @@ mod tests {
             wpm: None,
             app: None,
             words_count: None,
+            content: None,
         };
         assert_eq!(
             resolve_trigger_id(&conn, &event_direct).unwrap().as_deref(),
@@ -582,6 +602,7 @@ mod tests {
             wpm: None,
             app: None,
             words_count: None,
+            content: None,
         };
         assert_eq!(
             resolve_trigger_id(&conn, &event_name).unwrap().as_deref(),
@@ -599,6 +620,7 @@ mod tests {
             wpm: None,
             app: None,
             words_count: None,
+            content: None,
         };
         assert_eq!(resolve_trigger_id(&conn, &event_unknown).unwrap(), None);
     }
@@ -626,6 +648,7 @@ mod tests {
             wpm: Some(60),
             app: None,
             words_count: None,
+            content: None,
         };
 
         record_trigger_stat_with_conn(&mut conn, &event).unwrap();
@@ -661,6 +684,7 @@ mod tests {
             wpm: Some(60),
             app: Some("editor.exe".to_string()),
             words_count: Some(4),
+            content: None,
         };
 
         record_trigger_stat_with_conn(&mut conn, &event).unwrap();
@@ -671,5 +695,57 @@ mod tests {
         assert_eq!(daily_stats.len(), 1);
         assert_eq!(daily_stats[0].executions, 2);
         assert_eq!(daily_stats[0].words_expanded, 8);
+    }
+
+    #[test]
+    fn test_recorder_silent_script_stores_none_content() {
+        let (_dir, mut conn) = crate::testing::open_test_db();
+
+        let event = TriggerStatEvent {
+            trigger_id: None,
+            trigger: Some("silent_hook".to_string()),
+            trigger_chars: 11,
+            success: true,
+            output_chars: 0,
+            kind: TriggerStatKind::Script,
+            wpm: None,
+            app: None,
+            words_count: Some(0),
+            content: None,
+        };
+
+        record_trigger_stat_with_conn(&mut conn, &event).unwrap();
+        let events = crate::db::crud::get_activity_events(&conn, 10, 0).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0].category,
+            crate::db::crud::ActivityCategory::Script
+        );
+        assert_eq!(events[0].word_count, 0);
+        assert_eq!(events[0].content, None);
+    }
+
+    #[test]
+    fn test_recorder_text_expansion_stores_content() {
+        let (_dir, mut conn) = crate::testing::open_test_db();
+
+        let event = TriggerStatEvent {
+            trigger_id: None,
+            trigger: Some("hello".to_string()),
+            trigger_chars: 5,
+            success: true,
+            output_chars: 12,
+            kind: TriggerStatKind::Snippet,
+            wpm: None,
+            app: Some("code.exe".to_string()),
+            words_count: Some(2),
+            content: Some("Hello World!".to_string()),
+        };
+
+        record_trigger_stat_with_conn(&mut conn, &event).unwrap();
+        let events = crate::db::crud::get_activity_events(&conn, 10, 0).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].category, crate::db::crud::ActivityCategory::Text);
+        assert_eq!(events[0].content.as_deref(), Some("Hello World!"));
     }
 }

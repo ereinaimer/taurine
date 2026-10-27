@@ -141,6 +141,7 @@ pub struct CloudActivityEventPayload {
     pub app_key: String,
     pub word_count: u64,
     pub time_saved_ms: u64,
+    pub content: Option<String>,
     pub version: u64,
 }
 
@@ -155,6 +156,7 @@ impl From<ActivityEventRow> for CloudActivityEventPayload {
             app_key: row.app_key,
             word_count: row.word_count,
             time_saved_ms: row.time_saved_ms,
+            content: row.content,
             version: row.version,
         }
     }
@@ -171,6 +173,7 @@ impl From<&ActivityEventRow> for CloudActivityEventPayload {
             app_key: row.app_key.clone(),
             word_count: row.word_count,
             time_saved_ms: row.time_saved_ms,
+            content: row.content.clone(),
             version: row.version,
         }
     }
@@ -423,6 +426,42 @@ mod tests {
         let json_app = serde_json::to_string(&payload_app).unwrap();
         let deserialized_app: CloudUserAppStatPayload = serde_json::from_str(&json_app).unwrap();
         assert_eq!(deserialized_app, payload_app);
+
+        // ActivityEventRow conversion
+        let row_activity = ActivityEventRow {
+            id: "evt-test-123".to_string(),
+            trigger_id: Some("trig-456".to_string()),
+            timestamp: 1728123456000,
+            date: "2026-10-05".to_string(),
+            category: super::super::activity_events::ActivityCategory::Voice,
+            app_key: "slack.exe".to_string(),
+            word_count: 12,
+            time_saved_ms: 3400,
+            content: Some("testing synced speech content".to_string()),
+            version: 1,
+            is_synced: false,
+            created_at: 1728123456,
+        };
+        let payload_activity: CloudActivityEventPayload = (&row_activity).into();
+        assert_eq!(payload_activity.id, "evt-test-123");
+        assert_eq!(payload_activity.trigger_id.as_deref(), Some("trig-456"));
+        assert_eq!(payload_activity.timestamp, 1728123456000);
+        assert_eq!(payload_activity.date, "2026-10-05");
+        assert_eq!(payload_activity.category, "voice");
+        assert_eq!(payload_activity.app_key, "slack.exe");
+        assert_eq!(payload_activity.word_count, 12);
+        assert_eq!(payload_activity.time_saved_ms, 3400);
+        assert_eq!(
+            payload_activity.content.as_deref(),
+            Some("testing synced speech content")
+        );
+        assert_eq!(payload_activity.version, 1);
+
+        let json_activity = serde_json::to_string(&payload_activity).unwrap();
+        assert!(json_activity.contains(r#""content":"testing synced speech content""#));
+        let deserialized_activity: CloudActivityEventPayload =
+            serde_json::from_str(&json_activity).unwrap();
+        assert_eq!(deserialized_activity, payload_activity);
     }
 
     #[test]

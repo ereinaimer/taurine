@@ -1752,7 +1752,12 @@ impl VoiceSessionManager {
         let words_count = final_text.split_whitespace().count();
         let chars_count = final_text.chars().count();
 
-        taurine_core::db::crud::record_voice_dictation_usage(words_count, chars_count, active_app);
+        taurine_core::db::crud::record_voice_dictation_usage(
+            words_count,
+            chars_count,
+            active_app,
+            Some(final_text.to_string()),
+        );
 
         // Inject text segment using canonical expansion pipeline with IS_INJECTING guard
         crate::injector::inject_expansion_for_voice(

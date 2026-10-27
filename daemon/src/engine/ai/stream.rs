@@ -306,7 +306,7 @@ async fn run_ai_transformer_stream_inner(
     })
     .await;
 
-    record_inline_ai_completion(output_chars);
+    record_inline_ai_completion(output_chars, Some(output_text));
 
     Ok(())
 }
@@ -321,13 +321,14 @@ async fn run_inline_ai_stream_inner(
     let mut spinner_cleared = false;
     let mut output: Option<LiveOutputHandle> = None;
     let mut pending = String::new();
+    let mut accumulated_output = String::new();
     let mut resolved = match resolve_inline_ai_request(&OsKeyringStore) {
         Ok(resolved) => resolved,
         Err(err) => {
             let message = inline_error_message(&err);
             ensure_spinner_cleared(&mut spinner, &mut spinner_cleared).await;
             inject_error_message(&mut output, false, &message).await?;
-            record_inline_ai_completion(finish_output(output).await);
+            record_inline_ai_completion(finish_output(output).await, None);
             return Err(err);
         }
     };
@@ -371,7 +372,7 @@ async fn run_inline_ai_stream_inner(
                         let message = inline_error_message(&taurine_core::error::Error::Service(err.to_string()));
                         ensure_spinner_cleared(&mut spinner, &mut spinner_cleared).await;
                         inject_error_message(&mut output, false, &message).await?;
-                        record_inline_ai_completion(finish_output(output).await);
+                        record_inline_ai_completion(finish_output(output).await, None);
                         resolved.secret.zeroize();
                         return Err(taurine_core::error::Error::Service(message));
                     }
@@ -393,7 +394,14 @@ async fn run_inline_ai_stream_inner(
                 if crate::injector::is_aborted(captured_gen) {
                     ensure_spinner_cleared(&mut spinner, &mut spinner_cleared).await;
                     flush_pending_batch(&mut output, &mut pending).await?;
-                    record_inline_ai_completion(finish_output(output).await);
+                    record_inline_ai_completion(
+                        finish_output(output).await,
+                        if accumulated_output.is_empty() {
+                            None
+                        } else {
+                            Some(accumulated_output.clone())
+                        },
+                    );
                     resolved.secret.zeroize();
                     return Ok(());
                 }
@@ -408,6 +416,8 @@ async fn run_inline_ai_stream_inner(
                     if chunk.is_empty() {
                         continue;
                     }
+
+                    accumulated_output.push_str(&chunk);
 
                     if !spinner_cleared {
                         cancel_spinner_and_wait(&mut spinner).await;
@@ -428,7 +438,14 @@ async fn run_inline_ai_stream_inner(
                 ensure_spinner_cleared(&mut spinner, &mut spinner_cleared).await;
                 flush_pending_batch(&mut output, &mut pending).await?;
                 inject_error_message(&mut output, spinner_cleared, &message).await?;
-                record_inline_ai_completion(finish_output(output).await);
+                record_inline_ai_completion(
+                    finish_output(output).await,
+                    if accumulated_output.is_empty() {
+                        None
+                    } else {
+                        Some(accumulated_output.clone())
+                    },
+                );
                 resolved.secret.zeroize();
                 return Err(taurine_core::error::Error::Service(message));
             }
@@ -438,7 +455,14 @@ async fn run_inline_ai_stream_inner(
 
     ensure_spinner_cleared(&mut spinner, &mut spinner_cleared).await;
     flush_pending_batch(&mut output, &mut pending).await?;
-    record_inline_ai_completion(finish_output(output).await);
+    record_inline_ai_completion(
+        finish_output(output).await,
+        if accumulated_output.is_empty() {
+            None
+        } else {
+            Some(accumulated_output.clone())
+        },
+    );
     resolved.secret.zeroize();
 
     Ok(())
@@ -671,7 +695,7 @@ async fn finish_output(output: Option<LiveOutputHandle>) -> usize {
     }
 }
 
-fn record_inline_ai_completion(output_chars: usize) {
+fn record_inline_ai_completion(output_chars: usize, content: Option<String>) {
     if output_chars == 0 {
         return;
     }
@@ -687,6 +711,7 @@ fn record_inline_ai_completion(output_chars: usize) {
         wpm: None,
         app,
         words_count: None,
+        content,
     });
 }
 

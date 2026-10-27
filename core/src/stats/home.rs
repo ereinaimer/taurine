@@ -380,6 +380,7 @@ mod tests {
                 app_key: Some("windowsterminal.exe".to_string()),
                 word_count: 42,
                 time_saved_ms: 5_000,
+                content: None,
             },
         )
         .unwrap();
@@ -394,6 +395,7 @@ mod tests {
                 app_key: Some(String::new()),
                 word_count: 9,
                 time_saved_ms: 0,
+                content: None,
             },
         )
         .unwrap();
@@ -442,6 +444,7 @@ mod tests {
                     app_key: Some(String::new()),
                     word_count: 1,
                     time_saved_ms: 0,
+                    content: None,
                 },
             )
             .unwrap();
@@ -487,6 +490,7 @@ mod tests {
                 app_key: Some(String::new()),
                 word_count: 0,
                 time_saved_ms: 0,
+                content: None,
             },
         )
         .unwrap();
@@ -528,6 +532,7 @@ mod tests {
                     app_key: Some(String::new()),
                     word_count: 0,
                     time_saved_ms: 0,
+                    content: None,
                 },
             )
             .unwrap();

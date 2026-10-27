@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Activity Event Logging**: Record individual user actions with precise timestamps, application context, word counts, and time saved.
+- **Activity Output History & Retention**: Retain full text content for voice dictations and expansions with a rolling 30-day history window and cross-device synchronization.
 - **Streak Tracking**: Track consecutive daily active execution streaks and all-time records.
 - **Home Dashboard**: At-a-glance time saved, words spoken and expanded, streak, most used triggers, and recent activity.
 - **Snippet Enable and Disable**: Toggle individual snippets directly with `taurine enable` and `taurine disable`.

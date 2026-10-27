@@ -1018,6 +1018,7 @@ async fn test_sync_trigger_daily_stats_and_global_stats_upload() {
             app_key: Some("code.exe".to_string()),
             word_count: 20,
             time_saved_ms: 500,
+            content: None,
         },
     )
     .unwrap();
@@ -1115,6 +1116,117 @@ async fn test_sync_trigger_daily_stats_and_global_stats_upload() {
             .is_empty(),
         "app_stats must be marked synced"
     );
+    assert!(
+        taurine_core::db::crud::get_unsynced_activity_events(&conn, 10)
+            .unwrap()
+            .is_empty(),
+        "activity_events must be marked synced"
+    );
+
+    let _ = server_handle.join();
+    taurine_core::cloud::clear_tokens().unwrap();
+}
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn test_activity_events_sync_and_mark_synced() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    crate::hook::tests::mock_keystore::use_mock_keystore();
+
+    let tokens = taurine_core::cloud::AuthTokens {
+        access_token: "mock-token-xyz".to_string(),
+        refresh_token: "mock-refresh".to_string(),
+        user_id: "user-1".to_string(),
+        expires_at: Some(2000000000),
+    };
+    taurine_core::cloud::store_tokens(&tokens).unwrap();
+
+    let conn = Connection::open_in_memory().unwrap();
+    ensure_schema(&conn).unwrap();
+
+    // Insert unsynced activity event with speech content
+    taurine_core::db::crud::insert_activity_event(
+        &conn,
+        &taurine_core::db::crud::NewActivityEvent {
+            id: Some("evt-speech-sync-1".to_string()),
+            trigger_id: None,
+            timestamp: Some(1728123456000),
+            date: Some("2026-10-05".to_string()),
+            category: taurine_core::db::crud::ActivityCategory::Voice,
+            app_key: Some("slack.exe".to_string()),
+            word_count: 4,
+            time_saved_ms: 1200,
+            content: Some("testing synced speech content".to_string()),
+        },
+    )
+    .unwrap();
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let server_handle = std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        let start = std::time::Instant::now();
+        let mut handled = 0;
+        while handled < 3 && start.elapsed() < std::time::Duration::from_secs(3) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let _ = stream.set_nonblocking(false);
+                    let mut buf = [0u8; 4096];
+                    let n = match stream.read(&mut buf) {
+                        Ok(n) => n,
+                        Err(_) => continue,
+                    };
+                    let req = String::from_utf8_lossy(&buf[..n]);
+
+                    if req.starts_with("GET /rest/v1/snippets")
+                        || req.starts_with("GET /rest/v1/user_settings")
+                    {
+                        let resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+                        stream.write_all(resp.as_bytes()).unwrap();
+                    } else if req.starts_with("POST /rest/v1/activity_events") {
+                        assert!(req.contains("resolution=merge-duplicates"));
+                        assert!(req.contains("evt-speech-sync-1"));
+                        assert!(
+                            req.contains(r#""content":"testing synced speech content""#),
+                            "payload must contain speech content: {}",
+                            req
+                        );
+                        let resp = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                        stream.write_all(resp.as_bytes()).unwrap();
+                    }
+                    handled += 1;
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let config = CloudConfig {
+        supabase_url: format!("http://127.0.0.1:{port}"),
+        anon_key: "test-anon-key".to_string(),
+    };
+    let client = CloudClient::new(config);
+
+    let status = SyncWorker::run_sync_cycle(&conn, Some(&client)).await;
+    assert_eq!(
+        status,
+        SyncStatus::Success {
+            pulled_snippets: 0,
+            pushed_snippets: 0,
+            pulled_settings: 0,
+            pushed_settings: 0,
+            pushed_stats: 1,
+        }
+    );
+
+    // Verify activity event is marked synced
     assert!(
         taurine_core::db::crud::get_unsynced_activity_events(&conn, 10)
             .unwrap()

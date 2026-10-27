@@ -59,7 +59,12 @@ pub fn fire_voice_trigger_with_args(
     crate::injector::spawn_guarded_injection_thread("tau-voice-disp", move || {
         crate::injector::inject_expansion_for_voice(steps, spinner_style);
     });
-    taurine_core::db::crud::record_voice_trigger_usage(spoken_transcript, output_chars, active_app);
+    taurine_core::db::crud::record_voice_trigger_usage(
+        spoken_transcript,
+        output_chars,
+        active_app,
+        Some(display.clone()),
+    );
     let _ = increment_usage_count_by_id(conn, &inv.trigger_id);
     Some(display)
 }
