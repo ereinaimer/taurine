@@ -6076,6 +6076,7 @@ dependencies = [
 name = "taurine_tui"
 version = "1.0.0-alpha.19"
 dependencies = [
+ "chrono",
  "crossterm",
  "image",
  "keyring",

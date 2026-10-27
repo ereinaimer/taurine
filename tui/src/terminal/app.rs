@@ -6,6 +6,7 @@ use crate::layout_store::TuiLayout;
 use crate::screen_fx;
 use crate::theme::Theme;
 use crate::theme::default::DARK_THEME;
+use crate::widgets::home::state::HomePageState;
 use crate::widgets::library::LibraryPageState;
 use crate::widgets::library::props::PropsHit;
 use crate::widgets::library::recorder::HotkeyRecorderState;
@@ -16,6 +17,7 @@ use crate::widgets::toggle::{ToggleAnimations, ToggleId};
 
 pub(crate) struct App {
     library_page: LibraryPageState,
+    home_page: HomePageState,
     settings_page: SettingsPageState,
     settings_overlay_open: bool,
     should_quit: bool,
@@ -41,6 +43,7 @@ impl Default for App {
     fn default() -> Self {
         Self {
             library_page: LibraryPageState::default(),
+            home_page: HomePageState::default(),
             settings_page: SettingsPageState::default(),
             settings_overlay_open: false,
             should_quit: false,
@@ -77,6 +80,14 @@ impl App {
 
     pub(crate) fn library_page_mut(&mut self) -> &mut LibraryPageState {
         &mut self.library_page
+    }
+
+    pub(crate) const fn home_page(&self) -> &HomePageState {
+        &self.home_page
+    }
+
+    pub(crate) fn home_page_mut(&mut self) -> &mut HomePageState {
+        &mut self.home_page
     }
 
     /// Settings lives as an overlay over the library now; the flag is
@@ -248,6 +259,7 @@ impl App {
             list_ratio: self.library_page.split_ratio(),
             detail_ratio: self.library_page.detail_ratio(),
             create_split: self.library_page.create_split_ratio(),
+            home_ratio: self.home_page.activity_ratio(),
         }
         .sanitized()
     }
@@ -261,7 +273,14 @@ impl App {
         self.library_page.set_detail_ratio(layout.detail_ratio);
         self.library_page
             .set_create_split_ratio(layout.create_split);
+        self.home_page.set_activity_ratio(layout.home_ratio);
         self.saved_layout = layout;
+    }
+
+    /// True while any page divider is still being dragged; the layout
+    /// save waits for the release so only settled widths persist.
+    pub(crate) fn is_dragging_layout(&self) -> bool {
+        self.library_page.is_dragging_layout() || self.home_page.divider_drag().is_some()
     }
 
     pub(crate) fn layout_needs_save(&self) -> bool {
@@ -431,6 +450,7 @@ mod tests {
             list_ratio: 0.31,
             detail_ratio: 0.82,
             create_split: 0.63,
+            home_ratio: 0.44,
         }
     }
 
@@ -451,6 +471,7 @@ mod tests {
         assert_eq!(app.library_page().split_ratio(), 0.31);
         assert_eq!(app.library_page().detail_ratio(), 0.82);
         assert_eq!(app.library_page().create_split_ratio(), 0.63);
+        assert_eq!(app.home_page().activity_ratio(), 0.44);
         assert_eq!(app.layout(), sample_layout());
         assert!(!app.layout_needs_save());
     }
@@ -463,12 +484,14 @@ mod tests {
             list_ratio: 9.0,
             detail_ratio: -1.0,
             create_split: 5.0,
+            home_ratio: 9.0,
         });
 
         let clamped = TuiLayout {
             list_ratio: crate::widgets::library::MAX_SPLIT_RATIO,
             detail_ratio: crate::widgets::library::MIN_DETAIL_RATIO,
             create_split: crate::widgets::library::CREATE_MAX_SPLIT,
+            home_ratio: crate::widgets::home::state::MAX_ACTIVITY_RATIO,
         };
         assert_eq!(app.layout(), clamped);
         assert!(!app.layout_needs_save());
@@ -480,6 +503,16 @@ mod tests {
         assert!(!app.layout_needs_save());
 
         app.library_page_mut().set_split_ratio(0.5);
+
+        assert!(app.layout_needs_save());
+    }
+
+    #[test]
+    fn home_divider_change_marks_layout_dirty() {
+        let mut app = App::default();
+        assert!(!app.layout_needs_save());
+
+        app.home_page_mut().set_activity_ratio(0.5);
 
         assert!(app.layout_needs_save());
     }

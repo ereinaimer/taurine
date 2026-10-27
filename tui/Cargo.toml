@@ -17,6 +17,7 @@ vendored-openssl = ["taurine_core/vendored-openssl"]
 
 [dependencies]
 taurine_core = { path = "../core", default-features = false }
+chrono = "0.4"
 crossterm = "0.29"
 ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
 ratatui-image = { version = "11.1", default-features = false, features = ["crossterm"] }

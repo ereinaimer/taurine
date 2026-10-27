@@ -24,7 +24,8 @@ use icons::IconVariants;
 
 use crate::theme::Theme;
 use crate::widgets::library::DIVIDER_HOVER_COLOR;
-use crate::widgets::library::state::{DIVIDER_DOUBLE_CLICK_MS, now_millis};
+use crate::widgets::library::state::now_millis;
+use crate::widgets::panes::DIVIDER_DOUBLE_CLICK_MS;
 
 /// Rail content: 1-cell margin, 4-cell button, 1-cell margin.
 pub(crate) const RAIL_WIDTH: u16 = 6;
@@ -64,7 +65,7 @@ pub(crate) struct NavRailState {
 impl Default for NavRailState {
     fn default() -> Self {
         Self {
-            active_page: ActivePage::Library,
+            active_page: ActivePage::Home,
             collapsed: false,
             hovered_item: None,
             hitboxes: Vec::new(),
@@ -512,17 +513,22 @@ mod tests {
     }
 
     #[test]
+    fn rail_opens_on_home() {
+        assert_eq!(NavRailState::default().active_page, ActivePage::Home);
+    }
+
+    #[test]
     fn active_page_paints_only_its_rail_pill() {
         let mut state = NavRailState::default();
         let terminal = draw(&mut state);
-        for (x, y) in [(1, 5), (2, 5), (4, 6)] {
+        for (x, y) in [(1, 2), (2, 2), (4, 3)] {
             assert_eq!(
                 bg_at(&terminal, x, y),
                 DARK_THEME.surface,
-                "active Library background missing at {x},{y}"
+                "active Home background missing at {x},{y}"
             );
         }
-        for (x, y) in [(1, 2), (2, 2), (1, 39), (1, 42), (0, 5), (5, 5)] {
+        for (x, y) in [(1, 5), (2, 5), (1, 39), (1, 42), (0, 2), (5, 2)] {
             assert_eq!(
                 bg_at(&terminal, x, y),
                 ratatui::style::Color::Reset,
@@ -539,15 +545,15 @@ mod tests {
         };
         let terminal = draw(&mut state);
         assert_eq!(bg_at(&terminal, 1, 39), ratatui::style::Color::Reset);
-        assert_eq!(bg_at(&terminal, 1, 5), DARK_THEME.surface);
+        assert_eq!(bg_at(&terminal, 1, 2), DARK_THEME.surface);
     }
 
     #[test]
     fn active_glyph_fallback_also_paints_the_fill() {
         let mut state = NavRailState::default();
         let terminal = draw(&mut state);
-        assert_eq!(bg_at(&terminal, 1, 5), DARK_THEME.surface);
-        assert_eq!(bg_at(&terminal, 2, 6), DARK_THEME.surface);
+        assert_eq!(bg_at(&terminal, 1, 2), DARK_THEME.surface);
+        assert_eq!(bg_at(&terminal, 2, 3), DARK_THEME.surface);
     }
 
     #[test]
@@ -559,7 +565,7 @@ mod tests {
         let terminal = draw_with(&mut state, Some(&icons), false);
         for x in [0, 5] {
             assert_eq!(
-                bg_at(&terminal, x, 5),
+                bg_at(&terminal, x, 2),
                 ratatui::style::Color::Reset,
                 "fill spilled outside the button at {x}"
             );
@@ -658,8 +664,8 @@ mod tests {
     fn icon_pills_are_one_bold_span() {
         let mut state = NavRailState::default();
         let terminal = draw(&mut state);
-        let cell = &terminal.backend().buffer().content[2 * AREA.width as usize + 2];
-        assert_eq!(cell.symbol(), "\u{f015}");
+        let cell = &terminal.backend().buffer().content[5 * AREA.width as usize + 2];
+        assert_eq!(cell.symbol(), "\u{f00bb}");
         assert!(cell.modifier.contains(Modifier::BOLD));
         assert_eq!(cell.bg, ratatui::style::Color::Reset);
         assert_eq!(cell.fg, DARK_THEME.text_muted);

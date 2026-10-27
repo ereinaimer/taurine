@@ -23,6 +23,7 @@ use std::path::Path;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::widgets::field::TextField;
+use crate::widgets::library::DividerPointer;
 use crate::widgets::library::actions::{
     EditedField, LibraryImportOutcome, LibraryInteraction, PendingLibraryDelete,
     PendingLibraryEdit, PreparedLibraryImport,
@@ -124,19 +125,14 @@ pub(crate) struct LibraryPageState {
     split_ratio: f32,
     detail_ratio: f32,
     create_split_ratio: f32,
-    divider_hover: Option<super::DividerSide>,
-    divider_drag: Option<super::DividerSide>,
+    dividers: DividerPointer,
     detail_scroll: usize,
     usage_expanded: bool,
     edit: Option<ActiveEdit>,
     last_edit_at: Option<u64>,
     content_width: u16,
-    last_divider_click: Option<(super::DividerSide, u64)>,
     last_content_click: Option<(u64, String, usize, usize)>,
 }
-
-/// Double-click window for divider reset, mirroring the overlay.
-pub(crate) const DIVIDER_DOUBLE_CLICK_MS: u64 = 300;
 
 /// Millis after the last keystroke before an open edit autosaves.
 pub(crate) const AUTOSAVE_DELAY_MS: u64 = 1000;
@@ -163,14 +159,12 @@ impl Default for LibraryPageState {
             split_ratio: super::DEFAULT_SPLIT_RATIO,
             detail_ratio: super::DEFAULT_DETAIL_RATIO,
             create_split_ratio: CREATE_DEFAULT_SPLIT,
-            divider_hover: None,
-            divider_drag: None,
+            dividers: DividerPointer::default(),
             detail_scroll: 0,
             usage_expanded: false,
             edit: None,
             last_edit_at: None,
             content_width: 0,
-            last_divider_click: None,
             last_content_click: None,
         }
     }
@@ -272,30 +266,32 @@ impl LibraryPageState {
     /// persist a width the user has not settled on yet. Covers both the
     /// main three-pane dividers and the create-popup divider.
     pub(crate) fn is_dragging_layout(&self) -> bool {
-        self.divider_drag.is_some()
+        self.dividers.is_dragging()
             || matches!(
                 self.modal.as_ref(),
                 Some(LibraryModal::Create(draft)) if draft.divider_drag()
             )
     }
 
+    pub(crate) const fn dividers(&self) -> &DividerPointer {
+        &self.dividers
+    }
+
+    #[cfg(test)]
     pub(crate) const fn divider_hover(&self) -> Option<super::DividerSide> {
-        self.divider_hover
+        self.dividers.hover()
     }
 
     pub(crate) fn set_divider_hover(&mut self, hover: Option<super::DividerSide>) {
-        self.divider_hover = hover;
+        self.dividers.set_hover(hover);
     }
 
     pub(crate) const fn divider_drag(&self) -> Option<super::DividerSide> {
-        self.divider_drag
+        self.dividers.drag()
     }
 
     pub(crate) fn set_divider_drag(&mut self, drag: Option<super::DividerSide>) {
-        self.divider_drag = drag;
-        if drag.is_some() {
-            self.divider_hover = drag;
-        }
+        self.dividers.set_drag(drag);
     }
 
     /// Second click on the same divider within the window toggles that
@@ -307,14 +303,9 @@ impl LibraryPageState {
     }
 
     pub(crate) fn divider_double_click_at(&mut self, side: super::DividerSide, now: u64) -> bool {
-        let double = self.last_divider_click.is_some_and(|(last_side, at)| {
-            last_side == side && now.saturating_sub(at) <= DIVIDER_DOUBLE_CLICK_MS
-        });
-        self.last_divider_click = Some((side, now));
-        if !double {
+        if !self.dividers.double_click_at(side, now) {
             return false;
         }
-        self.last_divider_click = None;
         // honey: drag math rarely lands exactly on a constant, so
         // near-enough counts for both ends of the toggle.
         const NEAR: f32 = 0.0001;

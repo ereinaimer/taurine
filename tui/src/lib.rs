@@ -21,9 +21,11 @@ use std::time::{Duration, Instant};
 use crate::layout_store::TuiLayout;
 use crate::overlay_fx::OverlayTransition;
 use crate::theme::Theme;
+use crate::widgets::home;
 use crate::widgets::library;
 use crate::widgets::nav_rail::{self, ActivePage, NavRailItem};
 use crate::widgets::palette;
+use crate::widgets::panes;
 use crate::widgets::settings;
 use crate::widgets::toggle::{TOGGLE_ANIM_FRAME, ToggleId};
 use crate::widgets::util;
@@ -54,6 +56,7 @@ pub fn run() -> taurine_core::Result<()> {
     }
     refresh_library_page(&mut app);
     refresh_settings_page(&mut app);
+    refresh_home_page(&mut app);
 
     let mut terminal = TerminalGuard::new()?;
     app.load_rail_icons();
@@ -135,6 +138,12 @@ pub fn run() -> taurine_core::Result<()> {
                 // arrow key coalesces into one settings save per tick.
                 let interaction = app.settings_page_mut().slider_autosave_tick();
                 apply_settings_interaction(&mut app, interaction);
+                if app.nav_rail().active_page == ActivePage::Home {
+                    let now = library::now_millis();
+                    if app.home_page().refresh_due(now) {
+                        refresh_home_page(&mut app);
+                    }
+                }
             }
         }
 
@@ -165,20 +174,46 @@ pub fn run() -> taurine_core::Result<()> {
     Ok(())
 }
 
-/// Vertical divider glyph for one row. On the content-rule row the
-/// divider grows an arm toward the center pane so the two lines meet.
-fn divider_glyph(
-    side: library::DividerSide,
-    row: u16,
-    content_divider_row: Option<u16>,
-) -> &'static str {
-    if content_divider_row == Some(row) {
-        match side {
-            library::DividerSide::List => "├",
-            library::DividerSide::Props => "┤",
+/// Full-height gutter lines for the active workspace page. The line
+/// travels the whole terminal height even though the panes themselves
+/// keep the page's vertical margins.
+fn render_page_dividers(
+    frame: &mut ratatui::Frame,
+    area: ratatui::layout::Rect,
+    full: ratatui::layout::Rect,
+    app: &App,
+    theme: &Theme,
+) {
+    if library_visible(app) {
+        let page = app.library_page();
+        let content_divider_row = library::detail::content_divider_row(
+            full,
+            page.split_ratio(),
+            page.detail_ratio(),
+            page,
+        );
+        for (side, column) in
+            library::visible_divider_columns(full, page.split_ratio(), page.detail_ratio())
+        {
+            panes::render_divider(
+                frame,
+                area,
+                column,
+                page.dividers().color(theme, side),
+                |row| library::divider_glyph(side, row, content_divider_row),
+            );
         }
-    } else {
-        "│"
+    } else if home_visible(app) {
+        let page = app.home_page();
+        for (side, column) in home::visible_divider_columns(full, page.activity_ratio()) {
+            panes::render_divider(
+                frame,
+                area,
+                column,
+                page.dividers().color(theme, side),
+                |_| "│",
+            );
+        }
     }
 }
 
@@ -203,42 +238,8 @@ fn render_app(frame: &mut ratatui::Frame, app: &mut App, area: ratatui::layout::
 
     render_page_content(frame, full, app, theme);
 
-    if area.height > 0 && library_visible(app) {
-        use ratatui::text::Line;
-
-        // honey: only the hovered or dragged divider lifts; the
-        // other stays on the base border color. Degenerate
-        // dividers are never painted, so a parked edge shows
-        // one line while staying grabbable.
-        let page = app.library_page();
-        let content_divider_row = library::detail::content_divider_row(
-            full,
-            page.split_ratio(),
-            page.detail_ratio(),
-            page,
-        );
-        for (side, column) in
-            library::visible_divider_columns(full, page.split_ratio(), page.detail_ratio())
-        {
-            let color = if page.divider_drag() == Some(side) || page.divider_hover() == Some(side) {
-                library::DIVIDER_HOVER_COLOR
-            } else {
-                theme.border
-            };
-            let glyphs = (area.y..area.y.saturating_add(area.height))
-                .map(|row| Line::from(divider_glyph(side, row, content_divider_row)))
-                .collect::<Vec<_>>();
-            frame.render_widget(
-                ratatui::widgets::Paragraph::new(glyphs)
-                    .style(ratatui::style::Style::default().fg(color)),
-                ratatui::layout::Rect {
-                    x: column,
-                    y: area.y,
-                    width: 1,
-                    height: area.height,
-                },
-            );
-        }
+    if area.height > 0 {
+        render_page_dividers(frame, area, full, app, theme);
     }
 
     let any_modal = app.library_page().is_modal_open()
@@ -438,12 +439,11 @@ fn dim_frame_factor(frame: &mut ratatui::Frame, factor: f32) {
 fn render_page_content(
     frame: &mut ratatui::Frame,
     full: ratatui::layout::Rect,
-    app: &App,
+    app: &mut App,
     theme: &Theme,
 ) {
     match app.nav_rail().active_page {
-        // honey: the home page is a blank canvas for now.
-        ActivePage::Home => {}
+        ActivePage::Home => home::render_home_content(frame, full, theme, app.home_page_mut()),
         ActivePage::Library => library::render_library_content(
             frame,
             full,
@@ -462,6 +462,11 @@ fn library_visible(app: &App) -> bool {
     app.nav_rail().active_page == ActivePage::Library
 }
 
+/// Whether the home dashboard owns the workspace.
+fn home_visible(app: &App) -> bool {
+    app.nav_rail().active_page == ActivePage::Home
+}
+
 /// Switches the workspace page, flushing any pending library edit and
 /// dropping hover state that belongs to the page being left.
 fn switch_page(app: &mut App, page: ActivePage) {
@@ -471,9 +476,13 @@ fn switch_page(app: &mut App, page: ActivePage) {
     let flush = app.library_page_mut().commit_edit();
     apply_library_interaction(app, flush);
     app.library_page_mut().set_divider_hover(None);
+    app.home_page_mut().set_divider_hover(None);
     app.set_toggle_hover(None);
     app.set_props_hover(None);
     app.nav_rail_mut().set_active_page(page);
+    if page == ActivePage::Home {
+        app.home_page_mut().on_show();
+    }
 }
 
 fn handle_tui_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
@@ -618,6 +627,30 @@ fn handle_tui_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
         }
         let interaction = app.settings_page_mut().handle_key(key);
         apply_settings_interaction(app, interaction);
+        return;
+    }
+
+    if app.nav_rail().active_page == ActivePage::Home {
+        use crossterm::event::{KeyCode, KeyModifiers};
+
+        if key.code == KeyCode::Char('r') && key.modifiers == KeyModifiers::NONE {
+            refresh_home_page(app);
+            return;
+        }
+        // honey: the activity feed owns Up/Down/Page/Home/End on Home;
+        // the page step comes from the viewport the last frame drew.
+        if matches!(key.modifiers, KeyModifiers::NONE | KeyModifiers::SHIFT) {
+            let page = app.home_page().activity_page().max(1) as isize;
+            match key.code {
+                KeyCode::Up => app.home_page_mut().scroll_activity(-1),
+                KeyCode::Down => app.home_page_mut().scroll_activity(1),
+                KeyCode::PageUp => app.home_page_mut().scroll_activity(-page),
+                KeyCode::PageDown => app.home_page_mut().scroll_activity(page),
+                KeyCode::Home => app.home_page_mut().scroll_activity_to_start(),
+                KeyCode::End => app.home_page_mut().scroll_activity_to_end(),
+                _ => {}
+            }
+        }
         return;
     }
 
@@ -929,6 +962,21 @@ fn handle_tui_mouse_event(
     // honey: grabbing a divider starts a drag; pointer motion after that
     // moves the split freely without re-hitting the gutter column.
     fn grab_divider(app: &mut App, page: ratatui::layout::Rect, column: u16, row: u16) -> bool {
+        if home_visible(app) {
+            let Some(side) = home::divider_hit(page, app.home_page().activity_ratio(), column, row)
+            else {
+                return false;
+            };
+            // honey: double-click resets the pane instead of grabbing.
+            if app
+                .home_page_mut()
+                .divider_double_click_at(side, library::now_millis())
+            {
+                return true;
+            }
+            app.home_page_mut().set_divider_drag(Some(side));
+            return true;
+        }
         let ratios = (
             app.library_page().split_ratio(),
             app.library_page().detail_ratio(),
@@ -945,6 +993,14 @@ fn handle_tui_mouse_event(
     }
 
     fn drag_divider_to(app: &mut App, page: ratatui::layout::Rect, column: u16) {
+        if home_visible(app) {
+            if app.home_page().divider_drag().is_none() {
+                return;
+            }
+            app.home_page_mut()
+                .set_activity_ratio(home::ratio_for_column(page, column));
+            return;
+        }
         let Some(side) = app.library_page().divider_drag() else {
             return;
         };
@@ -1003,6 +1059,21 @@ fn handle_tui_mouse_event(
             if modal_open {
                 return;
             }
+            if home_visible(app) {
+                let full = workspace_full(app, area);
+                if home::activity_contains(
+                    full,
+                    app.home_page().activity_ratio(),
+                    mouse.column,
+                    mouse.row,
+                ) {
+                    // honey: one wheel notch moves one activity item.
+                    let down = mouse.kind == MouseEventKind::ScrollDown;
+                    app.home_page_mut()
+                        .scroll_activity(if down { 3 } else { -3 });
+                }
+                return;
+            }
             if !library_visible(app) {
                 return;
             }
@@ -1050,6 +1121,22 @@ fn handle_tui_mouse_event(
                 }
             }
             if app.palette_open() {
+                app.set_toggle_hover(None);
+                return;
+            }
+            if home_visible(app) {
+                let full = workspace_full(app, area);
+                if app.home_page().divider_drag().is_some() {
+                    drag_divider_to(app, full, mouse.column);
+                } else {
+                    let hover = home::divider_hit(
+                        full,
+                        app.home_page().activity_ratio(),
+                        mouse.column,
+                        mouse.row,
+                    );
+                    app.home_page_mut().set_divider_hover(hover);
+                }
                 app.set_toggle_hover(None);
                 return;
             }
@@ -1173,6 +1260,13 @@ fn handle_tui_mouse_event(
             if app.palette_open() {
                 return;
             }
+            if home_visible(app) {
+                if app.home_page().divider_drag().is_some() {
+                    let full = workspace_full(app, area);
+                    drag_divider_to(app, full, mouse.column);
+                }
+                return;
+            }
             if !library_visible(app) {
                 return;
             }
@@ -1220,6 +1314,7 @@ fn handle_tui_mouse_event(
             }
             app.nav_rail_mut().end_drag();
             app.library_page_mut().set_divider_drag(None);
+            app.home_page_mut().set_divider_drag(None);
             app.library_page_mut().release_app_filter_divider();
             app.library_page_mut().release_create_divider();
         }
@@ -1431,6 +1526,11 @@ fn handle_tui_mouse_event(
                 .nav_rail_mut()
                 .start_divider_drag(area, mouse.column, mouse.row)
             {
+                return;
+            }
+            if home_visible(app) {
+                let full = workspace_full(app, area);
+                grab_divider(app, full, mouse.column, mouse.row);
                 return;
             }
             if !library_visible(app) {
@@ -1875,7 +1975,7 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
 /// Layout worth writing, or `None` when nothing changed. A drag still in
 /// flight is skipped unless `force`, so only settled widths persist.
 fn layout_to_save(app: &App, force: bool) -> Option<TuiLayout> {
-    if app.library_page().is_dragging_layout() && !force {
+    if app.is_dragging_layout() && !force {
         return None;
     }
     app.layout_needs_save().then(|| app.layout())
@@ -1907,6 +2007,24 @@ fn refresh_library_page(app: &mut App) {
         Err(error) => {
             error!(error = %error, "Failed to refresh TUI library state");
             app.library_page_mut().set_load_error(error.to_string());
+        }
+    }
+}
+
+fn refresh_home_page(app: &mut App) {
+    match taurine_core::db::init::setup()
+        .and_then(|conn| taurine_core::stats::load_home_stats(&conn))
+    {
+        Ok(stats) => {
+            app.home_page_mut().replace_stats(stats);
+            app.home_page_mut().mark_refreshed(library::now_millis());
+        }
+        Err(error) => {
+            error!(error = %error, "Failed to refresh TUI home state");
+            app.home_page_mut().set_load_error(error.to_string());
+            // honey: back off after a failed load so a broken DB is not
+            // reopened on every event tick.
+            app.home_page_mut().mark_refreshed(library::now_millis());
         }
     }
 }
@@ -2110,10 +2228,11 @@ mod tests {
     #[test]
     fn divider_glyphs_join_the_content_rule() {
         use super::library::DividerSide;
+        use super::panes::divider_glyph;
 
-        assert_eq!(super::divider_glyph(DividerSide::List, 7, Some(7)), "├");
-        assert_eq!(super::divider_glyph(DividerSide::Props, 7, Some(7)), "┤");
-        assert_eq!(super::divider_glyph(DividerSide::List, 8, Some(7)), "│");
+        assert_eq!(divider_glyph(DividerSide::List, 7, Some(7)), "├");
+        assert_eq!(divider_glyph(DividerSide::Props, 7, Some(7)), "┤");
+        assert_eq!(divider_glyph(DividerSide::List, 8, Some(7)), "│");
     }
 
     #[test]
@@ -2190,6 +2309,14 @@ mod tests {
     use super::*;
     use crate::widgets::library::LibraryTrigger;
 
+    /// Workspace tests drive the library panes; the app itself opens on
+    /// Home, so tests that exercise library flows land there first.
+    fn library_app() -> App {
+        let mut app = App::default();
+        app.nav_rail_mut().set_active_page(ActivePage::Library);
+        app
+    }
+
     fn plain_key(ch: char) -> KeyEvent {
         KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)
     }
@@ -2232,7 +2359,7 @@ mod tests {
 
     #[test]
     fn typing_q_while_library_search_is_active_does_not_quit() {
-        let mut app = App::default();
+        let mut app = library_app();
 
         handle_tui_key_event(&mut app, plain_key('/'));
         handle_tui_key_event(&mut app, plain_key('q'));
@@ -2243,7 +2370,7 @@ mod tests {
 
     #[test]
     fn pressing_one_leaves_library_search_inactive() {
-        let mut app = App::default();
+        let mut app = library_app();
         handle_tui_key_event(&mut app, plain_key('1'));
 
         assert!(!app.is_settings_overlay_open());
@@ -2253,7 +2380,7 @@ mod tests {
 
     #[test]
     fn pressing_two_does_not_open_settings() {
-        let mut app = App::default();
+        let mut app = library_app();
         handle_tui_key_event(&mut app, plain_key('2'));
 
         assert!(!app.is_settings_overlay_open());
@@ -2263,7 +2390,7 @@ mod tests {
 
     #[test]
     fn typing_one_while_library_search_is_active_types_into_search() {
-        let mut app = App::default();
+        let mut app = library_app();
 
         handle_tui_key_event(&mut app, plain_key('/'));
         handle_tui_key_event(&mut app, plain_key('1'));
@@ -2274,7 +2401,7 @@ mod tests {
 
     #[test]
     fn typing_q_while_library_modal_is_open_does_not_quit() {
-        let mut app = App::default();
+        let mut app = library_app();
         seed_single_library_item(&mut app);
         app.library_page_mut().open_delete_modal_for_selected();
 
@@ -2286,7 +2413,7 @@ mod tests {
 
     #[test]
     fn slash_goes_to_modal_while_library_modal_is_open() {
-        let mut app = App::default();
+        let mut app = library_app();
         seed_single_library_item(&mut app);
         app.library_page_mut().open_delete_modal_for_selected();
 
@@ -2298,7 +2425,7 @@ mod tests {
 
     #[test]
     fn typing_q_while_library_delete_confirmation_is_open_does_not_quit() {
-        let mut app = App::default();
+        let mut app = library_app();
         app.library_page_mut()
             .replace_items(vec![LibraryTrigger::single(TriggerListItem {
                 id: "test".to_string(),
@@ -2331,7 +2458,7 @@ mod tests {
 
     #[test]
     fn slash_does_not_activate_search_while_library_delete_confirmation_is_open() {
-        let mut app = App::default();
+        let mut app = library_app();
         app.library_page_mut()
             .replace_items(vec![LibraryTrigger::single(TriggerListItem {
                 id: "test".to_string(),
@@ -2364,7 +2491,7 @@ mod tests {
 
     #[test]
     fn escape_closes_library_modal() {
-        let mut app = App::default();
+        let mut app = library_app();
         seed_single_library_item(&mut app);
         app.library_page_mut().open_delete_modal_for_selected();
 
@@ -2394,7 +2521,7 @@ mod tests {
 
     #[test]
     fn ctrl_comma_toggles_settings_overlay() {
-        let mut app = App::default();
+        let mut app = library_app();
         assert!(!app.is_settings_overlay_open());
 
         handle_tui_key_event(&mut app, ctrl_comma());
@@ -2406,7 +2533,7 @@ mod tests {
 
     #[test]
     fn ctrl_comma_while_library_modal_is_open_waits() {
-        let mut app = App::default();
+        let mut app = library_app();
         seed_single_library_item(&mut app);
         app.library_page_mut().open_delete_modal_for_selected();
 
@@ -2434,7 +2561,7 @@ mod tests {
 
     #[test]
     fn ctrl_p_toggles_palette() {
-        let mut app = App::default();
+        let mut app = library_app();
         assert!(!app.palette_open());
 
         handle_tui_key_event(&mut app, ctrl_p());
@@ -2446,7 +2573,7 @@ mod tests {
 
     #[test]
     fn ctrl_p_opens_over_settings_overlay() {
-        let mut app = App::default();
+        let mut app = library_app();
         app.open_settings_overlay();
 
         handle_tui_key_event(&mut app, ctrl_p());
@@ -2459,7 +2586,7 @@ mod tests {
 
     #[test]
     fn palette_esc_closes_without_quitting() {
-        let mut app = App::default();
+        let mut app = library_app();
         handle_tui_key_event(&mut app, ctrl_p());
 
         handle_tui_key_event(&mut app, esc());
@@ -2471,7 +2598,7 @@ mod tests {
 
     #[test]
     fn palette_enter_toggles_left_panel() {
-        let mut app = App::default();
+        let mut app = library_app();
         handle_tui_key_event(&mut app, ctrl_p());
 
         handle_tui_key_event(&mut app, enter());
@@ -2489,7 +2616,7 @@ mod tests {
 
     #[test]
     fn palette_enter_toggles_properties_pane() {
-        let mut app = App::default();
+        let mut app = library_app();
         handle_tui_key_event(&mut app, ctrl_p());
         handle_tui_key_event(&mut app, down());
 
@@ -2500,7 +2627,7 @@ mod tests {
 
     #[test]
     fn palette_reset_layout_restores_defaults() {
-        let mut app = App::default();
+        let mut app = library_app();
         app.library_page_mut().set_split_ratio(0.6);
         app.library_page_mut().set_detail_ratio(0.6);
         handle_tui_key_event(&mut app, ctrl_p());
@@ -2522,7 +2649,7 @@ mod tests {
 
     #[test]
     fn palette_new_trigger_opens_create_modal() {
-        let mut app = App::default();
+        let mut app = library_app();
         handle_tui_key_event(&mut app, ctrl_p());
         for _ in 0..4 {
             handle_tui_key_event(&mut app, down());
@@ -2539,7 +2666,7 @@ mod tests {
 
     #[test]
     fn palette_import_opens_import_modal() {
-        let mut app = App::default();
+        let mut app = library_app();
         handle_tui_key_event(&mut app, ctrl_p());
         for _ in 0..5 {
             handle_tui_key_event(&mut app, down());
@@ -2554,7 +2681,7 @@ mod tests {
 
     #[test]
     fn palette_export_opens_export_modal() {
-        let mut app = App::default();
+        let mut app = library_app();
         handle_tui_key_event(&mut app, ctrl_p());
         for _ in 0..6 {
             handle_tui_key_event(&mut app, down());
@@ -2569,7 +2696,7 @@ mod tests {
 
     #[test]
     fn palette_open_settings_opens_overlay() {
-        let mut app = App::default();
+        let mut app = library_app();
         handle_tui_key_event(&mut app, ctrl_p());
         for _ in 0..7 {
             handle_tui_key_event(&mut app, down());
@@ -2583,7 +2710,7 @@ mod tests {
 
     #[test]
     fn palette_quit_starts_close_animation() {
-        let mut app = App::default();
+        let mut app = library_app();
         handle_tui_key_event(&mut app, ctrl_p());
         for _ in 0..10 {
             handle_tui_key_event(&mut app, down());
@@ -2598,7 +2725,7 @@ mod tests {
 
     #[test]
     fn clicking_palette_row_runs_command() {
-        let mut app = App::default();
+        let mut app = library_app();
         handle_tui_key_event(&mut app, ctrl_p());
         let popup = palette::popup(TEST_AREA);
         let first_row = popup.y + 4;
@@ -2611,7 +2738,7 @@ mod tests {
 
     #[test]
     fn clicking_palette_scrim_closes_it() {
-        let mut app = App::default();
+        let mut app = library_app();
         handle_tui_key_event(&mut app, ctrl_p());
 
         handle_tui_mouse_event(&mut app, left_click(0, 0), TEST_AREA);
@@ -2621,7 +2748,7 @@ mod tests {
 
     #[test]
     fn esc_closes_settings_overlay_after_search() {
-        let mut app = App::default();
+        let mut app = library_app();
         app.open_settings_overlay();
         handle_tui_key_event(&mut app, plain_key('/'));
         assert!(app.settings_page().is_search_active());
@@ -2636,7 +2763,7 @@ mod tests {
 
     #[test]
     fn clicking_outside_settings_overlay_closes() {
-        let mut app = App::default();
+        let mut app = library_app();
         app.open_settings_overlay();
 
         handle_tui_mouse_event(&mut app, left_click(2, 15), TEST_AREA);
@@ -2656,7 +2783,7 @@ mod tests {
     fn settings_editor_modal_opens_inside_overlay() {
         use crate::widgets::settings::state::{EditorKind, SettingKeyMeta};
 
-        let mut app = App::default();
+        let mut app = library_app();
         app.open_settings_overlay();
         let position = app
             .settings_page()
@@ -2679,7 +2806,7 @@ mod tests {
     fn nested_settings_modal_dims_the_settings_overlay() {
         use crate::widgets::settings::state::{EditorKind, SettingKeyMeta};
 
-        let mut app = App::default();
+        let mut app = library_app();
         app.open_settings_overlay();
         let position = app
             .settings_page()
@@ -2721,7 +2848,7 @@ mod tests {
     fn clicking_voice_model_value_opens_the_tier_picker() {
         use crate::widgets::settings::state::SettingKey;
 
-        let mut app = App::default();
+        let mut app = library_app();
         app.open_settings_overlay();
         let position = app
             .settings_page()
@@ -2763,7 +2890,7 @@ mod tests {
     fn clicking_an_inline_setting_field_starts_editing() {
         use crate::widgets::settings::state::SettingKeyMeta;
 
-        let mut app = App::default();
+        let mut app = library_app();
         app.open_settings_overlay();
         // honey: anchor the window on a known short field before scanning
         // the hit path; the first rows that fit may all be toggles.
@@ -2824,7 +2951,7 @@ mod tests {
 
     #[test]
     fn clicking_hotkey_setting_keycaps_opens_the_recorder() {
-        let mut app = App::default();
+        let mut app = library_app();
         app.open_settings_overlay();
         let popup = settings::overlay_popup(TEST_AREA);
         let content = settings::overlay_content(settings::overlay_body(popup));
@@ -2857,7 +2984,7 @@ mod tests {
 
     #[test]
     fn clicking_settings_search_bar_focuses_search() {
-        let mut app = App::default();
+        let mut app = library_app();
         app.open_settings_overlay();
         assert!(!app.settings_page().is_search_active());
 
@@ -2869,7 +2996,7 @@ mod tests {
 
     #[test]
     fn clicking_settings_row_selects_without_activating() {
-        let mut app = App::default();
+        let mut app = library_app();
         app.open_settings_overlay();
         // honey: park selection elsewhere so the scanned row takes the
         // first-click select path instead of the toggle path.
@@ -2910,7 +3037,7 @@ mod tests {
 
     #[test]
     fn clicking_library_row_selects_without_opening() {
-        let mut app = App::default();
+        let mut app = library_app();
         app.library_page_mut().replace_items(vec![
             LibraryTrigger::single(TriggerListItem {
                 id: "mouse-aaa".to_string(),
@@ -2964,7 +3091,7 @@ mod tests {
     fn collapsed_left_panel_leaves_one_boundary_line() {
         use ratatui::{Terminal, backend::TestBackend};
 
-        let mut app = App::default();
+        let mut app = library_app();
         app.library_page_mut()
             .toggle_panel(library::DividerSide::List);
         let full = workspace_full(&app, TEST_AREA);
@@ -2997,7 +3124,7 @@ mod tests {
 
     #[test]
     fn pressing_divider_starts_drag_without_selecting() {
-        let mut app = App::default();
+        let mut app = library_app();
         let full = workspace_full(&app, TEST_AREA);
         let column = library::divider_columns(
             full,
@@ -3017,7 +3144,7 @@ mod tests {
 
     #[test]
     fn dragging_divider_moves_split_and_release_ends_it() {
-        let mut app = App::default();
+        let mut app = library_app();
         let full = workspace_full(&app, TEST_AREA);
         let column = library::divider_columns(
             full,
@@ -3050,7 +3177,7 @@ mod tests {
 
     /// App parked mid-drag with a split that differs from the saved one.
     fn dragging_app(ratio: f32) -> App {
-        let mut app = App::default();
+        let mut app = library_app();
         app.library_page_mut()
             .set_divider_drag(Some(library::DividerSide::List));
         app.library_page_mut().set_split_ratio(ratio);
@@ -3075,7 +3202,7 @@ mod tests {
 
     #[test]
     fn layout_to_save_returns_none_when_unchanged() {
-        let app = App::default();
+        let app = library_app();
 
         assert_eq!(layout_to_save(&app, false), None);
     }
@@ -3089,7 +3216,7 @@ mod tests {
 
     #[test]
     fn layout_to_save_includes_create_split() {
-        let mut app = App::default();
+        let mut app = library_app();
         app.library_page_mut().set_create_split_ratio(0.7);
 
         let layout = layout_to_save(&app, false).expect("changed layout");
@@ -3098,7 +3225,7 @@ mod tests {
     }
 
     fn create_dragging_app() -> App {
-        let mut app = App::default();
+        let mut app = library_app();
         app.library_page_mut().open_create_modal();
         let body = library::modals::create_body(TEST_AREA);
         let split = match app.library_page().modal() {
@@ -3138,7 +3265,7 @@ mod tests {
 
     #[test]
     fn hovering_empty_property_chip_sets_add_hover() {
-        let mut app = App::default();
+        let mut app = library_app();
         seed_single_library_item(&mut app);
         let full = workspace_full(&app, TEST_AREA);
         let page = app.library_page();
@@ -3162,7 +3289,7 @@ mod tests {
 
     #[test]
     fn clicking_alias_add_chip_starts_inline_edit() {
-        let mut app = App::default();
+        let mut app = library_app();
         seed_single_library_item(&mut app);
         let full = workspace_full(&app, TEST_AREA);
         let page = app.library_page();
@@ -3184,7 +3311,7 @@ mod tests {
 
     #[test]
     fn clicking_a_hotkey_header_opens_the_recorder() {
-        let mut app = App::default();
+        let mut app = library_app();
         seed_single_library_item(&mut app);
         let full = workspace_full(&app, TEST_AREA);
         let page = app.library_page();
@@ -3205,7 +3332,7 @@ mod tests {
 
     #[test]
     fn clicking_a_hotkey_alias_line_opens_the_recorder_on_that_sibling() {
-        let mut app = App::default();
+        let mut app = library_app();
         app.library_page_mut()
             .replace_items(vec![LibraryTrigger::single(TriggerListItem {
                 id: "test".to_string(),
@@ -3258,7 +3385,7 @@ mod tests {
 
     #[test]
     fn recording_captures_the_global_shortcuts() {
-        let mut app = App::default();
+        let mut app = library_app();
         app.set_hotkey_recorder(Some(library::recorder::HotkeyRecorderState::new(
             library::recorder::HotkeyTarget::PrimaryTrigger,
         )));
@@ -3286,7 +3413,7 @@ mod tests {
 
     #[test]
     fn esc_discards_the_recording() {
-        let mut app = App::default();
+        let mut app = library_app();
         seed_single_library_item(&mut app);
         app.set_hotkey_recorder(Some(library::recorder::HotkeyRecorderState::new(
             library::recorder::HotkeyTarget::PrimaryTrigger,
@@ -3306,7 +3433,7 @@ mod tests {
 
     #[test]
     fn recording_ignores_clicks_outside_the_popup() {
-        let mut app = App::default();
+        let mut app = library_app();
         seed_single_library_item(&mut app);
         app.set_hotkey_recorder(Some(library::recorder::HotkeyRecorderState::new(
             library::recorder::HotkeyTarget::PrimaryTrigger,
@@ -3319,7 +3446,7 @@ mod tests {
 
     #[test]
     fn hovering_divider_sets_hover_and_leaving_clears() {
-        let mut app = App::default();
+        let mut app = library_app();
         let full = workspace_full(&app, TEST_AREA);
         let column = library::divider_columns(
             full,
@@ -3349,7 +3476,7 @@ mod tests {
 
     #[test]
     fn nav_rail_switches_pages_and_opens_the_palette() {
-        let mut app = App::default();
+        let mut app = library_app();
         let home = nav_button(&app, NavRailItem::Home);
         handle_tui_mouse_event(&mut app, left_click(home.x + 2, home.y + 1), TEST_AREA);
         assert_eq!(app.nav_rail().active_page, ActivePage::Home);
@@ -3372,10 +3499,10 @@ mod tests {
     }
 
     #[test]
-    fn home_page_renders_an_empty_workspace() {
+    fn home_page_renders_the_dashboard() {
         use ratatui::{Terminal, backend::TestBackend};
 
-        let mut app = App::default();
+        let mut app = library_app();
         let home = nav_button(&app, NavRailItem::Home);
         handle_tui_mouse_event(&mut app, left_click(home.x + 2, home.y + 1), TEST_AREA);
 
@@ -3391,10 +3518,33 @@ mod tests {
         let terminal = render(&mut app);
         let full = workspace_full(&app, TEST_AREA);
         let buffer = terminal.backend().buffer();
+        let mut text = String::new();
         for y in full.top()..full.bottom() {
             for x in full.left()..full.right() {
-                assert_eq!(buffer[(x, y)].symbol(), " ", "home page painted at {x},{y}");
+                text.push_str(buffer[(x, y)].symbol());
             }
+            text.push('\n');
+        }
+        assert!(text.contains("TIME SAVED"), "home cards missing");
+        assert!(text.contains("Most Used Triggers"), "home usage missing");
+        assert!(text.contains("Recent Activity"), "home activity missing");
+        assert!(
+            text.contains("No activity yet."),
+            "home empty state missing"
+        );
+
+        // The shared gutter runs the whole terminal height, not just the
+        // page's vertical margins.
+        let (_, divider) = home::visible_divider_columns(full, app.home_page().activity_ratio())
+            .into_iter()
+            .next()
+            .expect("home divider");
+        for y in TEST_AREA.top()..TEST_AREA.bottom() {
+            assert_eq!(
+                buffer[(divider, y)].symbol(),
+                "│",
+                "divider missing at row {y}"
+            );
         }
 
         let library = nav_button(&app, NavRailItem::Library);
@@ -3413,8 +3563,55 @@ mod tests {
     }
 
     #[test]
+    fn home_divider_drags_like_the_library_panes() {
+        let mut app = library_app();
+        let home = nav_button(&app, NavRailItem::Home);
+        handle_tui_mouse_event(&mut app, left_click(home.x + 2, home.y + 1), TEST_AREA);
+
+        let full = workspace_full(&app, TEST_AREA);
+        let before = app.home_page().activity_ratio();
+        let (_, divider) = home::visible_divider_columns(full, before)
+            .into_iter()
+            .next()
+            .expect("home divider");
+        let row = full.y + 5;
+
+        handle_tui_mouse_event(&mut app, left_click(divider, row), TEST_AREA);
+        assert_eq!(
+            app.home_page().divider_drag(),
+            Some(panes::DividerSide::Props)
+        );
+
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(
+                divider.saturating_sub(8),
+                row,
+                MouseEventKind::Drag(MouseButton::Left),
+            ),
+            TEST_AREA,
+        );
+        assert!(
+            app.home_page().activity_ratio() > before,
+            "dragging the gutter left widens the activity pane"
+        );
+        assert!(app.layout_needs_save());
+
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(
+                divider.saturating_sub(8),
+                row,
+                MouseEventKind::Up(MouseButton::Left),
+            ),
+            TEST_AREA,
+        );
+        assert!(app.home_page().divider_drag().is_none());
+    }
+
+    #[test]
     fn home_page_ignores_library_keys() {
-        let mut app = App::default();
+        let mut app = library_app();
         let home = nav_button(&app, NavRailItem::Home);
         handle_tui_mouse_event(&mut app, left_click(home.x + 2, home.y + 1), TEST_AREA);
 
@@ -3425,8 +3622,68 @@ mod tests {
     }
 
     #[test]
+    fn home_activity_keys_scroll_the_feed() {
+        let mut app = library_app();
+        let home = nav_button(&app, NavRailItem::Home);
+        handle_tui_mouse_event(&mut app, left_click(home.x + 2, home.y + 1), TEST_AREA);
+
+        let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
+        handle_tui_key_event(&mut app, key(KeyCode::Down));
+        assert_eq!(app.home_page().activity_scroll(), 1);
+        handle_tui_key_event(&mut app, key(KeyCode::PageDown));
+        assert_eq!(app.home_page().activity_scroll(), 2, "one-row page step");
+        handle_tui_key_event(&mut app, key(KeyCode::End));
+        assert_eq!(app.home_page().activity_scroll(), usize::MAX);
+        handle_tui_key_event(&mut app, key(KeyCode::Up));
+        assert_eq!(
+            app.home_page().activity_scroll(),
+            usize::MAX - 1,
+            "scrolling back from the end stays put until render clamps"
+        );
+        handle_tui_key_event(&mut app, key(KeyCode::Home));
+        assert_eq!(app.home_page().activity_scroll(), 0);
+    }
+
+    #[test]
+    fn home_wheel_over_the_activity_pane_scrolls_the_feed() {
+        let mut app = library_app();
+        let home = nav_button(&app, NavRailItem::Home);
+        handle_tui_mouse_event(&mut app, left_click(home.x + 2, home.y + 1), TEST_AREA);
+
+        let full = workspace_full(&app, TEST_AREA);
+        let split = home::split_home(full, app.home_page().activity_ratio());
+        let column = split.props.x + 2;
+        let row = full.y + 6;
+
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(column, row, MouseEventKind::ScrollDown),
+            TEST_AREA,
+        );
+        assert_eq!(app.home_page().activity_scroll(), 3);
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(column, row, MouseEventKind::ScrollUp),
+            TEST_AREA,
+        );
+        assert_eq!(app.home_page().activity_scroll(), 0);
+
+        let content_column = split.center.x + 2;
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(content_column, row, MouseEventKind::ScrollDown),
+            TEST_AREA,
+        );
+        assert_eq!(
+            app.home_page().activity_scroll(),
+            0,
+            "wheel over the content pane leaves the feed alone"
+        );
+    }
+
+    #[test]
     fn nav_rail_settings_icon_opens_the_settings_overlay() {
-        let mut app = App::default();
+        let mut app = library_app();
         let settings = nav_button(&app, NavRailItem::Settings);
         handle_tui_mouse_event(
             &mut app,
@@ -3438,7 +3695,7 @@ mod tests {
 
     #[test]
     fn nav_rail_edge_drag_reopens_after_a_collapsing_drag() {
-        let mut app = App::default();
+        let mut app = library_app();
         let divider = nav_rail::layout(TEST_AREA, false)
             .divider
             .expect("expanded divider");
@@ -3471,7 +3728,7 @@ mod tests {
 
     #[test]
     fn double_clicking_the_nav_divider_collapses_the_rail() {
-        let mut app = App::default();
+        let mut app = library_app();
         let divider = nav_rail::layout(TEST_AREA, false)
             .divider
             .expect("expanded divider");
@@ -3488,7 +3745,7 @@ mod tests {
 
     #[test]
     fn nav_rail_divider_drag_snaps_and_release_ends_the_drag() {
-        let mut app = App::default();
+        let mut app = library_app();
         let divider = nav_rail::layout(TEST_AREA, false)
             .divider
             .expect("expanded divider");
@@ -3519,7 +3776,7 @@ mod tests {
 
     #[test]
     fn nav_rail_hover_tracks_icons_and_clears_over_the_workspace() {
-        let mut app = App::default();
+        let mut app = library_app();
         let home = nav_button(&app, NavRailItem::Home);
         handle_tui_mouse_event(
             &mut app,
@@ -3534,7 +3791,7 @@ mod tests {
 
     #[test]
     fn hovering_header_toggle_sets_and_clears_hover() {
-        let mut app = App::default();
+        let mut app = library_app();
         seed_single_library_item(&mut app);
 
         let full = workspace_full(&app, TEST_AREA);
@@ -3564,7 +3821,7 @@ mod tests {
 
     #[test]
     fn create_divider_hover_tracks_the_line() {
-        let mut app = App::default();
+        let mut app = library_app();
         seed_single_library_item(&mut app);
         app.library_page_mut().open_create_modal();
         let full = workspace_full(&app, TEST_AREA);
@@ -3607,7 +3864,7 @@ mod tests {
 
     #[test]
     fn dragging_create_divider_resizes_panes_and_release_ends_it() {
-        let mut app = App::default();
+        let mut app = library_app();
         seed_single_library_item(&mut app);
         app.library_page_mut().open_create_modal();
         let full = workspace_full(&app, TEST_AREA);
@@ -3658,7 +3915,7 @@ mod tests {
 
     #[test]
     fn wheel_scroll_moves_settings_selection() {
-        let mut app = App::default();
+        let mut app = library_app();
         app.open_settings_overlay();
 
         handle_tui_mouse_event(
@@ -3672,7 +3929,7 @@ mod tests {
 
     #[test]
     fn wheel_scroll_moves_selection_while_search_focused() {
-        let mut app = App::default();
+        let mut app = library_app();
         app.open_settings_overlay();
         handle_tui_key_event(&mut app, plain_key('/'));
         assert!(app.settings_page().is_search_active());
@@ -3689,7 +3946,7 @@ mod tests {
 
     #[test]
     fn clicks_are_ignored_while_library_modal_is_open() {
-        let mut app = App::default();
+        let mut app = library_app();
         seed_single_library_item(&mut app);
         app.library_page_mut().open_delete_modal_for_selected();
         let selected_before = app.library_page().selected_index();
@@ -3702,7 +3959,7 @@ mod tests {
 
     #[test]
     fn delete_key_opens_confirm_for_selected_row() {
-        let mut app = App::default();
+        let mut app = library_app();
         seed_single_library_item(&mut app);
 
         handle_tui_key_event(&mut app, KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE));
@@ -3712,7 +3969,7 @@ mod tests {
 
     #[test]
     fn delete_key_while_settings_overlay_open_stays_in_settings() {
-        let mut app = App::default();
+        let mut app = library_app();
         seed_single_library_item(&mut app);
         app.open_settings_overlay();
 
@@ -3724,7 +3981,7 @@ mod tests {
 
     #[test]
     fn clicking_no_row_flips_delete_selection() {
-        let mut app = App::default();
+        let mut app = library_app();
         seed_single_library_item(&mut app);
         app.library_page_mut().open_delete_modal_for_selected();
         assert_eq!(app.library_page().delete_selected_yes(), Some(true));
@@ -3761,7 +4018,7 @@ mod tests {
 
     #[test]
     fn clicking_yes_row_selects_yes() {
-        let mut app = App::default();
+        let mut app = library_app();
         seed_single_library_item(&mut app);
         app.library_page_mut().open_delete_modal_for_selected();
         app.library_page_mut().set_delete_selected_yes(false);
@@ -3775,7 +4032,7 @@ mod tests {
 
     #[test]
     fn clicking_outside_delete_modal_cancels() {
-        let mut app = App::default();
+        let mut app = library_app();
         seed_single_library_item(&mut app);
         app.library_page_mut().open_delete_modal_for_selected();
 
@@ -3790,7 +4047,7 @@ mod tests {
 
     #[test]
     fn ctrl_n_opens_create_modal() {
-        let mut app = App::default();
+        let mut app = library_app();
         seed_single_library_item(&mut app);
 
         handle_tui_key_event(&mut app, ctrl_n());
@@ -3800,7 +4057,7 @@ mod tests {
 
     #[test]
     fn ctrl_n_blocked_while_library_modal_open() {
-        let mut app = App::default();
+        let mut app = library_app();
         seed_single_library_item(&mut app);
         app.library_page_mut().open_delete_modal_for_selected();
 
@@ -3814,7 +4071,7 @@ mod tests {
 
     #[test]
     fn ctrl_n_blocked_while_settings_overlay_open() {
-        let mut app = App::default();
+        let mut app = library_app();
         seed_single_library_item(&mut app);
         app.open_settings_overlay();
 
@@ -3830,7 +4087,7 @@ mod tests {
 
     #[test]
     fn ctrl_i_opens_the_import_modal() {
-        let mut app = App::default();
+        let mut app = library_app();
 
         handle_tui_key_event(&mut app, ctrl_key('i'));
 
@@ -3842,7 +4099,7 @@ mod tests {
 
     #[test]
     fn ctrl_e_opens_the_export_modal() {
-        let mut app = App::default();
+        let mut app = library_app();
 
         handle_tui_key_event(&mut app, ctrl_key('e'));
 
@@ -3854,7 +4111,7 @@ mod tests {
 
     #[test]
     fn ctrl_f_and_ctrl_d_toggle_the_panes() {
-        let mut app = App::default();
+        let mut app = library_app();
 
         handle_tui_key_event(&mut app, ctrl_key('f'));
         assert_eq!(app.library_page().split_ratio(), library::MIN_SPLIT_RATIO);
@@ -3875,7 +4132,7 @@ mod tests {
 
     #[test]
     fn ctrl_b_toggles_the_navigation_rail() {
-        let mut app = App::default();
+        let mut app = library_app();
 
         handle_tui_key_event(&mut app, ctrl_key('b'));
         assert!(app.nav_rail().collapsed);
@@ -3885,7 +4142,7 @@ mod tests {
 
     #[test]
     fn palette_toggles_panes_and_the_navigation_rail() {
-        let mut app = App::default();
+        let mut app = library_app();
 
         execute_palette_command(&mut app, palette::PaletteCommand::ToggleNavRail);
         assert!(app.nav_rail().collapsed);
@@ -3897,7 +4154,7 @@ mod tests {
 
     #[test]
     fn clicking_create_trigger_field_focuses_it() {
-        let mut app = App::default();
+        let mut app = library_app();
         seed_single_library_item(&mut app);
         app.library_page_mut().open_create_modal();
         // Move focus off the trigger so the click has to bring it back.
@@ -3926,7 +4183,7 @@ mod tests {
 
     #[test]
     fn clicking_create_description_field_focuses_it() {
-        let mut app = App::default();
+        let mut app = library_app();
         seed_single_library_item(&mut app);
         app.library_page_mut().open_create_modal();
         // Move focus to Content so the click has to bring it back.
@@ -3955,7 +4212,7 @@ mod tests {
 
     #[test]
     fn clicking_create_footer_does_nothing() {
-        let mut app = App::default();
+        let mut app = library_app();
         seed_single_library_item(&mut app);
         app.library_page_mut().open_create_modal();
 
@@ -3970,7 +4227,7 @@ mod tests {
 
     #[test]
     fn escape_closes_create_modal() {
-        let mut app = App::default();
+        let mut app = library_app();
         seed_single_library_item(&mut app);
         app.library_page_mut().open_create_modal();
 
@@ -3981,7 +4238,7 @@ mod tests {
 
     #[test]
     fn clicking_create_scrim_closes_modal() {
-        let mut app = App::default();
+        let mut app = library_app();
         seed_single_library_item(&mut app);
         app.library_page_mut().open_create_modal();
 
@@ -3992,7 +4249,7 @@ mod tests {
 
     #[test]
     fn clicking_create_esc_hint_closes_modal() {
-        let mut app = App::default();
+        let mut app = library_app();
         seed_single_library_item(&mut app);
         app.library_page_mut().open_create_modal();
         let full = workspace_full(&app, TEST_AREA);
@@ -4010,7 +4267,7 @@ mod tests {
 
     #[test]
     fn ctrl_c_starts_close_animation_from_library() {
-        let mut app = App::default();
+        let mut app = library_app();
 
         handle_tui_key_event(&mut app, ctrl_c());
 
@@ -4021,7 +4278,7 @@ mod tests {
 
     #[test]
     fn ctrl_c_starts_close_animation_while_search_is_active() {
-        let mut app = App::default();
+        let mut app = library_app();
         handle_tui_key_event(&mut app, plain_key('/'));
 
         handle_tui_key_event(&mut app, ctrl_c());
@@ -4033,7 +4290,7 @@ mod tests {
 
     #[test]
     fn ctrl_c_starts_close_animation_while_modal_is_open() {
-        let mut app = App::default();
+        let mut app = library_app();
         seed_single_library_item(&mut app);
         app.library_page_mut().open_delete_modal_for_selected();
         assert!(app.library_page().is_modal_open());
@@ -4047,7 +4304,7 @@ mod tests {
 
     #[test]
     fn second_ctrl_c_quits_immediately() {
-        let mut app = App::default();
+        let mut app = library_app();
         handle_tui_key_event(&mut app, ctrl_c());
         assert!(!app.should_quit());
 
@@ -4058,7 +4315,7 @@ mod tests {
 
     #[test]
     fn pressing_n_on_library_types_into_search_without_modal() {
-        let mut app = App::default();
+        let mut app = library_app();
 
         handle_tui_key_event(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         handle_tui_key_event(&mut app, plain_key('n'));

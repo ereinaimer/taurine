@@ -57,7 +57,9 @@ pub use calculator::{
     ExpansionStats, calculate_expansion_stats, calculate_time_saved_ms, count_words,
     fallback_words_from_chars,
 };
-pub use home::{HomeStats, MostUsedTrigger, load_home_stats, load_home_stats_with_limit};
+pub use home::{
+    HomeStats, MostUsedTrigger, RecentActivity, load_home_stats, load_home_stats_with_limit,
+};
 
 #[cfg(test)]
 mod tests {
