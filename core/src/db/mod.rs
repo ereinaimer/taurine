@@ -142,7 +142,7 @@ pub fn get_conn() -> Result<DbConnection, crate::error::Error> {
             crate::error::Error::Service(format!("Failed to open test connection: {}", e))
         })?;
         init::schema::ensure_schema(&conn).map_err(|e| {
-            crate::error::Error::Service(format!("Failed to run migrations in test conn: {}", e))
+            crate::error::Error::Service(format!("Failed to initialize schema in test conn: {}", e))
         })?;
         return Ok(DbConnection::Raw(conn));
     }
@@ -188,7 +188,7 @@ pub fn get_conn() -> Result<DbConnection, crate::error::Error> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Schema tests (verify migrations succeed and default values are correct)
+// Schema tests (verify schema creation succeeds and default values are correct)
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -310,33 +310,41 @@ mod tests {
         let now = 1_700_000_000_i64;
         conn.execute(
             "INSERT INTO stats (
-                date, executions, ai_executions, keystrokes_saved, time_saved_ms, updated_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            ("2026-03-30", 42_i64, 4_i64, 500_i64, 60_000_i64, now),
+                date, executions, ai_executions, words_spoken, words_expanded, time_saved_ms, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            ("2026-03-30", 42_i64, 4_i64, 50_i64, 500_i64, 60_000_i64, now),
         )
         .unwrap();
 
         let mut stmt = conn
             .prepare(
-                "SELECT executions, ai_executions, keystrokes_saved, time_saved_ms
+                "SELECT executions, ai_executions, words_spoken, words_expanded, time_saved_ms
                  FROM stats
                  WHERE date = ?1",
             )
             .unwrap();
-        let (executions, ai_executions, keystrokes, time_saved_ms): (i64, i64, i64, i64) = stmt
+        let (executions, ai_executions, words_spoken, words_expanded, time_saved_ms): (
+            i64,
+            i64,
+            i64,
+            i64,
+            i64,
+        ) = stmt
             .query_row(["2026-03-30"], |row| {
                 Ok((
                     row.get::<_, i64>(0)?,
                     row.get::<_, i64>(1)?,
                     row.get::<_, i64>(2)?,
                     row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)?,
                 ))
             })
             .unwrap();
 
         assert_eq!(executions, 42);
         assert_eq!(ai_executions, 4);
-        assert_eq!(keystrokes, 500);
+        assert_eq!(words_spoken, 50);
+        assert_eq!(words_expanded, 500);
         assert_eq!(time_saved_ms, 60_000);
     }
 

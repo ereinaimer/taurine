@@ -3,7 +3,7 @@ use super::{
     calculate_week_start_epoch, get_or_init_quota_ledger, record_quota_depletion,
     set_quota_balance_from_cloud,
 };
-use crate::db::init::migrate::run_migrations;
+use crate::db::init::ensure_schema;
 use chrono::NaiveDate;
 use rusqlite::Connection;
 
@@ -90,7 +90,7 @@ fn test_quota_hmac_computation_and_verification() {
 #[test]
 fn test_get_or_init_quota_ledger_seeds_initial_100() {
     let conn = Connection::open_in_memory().unwrap();
-    run_migrations(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
 
     let key = [7u8; 32];
     let now_epoch = 1_774_950_000;
@@ -117,7 +117,7 @@ fn test_get_or_init_quota_ledger_seeds_initial_100() {
 #[test]
 fn test_record_quota_depletion() {
     let conn = Connection::open_in_memory().unwrap();
-    run_migrations(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
 
     let key = [9u8; 32];
     let now_epoch = 1_774_950_000;
@@ -171,7 +171,7 @@ fn test_record_quota_depletion() {
 #[test]
 fn test_quota_ledger_fail_closed_on_tampered_balance() {
     let conn = Connection::open_in_memory().unwrap();
-    run_migrations(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
 
     let key = [13u8; 32];
     let now_epoch = 1_774_950_000;
@@ -204,7 +204,7 @@ fn test_quota_ledger_fail_closed_on_tampered_balance() {
 #[test]
 fn test_quota_ledger_fail_closed_on_tampered_signature() {
     let conn = Connection::open_in_memory().unwrap();
-    run_migrations(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
 
     let key = [17u8; 32];
     let now_epoch = 1_774_950_000;
@@ -230,7 +230,7 @@ fn test_quota_ledger_fail_closed_on_tampered_signature() {
 #[test]
 fn test_weekly_rollover_resets_balance() {
     let conn = Connection::open_in_memory().unwrap();
-    run_migrations(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
 
     let key = [23u8; 32];
     let week1_epoch = 1_774_950_000; // Week 1
@@ -260,7 +260,7 @@ fn test_weekly_rollover_resets_balance() {
 #[test]
 fn test_set_quota_balance_from_cloud() {
     let conn = Connection::open_in_memory().unwrap();
-    run_migrations(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
 
     let key = [31u8; 32];
     let now_epoch = 1_774_950_000;

@@ -51,16 +51,18 @@ pub use settings::{
     mark_settings_synced, reconcile_cloud_setting, upsert_setting,
 };
 pub use stats::{
-    AppStatRow, AppStatsSortBy, CloudTriggerDailyStatPayload, CloudUserAppStatPayload,
-    CloudUserStatPayload, StatDeltas, StatRow, TopAppStat, TopTriggerDailyStat,
-    TriggerDailyStatRow, TriggerStatEvent, delete_stat, format_app_display_name, get_stat,
-    get_stat_counters, get_top_app_stats_with_conn, get_top_triggers_daily_with_conn,
-    get_trigger_daily_stats_by_date, get_trigger_daily_stats_by_trigger, get_unsynced_app_stats,
-    get_unsynced_stats, get_unsynced_trigger_daily_stats, increment_stat, mark_app_stats_synced,
-    mark_stats_synced, mark_trigger_daily_stats_synced, record_calculation_usage,
-    record_trigger_stat, record_trigger_stat_with_conn, record_voice_dictation_usage,
-    record_voice_trigger_usage, resolve_trigger_id, upsert_app_stat_with_conn,
-    upsert_trigger_daily_stat_with_conn,
+    ActivityCategory, ActivityEventRow, AppStatRow, AppStatsSortBy, CloudActivityEventPayload,
+    CloudTriggerDailyStatPayload, CloudUserAppStatPayload, CloudUserStatPayload, NewActivityEvent,
+    StatDeltas, StatRow, StreakInfo, TopAppStat, TopTriggerDailyStat, TriggerDailyStatRow,
+    TriggerStatEvent, calculate_streaks, delete_stat, format_app_display_name, get_activity_events,
+    get_stat, get_stat_counters, get_top_app_stats_with_conn, get_top_triggers_daily_with_conn,
+    get_trigger_daily_stats_by_date, get_trigger_daily_stats_by_trigger,
+    get_unsynced_activity_events, get_unsynced_app_stats, get_unsynced_stats,
+    get_unsynced_trigger_daily_stats, increment_stat, insert_activity_event,
+    mark_activity_events_synced, mark_app_stats_synced, mark_stats_synced,
+    mark_trigger_daily_stats_synced, record_calculation_usage, record_trigger_stat,
+    record_trigger_stat_with_conn, record_voice_dictation_usage, record_voice_trigger_usage,
+    resolve_trigger_id, upsert_app_stat_with_conn, upsert_trigger_daily_stat_with_conn,
 };
 
 pub const SUPPORTED_TARGET_OS_VALUES: [&str; 6] = ["all", "win", "linux", "mac", "android", "ios"];

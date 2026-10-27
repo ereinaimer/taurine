@@ -66,8 +66,8 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
             executions       INTEGER DEFAULT 0,
             ai_executions    INTEGER DEFAULT 0,
             voice_executions INTEGER DEFAULT 0,
-            words_dictated   INTEGER DEFAULT 0,
-            keystrokes_saved INTEGER DEFAULT 0,
+            words_spoken     INTEGER DEFAULT 0,
+            words_expanded   INTEGER DEFAULT 0,
             time_saved_ms    INTEGER DEFAULT 0,
             version          INTEGER DEFAULT 1,
             is_synced        BOOLEAN NOT NULL DEFAULT 0,
@@ -135,7 +135,8 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
             app_key          TEXT    NOT NULL,
             date             TEXT    NOT NULL,
             executions       INTEGER NOT NULL DEFAULT 0,
-            keystrokes_saved INTEGER NOT NULL DEFAULT 0,
+            words_spoken     INTEGER NOT NULL DEFAULT 0,
+            words_expanded   INTEGER NOT NULL DEFAULT 0,
             time_saved_ms    INTEGER NOT NULL DEFAULT 0,
             version          INTEGER NOT NULL DEFAULT 1,
             is_synced        BOOLEAN NOT NULL DEFAULT 0,
@@ -148,17 +149,43 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
             date             TEXT    NOT NULL,
             app_key          TEXT    NOT NULL DEFAULT '',
             executions       INTEGER NOT NULL DEFAULT 0,
-            keystrokes_saved INTEGER NOT NULL DEFAULT 0,
+            words_spoken     INTEGER NOT NULL DEFAULT 0,
+            words_expanded   INTEGER NOT NULL DEFAULT 0,
             time_saved_ms    INTEGER NOT NULL DEFAULT 0,
             version          INTEGER NOT NULL DEFAULT 1,
             is_synced        BOOLEAN NOT NULL DEFAULT 0,
             updated_at       INTEGER NOT NULL DEFAULT (unixepoch()),
-            PRIMARY KEY (trigger_id, date, app_key),
-            FOREIGN KEY(trigger_id) REFERENCES triggers(id) ON DELETE CASCADE
+            PRIMARY KEY (trigger_id, date, app_key)
         );
 
         CREATE INDEX IF NOT EXISTS idx_trigger_daily_stats_sync
-            ON trigger_daily_stats(version, updated_at, is_synced);",
+            ON trigger_daily_stats(version, updated_at, is_synced);
+
+        CREATE TABLE IF NOT EXISTS activity_events (
+            id            TEXT    PRIMARY KEY,
+            trigger_id    TEXT,
+            timestamp     INTEGER NOT NULL,
+            date          TEXT    NOT NULL,
+            category      TEXT    NOT NULL,
+            app_key       TEXT    NOT NULL DEFAULT '',
+            word_count    INTEGER NOT NULL DEFAULT 0,
+            time_saved_ms INTEGER NOT NULL DEFAULT 0,
+            version       INTEGER NOT NULL DEFAULT 1,
+            is_synced     BOOLEAN NOT NULL DEFAULT 0,
+            created_at    INTEGER NOT NULL DEFAULT (unixepoch())
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_activity_events_date
+            ON activity_events(date);
+
+        CREATE INDEX IF NOT EXISTS idx_activity_events_timestamp
+            ON activity_events(timestamp DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_activity_events_sync
+            ON activity_events(version, is_synced);
+
+        CREATE INDEX IF NOT EXISTS idx_activity_events_trigger
+            ON activity_events(trigger_id);",
     )
     .map_err(|e| {
         if super::is_rusqlite_corrupt(&e) {
@@ -191,6 +218,34 @@ mod tests {
             table_exists,
             "app_stats table should be created by ensure_schema"
         );
+    }
+
+    #[test]
+    fn test_activity_events_table_created() {
+        let conn = Connection::open_in_memory().unwrap();
+        ensure_schema(&conn).unwrap();
+
+        let table_exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='activity_events')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        assert!(
+            table_exists,
+            "activity_events table should be created by ensure_schema"
+        );
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('activity_events') WHERE name IN ('id', 'trigger_id', 'timestamp', 'date', 'category', 'app_key', 'word_count', 'time_saved_ms', 'version', 'is_synced', 'created_at')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 11, "activity_events must contain all 11 columns");
     }
 
     #[test]
@@ -244,14 +299,14 @@ mod tests {
 
         let count: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('trigger_daily_stats') WHERE name IN ('trigger_id', 'date', 'app_key', 'executions', 'keystrokes_saved', 'time_saved_ms', 'version', 'is_synced', 'updated_at')",
+                "SELECT COUNT(*) FROM pragma_table_info('trigger_daily_stats') WHERE name IN ('trigger_id', 'date', 'app_key', 'executions', 'words_spoken', 'words_expanded', 'time_saved_ms', 'version', 'is_synced', 'updated_at')",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
         assert_eq!(
-            count, 9,
-            "trigger_daily_stats must contain all 9 expected columns"
+            count, 10,
+            "trigger_daily_stats must contain all 10 expected columns"
         );
 
         let settings_has_sync: bool = conn

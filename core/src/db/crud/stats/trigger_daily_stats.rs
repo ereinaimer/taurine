@@ -6,7 +6,8 @@ pub struct TriggerDailyStatRow {
     pub date: String,
     pub app_key: String,
     pub executions: u64,
-    pub keystrokes_saved: u64,
+    pub words_spoken: u64,
+    pub words_expanded: u64,
     pub time_saved_ms: u64,
     pub version: u64,
     pub is_synced: bool,
@@ -17,45 +18,51 @@ pub struct TriggerDailyStatRow {
 pub struct TopTriggerDailyStat {
     pub trigger_id: String,
     pub executions: u64,
-    pub keystrokes_saved: u64,
+    pub words_spoken: u64,
+    pub words_expanded: u64,
     pub time_saved_ms: u64,
 }
 
 fn map_trigger_daily_stat_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TriggerDailyStatRow> {
     let executions: i64 = row.get(3)?;
-    let keystrokes_saved: i64 = row.get(4)?;
-    let time_saved_ms: i64 = row.get(5)?;
-    let version: i64 = row.get(6)?;
+    let words_spoken: i64 = row.get(4)?;
+    let words_expanded: i64 = row.get(5)?;
+    let time_saved_ms: i64 = row.get(6)?;
+    let version: i64 = row.get(7)?;
     Ok(TriggerDailyStatRow {
         trigger_id: row.get(0)?,
         date: row.get(1)?,
         app_key: row.get(2)?,
         executions: executions.max(0) as u64,
-        keystrokes_saved: keystrokes_saved.max(0) as u64,
+        words_spoken: words_spoken.max(0) as u64,
+        words_expanded: words_expanded.max(0) as u64,
         time_saved_ms: time_saved_ms.max(0) as u64,
         version: version.max(0) as u64,
-        is_synced: row.get(7)?,
-        updated_at: row.get(8)?,
+        is_synced: row.get(8)?,
+        updated_at: row.get(9)?,
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn upsert_trigger_daily_stat_with_conn(
     conn: &Connection,
     trigger_id: &str,
     date: &str,
     app_key: &str,
     executions: u64,
-    keystrokes_saved: u64,
+    words_spoken: u64,
+    words_expanded: u64,
     time_saved_ms: u64,
 ) -> rusqlite::Result<()> {
     let now = crate::db::now_unix_secs();
     conn.execute(
         "INSERT INTO trigger_daily_stats (
-            trigger_id, date, app_key, executions, keystrokes_saved, time_saved_ms, version, is_synced, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, 0, ?7)
+            trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version, is_synced, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, 0, ?8)
         ON CONFLICT(trigger_id, date, app_key) DO UPDATE SET
             executions       = trigger_daily_stats.executions + excluded.executions,
-            keystrokes_saved = trigger_daily_stats.keystrokes_saved + excluded.keystrokes_saved,
+            words_spoken     = trigger_daily_stats.words_spoken + excluded.words_spoken,
+            words_expanded   = trigger_daily_stats.words_expanded + excluded.words_expanded,
             time_saved_ms    = trigger_daily_stats.time_saved_ms + excluded.time_saved_ms,
             version          = trigger_daily_stats.version + 1,
             is_synced        = 0,
@@ -65,7 +72,8 @@ pub fn upsert_trigger_daily_stat_with_conn(
             date,
             app_key,
             executions as i64,
-            keystrokes_saved as i64,
+            words_spoken as i64,
+            words_expanded as i64,
             time_saved_ms as i64,
             now,
         ],
@@ -79,7 +87,7 @@ pub fn get_trigger_daily_stats_by_trigger(
     limit: usize,
 ) -> rusqlite::Result<Vec<TriggerDailyStatRow>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT trigger_id, date, app_key, executions, keystrokes_saved, time_saved_ms, version, is_synced, updated_at
+        "SELECT trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version, is_synced, updated_at
          FROM trigger_daily_stats
          WHERE trigger_id = ?1
          ORDER BY date DESC, executions DESC
@@ -102,7 +110,7 @@ pub fn get_trigger_daily_stats_by_date(
     date: &str,
 ) -> rusqlite::Result<Vec<TriggerDailyStatRow>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT trigger_id, date, app_key, executions, keystrokes_saved, time_saved_ms, version, is_synced, updated_at
+        "SELECT trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version, is_synced, updated_at
          FROM trigger_daily_stats
          WHERE date = ?1
          ORDER BY executions DESC",
@@ -127,7 +135,7 @@ pub fn get_top_triggers_daily_with_conn(
     };
 
     let mut stmt = conn.prepare_cached(
-        "SELECT trigger_id, SUM(executions) as executions, SUM(keystrokes_saved) as keystrokes_saved, SUM(time_saved_ms) as time_saved_ms
+        "SELECT trigger_id, SUM(executions) as executions, SUM(words_spoken) as words_spoken, SUM(words_expanded) as words_expanded, SUM(time_saved_ms) as time_saved_ms
          FROM trigger_daily_stats
          WHERE (?1 IS NULL OR date >= ?1) AND (?2 IS NULL OR date <= ?2)
          GROUP BY trigger_id
@@ -136,12 +144,14 @@ pub fn get_top_triggers_daily_with_conn(
     )?;
     let rows = stmt.query_map(params![start_date, end_date, limit as i64], |row| {
         let executions: i64 = row.get(1)?;
-        let keystrokes_saved: i64 = row.get(2)?;
-        let time_saved_ms: i64 = row.get(3)?;
+        let words_spoken: i64 = row.get(2)?;
+        let words_expanded: i64 = row.get(3)?;
+        let time_saved_ms: i64 = row.get(4)?;
         Ok(TopTriggerDailyStat {
             trigger_id: row.get(0)?,
             executions: executions.max(0) as u64,
-            keystrokes_saved: keystrokes_saved.max(0) as u64,
+            words_spoken: words_spoken.max(0) as u64,
+            words_expanded: words_expanded.max(0) as u64,
             time_saved_ms: time_saved_ms.max(0) as u64,
         })
     })?;
@@ -158,7 +168,7 @@ pub fn get_unsynced_trigger_daily_stats(
     limit: usize,
 ) -> rusqlite::Result<Vec<TriggerDailyStatRow>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT trigger_id, date, app_key, executions, keystrokes_saved, time_saved_ms, version, is_synced, updated_at
+        "SELECT trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version, is_synced, updated_at
          FROM trigger_daily_stats
          WHERE is_synced = 0
          ORDER BY updated_at ASC
@@ -193,13 +203,13 @@ pub fn mark_trigger_daily_stats_synced(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::init::migrate::run_migrations;
+    use crate::db::init::ensure_schema;
     use rusqlite::Connection;
 
     fn setup_test_db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
-        run_migrations(&conn).unwrap();
-        // Insert dummy triggers for foreign key references
+        ensure_schema(&conn).unwrap();
+        // Insert dummy triggers for references
         conn.execute(
             "INSERT INTO triggers (id, description, output, created_at, updated_at) VALUES ('trig-1', 'test_trig', 'output', 100, 100)",
             [],
@@ -211,8 +221,17 @@ mod tests {
     fn test_upsert_and_retrieve_trigger_daily_stat() {
         let conn = setup_test_db();
 
-        upsert_trigger_daily_stat_with_conn(&conn, "trig-1", "2026-10-05", "code.exe", 1, 20, 1500)
-            .unwrap();
+        upsert_trigger_daily_stat_with_conn(
+            &conn,
+            "trig-1",
+            "2026-10-05",
+            "code.exe",
+            1,
+            0,
+            20,
+            1500,
+        )
+        .unwrap();
 
         let rows = get_trigger_daily_stats_by_trigger(&conn, "trig-1", 10).unwrap();
         assert_eq!(rows.len(), 1);
@@ -220,19 +239,30 @@ mod tests {
         assert_eq!(rows[0].date, "2026-10-05");
         assert_eq!(rows[0].app_key, "code.exe");
         assert_eq!(rows[0].executions, 1);
-        assert_eq!(rows[0].keystrokes_saved, 20);
+        assert_eq!(rows[0].words_spoken, 0);
+        assert_eq!(rows[0].words_expanded, 20);
         assert_eq!(rows[0].time_saved_ms, 1500);
         assert_eq!(rows[0].version, 1);
         assert!(!rows[0].is_synced);
 
         // Second upsert accumulates counters and increments version
-        upsert_trigger_daily_stat_with_conn(&conn, "trig-1", "2026-10-05", "code.exe", 2, 40, 3000)
-            .unwrap();
+        upsert_trigger_daily_stat_with_conn(
+            &conn,
+            "trig-1",
+            "2026-10-05",
+            "code.exe",
+            2,
+            5,
+            40,
+            3000,
+        )
+        .unwrap();
 
         let rows = get_trigger_daily_stats_by_trigger(&conn, "trig-1", 10).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].executions, 3);
-        assert_eq!(rows[0].keystrokes_saved, 60);
+        assert_eq!(rows[0].words_spoken, 5);
+        assert_eq!(rows[0].words_expanded, 60);
         assert_eq!(rows[0].time_saved_ms, 4500);
         assert_eq!(rows[0].version, 2);
     }
@@ -251,20 +281,39 @@ mod tests {
             "2026-10-05",
             "chrome.exe",
             10,
+            0,
             100,
             5000,
         )
         .unwrap();
-        upsert_trigger_daily_stat_with_conn(&conn, "trig-1", "2026-10-05", "code.exe", 5, 50, 2500)
-            .unwrap();
-        upsert_trigger_daily_stat_with_conn(&conn, "trig-2", "2026-10-05", "code.exe", 2, 20, 1000)
-            .unwrap();
+        upsert_trigger_daily_stat_with_conn(
+            &conn,
+            "trig-1",
+            "2026-10-05",
+            "code.exe",
+            5,
+            0,
+            50,
+            2500,
+        )
+        .unwrap();
+        upsert_trigger_daily_stat_with_conn(
+            &conn,
+            "trig-2",
+            "2026-10-05",
+            "code.exe",
+            2,
+            0,
+            20,
+            1000,
+        )
+        .unwrap();
 
         let top = get_top_triggers_daily_with_conn(&conn, None, 10).unwrap();
         assert_eq!(top.len(), 2);
         assert_eq!(top[0].trigger_id, "trig-1");
         assert_eq!(top[0].executions, 15);
-        assert_eq!(top[0].keystrokes_saved, 150);
+        assert_eq!(top[0].words_expanded, 150);
         assert_eq!(top[0].time_saved_ms, 7500);
 
         assert_eq!(top[1].trigger_id, "trig-2");
@@ -285,14 +334,33 @@ mod tests {
             "2026-10-01",
             "chrome.exe",
             10,
+            0,
             100,
             5000,
         )
         .unwrap();
-        upsert_trigger_daily_stat_with_conn(&conn, "trig-1", "2026-10-05", "code.exe", 5, 50, 2500)
-            .unwrap();
-        upsert_trigger_daily_stat_with_conn(&conn, "trig-2", "2026-10-03", "code.exe", 8, 80, 4000)
-            .unwrap();
+        upsert_trigger_daily_stat_with_conn(
+            &conn,
+            "trig-1",
+            "2026-10-05",
+            "code.exe",
+            5,
+            0,
+            50,
+            2500,
+        )
+        .unwrap();
+        upsert_trigger_daily_stat_with_conn(
+            &conn,
+            "trig-2",
+            "2026-10-03",
+            "code.exe",
+            8,
+            0,
+            80,
+            4000,
+        )
+        .unwrap();
 
         // Range covering only 2026-10-01 to 2026-10-03
         let top = get_top_triggers_daily_with_conn(&conn, Some(("2026-10-01", "2026-10-03")), 10)
@@ -326,6 +394,7 @@ mod tests {
             "2026-10-05",
             "code.exe",
             10,
+            0,
             100,
             5000,
         )
@@ -336,6 +405,7 @@ mod tests {
             "2026-10-05",
             "chrome.exe",
             25,
+            0,
             250,
             12500,
         )
@@ -346,6 +416,7 @@ mod tests {
             "2026-10-04",
             "code.exe",
             30,
+            0,
             300,
             15000,
         )
@@ -363,8 +434,17 @@ mod tests {
     #[test]
     fn test_unsynced_and_mark_synced() {
         let conn = setup_test_db();
-        upsert_trigger_daily_stat_with_conn(&conn, "trig-1", "2026-10-05", "code.exe", 1, 10, 500)
-            .unwrap();
+        upsert_trigger_daily_stat_with_conn(
+            &conn,
+            "trig-1",
+            "2026-10-05",
+            "code.exe",
+            1,
+            0,
+            10,
+            500,
+        )
+        .unwrap();
 
         let unsynced = get_unsynced_trigger_daily_stats(&conn, 10).unwrap();
         assert_eq!(unsynced.len(), 1);

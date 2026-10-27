@@ -6,7 +6,8 @@ const DEFAULT_MOST_USED_LIMIT: usize = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct HomeStats {
-    pub keystrokes_saved: u64,
+    pub words_spoken: u64,
+    pub words_expanded: u64,
     pub time_saved_ms: u64,
     pub expansions_run: u64,
     pub most_used_words: Vec<MostUsedTrigger>,
@@ -27,10 +28,11 @@ pub fn load_home_stats(conn: &Connection) -> crate::Result<HomeStats> {
 }
 
 pub fn load_home_stats_with_limit(conn: &Connection, limit: usize) -> crate::Result<HomeStats> {
-    let (expansions_run, keystrokes_saved, time_saved_ms) = conn.query_row(
+    let (expansions_run, words_spoken, words_expanded, time_saved_ms) = conn.query_row(
         "SELECT
-            COALESCE(SUM(executions + ai_executions), 0),
-            COALESCE(SUM(keystrokes_saved), 0),
+            COALESCE(SUM(executions + ai_executions + voice_executions), 0),
+            COALESCE(SUM(words_spoken), 0),
+            COALESCE(SUM(words_expanded), 0),
             COALESCE(SUM(time_saved_ms), 0)
          FROM stats",
         [],
@@ -39,6 +41,7 @@ pub fn load_home_stats_with_limit(conn: &Connection, limit: usize) -> crate::Res
                 row.get::<_, i64>(0)?,
                 row.get::<_, i64>(1)?,
                 row.get::<_, i64>(2)?,
+                row.get::<_, i64>(3)?,
             ))
         },
     )?;
@@ -53,7 +56,8 @@ pub fn load_home_stats_with_limit(conn: &Connection, limit: usize) -> crate::Res
     )?;
 
     Ok(HomeStats {
-        keystrokes_saved: keystrokes_saved.max(0) as u64,
+        words_spoken: words_spoken.max(0) as u64,
+        words_expanded: words_expanded.max(0) as u64,
         time_saved_ms: time_saved_ms.max(0) as u64,
         expansions_run: expansions_run.max(0) as u64,
         most_used_words,
@@ -163,7 +167,8 @@ mod tests {
 
         let stats = load_home_stats(&conn).unwrap();
 
-        assert_eq!(stats.keystrokes_saved, 0);
+        assert_eq!(stats.words_spoken, 0);
+        assert_eq!(stats.words_expanded, 0);
         assert_eq!(stats.time_saved_ms, 0);
         assert_eq!(stats.expansions_run, 0);
         assert!(stats.most_used_words.is_empty());
@@ -180,7 +185,8 @@ mod tests {
             "2026-04-01",
             &StatDeltas {
                 executions: 4,
-                keystrokes_saved: 120,
+                words_spoken: 50,
+                words_expanded: 120,
                 time_saved_ms: 180_000,
                 ..Default::default()
             },
@@ -192,7 +198,8 @@ mod tests {
             &StatDeltas {
                 executions: 2,
                 ai_executions: 1,
-                keystrokes_saved: 30,
+                words_spoken: 10,
+                words_expanded: 30,
                 time_saved_ms: 60_000,
                 ..Default::default()
             },
@@ -225,7 +232,8 @@ mod tests {
         let stats = load_home_stats(&conn).unwrap();
 
         assert_eq!(stats.expansions_run, 7);
-        assert_eq!(stats.keystrokes_saved, 150);
+        assert_eq!(stats.words_spoken, 60);
+        assert_eq!(stats.words_expanded, 150);
         assert_eq!(stats.time_saved_ms, 240_000);
         assert_eq!(stats.most_used_words.len(), 1);
         assert_eq!(stats.most_used_words[0].display, "gs");

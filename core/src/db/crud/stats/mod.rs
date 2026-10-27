@@ -1,14 +1,20 @@
+pub mod activity_events;
 pub mod app_stats;
 mod recorder;
 mod stat_delete;
 mod stat_get;
 mod stat_set;
 mod stat_types;
+pub mod streak;
 pub mod sync_helpers;
 pub mod trigger_daily_stats;
 
 use crate::stats::TriggerStatKind;
 
+pub use activity_events::{
+    ActivityCategory, ActivityEventRow, NewActivityEvent, get_activity_events,
+    get_unsynced_activity_events, insert_activity_event, mark_activity_events_synced,
+};
 pub use app_stats::{
     AppStatRow, AppStatsSortBy, TopAppStat, format_app_display_name, get_top_app_stats_with_conn,
     upsert_app_stat_with_conn,
@@ -21,9 +27,11 @@ pub use stat_delete::delete_stat;
 pub use stat_get::{get_stat, get_stat_counters};
 pub use stat_set::increment_stat;
 pub use stat_types::{StatDeltas, StatRow};
+pub use streak::{StreakInfo, calculate_streaks};
 pub use sync_helpers::{
-    CloudTriggerDailyStatPayload, CloudUserAppStatPayload, CloudUserStatPayload,
-    get_unsynced_app_stats, get_unsynced_stats, mark_app_stats_synced, mark_stats_synced,
+    CloudActivityEventPayload, CloudTriggerDailyStatPayload, CloudUserAppStatPayload,
+    CloudUserStatPayload, get_unsynced_app_stats, get_unsynced_stats, mark_app_stats_synced,
+    mark_stats_synced,
 };
 pub use trigger_daily_stats::{
     TopTriggerDailyStat, TriggerDailyStatRow, get_top_triggers_daily_with_conn,
@@ -88,8 +96,8 @@ mod tests {
                 executions: 42,
                 ai_executions: 3,
                 voice_executions: 5,
-                words_dictated: 50,
-                keystrokes_saved: 500,
+                words_spoken: 50,
+                words_expanded: 500,
                 time_saved_ms: 60000,
             },
         )
@@ -100,8 +108,8 @@ mod tests {
         assert_eq!(row.executions, 42);
         assert_eq!(row.ai_executions, 3);
         assert_eq!(row.voice_executions, 5);
-        assert_eq!(row.words_dictated, 50);
-        assert_eq!(row.keystrokes_saved, 500);
+        assert_eq!(row.words_spoken, 50);
+        assert_eq!(row.words_expanded, 500);
         assert_eq!(row.time_saved_ms, 60000);
         assert_eq!(row.version, 1);
         assert!(row.updated_at > 0);
@@ -118,7 +126,7 @@ mod tests {
             &StatDeltas {
                 executions: 1,
                 ai_executions: 1,
-                keystrokes_saved: 10,
+                words_expanded: 10,
                 time_saved_ms: 1000,
                 ..Default::default()
             },
@@ -131,8 +139,8 @@ mod tests {
                 executions: 2,
                 ai_executions: 3,
                 voice_executions: 2,
-                words_dictated: 20,
-                keystrokes_saved: 20,
+                words_spoken: 20,
+                words_expanded: 20,
                 time_saved_ms: 2000,
             },
         )
@@ -143,8 +151,8 @@ mod tests {
         assert_eq!(row.executions, 3);
         assert_eq!(row.ai_executions, 4);
         assert_eq!(row.voice_executions, 2);
-        assert_eq!(row.words_dictated, 20);
-        assert_eq!(row.keystrokes_saved, 30);
+        assert_eq!(row.words_spoken, 20);
+        assert_eq!(row.words_expanded, 30);
         assert_eq!(row.time_saved_ms, 3000);
     }
 
@@ -159,7 +167,7 @@ mod tests {
             &StatDeltas {
                 executions: 5,
                 ai_executions: 1,
-                keystrokes_saved: 123,
+                words_expanded: 123,
                 time_saved_ms: 4567,
                 ..Default::default()
             },
@@ -180,7 +188,7 @@ mod tests {
             "2026-03-30",
             &StatDeltas {
                 executions: 42,
-                keystrokes_saved: 500,
+                words_expanded: 500,
                 time_saved_ms: 12345,
                 ..Default::default()
             },
@@ -210,7 +218,7 @@ mod tests {
             "2026-03-30",
             &StatDeltas {
                 executions: 42,
-                keystrokes_saved: 500,
+                words_expanded: 500,
                 time_saved_ms: 12345,
                 ..Default::default()
             },
@@ -238,7 +246,7 @@ mod tests {
                 kind: TriggerStatKind::InlineAi,
                 wpm: Some(60),
                 app: None,
-                words_count: None,
+                words_count: Some(2),
             },
         )
         .unwrap();
@@ -246,14 +254,14 @@ mod tests {
         let row = get_stat(&conn, &crate::stats::get_current_date_string())
             .unwrap()
             .unwrap();
-        assert_eq!(row.executions, 0);
+        assert_eq!(row.executions, 1);
         assert_eq!(row.ai_executions, 1);
-        assert_eq!(row.keystrokes_saved, 0);
-        assert_eq!(row.time_saved_ms, 0);
+        assert_eq!(row.words_expanded, 2);
+        assert!(row.time_saved_ms > 0);
     }
 
     #[test]
-    fn recorder_updates_usage_count_and_typed_savings() {
+    fn recorder_updates_usage_count_and_expanded_words() {
         init_tracing_for_tests();
         let (_dir, mut conn) = open_test_db();
 
@@ -282,7 +290,7 @@ mod tests {
                 kind: TriggerStatKind::Snippet,
                 wpm: Some(60),
                 app: None,
-                words_count: None,
+                words_count: Some(20),
             },
         )
         .unwrap();
@@ -292,7 +300,7 @@ mod tests {
             .unwrap();
         assert_eq!(row.executions, 1);
         assert_eq!(row.ai_executions, 0);
-        assert_eq!(row.keystrokes_saved, 98);
+        assert_eq!(row.words_expanded, 20);
         assert!(row.time_saved_ms > 0);
 
         let trigger = crate::db::crud::get_trigger(&conn, "uuid-stat-recorder")
@@ -302,10 +310,11 @@ mod tests {
     }
 
     #[test]
-    fn recorder_tracks_hotkey_and_script_events_with_zero_savings() {
+    fn recorder_tracks_hotkey_text_expansions_with_proper_savings() {
         init_tracing_for_tests();
         let (_dir, mut conn) = open_test_db();
 
+        // Hotkey that injects text should record words and time saved
         record_trigger_stat_with_conn(
             &mut conn,
             &TriggerStatEvent {
@@ -317,11 +326,12 @@ mod tests {
                 kind: TriggerStatKind::Hotkey,
                 wpm: Some(60),
                 app: None,
-                words_count: None,
+                words_count: Some(30),
             },
         )
         .unwrap();
 
+        // Script that has 0 output should record 0 words and 0 time saved
         record_trigger_stat_with_conn(
             &mut conn,
             &TriggerStatEvent {
@@ -329,11 +339,11 @@ mod tests {
                 trigger: None,
                 trigger_chars: 0,
                 success: true,
-                output_chars: 200,
+                output_chars: 0,
                 kind: TriggerStatKind::Script,
                 wpm: Some(60),
                 app: None,
-                words_count: None,
+                words_count: Some(0),
             },
         )
         .unwrap();
@@ -343,8 +353,8 @@ mod tests {
             .unwrap();
         assert_eq!(row.executions, 2);
         assert_eq!(row.ai_executions, 0);
-        assert_eq!(row.keystrokes_saved, 0);
-        assert_eq!(row.time_saved_ms, 0);
+        assert_eq!(row.words_expanded, 30);
+        assert!(row.time_saved_ms > 0);
     }
 
     #[test]
@@ -363,7 +373,7 @@ mod tests {
                 kind: TriggerStatKind::Snippet,
                 wpm: Some(60),
                 app: Some("google-chrome.exe".to_string()),
-                words_count: None,
+                words_count: Some(10),
             },
         )
         .unwrap();
@@ -373,7 +383,7 @@ mod tests {
         assert_eq!(top[0].app_key, "google-chrome.exe");
         assert_eq!(top[0].display_name, "Google Chrome");
         assert_eq!(top[0].executions, 1);
-        assert_eq!(top[0].keystrokes_saved, 48);
+        assert_eq!(top[0].words_expanded, 10);
     }
 
     #[test]
@@ -381,7 +391,7 @@ mod tests {
         init_tracing_for_tests();
         let (_dir, mut conn) = open_test_db();
 
-        // 1. Record voice trigger
+        // 1. Record voice trigger (expands snippet)
         record_trigger_stat_with_conn(
             &mut conn,
             &TriggerStatEvent {
@@ -393,12 +403,12 @@ mod tests {
                 kind: TriggerStatKind::VoiceTrigger,
                 wpm: Some(60),
                 app: None,
-                words_count: None,
+                words_count: Some(10),
             },
         )
         .unwrap();
 
-        // 2. Record voice dictation
+        // 2. Record voice dictation (speaks words)
         record_trigger_stat_with_conn(
             &mut conn,
             &TriggerStatEvent {
@@ -421,8 +431,8 @@ mod tests {
         assert_eq!(row.executions, 0);
         assert_eq!(row.ai_executions, 0);
         assert_eq!(row.voice_executions, 2);
-        assert_eq!(row.words_dictated, 25);
-        assert_eq!(row.keystrokes_saved, (50 - 12) + 120);
+        assert_eq!(row.words_spoken, 25);
+        assert_eq!(row.words_expanded, 10);
         assert!(row.time_saved_ms > 0);
     }
 }

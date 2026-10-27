@@ -2,7 +2,9 @@ use rusqlite::Connection;
 
 use crate::db::crud::triggers::increment_usage_count_by_trigger;
 use crate::settings::Settings;
-use crate::stats::{TriggerStatKind, calculate_expansion_stats, get_current_date_string};
+use crate::stats::{
+    TriggerStatKind, calculate_time_saved_ms, fallback_words_from_chars, get_current_date_string,
+};
 
 use super::{StatDeltas, increment_stat};
 
@@ -173,53 +175,76 @@ pub fn record_trigger_stat_with_conn(
     let date = get_current_date_string();
     let tx = conn.transaction()?;
 
+    let words_resolved = event
+        .words_count
+        .unwrap_or_else(|| fallback_words_from_chars(event.output_chars));
+    let effective_speed = effective_wpm(&tx, event.wpm);
+
     let deltas = match event.kind {
-        TriggerStatKind::InlineAi => StatDeltas {
-            ai_executions: 1,
-            ..Default::default()
-        },
+        TriggerStatKind::InlineAi => {
+            let time_saved_ms = calculate_time_saved_ms(words_resolved, effective_speed);
+            StatDeltas {
+                ai_executions: 1,
+                executions: 1,
+                words_expanded: words_resolved as i64,
+                time_saved_ms,
+                ..Default::default()
+            }
+        }
         TriggerStatKind::VoiceTrigger => {
-            let stats = calculate_expansion_stats(
-                event.output_chars,
-                event.trigger_chars,
-                effective_wpm(&tx, event.wpm),
-            );
+            let time_saved_ms = calculate_time_saved_ms(words_resolved, effective_speed);
             StatDeltas {
                 voice_executions: 1,
-                keystrokes_saved: stats.keystrokes_saved,
-                time_saved_ms: stats.time_saved_ms,
+                words_expanded: words_resolved as i64,
+                time_saved_ms,
                 ..Default::default()
             }
         }
         TriggerStatKind::VoiceDictation => {
-            let words = event.words_count.unwrap_or(0);
-            let stats =
-                calculate_expansion_stats(event.output_chars, 0, effective_wpm(&tx, event.wpm));
+            let time_saved_ms = calculate_time_saved_ms(words_resolved, effective_speed);
             StatDeltas {
                 voice_executions: 1,
-                words_dictated: words as i64,
-                keystrokes_saved: stats.keystrokes_saved,
-                time_saved_ms: stats.time_saved_ms,
+                words_spoken: words_resolved as i64,
+                time_saved_ms,
                 ..Default::default()
             }
         }
         TriggerStatKind::Snippet | TriggerStatKind::Calculation => {
-            let stats = calculate_expansion_stats(
-                event.output_chars,
-                event.trigger_chars,
-                effective_wpm(&tx, event.wpm),
-            );
+            let time_saved_ms = calculate_time_saved_ms(words_resolved, effective_speed);
             StatDeltas {
                 executions: 1,
-                keystrokes_saved: stats.keystrokes_saved,
-                time_saved_ms: stats.time_saved_ms,
+                words_expanded: words_resolved as i64,
+                time_saved_ms,
                 ..Default::default()
             }
         }
-        TriggerStatKind::Hotkey | TriggerStatKind::Script => StatDeltas {
-            executions: 1,
-            ..Default::default()
-        },
+        // Fix telemetry gap: hotkey-bound text expansions properly calculate and log words and time saved
+        TriggerStatKind::Hotkey => {
+            let time_saved_ms = if words_resolved > 0 {
+                calculate_time_saved_ms(words_resolved, effective_speed)
+            } else {
+                0
+            };
+            StatDeltas {
+                executions: 1,
+                words_expanded: words_resolved as i64,
+                time_saved_ms,
+                ..Default::default()
+            }
+        }
+        TriggerStatKind::Script => {
+            let time_saved_ms = if words_resolved > 0 {
+                calculate_time_saved_ms(words_resolved, effective_speed)
+            } else {
+                0
+            };
+            StatDeltas {
+                executions: 1,
+                words_expanded: words_resolved as i64,
+                time_saved_ms,
+                ..Default::default()
+            }
+        }
     };
 
     let resolved_id = resolve_trigger_id(&tx, event)?;
@@ -241,7 +266,8 @@ pub fn record_trigger_stat_with_conn(
             &date,
             app_key,
             trigger_executions,
-            deltas.keystrokes_saved.max(0) as u64,
+            deltas.words_spoken.max(0) as u64,
+            deltas.words_expanded.max(0) as u64,
             deltas.time_saved_ms.max(0) as u64,
         )?;
     } else if let Some(trigger) = event.trigger.as_deref() {
@@ -265,10 +291,39 @@ pub fn record_trigger_stat_with_conn(
             app_key,
             &date,
             app_executions,
-            deltas.keystrokes_saved.max(0) as u64,
+            deltas.words_spoken.max(0) as u64,
+            deltas.words_expanded.max(0) as u64,
             deltas.time_saved_ms.max(0) as u64,
         )?;
     }
+
+    // Insert event-level logging into activity_events
+    let category = match event.kind {
+        TriggerStatKind::Snippet | TriggerStatKind::Calculation | TriggerStatKind::InlineAi => {
+            super::activity_events::ActivityCategory::Text
+        }
+        TriggerStatKind::VoiceTrigger | TriggerStatKind::VoiceDictation => {
+            super::activity_events::ActivityCategory::Voice
+        }
+        TriggerStatKind::Hotkey => super::activity_events::ActivityCategory::Hotkey,
+        TriggerStatKind::Script => super::activity_events::ActivityCategory::Script,
+    };
+    let event_word_count = (deltas.words_spoken + deltas.words_expanded).max(0) as u64;
+    let event_time_saved = deltas.time_saved_ms.max(0) as u64;
+
+    super::activity_events::insert_activity_event(
+        &tx,
+        &super::activity_events::NewActivityEvent {
+            id: None,
+            trigger_id: resolved_id,
+            timestamp: None,
+            date: Some(date),
+            category,
+            app_key: event.app.clone(),
+            word_count: event_word_count,
+            time_saved_ms: event_time_saved,
+        },
+    )?;
 
     tx.commit()?;
     Ok(())
@@ -337,7 +392,7 @@ mod tests {
             kind: TriggerStatKind::Snippet,
             wpm: Some(60),
             app: Some("code.exe".to_string()),
-            words_count: None,
+            words_count: Some(4),
         };
 
         record_trigger_stat_with_conn(&mut conn, &event).unwrap();
@@ -348,7 +403,59 @@ mod tests {
         assert_eq!(daily_stats[0].trigger_id, "trig-abc");
         assert_eq!(daily_stats[0].app_key, "code.exe");
         assert_eq!(daily_stats[0].executions, 1);
-        assert!(daily_stats[0].keystrokes_saved > 0);
+        assert_eq!(daily_stats[0].words_expanded, 4);
+        assert!(daily_stats[0].time_saved_ms > 0);
+
+        // Also check that activity_events received a log
+        let events = crate::db::crud::get_activity_events(&conn, 10, 0).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].trigger_id.as_deref(), Some("trig-abc"));
+        assert_eq!(events[0].word_count, 4);
+        assert_eq!(events[0].category, crate::db::crud::ActivityCategory::Text);
+    }
+
+    #[test]
+    fn test_hotkey_text_expansion_records_words_and_time_saved() {
+        let (_dir, mut conn) = crate::testing::open_test_db();
+
+        conn.execute(
+            "INSERT INTO triggers (id, description, output, created_at, updated_at) VALUES ('trig-hk', 'hk test', 'output text', 100, 100)",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO trigger_aliases (id, trigger_id, invocation, invocation_type, created_at) VALUES ('alias-hk', 'trig-hk', 'ctrl+shift+v', 'hotkey', 100)",
+            [],
+        ).unwrap();
+
+        let event = TriggerStatEvent {
+            trigger_id: None,
+            trigger: Some("ctrl+shift+v".to_string()),
+            trigger_chars: 12,
+            success: true,
+            output_chars: 25,
+            kind: TriggerStatKind::Hotkey,
+            wpm: Some(60),
+            app: Some("terminal.exe".to_string()),
+            words_count: Some(5),
+        };
+
+        record_trigger_stat_with_conn(&mut conn, &event).unwrap();
+
+        let daily_stats =
+            crate::db::crud::get_trigger_daily_stats_by_trigger(&conn, "trig-hk", 10).unwrap();
+        assert_eq!(daily_stats.len(), 1);
+        assert_eq!(daily_stats[0].executions, 1);
+        assert_eq!(daily_stats[0].words_expanded, 5);
+        assert!(daily_stats[0].time_saved_ms > 0);
+
+        let events = crate::db::crud::get_activity_events(&conn, 10, 0).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0].category,
+            crate::db::crud::ActivityCategory::Hotkey
+        );
+        assert_eq!(events[0].word_count, 5);
+        assert!(events[0].time_saved_ms > 0);
     }
 
     #[test]
@@ -553,7 +660,7 @@ mod tests {
             kind: TriggerStatKind::Snippet,
             wpm: Some(60),
             app: Some("editor.exe".to_string()),
-            words_count: None,
+            words_count: Some(4),
         };
 
         record_trigger_stat_with_conn(&mut conn, &event).unwrap();
@@ -563,6 +670,6 @@ mod tests {
             crate::db::crud::get_trigger_daily_stats_by_trigger(&conn, "trig-accum", 10).unwrap();
         assert_eq!(daily_stats.len(), 1);
         assert_eq!(daily_stats[0].executions, 2);
-        assert_eq!(daily_stats[0].keystrokes_saved, (20 - 4) * 2);
+        assert_eq!(daily_stats[0].words_expanded, 8);
     }
 }

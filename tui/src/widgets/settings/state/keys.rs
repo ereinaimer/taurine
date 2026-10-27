@@ -84,7 +84,7 @@ impl SettingKeyMeta for SettingKey {
             Self::InlineCaseTransformEnabled => {
                 "Use Left and Right arrows to cycle through capitalization cases of expanded text within the undo window"
             }
-            Self::Wpm => "Used to estimate time saved from keystrokes saved",
+            Self::Wpm => "Used to estimate time saved from words expanded and spoken",
             Self::SpinnerStyle => "Animation style used while Taurine is processing",
             Self::AiProvider => "Default AI provider used for inline AI",
             Self::AiModel => "Default AI model used for inline AI",

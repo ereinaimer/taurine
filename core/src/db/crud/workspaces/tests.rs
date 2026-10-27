@@ -1,13 +1,13 @@
 use crate::db::crud::workspaces::{
     create_workspace, get_default_workspace, get_workspace_by_id, get_workspaces,
 };
-use crate::db::init::migrate::run_migrations;
+use crate::db::init::ensure_schema;
 use rusqlite::Connection;
 
 #[test]
 fn test_workspaces_schema_and_default_seed() {
     let conn = Connection::open_in_memory().unwrap();
-    run_migrations(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
     let default_ws = get_default_workspace(&conn).unwrap();
     assert_eq!(default_ws.id, "default");
     assert_eq!(default_ws.name, "Personal");
@@ -22,7 +22,7 @@ fn test_workspaces_schema_and_default_seed() {
 #[test]
 fn test_create_and_get_workspaces() {
     let conn = Connection::open_in_memory().unwrap();
-    run_migrations(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
     crate::db::crud::tier::set_user_tier(&conn, crate::db::crud::tier::UserTier::Pro).unwrap();
 
     let created = create_workspace(&conn, "Work").unwrap();
@@ -45,7 +45,7 @@ fn test_create_and_get_workspaces() {
 #[test]
 fn test_create_workspace_rejects_empty_name() {
     let conn = Connection::open_in_memory().unwrap();
-    run_migrations(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
 
     let err = create_workspace(&conn, "   ").unwrap_err();
     match err {
@@ -59,7 +59,7 @@ fn test_create_workspace_rejects_empty_name() {
 #[test]
 fn test_quota_ledger_table_exists() {
     let conn = Connection::open_in_memory().unwrap();
-    run_migrations(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
 
     let exists: bool = conn
         .query_row(
@@ -68,7 +68,10 @@ fn test_quota_ledger_table_exists() {
             |row| row.get(0),
         )
         .unwrap();
-    assert!(exists, "quota_ledger table should exist after migration");
+    assert!(
+        exists,
+        "quota_ledger table should exist after schema creation"
+    );
 
     let cols: Vec<String> = conn
         .prepare("PRAGMA table_info(quota_ledger)")
@@ -89,7 +92,7 @@ fn test_quota_ledger_table_exists() {
 #[test]
 fn test_triggers_schema_has_workspace_id_and_index() {
     let conn = Connection::open_in_memory().unwrap();
-    run_migrations(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
 
     let cols: Vec<String> = conn
         .prepare("PRAGMA table_info(triggers)")
@@ -117,7 +120,7 @@ fn test_triggers_schema_has_workspace_id_and_index() {
 #[test]
 fn test_get_workspace_by_id() {
     let conn = Connection::open_in_memory().unwrap();
-    run_migrations(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
 
     let found = get_workspace_by_id(&conn, "default").unwrap().unwrap();
     assert_eq!(found.id, "default");
@@ -130,7 +133,7 @@ fn test_get_workspace_by_id() {
 #[test]
 fn test_delete_workspace_marks_deleted() {
     let conn = Connection::open_in_memory().unwrap();
-    run_migrations(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
     crate::db::crud::tier::set_user_tier(&conn, crate::db::crud::tier::UserTier::Pro).unwrap();
 
     let ws = create_workspace(&conn, "To Delete").unwrap();
@@ -144,7 +147,7 @@ fn test_delete_workspace_marks_deleted() {
 #[test]
 fn test_delete_default_workspace_rejected() {
     let conn = Connection::open_in_memory().unwrap();
-    run_migrations(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
 
     let err = super::delete_workspace(&conn, "default").unwrap_err();
     match err {

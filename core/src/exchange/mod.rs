@@ -438,12 +438,13 @@ mod tests {
         insert_text_trigger(&conn);
         conn.execute(
             "INSERT INTO stats (
-                date, executions, ai_executions, keystrokes_saved, time_saved_ms, updated_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                date, executions, ai_executions, words_spoken, words_expanded, time_saved_ms, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             (
                 "2026-04-01",
                 5_i64,
                 2_i64,
+                10_i64,
                 50_i64,
                 10_000_i64,
                 1_700_000_000_i64,

@@ -1,6 +1,7 @@
 use rusqlite::{Connection, Result};
 use serde::{Deserialize, Serialize};
 
+use super::activity_events::ActivityEventRow;
 use super::{AppStatRow, StatRow, TriggerDailyStatRow};
 
 /// Daily aggregated statistics for a specific trigger, formatted for cloud synchronization.
@@ -10,7 +11,8 @@ pub struct CloudTriggerDailyStatPayload {
     pub date: String,
     pub app_key: String,
     pub executions: u64,
-    pub keystrokes_saved: u64,
+    pub words_spoken: u64,
+    pub words_expanded: u64,
     pub time_saved_ms: u64,
     pub version: u64,
 }
@@ -22,7 +24,8 @@ impl From<TriggerDailyStatRow> for CloudTriggerDailyStatPayload {
             date: row.date,
             app_key: row.app_key,
             executions: row.executions,
-            keystrokes_saved: row.keystrokes_saved,
+            words_spoken: row.words_spoken,
+            words_expanded: row.words_expanded,
             time_saved_ms: row.time_saved_ms,
             version: row.version,
         }
@@ -36,7 +39,8 @@ impl From<&TriggerDailyStatRow> for CloudTriggerDailyStatPayload {
             date: row.date.clone(),
             app_key: row.app_key.clone(),
             executions: row.executions,
-            keystrokes_saved: row.keystrokes_saved,
+            words_spoken: row.words_spoken,
+            words_expanded: row.words_expanded,
             time_saved_ms: row.time_saved_ms,
             version: row.version,
         }
@@ -50,8 +54,8 @@ pub struct CloudUserStatPayload {
     pub executions: i64,
     pub ai_executions: i64,
     pub voice_executions: i64,
-    pub words_dictated: i64,
-    pub keystrokes_saved: i64,
+    pub words_spoken: i64,
+    pub words_expanded: i64,
     pub time_saved_ms: i64,
     pub version: i64,
 }
@@ -63,8 +67,8 @@ impl From<StatRow> for CloudUserStatPayload {
             executions: row.executions,
             ai_executions: row.ai_executions,
             voice_executions: row.voice_executions,
-            words_dictated: row.words_dictated,
-            keystrokes_saved: row.keystrokes_saved,
+            words_spoken: row.words_spoken,
+            words_expanded: row.words_expanded,
             time_saved_ms: row.time_saved_ms,
             version: row.version,
         }
@@ -78,8 +82,8 @@ impl From<&StatRow> for CloudUserStatPayload {
             executions: row.executions,
             ai_executions: row.ai_executions,
             voice_executions: row.voice_executions,
-            words_dictated: row.words_dictated,
-            keystrokes_saved: row.keystrokes_saved,
+            words_spoken: row.words_spoken,
+            words_expanded: row.words_expanded,
             time_saved_ms: row.time_saved_ms,
             version: row.version,
         }
@@ -92,7 +96,8 @@ pub struct CloudUserAppStatPayload {
     pub app_key: String,
     pub date: String,
     pub executions: u64,
-    pub keystrokes_saved: u64,
+    pub words_spoken: u64,
+    pub words_expanded: u64,
     pub time_saved_ms: u64,
     pub version: u64,
 }
@@ -103,7 +108,8 @@ impl From<AppStatRow> for CloudUserAppStatPayload {
             app_key: row.app_key,
             date: row.date,
             executions: row.executions,
-            keystrokes_saved: row.keystrokes_saved,
+            words_spoken: row.words_spoken,
+            words_expanded: row.words_expanded,
             time_saved_ms: row.time_saved_ms,
             version: row.version,
         }
@@ -116,7 +122,54 @@ impl From<&AppStatRow> for CloudUserAppStatPayload {
             app_key: row.app_key.clone(),
             date: row.date.clone(),
             executions: row.executions,
-            keystrokes_saved: row.keystrokes_saved,
+            words_spoken: row.words_spoken,
+            words_expanded: row.words_expanded,
+            time_saved_ms: row.time_saved_ms,
+            version: row.version,
+        }
+    }
+}
+
+/// Event-level user action formatted for cloud synchronization.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudActivityEventPayload {
+    pub id: String,
+    pub trigger_id: Option<String>,
+    pub timestamp: i64,
+    pub date: String,
+    pub category: String,
+    pub app_key: String,
+    pub word_count: u64,
+    pub time_saved_ms: u64,
+    pub version: u64,
+}
+
+impl From<ActivityEventRow> for CloudActivityEventPayload {
+    fn from(row: ActivityEventRow) -> Self {
+        Self {
+            id: row.id,
+            trigger_id: row.trigger_id,
+            timestamp: row.timestamp,
+            date: row.date,
+            category: row.category.as_str().to_string(),
+            app_key: row.app_key,
+            word_count: row.word_count,
+            time_saved_ms: row.time_saved_ms,
+            version: row.version,
+        }
+    }
+}
+
+impl From<&ActivityEventRow> for CloudActivityEventPayload {
+    fn from(row: &ActivityEventRow) -> Self {
+        Self {
+            id: row.id.clone(),
+            trigger_id: row.trigger_id.clone(),
+            timestamp: row.timestamp,
+            date: row.date.clone(),
+            category: row.category.as_str().to_string(),
+            app_key: row.app_key.clone(),
+            word_count: row.word_count,
             time_saved_ms: row.time_saved_ms,
             version: row.version,
         }
@@ -127,7 +180,7 @@ impl From<&AppStatRow> for CloudUserAppStatPayload {
 /// ordered chronologically by `updated_at` ascending.
 pub fn get_unsynced_stats(conn: &Connection, limit: usize) -> Result<Vec<StatRow>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT date, executions, ai_executions, voice_executions, words_dictated, keystrokes_saved, time_saved_ms, version, updated_at
+        "SELECT date, executions, ai_executions, voice_executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
          FROM stats
          WHERE is_synced = 0
          ORDER BY updated_at ASC
@@ -139,8 +192,8 @@ pub fn get_unsynced_stats(conn: &Connection, limit: usize) -> Result<Vec<StatRow
             executions: row.get(1)?,
             ai_executions: row.get(2)?,
             voice_executions: row.get(3)?,
-            words_dictated: row.get(4)?,
-            keystrokes_saved: row.get(5)?,
+            words_spoken: row.get(4)?,
+            words_expanded: row.get(5)?,
             time_saved_ms: row.get(6)?,
             version: row.get(7)?,
             updated_at: row.get(8)?,
@@ -171,7 +224,7 @@ pub fn mark_stats_synced(conn: &Connection, dates: &[&str]) -> Result<()> {
 /// ordered chronologically by `updated_at` ascending.
 pub fn get_unsynced_app_stats(conn: &Connection, limit: usize) -> Result<Vec<AppStatRow>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT app_key, date, executions, keystrokes_saved, time_saved_ms, version, updated_at
+        "SELECT app_key, date, executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
          FROM app_stats
          WHERE is_synced = 0
          ORDER BY updated_at ASC
@@ -179,17 +232,19 @@ pub fn get_unsynced_app_stats(conn: &Connection, limit: usize) -> Result<Vec<App
     )?;
     let rows = stmt.query_map(rusqlite::params![limit as i64], |row| {
         let executions: i64 = row.get(2)?;
-        let keystrokes_saved: i64 = row.get(3)?;
-        let time_saved_ms: i64 = row.get(4)?;
-        let version: i64 = row.get(5)?;
+        let words_spoken: i64 = row.get(3)?;
+        let words_expanded: i64 = row.get(4)?;
+        let time_saved_ms: i64 = row.get(5)?;
+        let version: i64 = row.get(6)?;
         Ok(AppStatRow {
             app_key: row.get(0)?,
             date: row.get(1)?,
             executions: executions.max(0) as u64,
-            keystrokes_saved: keystrokes_saved.max(0) as u64,
+            words_spoken: words_spoken.max(0) as u64,
+            words_expanded: words_expanded.max(0) as u64,
             time_saved_ms: time_saved_ms.max(0) as u64,
             version: version.max(0) as u64,
-            updated_at: row.get(6)?,
+            updated_at: row.get(7)?,
         })
     })?;
 
@@ -219,12 +274,12 @@ mod tests {
     use super::*;
     use crate::db::crud::StatDeltas;
     use crate::db::crud::increment_stat;
-    use crate::db::init::migrate::run_migrations;
+    use crate::db::init::ensure_schema;
     use rusqlite::Connection;
 
     fn setup_test_db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
-        run_migrations(&conn).unwrap();
+        ensure_schema(&conn).unwrap();
         conn
     }
 
@@ -237,6 +292,7 @@ mod tests {
             "2026-10-05",
             &StatDeltas {
                 executions: 5,
+                words_expanded: 10,
                 ..Default::default()
             },
         )
@@ -246,6 +302,7 @@ mod tests {
         assert_eq!(unsynced.len(), 1);
         assert_eq!(unsynced[0].date, "2026-10-05");
         assert_eq!(unsynced[0].executions, 5);
+        assert_eq!(unsynced[0].words_expanded, 10);
 
         mark_stats_synced(&conn, &["2026-10-05"]).unwrap();
 
@@ -257,13 +314,22 @@ mod tests {
     fn test_unsynced_app_stats_and_mark_synced() {
         let conn = setup_test_db();
 
-        crate::db::crud::upsert_app_stat_with_conn(&conn, "code.exe", "2026-10-05", 10, 100, 5000)
-            .unwrap();
+        crate::db::crud::upsert_app_stat_with_conn(
+            &conn,
+            "code.exe",
+            "2026-10-05",
+            10,
+            0,
+            100,
+            5000,
+        )
+        .unwrap();
 
         let unsynced = get_unsynced_app_stats(&conn, 10).unwrap();
         assert_eq!(unsynced.len(), 1);
         assert_eq!(unsynced[0].app_key, "code.exe");
         assert_eq!(unsynced[0].date, "2026-10-05");
+        assert_eq!(unsynced[0].words_expanded, 100);
 
         mark_app_stats_synced(&conn, &[("code.exe", "2026-10-05")]).unwrap();
 
@@ -286,7 +352,8 @@ mod tests {
             date: "2026-10-05".to_string(),
             app_key: "chrome.exe".to_string(),
             executions: 42,
-            keystrokes_saved: 500,
+            words_spoken: 5,
+            words_expanded: 500,
             time_saved_ms: 15000,
             version: 3,
             is_synced: false,
@@ -297,7 +364,8 @@ mod tests {
         assert_eq!(payload_trigger.date, "2026-10-05");
         assert_eq!(payload_trigger.app_key, "chrome.exe");
         assert_eq!(payload_trigger.executions, 42);
-        assert_eq!(payload_trigger.keystrokes_saved, 500);
+        assert_eq!(payload_trigger.words_spoken, 5);
+        assert_eq!(payload_trigger.words_expanded, 500);
         assert_eq!(payload_trigger.time_saved_ms, 15000);
         assert_eq!(payload_trigger.version, 3);
 
@@ -312,8 +380,8 @@ mod tests {
             executions: 10,
             ai_executions: 2,
             voice_executions: 3,
-            words_dictated: 45,
-            keystrokes_saved: 300,
+            words_spoken: 45,
+            words_expanded: 300,
             time_saved_ms: 8000,
             version: 2,
             updated_at: 1728123456,
@@ -323,8 +391,8 @@ mod tests {
         assert_eq!(payload_stat.executions, 10);
         assert_eq!(payload_stat.ai_executions, 2);
         assert_eq!(payload_stat.voice_executions, 3);
-        assert_eq!(payload_stat.words_dictated, 45);
-        assert_eq!(payload_stat.keystrokes_saved, 300);
+        assert_eq!(payload_stat.words_spoken, 45);
+        assert_eq!(payload_stat.words_expanded, 300);
         assert_eq!(payload_stat.time_saved_ms, 8000);
         assert_eq!(payload_stat.version, 2);
 
@@ -337,7 +405,8 @@ mod tests {
             app_key: "code.exe".to_string(),
             date: "2026-10-05".to_string(),
             executions: 15,
-            keystrokes_saved: 120,
+            words_spoken: 0,
+            words_expanded: 120,
             time_saved_ms: 6000,
             version: 1,
             updated_at: 1728123456,
@@ -346,7 +415,8 @@ mod tests {
         assert_eq!(payload_app.app_key, "code.exe");
         assert_eq!(payload_app.date, "2026-10-05");
         assert_eq!(payload_app.executions, 15);
-        assert_eq!(payload_app.keystrokes_saved, 120);
+        assert_eq!(payload_app.words_spoken, 0);
+        assert_eq!(payload_app.words_expanded, 120);
         assert_eq!(payload_app.time_saved_ms, 6000);
         assert_eq!(payload_app.version, 1);
 
@@ -393,15 +463,23 @@ mod tests {
     fn test_subsequent_app_stat_upsert_resets_is_synced_and_bumps_version() {
         let conn = setup_test_db();
 
-        crate::db::crud::upsert_app_stat_with_conn(&conn, "code.exe", "2026-10-05", 5, 50, 2500)
+        crate::db::crud::upsert_app_stat_with_conn(&conn, "code.exe", "2026-10-05", 5, 0, 50, 2500)
             .unwrap();
 
         mark_app_stats_synced(&conn, &[("code.exe", "2026-10-05")]).unwrap();
         assert_eq!(get_unsynced_app_stats(&conn, 10).unwrap().len(), 0);
 
         // Subsequent upsert should mark unsynced again and bump version
-        crate::db::crud::upsert_app_stat_with_conn(&conn, "code.exe", "2026-10-05", 10, 100, 5000)
-            .unwrap();
+        crate::db::crud::upsert_app_stat_with_conn(
+            &conn,
+            "code.exe",
+            "2026-10-05",
+            10,
+            0,
+            100,
+            5000,
+        )
+        .unwrap();
 
         let unsynced = get_unsynced_app_stats(&conn, 10).unwrap();
         assert_eq!(unsynced.len(), 1);

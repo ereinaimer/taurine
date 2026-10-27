@@ -182,6 +182,20 @@ pub(crate) fn dispatch_expansion_with<I, L>(
         delete_count,
         step_count, has_follow_up, track_usage, "Starting expansion dispatch"
     );
+    let words_count = {
+        let mut text_buf = String::new();
+        for s in &steps {
+            if let taurine_core::engine::variables::ExpansionStep::Text(t) = s {
+                text_buf.push_str(t);
+                text_buf.push(' ');
+            }
+        }
+        if text_buf.trim().is_empty() {
+            None
+        } else {
+            Some(taurine_core::stats::count_words(&text_buf))
+        }
+    };
     let injection = inject_expansion(steps, delete_count, spinner_style);
     trace!(
         delete_count,
@@ -214,7 +228,7 @@ pub(crate) fn dispatch_expansion_with<I, L>(
             },
             wpm: None,
             app,
-            words_count: None,
+            words_count,
         });
     }
 }

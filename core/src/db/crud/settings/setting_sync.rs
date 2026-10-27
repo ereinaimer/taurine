@@ -156,12 +156,12 @@ pub fn reconcile_cloud_setting(
 mod tests {
     use super::*;
     use crate::db::crud::upsert_setting;
-    use crate::db::init::migrate::run_migrations;
+    use crate::db::init::ensure_schema;
     use rusqlite::Connection;
 
     fn setup_test_db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
-        run_migrations(&conn).unwrap();
+        ensure_schema(&conn).unwrap();
         conn
     }
 

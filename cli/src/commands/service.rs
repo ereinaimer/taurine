@@ -91,7 +91,7 @@ pub fn execute_status(json: bool) -> Result<(), Error> {
 }
 
 fn start_on_boot_preference() -> Result<bool, Error> {
-    // Open the DB (idempotent: runs migrations + seeds if needed) and
+    // Open the DB (idempotent: initializes schema + seeds if needed) and
     // read the user's start_on_boot preference before handing off to
     // the platform service layer.
     use taurine_core::db::init;

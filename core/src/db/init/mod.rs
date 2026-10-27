@@ -1,6 +1,7 @@
-pub mod migrate;
 pub mod schema;
 pub mod seed;
+
+pub use schema::ensure_schema;
 
 use crate::error::Result;
 use crate::paths::{ensure_data_dir, get_db_path};
@@ -9,7 +10,7 @@ use std::path::{Path, PathBuf};
 use tracing::{error, warn};
 
 /// Initializes the primary SQLite database at the configured default path,
-/// applying migrations and seeding default settings.
+/// ensuring the schema and seeding default settings.
 ///
 /// If the database file is corrupted (e.g. disk image is malformed or unreadable),
 /// the file and its associated WAL/SHM artifacts are automatically quarantined

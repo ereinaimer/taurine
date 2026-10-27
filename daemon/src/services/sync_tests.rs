@@ -6,7 +6,7 @@ use taurine_core::db::crud::triggers::{
     list_aliases, purge_deleted_tombstones, reconcile_cloud_snippet,
     serialize_trigger_to_cloud_snippet,
 };
-use taurine_core::db::init::migrate::run_migrations;
+use taurine_core::db::init::ensure_schema;
 
 use super::sync_worker::{SyncStatus, SyncWorker};
 
@@ -97,7 +97,7 @@ fn test_sync_serializes_multi_trigger_aliases() {
 #[test]
 fn test_lww_remote_newer_overwrites_local_and_aliases() {
     let conn = Connection::open_in_memory().unwrap();
-    run_migrations(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
 
     let trigger_id = "test-trig-1";
     // Insert local trigger at version 1
@@ -205,7 +205,7 @@ fn test_lww_remote_newer_overwrites_local_and_aliases() {
 #[test]
 fn test_lww_local_newer_preserved() {
     let conn = Connection::open_in_memory().unwrap();
-    run_migrations(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
 
     let trigger_id = "test-trig-2";
     // Local trigger at version 3, updated_at 3000
@@ -280,7 +280,7 @@ fn test_lww_local_newer_preserved() {
 #[test]
 fn test_sync_reconciles_soft_delete_tombstone() {
     let conn = Connection::open_in_memory().unwrap();
-    run_migrations(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
 
     let trigger_id = "test-trig-3";
     // Local active trigger at version 1, updated_at 1000, is_deleted = 0
@@ -345,7 +345,7 @@ fn test_sync_reconciles_soft_delete_tombstone() {
 #[test]
 fn test_tombstone_gc_purges_old_deleted_rows() {
     let conn = Connection::open_in_memory().unwrap();
-    run_migrations(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
 
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -424,7 +424,7 @@ fn test_tombstone_gc_purges_old_deleted_rows() {
 #[allow(clippy::await_holding_lock)]
 async fn test_sync_worker_skips_when_unauthenticated() {
     let conn = Connection::open_in_memory().unwrap();
-    run_migrations(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
 
     // Test with None client
     let status_no_client = SyncWorker::run_sync_cycle(&conn, None).await;
@@ -464,7 +464,7 @@ async fn test_sync_worker_authenticated_two_way_cycle() {
     taurine_core::cloud::store_tokens(&tokens).unwrap();
 
     let conn = Connection::open_in_memory().unwrap();
-    run_migrations(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
 
     // Insert an unsynced local trigger (is_synced = 0)
     conn.execute(
@@ -593,7 +593,7 @@ async fn test_sync_worker_flushes_quota_to_db() {
     crate::hook::tests::mock_keystore::use_mock_keystore();
 
     let conn = Connection::open_in_memory().unwrap();
-    run_migrations(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
     let key = [42u8; 32];
     let now_epoch = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -639,7 +639,7 @@ async fn test_sync_worker_proactive_token_refresh() {
     taurine_core::cloud::store_tokens(&initial_tokens).unwrap();
 
     let conn = Connection::open_in_memory().unwrap();
-    run_migrations(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
 
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -728,7 +728,7 @@ async fn test_sync_worker_reactive_refresh_on_401() {
     taurine_core::cloud::store_tokens(&initial_tokens).unwrap();
 
     let conn = Connection::open_in_memory().unwrap();
-    run_migrations(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
 
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -820,7 +820,7 @@ async fn test_sync_settings_with_strict_allowlist_ignores_sensitive_and_hardware
     taurine_core::cloud::store_tokens(&tokens).unwrap();
 
     let conn = Connection::open_in_memory().unwrap();
-    run_migrations(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
 
     // Inserts local wpm (syncable), voice_input_device (hardware), and scripts_enabled (security)
     taurine_core::db::crud::upsert_setting(&conn, "wpm", "120").unwrap();
@@ -959,7 +959,7 @@ async fn test_sync_trigger_daily_stats_and_global_stats_upload() {
     taurine_core::cloud::store_tokens(&tokens).unwrap();
 
     let conn = Connection::open_in_memory().unwrap();
-    run_migrations(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
 
     // Insert dummy trigger for foreign key reference
     conn.execute(
@@ -975,6 +975,7 @@ async fn test_sync_trigger_daily_stats_and_global_stats_upload() {
         "2026-10-05",
         "code.exe",
         5,
+        0,
         100,
         2500,
     )
@@ -986,7 +987,7 @@ async fn test_sync_trigger_daily_stats_and_global_stats_upload() {
         "2026-10-05",
         &taurine_core::db::crud::StatDeltas {
             executions: 5,
-            keystrokes_saved: 100,
+            words_expanded: 100,
             time_saved_ms: 2500,
             ..Default::default()
         },
@@ -999,8 +1000,25 @@ async fn test_sync_trigger_daily_stats_and_global_stats_upload() {
         "code.exe",
         "2026-10-05",
         5,
+        0,
         100,
         2500,
+    )
+    .unwrap();
+
+    // Insert unsynced activity event
+    taurine_core::db::crud::insert_activity_event(
+        &conn,
+        &taurine_core::db::crud::NewActivityEvent {
+            id: Some("evt-sync-1".to_string()),
+            trigger_id: Some("trig-stat-1".to_string()),
+            timestamp: Some(1728123456000),
+            date: Some("2026-10-05".to_string()),
+            category: taurine_core::db::crud::ActivityCategory::Text,
+            app_key: Some("code.exe".to_string()),
+            word_count: 20,
+            time_saved_ms: 500,
+        },
     )
     .unwrap();
 
@@ -1012,7 +1030,7 @@ async fn test_sync_trigger_daily_stats_and_global_stats_upload() {
         use std::io::{Read, Write};
         let start = std::time::Instant::now();
         let mut handled = 0;
-        while handled < 5 && start.elapsed() < std::time::Duration::from_secs(3) {
+        while handled < 6 && start.elapsed() < std::time::Duration::from_secs(3) {
             match listener.accept() {
                 Ok((mut stream, _)) => {
                     let _ = stream.set_nonblocking(false);
@@ -1044,6 +1062,11 @@ async fn test_sync_trigger_daily_stats_and_global_stats_upload() {
                         assert!(req.contains("code.exe"));
                         let resp = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
                         stream.write_all(resp.as_bytes()).unwrap();
+                    } else if req.starts_with("POST /rest/v1/activity_events") {
+                        assert!(req.contains("resolution=merge-duplicates"));
+                        assert!(req.contains("evt-sync-1"));
+                        let resp = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                        stream.write_all(resp.as_bytes()).unwrap();
                     }
                     handled += 1;
                 }
@@ -1069,7 +1092,7 @@ async fn test_sync_trigger_daily_stats_and_global_stats_upload() {
             pushed_snippets: 0,
             pulled_settings: 0,
             pushed_settings: 0,
-            pushed_stats: 3,
+            pushed_stats: 4,
         }
     );
 
@@ -1091,6 +1114,12 @@ async fn test_sync_trigger_daily_stats_and_global_stats_upload() {
             .unwrap()
             .is_empty(),
         "app_stats must be marked synced"
+    );
+    assert!(
+        taurine_core::db::crud::get_unsynced_activity_events(&conn, 10)
+            .unwrap()
+            .is_empty(),
+        "activity_events must be marked synced"
     );
 
     let _ = server_handle.join();

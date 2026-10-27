@@ -54,7 +54,8 @@ fn get_current_date_string_uncached() -> String {
 }
 
 pub use calculator::{
-    ExpansionStats, calculate_expansion_stats, calculate_saved_keystrokes, calculate_time_saved_ms,
+    ExpansionStats, calculate_expansion_stats, calculate_time_saved_ms, count_words,
+    fallback_words_from_chars,
 };
 pub use home::{HomeStats, MostUsedTrigger, load_home_stats, load_home_stats_with_limit};
 

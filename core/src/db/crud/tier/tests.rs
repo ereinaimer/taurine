@@ -1,7 +1,7 @@
 use super::*;
 use crate::db::crud::triggers::{InvocationType, NewEntry, create_entry};
 use crate::db::crud::workspaces::create_workspace;
-use crate::db::init::migrate::run_migrations;
+use crate::db::init::ensure_schema;
 use rusqlite::Connection;
 
 fn make_entry(trigger: &str) -> NewEntry {
@@ -46,7 +46,7 @@ fn test_user_tier_serde_and_default() {
 #[test]
 fn test_get_and_set_user_tier() {
     let conn = Connection::open_in_memory().unwrap();
-    run_migrations(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
 
     assert_eq!(get_user_tier(&conn), UserTier::Free);
 
@@ -66,7 +66,7 @@ fn test_get_and_set_user_tier() {
 #[test]
 fn test_free_tier_allows_unlimited_snippets() {
     let conn = Connection::open_in_memory().unwrap();
-    run_migrations(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
 
     for i in 1..=35 {
         let entry = make_entry(&format!(":snip{i}"));
@@ -89,7 +89,7 @@ fn test_free_tier_allows_unlimited_snippets() {
 #[test]
 fn test_free_tier_allows_multiple_workspaces() {
     let conn = Connection::open_in_memory().unwrap();
-    run_migrations(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
 
     assert!(create_workspace(&conn, "Secondary").is_ok());
     assert!(create_workspace(&conn, "Tertiary").is_ok());
@@ -98,7 +98,7 @@ fn test_free_tier_allows_multiple_workspaces() {
 #[test]
 fn test_set_user_tier_free_does_not_pause_snippets() {
     let conn = Connection::open_in_memory().unwrap();
-    run_migrations(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
 
     set_user_tier(&conn, UserTier::Pro).unwrap();
 
@@ -122,7 +122,7 @@ fn test_set_user_tier_free_does_not_pause_snippets() {
 #[test]
 fn test_free_tier_can_enable_any_snippet() {
     let conn = Connection::open_in_memory().unwrap();
-    run_migrations(&conn).unwrap();
+    ensure_schema(&conn).unwrap();
 
     set_user_tier(&conn, UserTier::Pro).unwrap();
     for i in 1..=30 {

@@ -1460,7 +1460,7 @@ fn test_record_expansion_usage_updates_trigger_and_stats() {
             .unwrap();
     assert_eq!(executions, 1);
     assert_eq!(ai_executions, 0);
-    assert_eq!(saved, 12);
+    assert_eq!(saved, 2);
     assert!(time_saved_ms > 0);
 }
 

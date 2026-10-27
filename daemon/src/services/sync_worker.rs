@@ -6,11 +6,12 @@ use taurine_core::db::crud::triggers::{
     serialize_trigger_to_cloud_snippet,
 };
 use taurine_core::db::crud::{
-    CloudSettingPayload, CloudTriggerDailyStatPayload, CloudUserAppStatPayload,
-    CloudUserStatPayload, SettingReconcileOutcome, get_unsynced_app_stats, get_unsynced_settings,
-    get_unsynced_stats, get_unsynced_trigger_daily_stats, mark_app_stats_synced,
-    mark_settings_synced, mark_stats_synced, mark_trigger_daily_stats_synced,
-    reconcile_cloud_setting,
+    CloudActivityEventPayload, CloudSettingPayload, CloudTriggerDailyStatPayload,
+    CloudUserAppStatPayload, CloudUserStatPayload, SettingReconcileOutcome,
+    get_unsynced_activity_events, get_unsynced_app_stats, get_unsynced_settings,
+    get_unsynced_stats, get_unsynced_trigger_daily_stats, mark_activity_events_synced,
+    mark_app_stats_synced, mark_settings_synced, mark_stats_synced,
+    mark_trigger_daily_stats_synced, reconcile_cloud_setting,
 };
 
 /// The execution outcome of a sync cycle.
@@ -819,6 +820,79 @@ impl SyncWorker {
                 }
                 Err(e) => {
                     return SyncStatus::Error(format!("Network error pushing app stats: {e}"));
+                }
+            }
+        }
+
+        // Upload unsynced activity events
+        let unsynced_events = match get_unsynced_activity_events(conn, 100) {
+            Ok(rows) => rows,
+            Err(e) => {
+                return SyncStatus::Error(format!("Failed to query unsynced activity events: {e}"));
+            }
+        };
+
+        if !unsynced_events.is_empty() {
+            let payloads: Vec<CloudActivityEventPayload> = unsynced_events
+                .iter()
+                .map(CloudActivityEventPayload::from)
+                .collect();
+
+            let events_url = format!(
+                "{}/rest/v1/activity_events",
+                client.config().supabase_url.trim_end_matches('/')
+            );
+
+            let mut events_res = http_client
+                .post(&events_url)
+                .header("apikey", &client.config().anon_key)
+                .header("Authorization", format!("Bearer {}", tokens.access_token))
+                .header("Content-Type", "application/json")
+                .header("Prefer", "resolution=merge-duplicates")
+                .json(&payloads)
+                .send()
+                .await;
+
+            if let Ok(ref r) = events_res
+                && r.status() == reqwest::StatusCode::UNAUTHORIZED
+            {
+                tracing::debug!("Received 401 pushing activity events; refreshing session...");
+                if Self::refresh_session_tokens(client, &mut tokens)
+                    .await
+                    .is_ok()
+                {
+                    events_res = http_client
+                        .post(&events_url)
+                        .header("apikey", &client.config().anon_key)
+                        .header("Authorization", format!("Bearer {}", tokens.access_token))
+                        .header("Content-Type", "application/json")
+                        .header("Prefer", "resolution=merge-duplicates")
+                        .json(&payloads)
+                        .send()
+                        .await;
+                }
+            }
+
+            match events_res {
+                Ok(res) => {
+                    if !res.status().is_success() {
+                        let status = res.status();
+                        let text = res.text().await.unwrap_or_default();
+                        return SyncStatus::Error(format!(
+                            "Failed to push activity events ({status}): {text}"
+                        ));
+                    }
+                    let ids: Vec<&str> = unsynced_events.iter().map(|s| s.id.as_str()).collect();
+                    if let Err(e) = mark_activity_events_synced(conn, &ids) {
+                        tracing::warn!("Failed to mark activity events synced: {e}");
+                    } else {
+                        pushed_stats += ids.len();
+                    }
+                }
+                Err(e) => {
+                    return SyncStatus::Error(format!(
+                        "Network error pushing activity events: {e}"
+                    ));
                 }
             }
         }

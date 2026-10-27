@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use rusqlite::Connection;
 use taurine_core::db::crud::quota::get_or_init_quota_ledger;
-use taurine_core::db::init::migrate::run_migrations;
+use taurine_core::db::init::ensure_schema;
 use taurine_core::engine::ExpansionResult;
 use taurine_core::engine::variables::{ArgMap, ExpansionStep};
 use taurine_core::settings::SpinnerStyle;
@@ -15,7 +15,7 @@ use crate::voice::trigger_dispatch::fire_voice_trigger_with_args;
 
 fn create_test_db() -> Connection {
     let conn = Connection::open_in_memory().expect("failed to open in-memory db");
-    run_migrations(&conn).expect("failed to run migrations");
+    ensure_schema(&conn).expect("failed to ensure schema");
     conn
 }
 
