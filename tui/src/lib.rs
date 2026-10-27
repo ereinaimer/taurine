@@ -131,6 +131,10 @@ pub fn run() -> taurine_core::Result<()> {
             Event::Tick => {
                 let interaction = app.library_page_mut().autosave_tick();
                 apply_library_interaction(&mut app, interaction);
+                // honey: keyboard slider steps queue their write so a held
+                // arrow key coalesces into one settings save per tick.
+                let interaction = app.settings_page_mut().slider_autosave_tick();
+                apply_settings_interaction(&mut app, interaction);
             }
         }
 

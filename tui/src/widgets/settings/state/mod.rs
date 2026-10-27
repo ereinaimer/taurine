@@ -95,6 +95,9 @@ pub(crate) struct SettingsPageState {
     pub(crate) window_anchor: Option<usize>,
     pub(crate) inline: Option<InputModalState>,
     pub(crate) slider_drag: Option<SliderDrag>,
+    /// Slider value changed by the keyboard but not yet written; the
+    /// event tick flushes it so 1% steps do not write once per press.
+    pub(crate) slider_pending: Option<PendingSettingSave>,
 }
 
 impl SettingsPageState {
@@ -145,32 +148,42 @@ impl SettingsPageState {
         }
     }
 
-    /// Save a slider position, clamped to its range.
-    fn save_slider_value(&self, key: SettingKey, value: u32) -> SettingsInteraction {
-        let current = match key {
-            SettingKey::AudioVolume => self.settings.audio_volume,
-            _ => return SettingsInteraction::default(),
+    /// Preview a slider position locally and queue the write. The event
+    /// tick persists it, so a burst of 1% steps writes once.
+    fn preview_slider(&mut self, value: u32) -> SettingsInteraction {
+        let Some((key, current)) = self.selected_slider_value() else {
+            return SettingsInteraction::default();
         };
         let next = value.min(100);
         if next == current {
             return SettingsInteraction::handled();
         }
-        SettingsInteraction::save(key, Some(next.to_string()))
+        self.settings.audio_volume = next;
+        self.slider_pending = Some(PendingSettingSave {
+            key,
+            value: Some(next.to_string()),
+        });
+        SettingsInteraction::handled()
     }
 
     fn adjust_slider(&mut self, delta: isize) -> SettingsInteraction {
-        let Some((key, current)) = self.selected_slider_value() else {
+        let Some((_, current)) = self.selected_slider_value() else {
             return SettingsInteraction::default();
         };
         let next = (current as isize + delta).clamp(0, 100) as u32;
-        self.save_slider_value(key, next)
+        self.preview_slider(next)
     }
 
-    fn set_selected_slider(&mut self, value: u32) -> SettingsInteraction {
-        let Some((key, _)) = self.selected_slider_value() else {
-            return SettingsInteraction::default();
-        };
-        self.save_slider_value(key, value)
+    /// Write a queued slider change. Called from the event tick, which
+    /// coalesces a held arrow key into a single settings save.
+    pub(crate) fn slider_autosave_tick(&mut self) -> SettingsInteraction {
+        if self.slider_drag.is_some() {
+            return SettingsInteraction::handled();
+        }
+        match self.slider_pending.take() {
+            Some(pending) => SettingsInteraction::save(pending.key, pending.value),
+            None => SettingsInteraction::handled(),
+        }
     }
 
     /// Begin a slider drag with a live preview; the value is written once
@@ -211,8 +224,10 @@ impl SettingsPageState {
             return SettingsInteraction::default();
         };
         if drag.value == drag.original {
+            // An untouched drag leaves a queued keyboard step to the tick.
             return SettingsInteraction::handled();
         }
+        self.slider_pending = None;
         SettingsInteraction::save(drag.key, Some(drag.value.to_string()))
     }
 
@@ -401,10 +416,10 @@ impl SettingsPageState {
                 self.move_selection(-1);
                 SettingsInteraction::handled()
             }
-            (KeyCode::Left, KeyModifiers::NONE) => self.adjust_slider(-5),
-            (KeyCode::Right, KeyModifiers::NONE) => self.adjust_slider(5),
-            (KeyCode::Home, KeyModifiers::NONE) => self.set_selected_slider(0),
-            (KeyCode::End, KeyModifiers::NONE) => self.set_selected_slider(100),
+            (KeyCode::Left, KeyModifiers::NONE) => self.adjust_slider(-1),
+            (KeyCode::Right, KeyModifiers::NONE) => self.adjust_slider(1),
+            (KeyCode::Home, KeyModifiers::NONE) => self.preview_slider(0),
+            (KeyCode::End, KeyModifiers::NONE) => self.preview_slider(100),
             (KeyCode::Char('r'), KeyModifiers::NONE) => {
                 if self.visible_keys().is_empty() {
                     return SettingsInteraction::handled();
@@ -1185,7 +1200,7 @@ mod tests {
     }
 
     #[test]
-    fn volume_slider_steps_with_arrows_and_clamps() {
+    fn volume_slider_steps_one_percent_per_arrow_and_clamps() {
         let mut state = SettingsPageState::default();
         state.selected = state
             .visible_keys()
@@ -1195,20 +1210,68 @@ mod tests {
 
         state.settings.audio_volume = 50;
         let interaction = state.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        assert_eq!(state.settings.audio_volume, 51);
+        assert!(
+            interaction.pending_save().is_none(),
+            "1% steps queue their write for the tick"
+        );
+
+        let interaction = state.slider_autosave_tick();
         assert_eq!(
             interaction
                 .pending_save()
                 .map(|pending| pending.value.clone()),
-            Some(Some("55".to_string()))
+            Some(Some("51".to_string()))
+        );
+        assert!(
+            state.slider_autosave_tick().pending_save().is_none(),
+            "the tick flushes once"
         );
 
         state.settings.audio_volume = 100;
         let interaction = state.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
         assert!(interaction.pending_save().is_none());
+        assert!(state.slider_pending.is_none(), "clamped at the top");
 
         state.settings.audio_volume = 0;
         let interaction = state.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
         assert!(interaction.pending_save().is_none());
+        assert!(state.slider_pending.is_none(), "clamped at the bottom");
+    }
+
+    #[test]
+    fn holding_an_arrow_key_reaches_every_percent_with_one_write() {
+        let mut state = SettingsPageState::default();
+        state.selected = state
+            .visible_keys()
+            .iter()
+            .position(|key| *key == SettingKey::AudioVolume)
+            .expect("visible volume key");
+        state.settings.audio_volume = 0;
+
+        for expected in 1..=100 {
+            state.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+            assert_eq!(state.settings.audio_volume, expected);
+        }
+        assert_eq!(
+            state
+                .slider_autosave_tick()
+                .pending_save()
+                .map(|pending| pending.value.clone()),
+            Some(Some("100".to_string()))
+        );
+
+        for expected in (0..100).rev() {
+            state.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+            assert_eq!(state.settings.audio_volume, expected);
+        }
+        assert_eq!(
+            state
+                .slider_autosave_tick()
+                .pending_save()
+                .map(|pending| pending.value.clone()),
+            Some(Some("0".to_string()))
+        );
     }
 
     #[test]
@@ -1222,16 +1285,22 @@ mod tests {
         state.settings.audio_volume = 50;
 
         let interaction = state.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+        assert_eq!(state.settings.audio_volume, 100);
+        assert!(interaction.pending_save().is_none());
         assert_eq!(
-            interaction
+            state
+                .slider_autosave_tick()
                 .pending_save()
                 .map(|pending| pending.value.clone()),
             Some(Some("100".to_string()))
         );
 
         let interaction = state.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
+        assert_eq!(state.settings.audio_volume, 0);
+        assert!(interaction.pending_save().is_none());
         assert_eq!(
-            interaction
+            state
+                .slider_autosave_tick()
                 .pending_save()
                 .map(|pending| pending.value.clone()),
             Some(Some("0".to_string()))
@@ -1239,23 +1308,21 @@ mod tests {
     }
 
     #[test]
-    fn volume_slider_saves_and_skips_unchanged_values() {
-        let state = SettingsPageState::default();
-        let interaction = state.save_slider_value(SettingKey::AudioVolume, 73);
+    fn volume_slider_skips_unchanged_values() {
+        let mut state = SettingsPageState::default();
+        state.selected = state
+            .visible_keys()
+            .iter()
+            .position(|key| *key == SettingKey::AudioVolume)
+            .expect("visible volume key");
+        state.settings.audio_volume = 50;
 
-        assert_eq!(
-            interaction
-                .pending_save()
-                .map(|pending| pending.value.clone()),
-            Some(Some("73".to_string()))
-        );
         assert!(
-            state
-                .save_slider_value(SettingKey::AudioVolume, 50)
-                .pending_save()
-                .is_none(),
+            state.preview_slider(50).pending_save().is_none(),
             "clicking the current value should not rewrite it"
         );
+        assert!(state.slider_pending.is_none());
+        assert!(state.slider_autosave_tick().pending_save().is_none());
     }
 
     #[test]
