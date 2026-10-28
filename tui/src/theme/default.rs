@@ -7,9 +7,9 @@ pub const DARK_THEME: Theme = Theme {
     secondary: Color::Rgb(0x80, 0x80, 0x80),
     border: Color::Rgb(0x1A, 0x1A, 0x1A),
     background: Color::Rgb(0x0A, 0x0A, 0x0A),
-    // honey: the shared highlight fill, used by selected rows, rail
-    // pills, and the active activity card.
-    surface: Color::Rgb(0x14, 0x14, 0x16),
+    // honey: the shared neutral highlight fill, used by selected rows,
+    // rail pills, and the active activity card.
+    surface: Color::Rgb(0x1E, 0x1E, 0x1E),
     // honey: off-white body text; pure white on near-black blows out,
     // especially under bold, so the dark theme never uses it.
     text: Color::Rgb(0xCF, 0xCF, 0xCF),
@@ -47,9 +47,9 @@ pub const DARK_THEME: Theme = Theme {
         on_surface: Color::Rgb(0x2C, 0x2C, 0x32),
     },
     card: CardTheme {
-        // honey: activity cards are flat fills, never bordered. Idle is
-        // dimmed below the theme highlight; active uses the highlight.
-        bg: Color::Rgb(0x0F, 0x0F, 0x11),
-        active_bg: Color::Rgb(0x14, 0x14, 0x16),
+        // honey: activity cards are flat neutral fills, never bordered.
+        // Idle is dimmed below the theme highlight; active uses it.
+        bg: Color::Rgb(0x14, 0x14, 0x14),
+        active_bg: Color::Rgb(0x1E, 0x1E, 0x1E),
     },
 };
