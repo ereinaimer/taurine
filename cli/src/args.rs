@@ -95,6 +95,9 @@ pub(crate) enum Commands {
     /// Log out from Taurine Cloud
     #[command(alias = "signout")]
     Logout,
+    /// Synchronize triggers, settings, and telemetry with Taurine Cloud
+    #[command(aliases = ["push", "pull"])]
+    Sync,
     #[cfg(target_os = "linux")]
     /// Configure system permissions for hardware access
     #[command(hide = true)]

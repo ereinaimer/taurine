@@ -968,3 +968,35 @@ fn test_enable_disable_execution_hermetically() {
     // SAFETY: access to TAURINE_DATA_DIR is serialized by TEST_LOCK
     unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
 }
+
+#[test]
+fn test_sync_command_parsing() {
+    let cli = Cli::try_parse_from(["taurine", "sync"]).expect("sync parses");
+    assert!(matches!(cli.command, Some(Commands::Sync)));
+
+    let cli_push = Cli::try_parse_from(["taurine", "push"]).expect("push alias parses");
+    assert!(matches!(cli_push.command, Some(Commands::Sync)));
+
+    let cli_pull = Cli::try_parse_from(["taurine", "pull"]).expect("pull alias parses");
+    assert!(matches!(cli_pull.command, Some(Commands::Sync)));
+}
+
+#[test]
+fn test_sync_command_unauthenticated() {
+    let _lock = crate::commands::TEST_LOCK.lock().unwrap();
+    crate::commands::test_keyring::use_shared_test_keyring();
+    let temp = tempfile::tempdir().expect("tempdir");
+    // SAFETY: access to TAURINE_DATA_DIR is serialized by TEST_LOCK
+    unsafe { std::env::set_var("TAURINE_DATA_DIR", temp.path()) };
+
+    let _ = taurine_core::cloud::clear_tokens();
+
+    let res_plain = crate::commands::sync::execute_sync(false);
+    assert!(res_plain.is_ok());
+
+    let res_json = crate::commands::sync::execute_sync(true);
+    assert!(res_json.is_ok());
+
+    // SAFETY: access to TAURINE_DATA_DIR is serialized by TEST_LOCK
+    unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
+}
