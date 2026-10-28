@@ -74,50 +74,7 @@ impl SyncWorker {
                         match conn_provider() {
                             Ok(conn) => {
                                 let status = Self::run_sync_cycle(&conn, Some(&client)).await;
-                                match status {
-                                    SyncStatus::Success {
-                                        pulled_snippets,
-                                        pushed_snippets,
-                                        pulled_settings,
-                                        pushed_settings,
-                                        pulled_events,
-                                        pushed_stats,
-                                    } => {
-                                        if pulled_snippets > 0
-                                            || pushed_snippets > 0
-                                            || pulled_settings > 0
-                                            || pushed_settings > 0
-                                            || pulled_events > 0
-                                            || pushed_stats > 0
-                                        {
-                                            tracing::info!(
-                                                pulled_snippets,
-                                                pushed_snippets,
-                                                pulled_settings,
-                                                pushed_settings,
-                                                pulled_events,
-                                                pushed_stats,
-                                                "Cloud sync cycle succeeded"
-                                            );
-                                        } else {
-                                            tracing::debug!(
-                                                "Cloud sync cycle succeeded (no changes)"
-                                            );
-                                        }
-
-                                        if pulled_snippets > 0 || pulled_settings > 0 {
-                                            taurine_core::rpc::notify_daemon_reload();
-                                        }
-                                    }
-                                    SyncStatus::Error(err) => {
-                                        tracing::warn!("Cloud sync cycle failed: {err}");
-                                    }
-                                    SyncStatus::NotAuthenticated => {
-                                        tracing::debug!(
-                                            "Cloud sync skipped: user not authenticated"
-                                        );
-                                    }
-                                }
+                                Self::log_sync_status(status);
                             }
                             Err(e) => {
                                 tracing::warn!("Sync worker failed to acquire db connection: {e}");
@@ -127,6 +84,123 @@ impl SyncWorker {
                 });
             })
             .expect("spawn tau-sync thread")
+    }
+
+    /// Spawns a background thread running event-driven sync cycles with micro-debouncing and cooldown.
+    pub fn spawn_event_driven<F, E>(
+        conn_provider: F,
+        fallback_interval: Duration,
+        notify: std::sync::Arc<tokio::sync::Notify>,
+    ) -> std::thread::JoinHandle<()>
+    where
+        F: Fn() -> Result<rusqlite::Connection, E> + Send + 'static,
+        E: std::fmt::Display,
+    {
+        std::thread::Builder::new()
+            .name("tau-sync".to_string())
+            .spawn(move || {
+                let rt = match tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    Ok(r) => r,
+                    Err(e) => {
+                        tracing::error!("Failed to create runtime for sync worker: {e}");
+                        return;
+                    }
+                };
+                rt.block_on(async move {
+                    let mut fallback_ticker = tokio::time::interval(fallback_interval);
+                    let client = CloudClient::default_or_from_env();
+                    let mut last_sync = std::time::Instant::now() - Duration::from_secs(60);
+                    const DEBOUNCE_MS: u64 = 300;
+                    const COOLDOWN_SECS: u64 = 3;
+
+                    // Initial tick on boot
+                    fallback_ticker.tick().await;
+                    if let Ok(conn) = conn_provider() {
+                        let status = Self::run_sync_cycle(&conn, Some(&client)).await;
+                        last_sync = std::time::Instant::now();
+                        Self::log_sync_status(status);
+                    }
+
+                    loop {
+                        tokio::select! {
+                            _ = fallback_ticker.tick() => {
+                                tracing::debug!("Fallback periodic sync check triggered");
+                            }
+                            _ = notify.notified() => {
+                                tracing::debug!("Event-driven sync notification received; debouncing...");
+                                tokio::time::sleep(Duration::from_millis(DEBOUNCE_MS)).await;
+                            }
+                        }
+
+                        // Cooldown guard to avoid spamming cloud API
+                        if last_sync.elapsed() < Duration::from_secs(COOLDOWN_SECS) {
+                            tokio::time::sleep(
+                                Duration::from_secs(COOLDOWN_SECS)
+                                    .saturating_sub(last_sync.elapsed()),
+                            )
+                            .await;
+                        }
+
+                        match conn_provider() {
+                            Ok(conn) => {
+                                let status = Self::run_sync_cycle(&conn, Some(&client)).await;
+                                last_sync = std::time::Instant::now();
+                                Self::log_sync_status(status);
+                            }
+                            Err(e) => {
+                                tracing::warn!("Sync worker failed to acquire db connection: {e}");
+                            }
+                        }
+                    }
+                });
+            })
+            .expect("spawn tau-sync thread")
+    }
+
+    pub(crate) fn log_sync_status(status: SyncStatus) {
+        match status {
+            SyncStatus::Success {
+                pulled_snippets,
+                pushed_snippets,
+                pulled_settings,
+                pushed_settings,
+                pulled_events,
+                pushed_stats,
+            } => {
+                if pulled_snippets > 0
+                    || pushed_snippets > 0
+                    || pulled_settings > 0
+                    || pushed_settings > 0
+                    || pulled_events > 0
+                    || pushed_stats > 0
+                {
+                    tracing::info!(
+                        pulled_snippets,
+                        pushed_snippets,
+                        pulled_settings,
+                        pushed_settings,
+                        pulled_events,
+                        pushed_stats,
+                        "Cloud sync cycle succeeded"
+                    );
+                } else {
+                    tracing::debug!("Cloud sync cycle succeeded (no changes)");
+                }
+
+                if pulled_snippets > 0 || pulled_settings > 0 {
+                    taurine_core::rpc::notify_daemon_reload();
+                }
+            }
+            SyncStatus::Error(err) => {
+                tracing::warn!("Cloud sync cycle failed: {err}");
+            }
+            SyncStatus::NotAuthenticated => {
+                tracing::debug!("Cloud sync skipped: user not authenticated");
+            }
+        }
     }
 
     async fn refresh_session_tokens(

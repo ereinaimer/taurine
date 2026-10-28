@@ -1717,3 +1717,182 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
     let _ = server_handle.join();
     taurine_core::cloud::clear_tokens().unwrap();
 }
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn test_event_driven_sync_worker_wakes_on_notification() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    crate::hook::tests::mock_keystore::use_mock_keystore();
+
+    let tokens = taurine_core::cloud::AuthTokens {
+        access_token: "mock-token-xyz".to_string(),
+        refresh_token: "mock-refresh".to_string(),
+        user_id: "user-event-1".to_string(),
+        expires_at: Some(2000000000),
+    };
+    taurine_core::cloud::store_tokens(&tokens).unwrap();
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let db_path = temp_dir.path().join("event_sync.db");
+    {
+        let init_conn = Connection::open(&db_path).unwrap();
+        ensure_schema(&init_conn).unwrap();
+    }
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let cycle_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let cycle_count_server = cycle_count.clone();
+
+    let server_handle = std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        let start = std::time::Instant::now();
+        while start.elapsed() < std::time::Duration::from_secs(10) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let _ = stream.set_nonblocking(false);
+                    let mut buf = [0u8; 8192];
+                    let n = match stream.read(&mut buf) {
+                        Ok(n) => n,
+                        Err(_) => continue,
+                    };
+                    let req = String::from_utf8_lossy(&buf[..n]);
+
+                    if req.starts_with("GET /rest/v1/snippets") {
+                        let cur_cycle =
+                            cycle_count_server.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        let snippets = if cur_cycle == 0 {
+                            vec![]
+                        } else {
+                            vec![CloudSnippetPayload {
+                                id: "event-snippet-1".to_string(),
+                                workspace_id: "default".to_string(),
+                                name: "Event Trigger".to_string(),
+                                output: "Event-driven output".to_string(),
+                                description: None,
+                                action_type: "text".to_string(),
+                                target_os: Some("all".to_string()),
+                                only_apps: None,
+                                except_apps: None,
+                                tags: None,
+                                is_enabled: true,
+                                auto_case: false,
+                                version: 1,
+                                is_deleted: false,
+                                updated_at: 1730000000,
+                                created_at: 1730000000,
+                                aliases: vec![],
+                            }]
+                        };
+                        let body = serde_json::to_string(&snippets).unwrap();
+                        let resp = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                            body.len(),
+                            body
+                        );
+                        let _ = stream.write_all(resp.as_bytes());
+                    } else if req.starts_with("GET /rest/v1/") {
+                        let resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+                        let _ = stream.write_all(resp.as_bytes());
+                    } else if req.starts_with("POST /rest/v1/") {
+                        let resp = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                        let _ = stream.write_all(resp.as_bytes());
+                    }
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let prev_url = std::env::var("TAURINE_SUPABASE_URL").ok();
+    // SAFETY: Serialized via TEST_LOCK; setting mock server URL for test.
+    unsafe {
+        std::env::set_var("TAURINE_SUPABASE_URL", format!("http://127.0.0.1:{port}"));
+    }
+
+    struct EnvGuard {
+        prev: Option<String>,
+    }
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            // SAFETY: Serialized via TEST_LOCK; restoring TAURINE_SUPABASE_URL.
+            unsafe {
+                match &self.prev {
+                    Some(v) => std::env::set_var("TAURINE_SUPABASE_URL", v),
+                    None => std::env::remove_var("TAURINE_SUPABASE_URL"),
+                }
+            }
+        }
+    }
+    let _env_guard = EnvGuard { prev: prev_url };
+
+    let notify = std::sync::Arc::new(tokio::sync::Notify::new());
+    let db_path_clone = db_path.clone();
+    let conn_provider = move || rusqlite::Connection::open(&db_path_clone);
+
+    // Spawn event-driven worker with a 600s fallback interval (10 minutes)
+    let _worker_handle = SyncWorker::spawn_event_driven(
+        conn_provider,
+        std::time::Duration::from_secs(600),
+        notify.clone(),
+    );
+
+    // Wait until boot cycle completes (cycle 0)
+    let boot_wait_start = std::time::Instant::now();
+    while cycle_count.load(std::sync::atomic::Ordering::SeqCst) == 0
+        && boot_wait_start.elapsed() < std::time::Duration::from_secs(3)
+    {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(
+        cycle_count.load(std::sync::atomic::Ordering::SeqCst) >= 1,
+        "Boot cycle must complete"
+    );
+
+    // Wait for the 3s cooldown window to elapse so that notify trigger executes promptly
+    tokio::time::sleep(std::time::Duration::from_millis(3100)).await;
+
+    // Fire notification to wake the worker
+    let notify_start = std::time::Instant::now();
+    notify.notify_one();
+
+    // Assert that the sync cycle executes within 1-2 seconds (debounced ~300ms, not waiting 600s)
+    let mut found = false;
+    while notify_start.elapsed() < std::time::Duration::from_secs(3) {
+        let check_conn = rusqlite::Connection::open(&db_path).unwrap();
+        if let Ok(Some(trig)) =
+            taurine_core::db::crud::triggers::get_trigger(&check_conn, "event-snippet-1")
+            && trig.output == "Event-driven output"
+        {
+            found = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+
+    assert!(
+        found,
+        "Snippet must be synchronized following event notification"
+    );
+    let elapsed = notify_start.elapsed();
+    assert!(
+        elapsed >= std::time::Duration::from_millis(300),
+        "Must debounce for at least 300ms; elapsed: {:?}",
+        elapsed
+    );
+    assert!(
+        elapsed < std::time::Duration::from_secs(2),
+        "Event-driven sync cycle must execute within 1-2 seconds instead of waiting 600s; elapsed: {:?}",
+        elapsed
+    );
+
+    let _ = server_handle.join();
+    taurine_core::cloud::clear_tokens().unwrap();
+}
