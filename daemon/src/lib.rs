@@ -556,10 +556,12 @@ pub fn start() -> taurine_core::error::Result<()> {
             });
         })?;
 
-    // 8. Background Cloud Two-Way Sync Worker (syncs every 60s)
-    let _sync_thread = SyncWorker::spawn(
+    // 8. Background Cloud Two-Way Sync Worker (syncs every 600s with event notifications)
+    let sync_notify = std::sync::Arc::new(tokio::sync::Notify::new());
+    let _sync_thread = SyncWorker::spawn_event_driven(
         taurine_core::db::init::setup,
-        std::time::Duration::from_secs(60),
+        std::time::Duration::from_secs(600),
+        sync_notify.clone(),
     );
 
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -608,6 +610,7 @@ pub fn start() -> taurine_core::error::Result<()> {
         #[cfg(any(windows, target_os = "linux"))]
         let state_for_coordinator = state.clone();
         let pause_notifications_enabled_for_coordinator = pause_notifications_enabled.clone();
+        let sync_notify_for_pause = sync_notify.clone();
         let pause_coordinator_handle = tokio::spawn(async move {
             while let Some(first) = pause_transition_rx.recv().await {
                 let mut latest = first;
@@ -617,6 +620,9 @@ pub fn start() -> taurine_core::error::Result<()> {
                 let is_paused = latest;
                 if is_paused {
                     info!("Taurine paused: entering deep idle state...");
+                    // Flush telemetry and pending edits
+                    sync_notify_for_pause.notify_one();
+
                     // 1. Stop fullscreen detection
                     #[cfg(windows)]
                     crate::platform::windows::fullscreen::stop_listener();
@@ -638,6 +644,9 @@ pub fn start() -> taurine_core::error::Result<()> {
                     }
                 } else {
                     info!("Taurine resumed: restoring subsystems...");
+                    // Pull fresh changes from cloud
+                    sync_notify_for_pause.notify_one();
+
                     // 1. Resume clipboard listener
                     crate::services::clipboard_history::resume_listener();
 
@@ -739,6 +748,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                 .system_tray_enabled(system_tray_enabled.clone())
                 .hook_health(hook_health.clone())
                 .pause_transition_tx(pause_transition_tx.clone())
+                .sync_notify(sync_notify.clone())
                 .build()
                 .map_err(taurine_core::error::Error::Config)?;
 

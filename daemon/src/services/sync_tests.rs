@@ -1896,3 +1896,150 @@ async fn test_event_driven_sync_worker_wakes_on_notification() {
     let _ = server_handle.join();
     taurine_core::cloud::clear_tokens().unwrap();
 }
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn test_pause_resume_and_reload_signal_sync() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    crate::hook::tests::mock_keystore::use_mock_keystore();
+    taurine_core::logs::init_tracing_for_tests();
+
+    let test_dir = std::env::temp_dir().join("taurine_sync_signal_test");
+    let prev_data_dir = std::env::var("TAURINE_DATA_DIR").ok();
+
+    struct DataDirGuard {
+        prev: Option<String>,
+        path: std::path::PathBuf,
+    }
+    impl Drop for DataDirGuard {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.path);
+            // SAFETY: Serialized via TEST_LOCK; restoring TAURINE_DATA_DIR.
+            unsafe {
+                match &self.prev {
+                    Some(v) => std::env::set_var("TAURINE_DATA_DIR", v),
+                    None => std::env::remove_var("TAURINE_DATA_DIR"),
+                }
+            }
+        }
+    }
+
+    let _guard = DataDirGuard {
+        prev: prev_data_dir,
+        path: test_dir.clone(),
+    };
+
+    // SAFETY: Serialized via TEST_LOCK; setting TAURINE_DATA_DIR for isolation.
+    unsafe { std::env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
+    let _ = std::fs::remove_dir_all(&test_dir);
+    std::fs::create_dir_all(&test_dir).unwrap();
+
+    let _conn = taurine_core::db::init::setup().expect("Failed to setup DB");
+
+    let state = std::sync::Arc::new(taurine_core::engine::EngineState::new());
+    let (tx, _rx) = tokio::sync::mpsc::channel(1);
+    let pause_hotkey = "Alt + `".to_string();
+    let pause_hotkey_spec = std::sync::Arc::new(std::sync::RwLock::new(
+        crate::input::hotkey::parse_pause_hotkey_setting(&pause_hotkey).unwrap(),
+    ));
+    let paused = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (pause_tx, mut pause_rx) = tokio::sync::mpsc::channel(8);
+    let sync_notify = std::sync::Arc::new(tokio::sync::Notify::new());
+
+    let service = crate::services::server::DaemonService::builder()
+        .shutdown_sender(tx)
+        .state(state)
+        .paused(paused.clone())
+        .pause_notifications_enabled(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+            false,
+        )))
+        .pause_hotkey_spec(pause_hotkey_spec)
+        .pause_hotkey_display(std::sync::Arc::new(std::sync::RwLock::new(pause_hotkey)))
+        .spinner_style(std::sync::Arc::new(std::sync::RwLock::new(
+            taurine_core::settings::SpinnerStyle::default(),
+        )))
+        .pause_audio_enabled(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+            false,
+        )))
+        .system_tray_enabled(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+            false,
+        )))
+        .hook_health(crate::input::hook_health::HookHealth::new())
+        .pause_transition_tx(pause_tx)
+        .sync_notify(sync_notify.clone())
+        .build()
+        .expect("builder call site is fully populated");
+
+    use taurine_core::rpc::daemon_control_server::DaemonControl;
+
+    // 1. Verify that reload() signals sync_notify
+    let reload_req = tonic::Request::new(taurine_core::rpc::ReloadRequest {});
+    let res = service
+        .reload(reload_req)
+        .await
+        .expect("reload request failed");
+    assert!(res.into_inner().success);
+
+    // Verify notify fired
+    tokio::select! {
+        _ = sync_notify.notified() => {
+            // Success: reload signaled sync_notify
+        }
+        _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
+            panic!("reload did not signal sync_notify");
+        }
+    }
+
+    // 2. Simulate the pause coordinator loop to verify pause/resume transitions signal sync_notify
+    let coordinator_notify = sync_notify.clone();
+    let coordinator_task = tokio::spawn(async move {
+        while let Some(first) = pause_rx.recv().await {
+            let mut latest = first;
+            while let Ok(next) = pause_rx.try_recv() {
+                latest = next;
+            }
+            let _is_paused = latest;
+            coordinator_notify.notify_one();
+        }
+    });
+
+    // 2a. Pause transition
+    let pause_req = tonic::Request::new(taurine_core::rpc::PauseRequest {});
+    let pause_res = service
+        .pause(pause_req)
+        .await
+        .expect("pause request failed");
+    assert!(pause_res.into_inner().success);
+    assert!(paused.load(std::sync::atomic::Ordering::Relaxed));
+
+    tokio::select! {
+        _ = sync_notify.notified() => {
+            // Success: pause signaled sync_notify
+        }
+        _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
+            panic!("pause transition did not signal sync_notify");
+        }
+    }
+
+    // 2b. Resume transition
+    let resume_req = tonic::Request::new(taurine_core::rpc::ResumeRequest {});
+    let resume_res = service
+        .resume(resume_req)
+        .await
+        .expect("resume request failed");
+    assert!(resume_res.into_inner().success);
+    assert!(!paused.load(std::sync::atomic::Ordering::Relaxed));
+
+    tokio::select! {
+        _ = sync_notify.notified() => {
+            // Success: resume signaled sync_notify
+        }
+        _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
+            panic!("resume transition did not signal sync_notify");
+        }
+    }
+
+    coordinator_task.abort();
+}

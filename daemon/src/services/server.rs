@@ -23,6 +23,7 @@ pub struct DaemonService {
     system_tray_enabled: Arc<AtomicBool>,
     hook_health: crate::input::hook_health::HookHealth,
     pause_transition_tx: mpsc::Sender<bool>,
+    sync_notify: Option<Arc<tokio::sync::Notify>>,
 }
 
 impl DaemonService {
@@ -43,6 +44,7 @@ pub struct DaemonServiceBuilder {
     system_tray_enabled: Option<Arc<AtomicBool>>,
     hook_health: Option<crate::input::hook_health::HookHealth>,
     pause_transition_tx: Option<mpsc::Sender<bool>>,
+    sync_notify: Option<Arc<tokio::sync::Notify>>,
 }
 
 impl Default for DaemonServiceBuilder {
@@ -65,6 +67,7 @@ impl DaemonServiceBuilder {
             system_tray_enabled: None,
             hook_health: None,
             pause_transition_tx: None,
+            sync_notify: None,
         }
     }
 
@@ -129,6 +132,11 @@ impl DaemonServiceBuilder {
         self
     }
 
+    pub fn sync_notify(mut self, notify: Arc<tokio::sync::Notify>) -> Self {
+        self.sync_notify = Some(notify);
+        self
+    }
+
     pub fn build(self) -> Result<DaemonService, String> {
         Ok(DaemonService {
             shutdown_sender: self.shutdown_sender.ok_or("shutdown_sender is required")?,
@@ -154,6 +162,7 @@ impl DaemonServiceBuilder {
             pause_transition_tx: self
                 .pause_transition_tx
                 .ok_or("pause_transition_tx is required")?,
+            sync_notify: self.sync_notify,
         })
     }
 }
@@ -405,6 +414,9 @@ impl DaemonControl for DaemonService {
         taurine_core::settings::set_cached_audio_theme(settings.audio_theme);
         taurine_core::settings::set_cached_audio_volume(settings.audio_volume);
         tokio::spawn(crate::dictionary_manager::check_and_update_dictionary());
+        if let Some(ref notify) = self.sync_notify {
+            notify.notify_one();
+        }
         Ok(Response::new(ReloadResponse { success: true }))
     }
 
