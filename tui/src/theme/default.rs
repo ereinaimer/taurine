@@ -1,4 +1,4 @@
-use crate::theme::{ButtonTheme, HeaderTheme, KeycapTheme, Theme};
+use crate::theme::{ButtonTheme, CardTheme, HeaderTheme, KeycapTheme, Theme};
 use ratatui::style::Color;
 
 pub const DARK_THEME: Theme = Theme {
@@ -42,5 +42,11 @@ pub const DARK_THEME: Theme = Theme {
         bg: Color::Rgb(0x24, 0x24, 0x28),
         // Lighter fill for selected sidebar cards (#1e1e1e).
         on_surface: Color::Rgb(0x2C, 0x2C, 0x32),
+    },
+    card: CardTheme {
+        // honey: activity cards are flat fills, never bordered; idle
+        // sits just above the page background, active a clear step up.
+        bg: Color::Rgb(0x14, 0x14, 0x16),
+        active_bg: Color::Rgb(0x1E, 0x1E, 0x22),
     },
 };

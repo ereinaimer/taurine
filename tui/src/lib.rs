@@ -625,16 +625,17 @@ fn handle_tui_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
             refresh_home_page(app);
             return;
         }
-        // honey: the page scrolls as one document; the page step comes
-        // from the viewport the last frame drew.
+        // honey: the feed is a list of cards; Up/Down move the selection
+        // and the next frame scrolls it into view.
         if matches!(key.modifiers, KeyModifiers::NONE | KeyModifiers::SHIFT) {
             match key.code {
-                KeyCode::Up => app.home_page_mut().scroll_by(-1),
-                KeyCode::Down => app.home_page_mut().scroll_by(1),
-                KeyCode::PageUp => app.home_page_mut().scroll_page(-1),
-                KeyCode::PageDown => app.home_page_mut().scroll_page(1),
-                KeyCode::Home => app.home_page_mut().scroll_to_start(),
-                KeyCode::End => app.home_page_mut().scroll_to_end(),
+                KeyCode::Up => app.home_page_mut().select_by(-1),
+                KeyCode::Down => app.home_page_mut().select_by(1),
+                KeyCode::PageUp => app.home_page_mut().select_page(-1),
+                KeyCode::PageDown => app.home_page_mut().select_page(1),
+                KeyCode::Home => app.home_page_mut().select_first(),
+                KeyCode::End => app.home_page_mut().select_last(),
+                KeyCode::Enter => copy_selected_home_event(app),
                 _ => {}
             }
         }
@@ -1060,6 +1061,7 @@ fn handle_tui_mouse_event(
         }
         MouseEventKind::Moved => {
             app.set_props_hover(None);
+            app.home_page_mut().clear_hover();
             // honey: the rail is behind every overlay, so hover only
             // tracks it on the bare workspace.
             if app.palette_open() || modal_open {
@@ -1079,6 +1081,7 @@ fn handle_tui_mouse_event(
                 return;
             }
             if home_visible(app) {
+                app.home_page_mut().hover_at(mouse.column, mouse.row);
                 app.set_toggle_hover(None);
                 return;
             }
@@ -1467,7 +1470,10 @@ fn handle_tui_mouse_event(
             }
             if home_visible(app) {
                 if let Some(index) = app.home_page().copy_at(mouse.column, mouse.row) {
+                    app.home_page_mut().select(index);
                     copy_home_event(app, index);
+                } else if let Some(index) = app.home_page().card_at(mouse.column, mouse.row) {
+                    app.home_page_mut().select(index);
                 }
                 return;
             }
@@ -1961,6 +1967,12 @@ fn copy_home_event(app: &mut App, index: usize) {
     }
     library::actions::write_clipboard(body);
     app.set_notification("Copied to clipboard".to_string());
+}
+
+fn copy_selected_home_event(app: &mut App) {
+    if let Some(index) = app.home_page().active() {
+        copy_home_event(app, index);
+    }
 }
 
 fn refresh_home_page(app: &mut App) {
@@ -3569,26 +3581,64 @@ mod tests {
     }
 
     #[test]
-    fn home_keys_scroll_the_page() {
+    fn home_keys_move_the_activity_selection() {
         let mut app = home_app_with_events(5);
 
         let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
         handle_tui_key_event(&mut app, key(KeyCode::Down));
-        assert_eq!(app.home_page().scroll(), 1);
+        assert_eq!(app.home_page().selected(), Some(1));
         handle_tui_key_event(&mut app, key(KeyCode::PageDown));
         assert_eq!(
-            app.home_page().scroll(),
-            2,
-            "one-row page step before the first draw"
+            app.home_page().selected(),
+            Some(2),
+            "one card per page before the first draw"
         );
         handle_tui_key_event(&mut app, key(KeyCode::PageUp));
-        assert_eq!(app.home_page().scroll(), 1);
+        assert_eq!(app.home_page().selected(), Some(1));
         handle_tui_key_event(&mut app, key(KeyCode::Home));
-        assert_eq!(app.home_page().scroll(), 0);
+        assert_eq!(app.home_page().selected(), Some(0));
         handle_tui_key_event(&mut app, key(KeyCode::Up));
-        assert_eq!(app.home_page().scroll(), 0, "top of the page stops");
+        assert_eq!(app.home_page().selected(), Some(0), "top of the feed stops");
         handle_tui_key_event(&mut app, key(KeyCode::End));
-        assert_eq!(app.home_page().scroll(), usize::MAX);
+        assert_eq!(app.home_page().selected(), Some(4));
+    }
+
+    #[test]
+    fn home_mouse_hover_focuses_the_card_under_the_pointer() {
+        use ratatui::{Terminal, backend::TestBackend};
+
+        let mut app = home_app_with_events(2);
+        let render = |app: &mut App| {
+            let backend = TestBackend::new(TEST_AREA.width, TEST_AREA.height);
+            let mut terminal = Terminal::new(backend).expect("test terminal");
+            terminal
+                .draw(|frame| render_app(frame, app, TEST_AREA))
+                .expect("test draw");
+            terminal
+        };
+
+        let terminal = render(&mut app);
+        let full = workspace_full(&app, TEST_AREA);
+        let buffer = terminal.backend().buffer();
+        let row = (full.top()..full.bottom())
+            .find(|&y| {
+                let line: String = (full.left()..full.right())
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect();
+                line.contains(" t1 ")
+            })
+            .expect("second card tag");
+
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(full.left() + 3, row, MouseEventKind::Moved),
+            TEST_AREA,
+        );
+        assert_eq!(
+            app.home_page().active(),
+            Some(1),
+            "hover focuses the card under the pointer"
+        );
     }
 
     #[test]

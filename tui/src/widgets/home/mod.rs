@@ -2,7 +2,7 @@ use chrono::{DateTime, Datelike, Local, NaiveDate, TimeZone, Timelike, Utc};
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Clear, Paragraph},
 };
@@ -16,22 +16,34 @@ use crate::widgets::wrap::{cell_width, wrap_line};
 
 pub mod state;
 
-use self::state::{CopyHit, HomePageState};
+use self::state::{CardHit, CopyHit, HomePageState};
 
 const PANE_PAD_X: u16 = 2;
 
+/// Card chrome: one blank top row, the tag row, one blank bottom row.
+const CARD_CHROME_LINES: usize = 3;
+/// One page-background row between cards.
+const CARD_GAP_LINES: usize = 1;
+/// Smallest card block: chrome, one payload row, and the gap.
+const CARD_MIN_BLOCK_LINES: usize = CARD_CHROME_LINES + 1 + CARD_GAP_LINES;
 /// Date header plus the blank row beneath it.
-const GROUP_HEADER_LINES: usize = 2;
-/// Trigger line, body line, and the blank row that follows each event.
-const ITEM_LINES: usize = 3;
-/// Section title plus the blank row beneath it; the feed starts here.
+const DATE_BLOCK_LINES: usize = 2;
+/// Section title plus the blank row beneath it.
 const TITLE_LINES: usize = 2;
+/// Pinned band while scrolled: title, gap, date, gap.
+const STICKY_BAND_LINES: usize = 4;
+/// Row the pinned date sits on, beneath the title and its gap.
+const STICKY_DATE_ROW: u16 = 2;
+
+/// Cards stop widening here on large screens, so the eye never travels
+/// far between the tag on the left and the clock on the right.
+const CARD_MAX_WIDTH: u16 = 100;
+/// Horizontal breathing room inside a card.
+const CARD_PAD_X: u16 = 2;
+/// Blank cells between payload text and the copy button.
+const CONTENT_GAP: u16 = 6;
 
 const COPY_LABEL: &str = " copy ";
-
-/// Blank cells kept between the left text column and the right-hand
-/// clock/button column, so content never runs into either.
-const CONTENT_GAP: u16 = 6;
 
 const MONTHS: [&str; 12] = [
     "January",
@@ -48,7 +60,7 @@ const MONTHS: [&str; 12] = [
     "December",
 ];
 
-/// Home opens straight on Recent Activity as one scrollable document.
+/// Home is a quiet column of flat activity cards under a section title.
 /// The date header of the group under the viewport's top edge sticks
 /// there while that group is on screen.
 pub(crate) fn render_home_content(
@@ -64,6 +76,10 @@ pub(crate) fn render_home_content(
     if content.width < 4 || content.height == 0 {
         return;
     }
+    frame.render_widget(
+        Block::default().style(Style::default().bg(theme.background)),
+        content,
+    );
     if let Some(error) = state.load_error() {
         frame.render_widget(
             Paragraph::new(error).style(
@@ -77,144 +93,187 @@ pub(crate) fn render_home_content(
     }
 
     let feed_start = TITLE_LINES;
-    let today = Local::now().date_naive();
-    let rows = feed_rows(&state.stats().recent_activity, content.width, today);
+    let rows = feed_rows(&state.stats().recent_activity, content.width);
     let feed_lines = rows_height(&rows).max(1);
     let viewport = content.height as usize;
     let max_scroll = (feed_start + feed_lines).saturating_sub(viewport);
 
-    let scroll = state.scroll().min(max_scroll);
+    let mut scroll = state.scroll().min(max_scroll);
+    // Keyboard selection pulls its card fully into view; free scrolling
+    // and hover never move the page.
+    if state.selection_moved()
+        && let Some(selected) = state.selected()
+        && let Some((top, fill)) = card_position(&rows, selected)
+    {
+        let bottom = top + fill;
+        if top < scroll {
+            // Keep the title and date band's four rows free above the
+            // card; the first card simply scrolls home.
+            scroll = if selected == 0 {
+                0
+            } else {
+                top.saturating_sub(STICKY_BAND_LINES)
+            };
+        } else if bottom > scroll + viewport {
+            scroll = bottom.saturating_sub(viewport);
+        }
+    }
+    state.clear_selection_moved();
+    let scroll = scroll.min(max_scroll);
     state.set_scroll(scroll);
-    state.set_page(viewport);
-
-    render_title(frame, content, theme, scroll);
+    state.set_page_cards((viewport / CARD_MIN_BLOCK_LINES).max(1));
 
     let view = FeedViewport {
         content,
         start: feed_start,
         scroll,
     };
-    let mut hits = Vec::new();
-    render_feed(frame, theme, state.stats(), &rows, view, &mut hits);
-    if scroll > feed_start {
-        // honey: the pinned date covers the first feed row, so clicks
-        // there must not reach the event underneath it.
-        hits.retain(|hit| hit.area.y != content.y);
+    let active = state.active();
+    let mut hits = FeedHits::default();
+    render_feed(frame, theme, state.stats(), &rows, view, active, &mut hits);
+    let sticky = sticky_date(&rows, view);
+    let title_pinned = scroll > 0;
+    let covered = content
+        .y
+        .saturating_add(if title_pinned { 2 } else { 0 })
+        .saturating_add(if sticky.is_some() { 2 } else { 0 });
+    if covered > content.y {
+        // honey: the pinned title and date cover the top of the feed, so
+        // cards lose those rows and hidden copy buttons are not clickable.
+        for hit in &mut hits.cards {
+            let bottom = hit.area.bottom();
+            hit.area.y = hit.area.y.max(covered);
+            hit.area.height = bottom.saturating_sub(hit.area.y);
+        }
+        hits.cards.retain(|hit| hit.area.height > 0);
+        hits.copies.retain(|hit| hit.area.y >= covered);
     }
-    state.set_copy_hits(hits);
+    state.set_card_hits(hits.cards);
+    state.set_copy_hits(hits.copies);
 
-    render_sticky_date(frame, theme, &rows, view);
+    render_title(frame, theme, content);
+    if let Some(date) = sticky {
+        render_sticky_date(frame, theme, date, content);
+    }
 }
 
-fn render_title(frame: &mut Frame, content: Rect, theme: &Theme, scroll: usize) {
-    if let Some(area) = visible_line(content, scroll, 0) {
-        frame.render_widget(
-            Paragraph::new("Recent Activity")
-                .style(Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
-            area,
-        );
-    }
+/// Pins the title with its gap row so the header never crowds the feed.
+fn render_title(frame: &mut Frame, theme: &Theme, content: Rect) {
+    let band = Rect {
+        height: content.height.min(2),
+        ..content
+    };
+    clear_sticky_row(frame, band, theme);
+    frame.render_widget(
+        Paragraph::new("Recent Activity")
+            .style(Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
+        Rect { height: 1, ..band },
+    );
+}
+
+/// Pinned rows float over the feed, so they clear their own strip first;
+/// otherwise card text would show through the gaps around the label.
+fn clear_sticky_row(frame: &mut Frame, area: Rect, theme: &Theme) {
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Block::default().style(Style::default().bg(theme.background)),
+        area,
+    );
 }
 
 enum FeedRow {
     Date(NaiveDate),
-    Item(ItemLayout),
+    Card(CardLayout),
 }
 
-struct ItemLayout {
+/// One wrapped activity card: the source event and every payload row.
+struct CardLayout {
     index: usize,
-    kind: ItemKind,
+    lines: Vec<String>,
 }
 
-enum ItemKind {
-    /// Voice dictation: the content itself, wrapped, with no label line.
-    Voice(Vec<String>),
-    /// Everything else: a trigger line and a one-line body preview.
-    Label(String),
-}
+impl CardLayout {
+    /// Rows the card fill occupies: chrome plus every payload row.
+    fn fill_height(&self) -> usize {
+        self.lines.len() + CARD_CHROME_LINES
+    }
 
-impl ItemLayout {
-    /// Drawn height, including the blank row after the item.
-    fn height(&self) -> usize {
-        match &self.kind {
-            ItemKind::Voice(lines) => lines.len().max(1) + 1,
-            ItemKind::Label(_) => ITEM_LINES,
-        }
+    /// Fill plus the blank page-background row that follows it.
+    fn block_height(&self) -> usize {
+        self.fill_height() + CARD_GAP_LINES
     }
 }
 
 /// One entry per drawn block, in document order.
-fn feed_rows(activity: &[RecentActivity], width: u16, today: NaiveDate) -> Vec<FeedRow> {
-    // honey: wrapped lines are rebuilt every frame; the feed is capped at
-    // 30 days, so this stays cheap. Cache by width if it ever grows.
+fn feed_rows(activity: &[RecentActivity], width: u16) -> Vec<FeedRow> {
+    let card_width = width.min(CARD_MAX_WIDTH);
+    let text_width = payload_width(card_width);
     let mut rows = Vec::with_capacity(activity.len() + 4);
     let mut previous: Option<NaiveDate> = None;
     for (index, event) in activity.iter().enumerate() {
-        let at = local_datetime(event.timestamp);
-        let date = at.date_naive();
+        let date = local_datetime(event.timestamp).date_naive();
         if previous != Some(date) {
             rows.push(FeedRow::Date(date));
             previous = Some(date);
         }
-        let kind = if is_dictation(event) {
-            let when = activity_time(at, today);
-            let (first, rest) = voice_budgets(width, &when);
-            let mut lines = wrap_text(event_body(event), first, rest);
-            // The clock owns the first line and the copy button the last,
-            // so even an empty or one-line dictation gets a second line
-            // for the button and the clock always sits flush right.
-            while lines.len() < 2 {
-                lines.push(String::new());
-            }
-            ItemKind::Voice(lines)
-        } else {
-            ItemKind::Label(event_body(event).to_string())
-        };
-        rows.push(FeedRow::Item(ItemLayout { index, kind }));
+        rows.push(FeedRow::Card(CardLayout {
+            index,
+            lines: wrap_payload(event_body(event), text_width),
+        }));
     }
     rows
+}
+
+/// Wraps a payload to the card's text column. Every word survives; only
+/// a word wider than the column is split, never through a glyph.
+fn wrap_payload(body: &str, width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    for source in body.lines() {
+        for (row, _) in wrap_line(source, width, width) {
+            lines.push(row);
+        }
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines
+}
+
+/// Cells available for payload text: the card's inner width minus the
+/// copy column and the gutter before it. The column is reserved on every
+/// card, so selecting one never reflows its text.
+fn payload_width(card_width: u16) -> usize {
+    let inner = card_width.saturating_sub(CARD_PAD_X.saturating_mul(2));
+    let reserved = cell_width(COPY_LABEL) as u16 + CONTENT_GAP;
+    inner.saturating_sub(reserved).max(1) as usize
 }
 
 /// Drawn height of the whole feed, headers included.
 fn rows_height(rows: &[FeedRow]) -> usize {
     rows.iter()
         .map(|row| match row {
-            FeedRow::Date(_) => GROUP_HEADER_LINES,
-            FeedRow::Item(item) => item.height(),
+            FeedRow::Date(_) => DATE_BLOCK_LINES,
+            FeedRow::Card(card) => card.block_height(),
         })
         .sum()
 }
 
-fn is_dictation(event: &RecentActivity) -> bool {
-    event.category == ActivityCategory::Voice
-}
-
-/// Line budgets for a dictation. The clock is flush right on the first
-/// line, so text stops a gap short of it; later lines clear the copy
-/// column the same way.
-fn voice_budgets(width: u16, when: &str) -> (usize, usize) {
-    let copy = cell_width(COPY_LABEL) as u16;
-    let time = cell_width(when) as u16;
-    let clock = width.saturating_sub(time.saturating_add(1));
-    let first = clock.saturating_sub(CONTENT_GAP);
-    let rest = width
-        .saturating_sub(copy.saturating_add(1))
-        .saturating_sub(CONTENT_GAP);
-    (first as usize, rest as usize)
-}
-
-/// Wraps text into lines of at most `first` cells on the first line and
-/// `rest` on every later line. The shared wrapper keeps words whole; only
-/// a word longer than a line is split, so the whole dictation is shown.
-fn wrap_text(text: &str, first: usize, rest: usize) -> Vec<String> {
-    let mut lines = Vec::new();
-    for source in text.lines() {
-        let budget = if lines.is_empty() { first } else { rest };
-        for (row, _) in wrap_line(source, budget, rest) {
-            lines.push(row);
+/// Document line and fill height of a card, used to scroll the selection
+/// fully into view.
+fn card_position(rows: &[FeedRow], selected: usize) -> Option<(usize, usize)> {
+    let mut line = TITLE_LINES;
+    for row in rows {
+        match row {
+            FeedRow::Date(_) => line += DATE_BLOCK_LINES,
+            FeedRow::Card(card) => {
+                if card.index == selected {
+                    return Some((line, card.fill_height()));
+                }
+                line += card.block_height();
+            }
         }
     }
-    lines
+    None
 }
 
 /// Where the feed starts in the document and how far the page is scrolled.
@@ -225,13 +284,21 @@ struct FeedViewport {
     scroll: usize,
 }
 
+/// Pointer targets recorded by one frame.
+#[derive(Debug, Default)]
+struct FeedHits {
+    cards: Vec<CardHit>,
+    copies: Vec<CopyHit>,
+}
+
 fn render_feed(
     frame: &mut Frame,
     theme: &Theme,
     stats: &HomeStats,
     rows: &[FeedRow],
     view: FeedViewport,
-    hits: &mut Vec<CopyHit>,
+    active: Option<usize>,
+    hits: &mut FeedHits,
 ) {
     let FeedViewport {
         content,
@@ -248,6 +315,7 @@ fn render_feed(
         return;
     }
 
+    let width = card_width(content);
     let mut line = start;
     for row in rows {
         if line >= viewport_end {
@@ -258,55 +326,204 @@ fn render_feed(
                 if let Some(area) = visible_line(content, scroll, line) {
                     render_group_header(frame, area, theme, *date, today);
                 }
-                line += GROUP_HEADER_LINES;
+                line += DATE_BLOCK_LINES;
             }
-            FeedRow::Item(item) => {
-                let event = &stats.recent_activity[item.index];
-                let when = activity_time(local_datetime(event.timestamp), today);
-                match &item.kind {
-                    ItemKind::Voice(lines) => {
-                        let last = lines.len().saturating_sub(1);
-                        for (offset, text) in lines.iter().enumerate() {
-                            if let Some(area) = visible_line(content, scroll, line + offset) {
-                                render_voice_line(frame, area, theme, text, &when, offset == 0);
-                            }
-                        }
-                        if let Some(area) = visible_line(content, scroll, line + last)
-                            && let Some(button) = copy_button_rect(area)
-                        {
-                            render_copy_button(frame, button, theme);
-                            hits.push(CopyHit {
-                                event: item.index,
-                                area: button,
-                            });
-                        }
-                        line += item.height();
-                    }
-                    ItemKind::Label(body) => {
-                        if let Some(area) = visible_line(content, scroll, line) {
-                            render_trigger(
-                                frame,
-                                area,
-                                theme,
-                                event,
-                                &when,
-                                activity_text_width(area.width, &when),
-                            );
-                        }
-                        if let Some(area) = visible_line(content, scroll, line + 1)
-                            && let Some(button) = render_label_body(frame, area, theme, body)
-                        {
-                            hits.push(CopyHit {
-                                event: item.index,
-                                area: button,
-                            });
-                        }
-                        line += item.height();
-                    }
-                }
+            FeedRow::Card(card) => {
+                let view = CardView {
+                    content,
+                    scroll,
+                    line,
+                    width,
+                    active: active == Some(card.index),
+                    theme,
+                };
+                render_card(frame, &stats.recent_activity[card.index], card, view, hits);
+                line += card.block_height();
             }
         }
     }
+}
+
+/// Where one card sits on the page and whether it owns the focus.
+#[derive(Debug, Clone, Copy)]
+struct CardView<'a> {
+    content: Rect,
+    scroll: usize,
+    line: usize,
+    width: u16,
+    active: bool,
+    theme: &'a Theme,
+}
+
+fn render_card(
+    frame: &mut Frame,
+    event: &RecentActivity,
+    card: &CardLayout,
+    view: CardView<'_>,
+    hits: &mut FeedHits,
+) {
+    let CardView {
+        content,
+        scroll,
+        line,
+        width,
+        active,
+        theme,
+    } = view;
+    let bg = if active {
+        theme.card.active_bg
+    } else {
+        theme.card.bg
+    };
+    let fill = card.fill_height();
+
+    let top = line as isize - scroll as isize;
+    let visible_top = top.max(0);
+    let visible_bottom = (top + fill as isize).min(content.height as isize);
+    if visible_bottom > visible_top {
+        let area = Rect {
+            x: content.x,
+            y: content.y.saturating_add(visible_top as u16),
+            width,
+            height: (visible_bottom - visible_top) as u16,
+        };
+        frame.render_widget(Block::default().style(Style::default().bg(bg)), area);
+        hits.cards.push(CardHit {
+            event: card.index,
+            area,
+        });
+    }
+
+    let inner_x = content.x.saturating_add(CARD_PAD_X);
+    let inner_width = width.saturating_sub(CARD_PAD_X.saturating_mul(2));
+    if inner_width == 0 {
+        return;
+    }
+
+    if let Some(row) = visible_line(content, scroll, line + 1) {
+        render_tag_line(
+            frame,
+            Rect {
+                x: inner_x,
+                width: inner_width,
+                ..row
+            },
+            theme,
+            event,
+            bg,
+        );
+    }
+
+    let text_width = payload_width(width) as u16;
+    for (offset, text) in card.lines.iter().enumerate() {
+        if let Some(row) = visible_line(content, scroll, line + 2 + offset)
+            && !text.is_empty()
+        {
+            frame.render_widget(
+                Paragraph::new(text.clone()).style(Style::default().fg(theme.text)),
+                Rect {
+                    x: inner_x,
+                    width: text_width,
+                    ..row
+                },
+            );
+        }
+    }
+
+    let copy_width = cell_width(COPY_LABEL) as u16;
+    if active && inner_width > copy_width.saturating_add(CONTENT_GAP) {
+        // The button rides the last payload row; the text column already
+        // reserves its cells on every row.
+        let last = line + 1 + card.lines.len();
+        if let Some(row) = visible_line(content, scroll, last) {
+            let button = Rect {
+                x: content
+                    .x
+                    .saturating_add(width)
+                    .saturating_sub(CARD_PAD_X)
+                    .saturating_sub(copy_width),
+                y: row.y,
+                width: copy_width,
+                height: 1,
+            };
+            render_copy_button(frame, button, theme);
+            hits.copies.push(CopyHit {
+                event: card.index,
+                area: button,
+            });
+        }
+    }
+}
+
+/// Line 1: the source tag on the left, the relative clock pinned right.
+fn render_tag_line(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    event: &RecentActivity,
+    card_bg: Color,
+) {
+    let when = event_time(event);
+    let time_width = cell_width(&when) as u16;
+    // Same gutter the payload keeps before the copy button: tags never
+    // crowd the clock.
+    let tag_width = area
+        .width
+        .saturating_sub(time_width)
+        .saturating_sub(CONTENT_GAP);
+    if tag_width > 0 {
+        let spans = tag_spans(event, tag_width as usize, theme, card_bg);
+        frame.render_widget(
+            Paragraph::new(Line::from(spans)),
+            Rect {
+                width: tag_width,
+                ..area
+            },
+        );
+    }
+    if time_width > 0 && time_width <= area.width {
+        frame.render_widget(
+            Paragraph::new(when).style(Style::default().fg(theme.description)),
+            Rect {
+                x: area.right().saturating_sub(time_width),
+                width: time_width,
+                ..area
+            },
+        );
+    }
+}
+
+fn tag_spans(
+    event: &RecentActivity,
+    budget: usize,
+    theme: &Theme,
+    card_bg: Color,
+) -> Vec<Span<'static>> {
+    if event.category == ActivityCategory::Voice {
+        return vec![pill("voice", budget, theme)];
+    }
+    if is_hotkey_activity(event) {
+        return hotkey::render_hotkey_spans(
+            &event.trigger,
+            budget,
+            theme.keycap.bg,
+            theme.text,
+            card_bg,
+        );
+    }
+    vec![pill(&event.trigger, budget, theme)]
+}
+
+/// Flat keycap-style tag: one space of padding, never a border.
+fn pill(label: &str, budget: usize, theme: &Theme) -> Span<'static> {
+    if budget < 3 {
+        return Span::raw(truncate(label, budget));
+    }
+    let text = truncate(label, budget.saturating_sub(2));
+    Span::styled(
+        format!(" {text} "),
+        Style::default().bg(theme.keycap.bg).fg(theme.text),
+    )
 }
 
 fn visible_line(content: Rect, scroll: usize, line: usize) -> Option<Rect> {
@@ -316,6 +533,10 @@ fn visible_line(content: Rect, scroll: usize, line: usize) -> Option<Rect> {
         height: 1,
         ..content
     })
+}
+
+fn card_width(content: Rect) -> u16 {
+    content.width.min(CARD_MAX_WIDTH)
 }
 
 fn local_datetime(timestamp_ms: i64) -> DateTime<Local> {
@@ -352,59 +573,59 @@ fn render_group_header(
     );
 }
 
-/// Pins the date of the group at the viewport's top edge, so the feed
-/// always says which day it is showing while the cards scroll away.
-fn render_sticky_date(frame: &mut Frame, theme: &Theme, rows: &[FeedRow], view: FeedViewport) {
-    let FeedViewport {
-        content,
-        start,
-        scroll,
-    } = view;
-    if scroll <= start {
-        return;
+/// Date header that should stick just below the pinned title because its
+/// group is the one under the viewport's top edge.
+fn sticky_date(rows: &[FeedRow], view: FeedViewport) -> Option<NaiveDate> {
+    let FeedViewport { start, scroll, .. } = view;
+    if scroll == 0 {
+        return None;
     }
+    // The title and its gap own rows 0-1, so the header pins on row 2.
+    let pinned_row = scroll.saturating_add(STICKY_DATE_ROW as usize);
     let mut line = start;
     let mut sticky = None;
     for row in rows {
-        if line > scroll {
+        if line > pinned_row {
             break;
         }
         match row {
             FeedRow::Date(date) => {
-                if line < scroll {
-                    sticky = Some(*date);
-                }
-                line += GROUP_HEADER_LINES;
+                sticky = Some(*date);
+                line += DATE_BLOCK_LINES;
             }
-            FeedRow::Item(item) => line += item.height(),
+            FeedRow::Card(card) => line += card.block_height(),
         }
     }
-    let Some(date) = sticky else {
-        return;
-    };
-    let area = Rect {
-        y: content.y,
-        height: 1,
-        ..content
-    };
-    // honey: the header floats over the feed, so it clears its own row
-    // first; otherwise the line underneath would show through the gaps.
-    frame.render_widget(Clear, area);
-    frame.render_widget(
-        Block::default().style(Style::default().bg(theme.background)),
-        area,
-    );
-    render_group_header(frame, area, theme, date, Local::now().date_naive());
+    sticky
 }
 
-/// Today's events read as relative times; older groups carry the clock
-/// time under their date header.
-fn activity_time(at: DateTime<Local>, today: NaiveDate) -> String {
-    if at.date_naive() == today {
-        relative_time(at.timestamp()).unwrap_or_else(|| clock_time(at))
-    } else {
-        clock_time(at)
+/// Pins the date of the group just under the title, so the feed always
+/// says which day it is showing while the cards scroll away.
+fn render_sticky_date(frame: &mut Frame, theme: &Theme, date: NaiveDate, content: Rect) {
+    let y = content.y.saturating_add(STICKY_DATE_ROW);
+    if y >= content.bottom() {
+        return;
     }
+    let band = Rect {
+        y,
+        height: content.bottom().saturating_sub(y).min(2),
+        ..content
+    };
+    clear_sticky_row(frame, band, theme);
+    render_group_header(
+        frame,
+        Rect { height: 1, ..band },
+        theme,
+        date,
+        Local::now().date_naive(),
+    );
+}
+
+/// Feed cards read relative times; an unparsable timestamp falls back to
+/// the wall clock.
+fn event_time(event: &RecentActivity) -> String {
+    let at = local_datetime(event.timestamp);
+    relative_time(at.timestamp()).unwrap_or_else(|| clock_time(at))
 }
 
 fn clock_time(at: DateTime<Local>) -> String {
@@ -414,130 +635,6 @@ fn clock_time(at: DateTime<Local>) -> String {
         at.minute(),
         if is_pm { "PM" } else { "AM" }
     )
-}
-
-/// Text stops a gap before the right-aligned time, so nothing runs
-/// underneath it.
-fn activity_text_width(width: u16, when: &str) -> u16 {
-    let when_width = cell_width(when) as u16;
-    width
-        .saturating_sub(when_width.saturating_add(1))
-        .saturating_sub(CONTENT_GAP)
-}
-
-fn render_trigger(
-    frame: &mut Frame,
-    area: Rect,
-    theme: &Theme,
-    event: &RecentActivity,
-    when: &str,
-    text_width: u16,
-) {
-    let trigger_width = text_width as usize;
-    let mut spans = if is_hotkey_activity(event) {
-        hotkey::render_hotkey_spans(
-            &event.trigger,
-            trigger_width,
-            theme.keycap.bg,
-            theme.text,
-            theme.background,
-        )
-    } else {
-        vec![Span::styled(
-            truncate(&event.trigger, trigger_width),
-            Style::default().fg(theme.text),
-        )]
-    };
-    // Pad to the clock's fixed cell, not to the text budget, so the gap
-    // never shifts the clock off the right edge.
-    let clock_x = area
-        .width
-        .saturating_sub(cell_width(when) as u16)
-        .saturating_sub(1);
-    let used = hotkey::spans_width(&spans);
-    spans.push(Span::raw(
-        " ".repeat((clock_x as usize).saturating_sub(used)),
-    ));
-    spans.push(Span::styled(
-        when.to_string(),
-        Style::default().fg(theme.description),
-    ));
-
-    frame.render_widget(Paragraph::new(Line::from(spans)), area);
-}
-
-/// One wrapped dictation line: the clock ends the first line at the same
-/// right edge the copy button uses on the last.
-fn render_voice_line(
-    frame: &mut Frame,
-    area: Rect,
-    theme: &Theme,
-    text: &str,
-    when: &str,
-    first: bool,
-) {
-    let time = cell_width(when) as u16;
-    let time_x = area.right().saturating_sub(1).saturating_sub(time);
-    // Draw into exactly the budget the wrapper used, so a wrapped row is
-    // never clipped mid-word.
-    let (first_width, rest_width) = voice_budgets(area.width, when);
-    let text_width = if first { first_width } else { rest_width } as u16;
-
-    if text_width > 0 {
-        frame.render_widget(
-            Paragraph::new(text.to_string()).style(Style::default().fg(theme.description)),
-            Rect {
-                width: text_width,
-                ..area
-            },
-        );
-    }
-    if first && time > 0 && time_x >= area.x && time_x.saturating_add(time) <= area.right() {
-        frame.render_widget(
-            Paragraph::new(when.to_string()).style(Style::default().fg(theme.description)),
-            Rect {
-                x: time_x,
-                width: time,
-                ..area
-            },
-        );
-    }
-}
-
-/// Draws the event's one-line preview and its copy button; returns the
-/// button's rect.
-fn render_label_body(frame: &mut Frame, area: Rect, theme: &Theme, body: &str) -> Option<Rect> {
-    if body.trim().is_empty() || area.width == 0 {
-        return None;
-    }
-    let button = copy_button_rect(area)?;
-    let text_width = button.x.saturating_sub(area.x).saturating_sub(CONTENT_GAP);
-    if text_width > 0 {
-        // honey: content can be multi-line; the preview is one flat line.
-        let flat: String = body
-            .chars()
-            .map(|c| if c.is_control() { ' ' } else { c })
-            .collect();
-        frame.render_widget(
-            Paragraph::new(truncate(flat.trim(), text_width as usize))
-                .style(Style::default().fg(theme.description)),
-            Rect {
-                width: text_width,
-                ..area
-            },
-        );
-    }
-    render_copy_button(frame, button, theme);
-    Some(button)
-}
-
-fn copy_button_rect(area: Rect) -> Option<Rect> {
-    let width = cell_width(COPY_LABEL) as u16;
-    (area.width > width).then(|| Rect {
-        x: area.right().saturating_sub(width),
-        width,
-        ..area
-    })
 }
 
 fn render_copy_button(frame: &mut Frame, area: Rect, theme: &Theme) {
@@ -648,6 +745,10 @@ mod tests {
         text
     }
 
+    fn row_text(buffer: &Buffer, width: u16, y: u16) -> String {
+        (0..width).map(|x| buffer[(x, y)].symbol()).collect()
+    }
+
     /// Local noon today, so grouping never straddles midnight.
     fn today_noon_millis() -> i64 {
         use chrono::{Local, TimeZone};
@@ -696,10 +797,13 @@ mod tests {
         state
     }
 
-    /// Content pane the page draws into, and the first feed line inside it.
-    fn content_area(width: u16, height: u16) -> (Rect, usize) {
-        let content = padded(Rect::new(0, 0, width, height), PANE_PAD_X, 0);
-        (content, TITLE_LINES)
+    fn content_area(width: u16, height: u16) -> Rect {
+        padded(Rect::new(0, 0, width, height), PANE_PAD_X, 0)
+    }
+
+    /// Document line the nth single-line card starts on.
+    fn card_top(n: usize) -> usize {
+        TITLE_LINES + DATE_BLOCK_LINES + n * CARD_MIN_BLOCK_LINES
     }
 
     #[test]
@@ -729,10 +833,8 @@ mod tests {
         );
         assert!(!text.contains("TIME SAVED"), "stat cards removed");
         assert!(!text.contains("WORDS SPOKEN"), "stat cards removed");
-        assert!(!text.contains("WORDS EXPANDED"), "stat cards removed");
-        assert!(!text.contains("DAY STREAK"), "stat cards removed");
         assert!(text.contains("Today"));
-        assert!(text.contains("gs"));
+        assert!(text.contains(" gs "), "trigger tag missing");
         assert!(text.contains("tautui --home"), "activity body missing");
         assert!(
             !text.contains("Open taurine tui"),
@@ -740,58 +842,265 @@ mod tests {
         );
         assert!(!text.contains("Most Used Triggers"), "section removed");
         assert!(!text.contains("Windowsterminal"), "source app is hidden");
-        assert!(!text.contains("42w"), "word count removed from activity");
         assert!(text.contains("2m ago"));
-        for border in ["┌", "┐", "└", "┘", "─"] {
+        for border in ["┌", "┐", "└", "┘", "─", "│"] {
             assert!(!text.contains(border), "home page draws no borders");
         }
-        assert!(!text.contains("█"), "no usage bars");
-        assert!(!text.contains("●"), "no carousel dots");
     }
 
     #[test]
-    fn activity_rows_have_no_selection_background() {
-        let mut state = sample_state();
-        let (_, feed_start) = content_area(120, 40);
+    fn cards_are_flat_fills_separated_by_one_blank_row() {
+        let noon = today_noon_millis();
+        let mut state = state_with_activity(vec![
+            activity_event(noon, "aa", "first body"),
+            activity_event(noon - 1_000, "zz", "second body"),
+        ]);
         let buffer = render_buffer(&mut state, 120, 40);
+        let content = content_area(120, 40);
 
-        for y in feed_start as u16..40 {
-            for x in 0..120 {
-                assert_ne!(
-                    buffer[(x, y)].bg,
-                    DARK_THEME.surface,
-                    "highlighted activity cell at {x},{y}"
-                );
-            }
+        let fill = |row: usize| buffer[(content.x, row as u16)].bg;
+        assert_eq!(
+            fill(card_top(0)),
+            DARK_THEME.card.active_bg,
+            "the selected card starts focused"
+        );
+        assert_eq!(
+            fill(card_top(1) - 1),
+            DARK_THEME.background,
+            "one page-background row between cards"
+        );
+        assert_eq!(fill(card_top(1)), DARK_THEME.card.bg);
+    }
+
+    #[test]
+    fn cards_stop_widening_on_large_screens() {
+        let mut state = sample_state();
+        let buffer = render_buffer(&mut state, 140, 30);
+        let content = content_area(140, 30);
+        let inside = buffer[(content.x + CARD_MAX_WIDTH - 1, card_top(0) as u16)].bg;
+        let outside = buffer[(content.x + CARD_MAX_WIDTH, card_top(0) as u16)].bg;
+
+        assert_eq!(inside, DARK_THEME.card.active_bg, "selected card fill");
+        assert_eq!(outside, DARK_THEME.background, "page background");
+    }
+
+    #[test]
+    fn only_the_active_card_shows_a_copy_button() {
+        let noon = today_noon_millis();
+        let mut state = state_with_activity(vec![
+            activity_event(noon, "aa", "first body"),
+            activity_event(noon - 1_000, "zz", "second body"),
+        ]);
+
+        let first = draw(&mut state, 100, 30);
+        assert_eq!(first.matches(COPY_LABEL).count(), 1);
+        assert!(
+            first
+                .lines()
+                .nth(card_top(0) + 2)
+                .is_some_and(|line| { line.contains(COPY_LABEL) && line.contains("first body") })
+        );
+
+        state.select(1);
+        let second = draw(&mut state, 100, 30);
+        assert_eq!(second.matches(COPY_LABEL).count(), 1);
+        assert!(
+            second
+                .lines()
+                .nth(card_top(1) + 2)
+                .is_some_and(|line| { line.contains(COPY_LABEL) && line.contains("second body") })
+        );
+    }
+
+    #[test]
+    fn selected_card_uses_the_focus_fill() {
+        let noon = today_noon_millis();
+        let mut state = state_with_activity(vec![
+            activity_event(noon, "aa", "first body"),
+            activity_event(noon - 1_000, "zz", "second body"),
+        ]);
+
+        let buffer = render_buffer(&mut state, 100, 30);
+        let content = content_area(100, 30);
+        assert_eq!(
+            buffer[(content.x, card_top(0) as u16)].bg,
+            DARK_THEME.card.active_bg
+        );
+        assert_eq!(
+            buffer[(content.x, card_top(1) as u16)].bg,
+            DARK_THEME.card.bg
+        );
+    }
+
+    #[test]
+    fn hover_focuses_a_card_without_moving_the_selection() {
+        let noon = today_noon_millis();
+        let mut state = state_with_activity(vec![
+            activity_event(noon, "aa", "first body"),
+            activity_event(noon - 1_000, "zz", "second body"),
+        ]);
+        let content = content_area(100, 30);
+        let _ = render_buffer(&mut state, 100, 30);
+
+        state.hover_at(content.x + 1, (card_top(1) + 1) as u16);
+        assert_eq!(state.active(), Some(1));
+        assert_eq!(state.selected(), Some(0));
+
+        let buffer = render_buffer(&mut state, 100, 30);
+        assert_eq!(
+            buffer[(content.x, card_top(0) as u16)].bg,
+            DARK_THEME.card.bg,
+            "selection loses the focus fill while hovering elsewhere"
+        );
+        assert_eq!(
+            buffer[(content.x, card_top(1) as u16)].bg,
+            DARK_THEME.card.active_bg
+        );
+        let text = draw(&mut state, 100, 30);
+        assert_eq!(text.matches(COPY_LABEL).count(), 1);
+    }
+
+    #[test]
+    fn tag_and_clock_share_the_first_card_line() {
+        let mut state = sample_state();
+        let buffer = render_buffer(&mut state, 120, 40);
+        let content = content_area(120, 40);
+        let line = row_text(&buffer, 120, (card_top(0) + 1) as u16);
+        let when = event_time(&state.stats().recent_activity[0]);
+
+        assert!(line.contains(" gs "), "tag missing: {line:?}");
+        assert!(
+            line.trim_end().ends_with(&when),
+            "clock is not flush right: {line:?}"
+        );
+        let inner_right = content.x + card_width(content) - CARD_PAD_X;
+        assert_eq!(
+            line.trim_end().len() as u16,
+            inner_right,
+            "clock ends at the card's inner right edge"
+        );
+    }
+
+    #[test]
+    fn tag_keeps_the_content_gap_before_the_clock() {
+        let mut state = state_with_activity(vec![activity_event(
+            today_noon_millis(),
+            "a-rather-long-trigger-that-fills-the-tag-column",
+            "body",
+        )]);
+        let buffer = render_buffer(&mut state, 60, 30);
+        let content = content_area(60, 30);
+        let when = event_time(&state.stats().recent_activity[0]);
+        let time_width = cell_width(&when) as u16;
+        let clock_x = content.x + card_width(content) - CARD_PAD_X - time_width;
+        let row = (card_top(0) + 1) as u16;
+
+        let last = (content.x..clock_x)
+            .rev()
+            .find(|&x| !buffer[(x, row)].symbol().trim().is_empty())
+            .expect("tag pill");
+        let gap = clock_x.saturating_sub(1).saturating_sub(last);
+        assert!(
+            gap >= CONTENT_GAP,
+            "tag ends at {last}, clock starts at {clock_x}, gap {gap}"
+        );
+        let clock: String = (clock_x..clock_x + time_width)
+            .map(|x| buffer[(x, row)].symbol())
+            .collect();
+        assert_eq!(clock, when);
+    }
+
+    #[test]
+    fn voice_card_wraps_the_whole_payload() {
+        let body = "remind me to call mom tomorrow morning and ask about the weekend plans";
+        let mut state = state_with_activity(vec![voice_event(today_noon_millis(), body)]);
+        let text = draw(&mut state, 70, 40);
+        let content = content_area(70, 40);
+        let rows = feed_rows(&state.stats().recent_activity, content.width);
+        let lines = match &rows[1] {
+            FeedRow::Card(card) => card.lines.clone(),
+            FeedRow::Date(_) => panic!("second row is the card"),
+        };
+
+        assert!(text.contains(" voice "), "voice tag missing:\n{text}");
+        assert!(!text.contains("Dictation"), "raw trigger label hidden");
+        assert!(!text.contains('…'), "dictation is never truncated:\n{text}");
+        assert!(lines.len() > 1, "long dictation wraps");
+        assert_eq!(lines.join(" "), body, "every word survives wrapping");
+        for line in &lines {
+            assert!(
+                text.contains(line.as_str()),
+                "wrapped row missing: {line:?}"
+            );
         }
     }
 
     #[test]
-    fn activity_items_have_a_blank_row_between_them() {
-        let noon = today_noon_millis();
-        let mut state = state_with_activity(vec![
-            activity_event(noon + 1_000, "aa", "first body"),
-            activity_event(noon, "zz", "second body"),
-        ]);
+    fn wrapped_payload_keeps_a_gutter_before_the_copy_button() {
+        let long = "a very long payload that will wrap across the card instead of being \
+                    cut off, and keeps going for a while longer so it cannot fit on one line"
+            .repeat(2);
+        let mut state = state_with_activity(vec![activity_event(today_noon_millis(), "gs", &long)]);
+        let buffer = render_buffer(&mut state, 100, 40);
+        let content = content_area(100, 40);
+        let inner_right = content.x + card_width(content) - CARD_PAD_X;
+        let button_x = inner_right - cell_width(COPY_LABEL) as u16;
+        let rows = feed_rows(&state.stats().recent_activity, content.width);
+        let line_count = match &rows[1] {
+            FeedRow::Card(card) => card.lines.len(),
+            FeedRow::Date(_) => panic!("second row is the card"),
+        };
+        assert!(line_count > 1, "payload wraps onto several rows");
+        let first_payload = (card_top(0) + 2) as u16;
+        let last_payload = (card_top(0) + 1 + line_count) as u16;
 
+        let button: String = (button_x..inner_right)
+            .map(|x| buffer[(x, last_payload)].symbol())
+            .collect();
+        assert_eq!(button, COPY_LABEL, "copy rides the last payload row");
+
+        let text_width = payload_width(card_width(content)) as u16;
+        let text_limit = content.x + CARD_PAD_X + text_width;
+        for row in first_payload..=last_payload {
+            let gutter: String = (text_limit..button_x)
+                .map(|x| buffer[(x, row)].symbol())
+                .collect();
+            assert!(
+                gutter.trim().is_empty(),
+                "gutter touched on row {row}: {gutter:?}"
+            );
+        }
+        assert!(!draw(&mut state, 100, 40).contains('…'), "no truncation");
+    }
+
+    #[test]
+    fn hotkey_activity_renders_as_keycaps() {
+        let mut event = activity_event(today_noon_millis(), "ralt+m", "mouse back");
+        event.category = ActivityCategory::Hotkey;
+        let mut state = state_with_activity(vec![event]);
         let text = draw(&mut state, 120, 40);
-        let (content, feed_start) = content_area(120, 40);
-        let first_trigger = content.y as usize + feed_start + GROUP_HEADER_LINES;
-        let lines: Vec<&str> = text.lines().collect();
-        let blank = |row: usize| lines[row].trim().is_empty();
 
-        assert!(!blank(first_trigger), "first trigger missing");
-        assert!(!lines[first_trigger].contains("first body"));
+        assert!(text.contains(" ralt "), "first keycap missing");
+        assert!(text.contains(" m "), "second keycap missing");
+        assert!(!text.contains("ralt+m"), "chord is split into keycaps");
+        assert!(text.contains("mouse back"));
         assert!(
-            lines[first_trigger + 1].contains("first body"),
-            "body missing"
+            text.lines()
+                .nth(card_top(0) + 1)
+                .is_some_and(|line| line.contains(" ralt ") && line.contains(" m ")),
+            "keycaps sit on the tag line"
         );
-        assert!(blank(first_trigger + 2), "gap row is not blank");
-        assert!(
-            lines[first_trigger + 3].contains("zz"),
-            "second trigger missing"
-        );
-        assert!(lines[first_trigger + 4].contains("second body"));
+    }
+
+    #[test]
+    fn body_falls_back_to_the_description_when_content_is_missing() {
+        let mut event = activity_event(today_noon_millis(), "gs", "");
+        event.content = None;
+        event.detail = "Open taurine tui".to_string();
+        let mut state = state_with_activity(vec![event]);
+        let text = draw(&mut state, 120, 40);
+
+        assert!(text.contains("Open taurine tui"));
     }
 
     #[test]
@@ -810,287 +1119,27 @@ mod tests {
         let text = draw(&mut state, 120, 40);
 
         assert!(text.contains("October 20 2024"), "date header missing");
-        assert!(text.contains("11:30 AM"), "clock time missing");
+        assert!(text.contains("ago"), "relative timestamp missing");
         assert!(!text.contains("Today"), "old group is not today");
         assert!(text.contains("open taurine tui"));
     }
 
     #[test]
-    fn body_falls_back_to_the_description_when_content_is_missing() {
-        let mut event = activity_event(today_noon_millis(), "gs", "");
-        event.content = None;
-        event.detail = "Open taurine tui".to_string();
-        let mut state = state_with_activity(vec![event]);
-        let text = draw(&mut state, 120, 40);
-
-        assert!(text.contains("Open taurine tui"));
-    }
-
-    #[test]
-    fn label_body_truncates_with_an_ellipsis() {
-        let mut state = state_with_activity(vec![activity_event(
-            today_noon_millis(),
-            "gs",
-            &"a long description that will not fit in the pane ".repeat(8),
-        )]);
-        let text = draw(&mut state, 80, 30);
-
-        assert!(text.contains('…'), "long body is truncated");
-    }
-
-    #[test]
-    fn body_stops_before_the_copy_button() {
-        let mut state = state_with_activity(vec![activity_event(
-            today_noon_millis(),
-            "gs",
-            &"a long description ".repeat(40),
-        )]);
-        let buffer = render_buffer(&mut state, 120, 40);
-
-        let (content, feed_start) = content_area(120, 40);
-        let body_row = content.y + (feed_start + GROUP_HEADER_LINES + 1) as u16;
-        let button_x = content.right() - cell_width(COPY_LABEL) as u16;
-
-        let line: String = (content.x..button_x)
-            .map(|x| buffer[(x, body_row)].symbol())
-            .collect();
-        assert!(line.trim_end().ends_with('…'), "body truncated: {line}");
-        let button: String = (button_x..content.right())
-            .map(|x| buffer[(x, body_row)].symbol())
-            .collect();
-        assert_eq!(button, COPY_LABEL, "copy button keeps its column");
-    }
-
-    #[test]
-    fn wide_body_stays_left_of_the_copy_button() {
-        let mut state = state_with_activity(vec![activity_event(
-            today_noon_millis(),
-            "gs",
-            &"描述文字内容".repeat(30),
-        )]);
-        let buffer = render_buffer(&mut state, 120, 40);
-
-        let (content, feed_start) = content_area(120, 40);
-        let body_row = content.y + (feed_start + GROUP_HEADER_LINES + 1) as u16;
-        let button_x = content.right() - cell_width(COPY_LABEL) as u16;
-        let button: String = (button_x..content.right())
-            .map(|x| buffer[(x, body_row)].symbol())
-            .collect();
-        assert_eq!(button, COPY_LABEL);
-        assert!(
-            (content.x..button_x).any(|x| buffer[(x, body_row)].symbol() == "…"),
-            "wide body is truncated before the button"
-        );
-    }
-
-    #[test]
-    fn voice_dictation_shows_the_content_without_a_label() {
-        let at = today_noon_millis();
-        let when = activity_time(local_datetime(at), Local::now().date_naive());
-        let mut state = state_with_activity(vec![voice_event(
-            at,
-            "remind me to call mom tomorrow morning",
-        )]);
-        let text = draw(&mut state, 120, 40);
-
-        assert!(!text.contains("Dictation"), "voice events carry no label");
-        assert!(text.contains("remind me to call mom tomorrow morning"));
-        assert!(text.contains(&when), "clock time missing: {when}");
-        assert!(text.contains(" copy "), "copy button missing");
-    }
-
-    #[test]
-    fn voice_dictation_wraps_the_whole_text() {
-        let at = today_noon_millis();
-        let when = activity_time(local_datetime(at), Local::now().date_naive());
-        let content = "the quick brown fox jumps over the lazy dog and keeps running through \
-                       the field until it reaches the river bank where it stops";
-        let mut state = state_with_activity(vec![voice_event(at, content)]);
-        let text = draw(&mut state, 60, 40);
-
-        assert!(!text.contains('…'), "dictation is never truncated");
-        assert!(text.contains("river bank"), "tail missing:\n{text}");
-
-        let (content_area, feed_start) = content_area(60, 40);
-        let (first, rest) = voice_budgets(content_area.width, &when);
-        let wrapped = wrap_text(content, first, rest);
-        assert!(wrapped.len() > 1, "dictation wraps onto more lines");
-        assert_eq!(wrapped.join(" "), content, "every word survives wrapping");
-
-        let rows: Vec<&str> = text.lines().collect();
-        let first_row = feed_start + GROUP_HEADER_LINES;
-        assert!(
-            rows[first_row].contains(&when),
-            "clock rides the first line: {:?}",
-            rows[first_row]
-        );
-        assert!(
-            rows[first_row].contains("quick"),
-            "dictation starts on the first line: {:?}",
-            rows[first_row]
-        );
-        let last_row = first_row + wrapped.len() - 1;
-        assert_eq!(
-            rows[last_row].matches(COPY_LABEL).count(),
-            1,
-            "copy button follows the last line: {:?}",
-            rows[last_row]
-        );
-    }
-
-    #[test]
-    fn voice_copy_button_clears_the_text_column() {
-        let content = "a very long dictation that has to wrap many times so the copy button \
-                       sits on the final line of the item without covering any words";
-        let mut state = state_with_activity(vec![voice_event(today_noon_millis(), content)]);
-        let buffer = render_buffer(&mut state, 60, 40);
-        let (content_area, _) = content_area(60, 40);
-
-        // Every visible copy button ends at the content's right edge.
-        let button_x = content_area.right() - cell_width(COPY_LABEL) as u16;
-        let mut seen = 0;
-        for y in 0..40u16 {
-            let button: String = (button_x..content_area.right())
-                .map(|x| buffer[(x, y)].symbol())
-                .collect();
-            if button == COPY_LABEL {
-                seen += 1;
-                let text: String = (content_area.x..button_x)
-                    .map(|x| buffer[(x, y)].symbol())
-                    .collect();
-                assert!(
-                    !text.contains("copy"),
-                    "text runs under the copy button at row {y}"
-                );
-            }
-        }
-        assert_eq!(seen, 1, "exactly one copy button per dictation");
-    }
-
-    fn row_text(buffer: &Buffer, content: Rect, y: u16) -> String {
-        (content.x..content.right())
-            .map(|x| buffer[(x, y)].symbol())
-            .collect()
-    }
-
-    #[test]
-    fn clock_ends_at_the_right_edge_of_every_item() {
-        let at = today_noon_millis();
-        let when = activity_time(local_datetime(at), Local::now().date_naive());
-
-        for event in [
-            activity_event(at, "gs", "git status"),
-            voice_event(at, "a short dictation"),
-        ] {
-            let mut state = state_with_activity(vec![event]);
-            let buffer = render_buffer(&mut state, 80, 30);
-            let (content, _) = content_area(80, 30);
-
-            let row = (content.y..content.bottom())
-                .find(|&y| row_text(&buffer, content, y).contains(&when))
-                .expect("clock row");
-            let line = row_text(&buffer, content, row);
-            assert!(
-                line.trim_end().ends_with(&when),
-                "clock is not last on its line: {line:?}"
-            );
-            let clock_end = content.x + line.trim_end().len() as u16 - 1;
-            assert_eq!(
-                clock_end,
-                content.right() - 2,
-                "clock is not flush right: {line:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn content_keeps_a_gap_before_the_right_column() {
-        let at = today_noon_millis();
-        let when = activity_time(local_datetime(at), Local::now().date_naive());
-        let long = "content that is long enough to reach the right side of the pane and keep going";
-        let mut state =
-            state_with_activity(vec![activity_event(at, "gs", long), voice_event(at, long)]);
-        let buffer = render_buffer(&mut state, 100, 40);
-        let (content, _) = content_area(100, 40);
-        let clock_x = content.right() - 1 - cell_width(&when) as u16;
-        let button_x = content.right() - cell_width(COPY_LABEL) as u16;
-
-        let mut clock_rows = 0;
-        let mut button_rows = 0;
-        for y in content.y..content.bottom() {
-            let line = row_text(&buffer, content, y);
-            let column = if line.contains(COPY_LABEL) {
-                button_rows += 1;
-                button_x
-            } else if line.contains(&when) {
-                clock_rows += 1;
-                clock_x
-            } else {
-                continue;
-            };
-            let last = (content.x..column)
-                .rev()
-                .find(|&x| !buffer[(x, y)].symbol().trim().is_empty());
-            if let Some(last) = last {
-                assert!(
-                    last + CONTENT_GAP < column,
-                    "content runs into the right column on row {y}: {line:?}"
-                );
-            }
-        }
-        assert!(clock_rows >= 2, "both event kinds draw a clock");
-        assert!(button_rows >= 2, "both event kinds draw a copy button");
-    }
-
-    #[test]
-    fn one_line_dictation_puts_the_copy_under_the_clock() {
-        let at = today_noon_millis();
-        let when = activity_time(local_datetime(at), Local::now().date_naive());
-        let mut state = state_with_activity(vec![voice_event(at, "short note")]);
-        let buffer = render_buffer(&mut state, 80, 30);
-        let (content, feed_start) = content_area(80, 30);
-        let first = content.y + (feed_start + GROUP_HEADER_LINES) as u16;
-
-        let text_line = row_text(&buffer, content, first);
-        assert!(text_line.contains("short note"), "{text_line:?}");
-        assert!(text_line.contains(&when), "{text_line:?}");
-
-        let copy_line = row_text(&buffer, content, first + 1);
-        assert!(copy_line.contains(COPY_LABEL), "{copy_line:?}");
-        assert!(!copy_line.contains(&when), "clock stays on the first line");
-    }
-
-    #[test]
     fn copy_button_hit_test_finds_the_event() {
-        let mut state = state_with_activity(vec![activity_event(
-            today_noon_millis(),
-            "gs",
-            "tautui --home",
-        )]);
+        let mut state = sample_state();
         let _ = draw(&mut state, 120, 40);
-        let (content, feed_start) = content_area(120, 40);
-        let body_row = content.y + (feed_start + GROUP_HEADER_LINES + 1) as u16;
-        let button_x = content.right() - cell_width(COPY_LABEL) as u16;
+        let content = content_area(120, 40);
+        let inner_right = content.x + card_width(content) - CARD_PAD_X;
+        let button_x = inner_right - cell_width(COPY_LABEL) as u16;
+        let row = (card_top(0) + 2) as u16;
 
-        assert_eq!(state.copy_at(button_x + 1, body_row), Some(0));
-        assert_eq!(state.copy_at(content.x + 1, body_row), None);
+        assert_eq!(state.copy_at(button_x + 1, row), Some(0));
+        assert_eq!(state.copy_at(content.x + 1, row), None);
+        assert_eq!(state.card_at(content.x + 1, row), Some(0));
     }
 
     #[test]
-    fn hotkey_activity_renders_as_keycaps() {
-        let mut event = activity_event(today_noon_millis(), "ralt+m", "mouse back");
-        event.category = ActivityCategory::Hotkey;
-        let mut state = state_with_activity(vec![event]);
-        let text = draw(&mut state, 120, 40);
-
-        assert!(text.contains(" ralt "), "first keycap missing");
-        assert!(text.contains(" m "), "second keycap missing");
-        assert!(!text.contains("ralt+m"), "chord is split into keycaps");
-        assert!(text.contains("mouse back"));
-    }
-
-    #[test]
-    fn title_scrolls_away_and_the_date_stays_pinned() {
+    fn title_and_date_stay_pinned_while_scrolling() {
         use chrono::{Local, TimeZone};
 
         let old = Local
@@ -1118,36 +1167,87 @@ mod tests {
         let mut state = state_with_activity(activity);
 
         let first = draw(&mut state, 100, 30);
-        assert!(
-            first.contains("Recent Activity"),
-            "page starts at the title"
-        );
+        assert_eq!(first.lines().next().map(str::trim), Some("Recent Activity"));
+        assert_eq!(first.lines().nth(2).map(str::trim), Some("Today"));
         assert!(!first.contains("old body"), "older day starts offscreen");
 
-        let (_, feed_start) = content_area(100, 30);
-        state.set_scroll(feed_start + 40);
+        state.set_scroll(TITLE_LINES + 40);
         let middle = draw(&mut state, 100, 30);
-        assert!(!middle.contains("Recent Activity"), "title scrolled away");
-        assert!(
-            middle
-                .lines()
-                .next()
-                .is_some_and(|line| line.trim() == "Today"),
-            "today's header pins while its group is on screen: {:?}",
-            middle.lines().next()
+        let rows: Vec<&str> = middle.lines().collect();
+        assert_eq!(rows[0].trim(), "Recent Activity", "the title stays pinned");
+        assert!(rows[1].trim().is_empty(), "gap after the title");
+        assert_eq!(rows[2].trim(), "Today", "the date pins beneath the gap");
+        assert!(rows[3].trim().is_empty(), "gap after the date");
+
+        state.select_last();
+        state.set_scroll(usize::MAX);
+        let last = draw(&mut state, 100, 30);
+        let rows: Vec<&str> = last.lines().collect();
+        assert_eq!(rows[0].trim(), "Recent Activity");
+        assert!(rows[1].trim().is_empty());
+        assert_eq!(
+            rows[2].trim(),
+            "October 20 2024",
+            "the next day's header takes over beneath the title"
+        );
+        assert!(rows[3].trim().is_empty());
+        assert!(last.contains("old body 9"), "oldest event reachable");
+        assert!(last.contains(" copy "), "active card keeps its copy button");
+    }
+
+    #[test]
+    fn pinned_rows_block_pointer_hits() {
+        let noon = today_noon_millis();
+        let activity = (0..10)
+            .map(|index| {
+                activity_event(
+                    noon + index as i64 * 1_000,
+                    &format!("t{index}"),
+                    &format!("body {index}"),
+                )
+            })
+            .collect();
+        let mut state = state_with_activity(activity);
+        state.set_scroll(6);
+        let _ = draw(&mut state, 100, 30);
+        let content = content_area(100, 30);
+
+        for row in 0..4 {
+            assert_eq!(
+                state.card_at(content.x + 1, content.y + row),
+                None,
+                "pinned band row {row} is not a card"
+            );
+        }
+    }
+
+    #[test]
+    fn selecting_a_card_scrolls_it_into_view() {
+        let noon = today_noon_millis();
+        let activity = (0..40)
+            .map(|index| {
+                activity_event(
+                    noon + index as i64 * 1_000,
+                    &format!("t{index}"),
+                    &format!("body {index}"),
+                )
+            })
+            .collect();
+        let mut state = state_with_activity(activity);
+
+        state.select_last();
+        let text = draw(&mut state, 120, 20);
+        assert!(text.contains("body 39"), "selection scrolls into view");
+        assert_eq!(
+            text.lines().next().map(str::trim),
+            Some("Recent Activity"),
+            "the title stays pinned"
         );
 
-        state.scroll_to_end();
-        let last = draw(&mut state, 100, 30);
-        assert!(
-            last.lines()
-                .next()
-                .is_some_and(|line| line.trim() == "October 20 2024"),
-            "the next day's header takes over at the top: {:?}",
-            last.lines().next()
-        );
-        assert!(last.contains("old body 9"), "oldest event reachable");
-        assert!(last.contains("copy"), "copy button drawn");
+        state.select_first();
+        let text = draw(&mut state, 120, 20);
+        assert!(text.contains("body 0"));
+        assert!(text.contains("Recent Activity"));
     }
 
     #[test]
@@ -1163,31 +1263,28 @@ mod tests {
             })
             .collect();
         let mut state = state_with_activity(activity);
+        state.clear_selection_moved();
 
         let first_page = draw(&mut state, 120, 30);
         assert!(first_page.contains("t0"));
         assert!(!first_page.contains("t39"), "oldest event starts offscreen");
         assert_eq!(state.scroll(), 0);
 
-        state.scroll_to_end();
+        state.set_scroll(usize::MAX);
         let last_page = draw(&mut state, 120, 30);
         assert!(last_page.contains("t39"), "end reaches the oldest event");
         assert!(!last_page.contains("t0 "), "newest event scrolled away");
 
-        let (content, feed_start) = content_area(120, 30);
-        let total = feed_start
-            + rows_height(&feed_rows(
-                &state.stats().recent_activity,
-                content.width,
-                Local::now().date_naive(),
-            ));
+        let content = content_area(120, 30);
+        let total =
+            TITLE_LINES + rows_height(&feed_rows(&state.stats().recent_activity, content.width));
         assert_eq!(
             state.scroll(),
             total.saturating_sub(30),
             "scroll clamps to the last page"
         );
 
-        state.scroll_to_start();
+        state.set_scroll(0);
         let first_page = draw(&mut state, 120, 30);
         assert!(first_page.contains("t0"));
         assert!(
@@ -1197,35 +1294,12 @@ mod tests {
     }
 
     #[test]
-    fn wrap_text_keeps_every_word() {
-        let text = "alpha beta gamma delta epsilon zeta eta theta";
-        let lines = wrap_text(text, 12, 10);
+    fn empty_stats_show_quiet_empty_states() {
+        let text = draw(&mut HomePageState::default(), 120, 40);
 
-        assert_eq!(lines.join(" "), text, "no word is dropped");
-        for (index, line) in lines.iter().enumerate() {
-            let budget = if index == 0 { 12 } else { 10 };
-            assert!(
-                cell_width(line) <= budget,
-                "{line:?} exceeds {budget} cells"
-            );
-        }
-    }
-
-    #[test]
-    fn wrap_text_splits_words_that_do_not_fit() {
-        let lines = wrap_text("abcdefghijklmnop", 5, 4);
-
-        assert_eq!(lines.concat(), "abcdefghijklmnop");
-        assert!(cell_width(&lines[0]) <= 5);
-        assert!(lines[1..].iter().all(|line| cell_width(line) <= 4));
-    }
-
-    #[test]
-    fn wrap_text_counts_terminal_cells() {
-        let lines = wrap_text("日本語テキスト", 4, 4);
-
-        assert_eq!(lines.concat(), "日本語テキスト");
-        assert!(lines.iter().all(|line| cell_width(line) <= 4));
+        assert!(text.contains("Recent Activity"));
+        assert!(text.contains("No activity yet."));
+        assert!(!text.contains("No usage yet."), "most used section removed");
     }
 
     #[test]
@@ -1233,21 +1307,5 @@ mod tests {
         assert_eq!(truncate("日本語テキスト", 5), "日本…");
         assert_eq!(truncate("abc", 3), "abc");
         assert_eq!(truncate("abc", 0), "");
-    }
-
-    #[test]
-    fn detail_width_follows_the_time_column() {
-        assert_eq!(activity_text_width(30, "2m ago"), 17);
-        assert_eq!(activity_text_width(30, "11:30 AM"), 15);
-        assert_eq!(activity_text_width(3, "2m ago"), 0);
-    }
-
-    #[test]
-    fn empty_stats_show_quiet_empty_states() {
-        let text = draw(&mut HomePageState::default(), 120, 40);
-
-        assert!(text.contains("Recent Activity"));
-        assert!(text.contains("No activity yet."));
-        assert!(!text.contains("No usage yet."), "most used section removed");
     }
 }

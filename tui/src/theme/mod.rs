@@ -22,6 +22,14 @@ pub struct KeycapTheme {
     pub on_surface: Color,
 }
 
+/// Flat activity cards on Home: an idle fill and a lighter selected or
+/// hovered fill. Both are squares of background color, never borders.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CardTheme {
+    pub bg: Color,
+    pub active_bg: Color,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Theme {
     pub name: &'static str,
@@ -52,6 +60,7 @@ pub struct Theme {
     pub header: HeaderTheme,
     pub button: ButtonTheme,
     pub keycap: KeycapTheme,
+    pub card: CardTheme,
 }
 
 pub mod default;
