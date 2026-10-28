@@ -1,4 +1,4 @@
-use crate::db::crud::{get_all_settings, upsert_setting};
+use crate::db::crud::{get_all_settings, seed_default_setting};
 use rusqlite::{Connection, Result};
 use tracing::debug;
 
@@ -11,51 +11,51 @@ pub fn ensure_defaults(conn: &Connection) -> Result<()> {
     if !existing.contains_key("start_on_boot") {
         debug!("Default 'start_on_boot' missing. Seeding database with 'true'.");
         // Stored as a JSON boolean literal.
-        upsert_setting(conn, "start_on_boot", "true")?;
+        seed_default_setting(conn, "start_on_boot", "true")?;
     }
 
     if !existing.contains_key("inline_tab_completion_enabled") {
         debug!("Default 'inline_tab_completion_enabled' missing. Seeding database with 'true'.");
-        upsert_setting(conn, "inline_tab_completion_enabled", "true")?;
+        seed_default_setting(conn, "inline_tab_completion_enabled", "true")?;
     }
 
     if !existing.contains_key("inline_case_transform_enabled") {
         debug!("Default 'inline_case_transform_enabled' missing. Seeding database with 'true'.");
-        upsert_setting(conn, "inline_case_transform_enabled", "true")?;
+        seed_default_setting(conn, "inline_case_transform_enabled", "true")?;
     }
 
     if !existing.contains_key("wpm") {
         debug!("Default 'wpm' missing. Seeding database with '60'.");
-        upsert_setting(conn, "wpm", "60")?;
+        seed_default_setting(conn, "wpm", "60")?;
     }
 
     // Global daemon pause toggle hotkey.
     // Stored as a JSON string literal. Default: Alt + ` (Alt + Backtick).
     if !existing.contains_key("pause_hotkey") {
         debug!("Default 'pause_hotkey' missing. Seeding database with 'Alt + `'.");
-        upsert_setting(conn, "pause_hotkey", r#""Alt + `""#)?;
+        seed_default_setting(conn, "pause_hotkey", r#""Alt + `""#)?;
     }
 
     if !existing.contains_key("pause_notifications_enabled") {
         debug!("Default 'pause_notifications_enabled' missing. Seeding database with 'false'.");
         // Stored as a JSON boolean literal.
-        upsert_setting(conn, "pause_notifications_enabled", "false")?;
+        seed_default_setting(conn, "pause_notifications_enabled", "false")?;
     }
 
     if !existing.contains_key("spinner_style") {
         debug!("Default 'spinner_style' missing. Seeding database with 'braille'.");
         // Stored as a JSON string literal.
-        upsert_setting(conn, "spinner_style", r#""braille""#)?;
+        seed_default_setting(conn, "spinner_style", r#""braille""#)?;
     }
 
     if !existing.contains_key("ignore_fullscreen") {
         debug!("Default 'ignore_fullscreen' missing. Seeding database with 'true'.");
-        upsert_setting(conn, "ignore_fullscreen", "true")?;
+        seed_default_setting(conn, "ignore_fullscreen", "true")?;
     }
 
     if !existing.contains_key("system_tray_enabled") {
         debug!("Default 'system_tray_enabled' missing. Seeding database with 'true'.");
-        upsert_setting(conn, "system_tray_enabled", "true")?;
+        seed_default_setting(conn, "system_tray_enabled", "true")?;
     }
 
     Ok(())

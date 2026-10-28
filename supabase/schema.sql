@@ -95,6 +95,7 @@ GRANT ALL ON TABLE public.user_settings TO service_role;
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.trigger_daily_stats (
     user_id        UUID        NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE,
+    device_id      TEXT        NOT NULL DEFAULT '',
     trigger_id     TEXT        NOT NULL,
     date           DATE        NOT NULL,
     app_key        TEXT        NOT NULL DEFAULT '',
@@ -104,7 +105,7 @@ CREATE TABLE IF NOT EXISTS public.trigger_daily_stats (
     time_saved_ms  BIGINT      NOT NULL DEFAULT 0,
     version        BIGINT      NOT NULL DEFAULT 1,
     updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (user_id, trigger_id, date, app_key)
+    PRIMARY KEY (user_id, device_id, trigger_id, date, app_key)
 );
 
 ALTER TABLE public.trigger_daily_stats ENABLE ROW LEVEL SECURITY;
@@ -130,6 +131,7 @@ GRANT ALL ON TABLE public.trigger_daily_stats TO service_role;
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.user_stats (
     user_id          UUID        NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE,
+    device_id        TEXT        NOT NULL DEFAULT '',
     date             DATE        NOT NULL,
     executions       BIGINT      NOT NULL DEFAULT 0,
     ai_executions    BIGINT      NOT NULL DEFAULT 0,
@@ -139,7 +141,7 @@ CREATE TABLE IF NOT EXISTS public.user_stats (
     time_saved_ms    BIGINT      NOT NULL DEFAULT 0,
     version          BIGINT      NOT NULL DEFAULT 1,
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (user_id, date)
+    PRIMARY KEY (user_id, device_id, date)
 );
 
 ALTER TABLE public.user_stats ENABLE ROW LEVEL SECURITY;
@@ -159,6 +161,7 @@ GRANT ALL ON TABLE public.user_stats TO service_role;
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.user_app_stats (
     user_id        UUID        NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE,
+    device_id      TEXT        NOT NULL DEFAULT '',
     app_key        TEXT        NOT NULL,
     date           DATE        NOT NULL,
     executions     BIGINT      NOT NULL DEFAULT 0,
@@ -167,7 +170,7 @@ CREATE TABLE IF NOT EXISTS public.user_app_stats (
     time_saved_ms  BIGINT      NOT NULL DEFAULT 0,
     version        BIGINT      NOT NULL DEFAULT 1,
     updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (user_id, app_key, date)
+    PRIMARY KEY (user_id, device_id, app_key, date)
 );
 
 ALTER TABLE public.user_app_stats ENABLE ROW LEVEL SECURITY;
@@ -188,9 +191,10 @@ GRANT ALL ON TABLE public.user_app_stats TO service_role;
 -- ----------------------------------------------------------------------------
 -- 7. Activity Events (Fine-grained Action Telemetry with Output Content)
 -- ----------------------------------------------------------------------------
-CREATE TABLE public.activity_events (
+CREATE TABLE IF NOT EXISTS public.activity_events (
     id            TEXT        PRIMARY KEY,
     user_id       UUID        NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE,
+    device_id     TEXT        NOT NULL DEFAULT '',
     trigger_id    TEXT,
     timestamp     BIGINT      NOT NULL,
     date          DATE        NOT NULL,
@@ -217,3 +221,38 @@ CREATE INDEX IF NOT EXISTS idx_activity_events_user_timestamp
 
 GRANT ALL ON TABLE public.activity_events TO authenticated;
 GRANT ALL ON TABLE public.activity_events TO service_role;
+
+-- ----------------------------------------------------------------------------
+-- 8. Concurrency Guards: Enforce Monotonic Last-Write-Wins on Cloud Updates
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.reconcile_snippet_upsert()
+RETURNS trigger AS $$
+BEGIN
+    IF NEW.version < OLD.version OR (NEW.version = OLD.version AND NEW.updated_at < OLD.updated_at) THEN
+        RETURN OLD;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_reconcile_snippet_upsert ON public.snippets;
+CREATE TRIGGER trg_reconcile_snippet_upsert
+    BEFORE UPDATE ON public.snippets
+    FOR EACH ROW
+    EXECUTE FUNCTION public.reconcile_snippet_upsert();
+
+CREATE OR REPLACE FUNCTION public.reconcile_setting_upsert()
+RETURNS trigger AS $$
+BEGIN
+    IF NEW.version < OLD.version THEN
+        RETURN OLD;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_reconcile_setting_upsert ON public.user_settings;
+CREATE TRIGGER trg_reconcile_setting_upsert
+    BEFORE UPDATE ON public.user_settings
+    FOR EACH ROW
+    EXECUTE FUNCTION public.reconcile_setting_upsert();

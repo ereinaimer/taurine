@@ -121,6 +121,7 @@ pub fn reconcile_cloud_setting(
 
     let local = get_setting(conn, &remote.key)?;
     if let Some(local_row) = local
+        && local_row.version > 0
         && remote.version <= local_row.version
     {
         return Ok(SettingReconcileOutcome::LocalKept);
@@ -237,6 +238,37 @@ mod tests {
         };
         let outcome3 = reconcile_cloud_setting(&conn, &forbidden_remote).unwrap();
         assert_eq!(outcome3, SettingReconcileOutcome::IgnoredNotSyncable);
+    }
+
+    #[test]
+    fn test_reconcile_overwrites_seeded_default_setting() {
+        let conn = setup_test_db();
+        crate::db::crud::seed_default_setting(&conn, "wpm", "60").unwrap();
+
+        // Seeded setting must have version 0 and is_synced = 1
+        let row = crate::db::crud::get_setting(&conn, "wpm").unwrap().unwrap();
+        assert_eq!(row.version, 0);
+        assert!(row.is_synced);
+
+        // Remote has version 1: must overwrite seeded default version 0
+        let remote = CloudSettingPayload {
+            key: "wpm".to_string(),
+            value: serde_json::json!(110),
+            version: 1,
+            updated_at: Some("2026-10-05T10:00:00Z".to_string()),
+        };
+
+        let outcome = reconcile_cloud_setting(&conn, &remote).unwrap();
+        assert_eq!(outcome, SettingReconcileOutcome::UpdatedFromRemote);
+
+        let row_after = crate::db::crud::get_setting(&conn, "wpm").unwrap().unwrap();
+        assert_eq!(row_after.value, "110");
+        assert_eq!(row_after.version, 1);
+        assert!(row_after.is_synced);
+
+        // Seeded setting must not be returned in unsynced list
+        let unsynced = get_unsynced_settings(&conn).unwrap();
+        assert!(unsynced.is_empty());
     }
 
     #[test]

@@ -48,7 +48,7 @@ pub use crate::stats::TriggerStatKind;
 pub use settings::{
     CloudSettingPayload, SYNCABLE_SETTINGS, SettingReconcileOutcome, SettingRow, delete_setting,
     get_all_settings, get_setting, get_setting_value, get_unsynced_settings, is_setting_syncable,
-    mark_settings_synced, reconcile_cloud_setting, upsert_setting,
+    mark_settings_synced, reconcile_cloud_setting, seed_default_setting, upsert_setting,
 };
 pub use stats::{
     ActivityCategory, ActivityEventRow, AppStatRow, AppStatsSortBy, CloudActivityEventPayload,

@@ -30,3 +30,20 @@ pub fn upsert_setting(conn: &Connection, key: &str, value_json: &str) -> Result<
 
     Ok(())
 }
+
+/// Seeds an initial factory default setting on a fresh database.
+///
+/// Sets `version = 0` and `is_synced = 1`. This ensures:
+/// 1. Factory defaults will immediately be overwritten by any cloud setting (`version >= 1`) during pull.
+/// 2. Freshly seeded defaults will not be queued as unsynced changes to overwrite the cloud.
+pub fn seed_default_setting(conn: &Connection, key: &str, value_json: &str) -> Result<()> {
+    let now = now_unix_secs();
+
+    conn.execute(
+        "INSERT OR IGNORE INTO settings (key, value, version, updated_at, is_synced)
+         VALUES (?1, ?2, 0, ?3, 1)",
+        (key, value_json, now),
+    )?;
+
+    Ok(())
+}
