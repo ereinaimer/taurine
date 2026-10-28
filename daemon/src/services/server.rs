@@ -30,6 +30,193 @@ impl DaemonService {
     pub fn builder() -> DaemonServiceBuilder {
         DaemonServiceBuilder::new()
     }
+
+    pub fn reload_engine_state(&self, conn: &rusqlite::Connection) -> Result<(), Status> {
+        // 1. Reload Snippets
+        let active = taurine_core::db::crud::get_all_active_triggers(conn)
+            .map_err(|e| Status::internal(format!("Failed to retrieve triggers: {}", e)))?;
+        let hotkeys = taurine_core::db::crud::get_all_active_hotkey_triggers(conn)
+            .map_err(|e| Status::internal(format!("Failed to retrieve hotkey triggers: {}", e)))?;
+        let regexes = taurine_core::db::crud::get_all_active_regex_triggers(conn)
+            .map_err(|e| Status::internal(format!("Failed to retrieve regex triggers: {}", e)))?;
+
+        self.state.load_actions(active);
+        self.state.load_hotkey_actions(hotkeys);
+        self.state.load_regex_actions(regexes);
+        let warm_state = self.state.clone();
+        std::thread::Builder::new()
+            .name("tau-regex-warm".to_string())
+            .spawn(move || warm_state.regex_catalog.warm())
+            .ok();
+
+        // 2. Reload Settings
+        use taurine_core::settings::SettingsManager;
+        let settings_manager = SettingsManager::new(conn);
+        let settings = settings_manager.load_all();
+
+        taurine_core::settings::set_cached_wpm(settings.wpm);
+        taurine_core::settings::set_cached_clipboard_restore_delay(
+            settings.clipboard_restore_delay_ms,
+        );
+        taurine_core::settings::set_cached_script_timeout(settings.script_timeout);
+        taurine_core::settings::set_cached_clipboard_history_enabled(
+            settings.clipboard_history_enabled,
+        );
+        taurine_core::settings::set_cached_clipboard_history_retention_secs(
+            settings.clipboard_history_retention_secs,
+        );
+        taurine_core::settings::set_cached_inline_emoji_enabled(settings.inline_emoji_enabled);
+        taurine_core::settings::set_cached_inline_emoji_trigger_char(
+            settings.inline_emoji_trigger_char,
+        );
+        taurine_core::settings::set_cached_inline_datetime_enabled(
+            settings.inline_datetime_enabled,
+        );
+        taurine_core::settings::set_cached_inline_datetime_date_format(
+            settings.inline_datetime_date_format.clone(),
+        );
+        taurine_core::settings::set_cached_inline_datetime_time_format(
+            settings.inline_datetime_time_format.clone(),
+        );
+        taurine_core::settings::set_cached_inline_datetime_datetime_format(
+            settings.inline_datetime_datetime_format.clone(),
+        );
+        taurine_core::settings::set_cached_inline_datetime_dialect(
+            settings.inline_datetime_dialect.clone(),
+        );
+        taurine_core::settings::set_cached_inline_currency_to_words_enabled(
+            settings.inline_currency_to_words_enabled,
+        );
+        taurine_core::settings::set_cached_inline_dictionary_enabled(
+            settings.inline_dictionary_enabled,
+        );
+        taurine_core::settings::set_cached_inline_dictionary_mode(settings.inline_dictionary_mode);
+        taurine_core::settings::set_cached_scripts_enabled(settings.scripts_enabled);
+        taurine_core::settings::set_cached_inline_case_transform_enabled(
+            settings.inline_case_transform_enabled,
+        );
+
+        // Update voice settings cache
+        taurine_core::settings::set_cached_voice_model(settings.voice_model.clone());
+        taurine_core::settings::set_cached_voice_ptt_hotkey(settings.voice_ptt_hotkey.clone());
+        taurine_core::settings::set_cached_voice_handsfree_hotkey(
+            settings.voice_handsfree_hotkey.clone(),
+        );
+        crate::input::hotkey::refresh_cached_voice_specs(
+            &settings.voice_ptt_hotkey,
+            &settings.voice_handsfree_hotkey,
+        );
+        taurine_core::settings::set_cached_voice_dictionary(settings.voice_dictionary.clone());
+        taurine_core::settings::set_cached_voice_keep_loaded(settings.voice_keep_loaded);
+        taurine_core::settings::set_cached_pause_media_while_dictating(
+            settings.pause_media_while_dictating,
+        );
+        let prev_voice_device = taurine_core::settings::get_cached_voice_input_device();
+        taurine_core::settings::set_cached_voice_input_device(settings.voice_input_device.clone());
+        if prev_voice_device != settings.voice_input_device {
+            crate::voice::device_monitor::mark_device_change();
+        }
+
+        // Sync live voice session manager
+        if let Some(session) = crate::VOICE_SESSION.get() {
+            session.set_model_name(settings.voice_model.clone());
+            session.set_dictionary(taurine_core::voice::VoiceDictionary::from_csv(
+                &settings.voice_dictionary,
+            ));
+            if settings.voice_keep_loaded {
+                let session = session.clone();
+                std::thread::Builder::new()
+                    .name("tau-voice-keep".to_string())
+                    .spawn(move || {
+                        if let Err(e) = session.ensure_worker_ready() {
+                            tracing::debug!("voice keep-loaded reload failed (lazy fallback): {e}");
+                        }
+                    })
+                    .ok();
+            } else {
+                session.unload_model_if_resident();
+            }
+            if session.capture().is_running() {
+                let _ = session.capture().restart();
+            }
+        }
+
+        self.state
+            .inline_datetime_enabled
+            .store(settings.inline_datetime_enabled, Ordering::Relaxed);
+        self.state
+            .inline_currency_to_words_enabled
+            .store(settings.inline_currency_to_words_enabled, Ordering::Relaxed);
+        self.state
+            .set_inline_datetime_date_format(settings.inline_datetime_date_format.clone());
+        self.state
+            .set_inline_datetime_time_format(settings.inline_datetime_time_format.clone());
+        self.state
+            .set_inline_datetime_datetime_format(settings.inline_datetime_datetime_format.clone());
+        self.state
+            .set_inline_datetime_dialect(settings.inline_datetime_dialect.clone());
+
+        // Update AI setting
+        self.state
+            .inline_ai_enabled
+            .store(settings.inline_ai_enabled, Ordering::Relaxed);
+
+        self.state
+            .inline_tab_completion_enabled
+            .store(settings.inline_tab_completion_enabled, Ordering::Relaxed);
+        self.state
+            .inline_case_transform_enabled
+            .store(settings.inline_case_transform_enabled, Ordering::Relaxed);
+        self.state
+            .inline_dictionary_enabled
+            .store(settings.inline_dictionary_enabled, Ordering::Relaxed);
+
+        self.state
+            .instant_expand
+            .store(settings.instant_expand, Ordering::Relaxed);
+        self.state
+            .ignore_fullscreen_enabled
+            .store(settings.ignore_fullscreen, Ordering::Relaxed);
+
+        // Update pause notifications (atomic)
+        self.pause_notifications_enabled
+            .store(settings.pause_notifications_enabled, Ordering::Relaxed);
+
+        self.pause_audio_enabled
+            .store(settings.pause_audio_enabled, Ordering::Relaxed);
+
+        self.system_tray_enabled
+            .store(settings.system_tray_enabled, Ordering::Relaxed);
+
+        // Update pause hotkey spec (RwLock)
+        if let Some(spec) = crate::input::hotkey::parse_pause_hotkey_setting(&settings.pause_hotkey)
+            && let Ok(mut lock) = self.pause_hotkey_spec.write()
+        {
+            *lock = spec;
+        }
+
+        // Update pause hotkey display (RwLock)
+        if let Ok(mut lock) = self.pause_hotkey_display.write() {
+            *lock = settings.pause_hotkey.clone();
+        }
+
+        // Update spinner style (RwLock)
+        if let Ok(mut lock) = self.spinner_style.write() {
+            *lock = settings.spinner_style;
+        }
+
+        // Update user tier and QuotaGuard unlimited status
+        let tier = taurine_core::db::crud::tier::get_user_tier(conn);
+        crate::engine::quota_guard::QuotaGuard::global().set_unlimited(tier.is_unlimited());
+
+        taurine_core::settings::set_cached_audio_theme(settings.audio_theme);
+        taurine_core::settings::set_cached_audio_volume(settings.audio_volume);
+        if let Ok(_handle) = tokio::runtime::Handle::try_current() {
+            tokio::spawn(crate::dictionary_manager::check_and_update_dictionary());
+        }
+
+        Ok(())
+    }
 }
 
 pub struct DaemonServiceBuilder {
@@ -207,214 +394,19 @@ impl DaemonControl for DaemonService {
 
     async fn reload(
         &self,
-        _request: Request<ReloadRequest>,
+        request: Request<ReloadRequest>,
     ) -> Result<Response<ReloadResponse>, Status> {
         debug!("Received gRPC reload request, refreshing snippets and settings...");
 
-        let settings = {
-            let conn = taurine_core::db::init::setup()
-                .map_err(|e| Status::internal(format!("Database connection failed: {}", e)))?;
+        let conn = taurine_core::db::init::setup()
+            .map_err(|e| Status::internal(format!("Database connection failed: {}", e)))?;
 
-            // 1. Reload Snippets
-            let active = taurine_core::db::crud::get_all_active_triggers(&conn)
-                .map_err(|e| Status::internal(format!("Failed to retrieve triggers: {}", e)))?;
-            let hotkeys =
-                taurine_core::db::crud::get_all_active_hotkey_triggers(&conn).map_err(|e| {
-                    Status::internal(format!("Failed to retrieve hotkey triggers: {}", e))
-                })?;
-            let regexes =
-                taurine_core::db::crud::get_all_active_regex_triggers(&conn).map_err(|e| {
-                    Status::internal(format!("Failed to retrieve regex triggers: {}", e))
-                })?;
-
-            self.state.load_actions(active);
-            self.state.load_hotkey_actions(hotkeys);
-            self.state.load_regex_actions(regexes);
-            let warm_state = self.state.clone();
-            std::thread::Builder::new()
-                .name("tau-regex-warm".to_string())
-                .spawn(move || warm_state.regex_catalog.warm())
-                .ok();
-
-            // 3. Reload Settings
-            use taurine_core::settings::SettingsManager;
-            let settings_manager = SettingsManager::new(&conn);
-            let settings = settings_manager.load_all();
-
-            taurine_core::settings::set_cached_wpm(settings.wpm);
-            taurine_core::settings::set_cached_clipboard_restore_delay(
-                settings.clipboard_restore_delay_ms,
-            );
-            taurine_core::settings::set_cached_script_timeout(settings.script_timeout);
-            taurine_core::settings::set_cached_clipboard_history_enabled(
-                settings.clipboard_history_enabled,
-            );
-            taurine_core::settings::set_cached_clipboard_history_retention_secs(
-                settings.clipboard_history_retention_secs,
-            );
-            taurine_core::settings::set_cached_inline_emoji_enabled(settings.inline_emoji_enabled);
-            taurine_core::settings::set_cached_inline_emoji_trigger_char(
-                settings.inline_emoji_trigger_char,
-            );
-            taurine_core::settings::set_cached_inline_datetime_enabled(
-                settings.inline_datetime_enabled,
-            );
-            taurine_core::settings::set_cached_inline_datetime_date_format(
-                settings.inline_datetime_date_format.clone(),
-            );
-            taurine_core::settings::set_cached_inline_datetime_time_format(
-                settings.inline_datetime_time_format.clone(),
-            );
-            taurine_core::settings::set_cached_inline_datetime_datetime_format(
-                settings.inline_datetime_datetime_format.clone(),
-            );
-            taurine_core::settings::set_cached_inline_datetime_dialect(
-                settings.inline_datetime_dialect.clone(),
-            );
-            taurine_core::settings::set_cached_inline_datetime_enabled(
-                settings.inline_datetime_enabled,
-            );
-            taurine_core::settings::set_cached_inline_currency_to_words_enabled(
-                settings.inline_currency_to_words_enabled,
-            );
-            taurine_core::settings::set_cached_inline_dictionary_enabled(
-                settings.inline_dictionary_enabled,
-            );
-            taurine_core::settings::set_cached_inline_dictionary_mode(
-                settings.inline_dictionary_mode,
-            );
-            taurine_core::settings::set_cached_scripts_enabled(settings.scripts_enabled);
-            taurine_core::settings::set_cached_inline_case_transform_enabled(
-                settings.inline_case_transform_enabled,
-            );
-
-            // Update voice settings cache
-            taurine_core::settings::set_cached_voice_model(settings.voice_model.clone());
-            taurine_core::settings::set_cached_voice_ptt_hotkey(settings.voice_ptt_hotkey.clone());
-            taurine_core::settings::set_cached_voice_handsfree_hotkey(
-                settings.voice_handsfree_hotkey.clone(),
-            );
-            crate::input::hotkey::refresh_cached_voice_specs(
-                &settings.voice_ptt_hotkey,
-                &settings.voice_handsfree_hotkey,
-            );
-            taurine_core::settings::set_cached_voice_dictionary(settings.voice_dictionary.clone());
-            taurine_core::settings::set_cached_voice_keep_loaded(settings.voice_keep_loaded);
-            taurine_core::settings::set_cached_pause_media_while_dictating(
-                settings.pause_media_while_dictating,
-            );
-            let prev_voice_device = taurine_core::settings::get_cached_voice_input_device();
-            taurine_core::settings::set_cached_voice_input_device(
-                settings.voice_input_device.clone(),
-            );
-            if prev_voice_device != settings.voice_input_device {
-                crate::voice::device_monitor::mark_device_change();
-            }
-
-            // Sync live voice session manager
-            if let Some(session) = crate::VOICE_SESSION.get() {
-                session.set_model_name(settings.voice_model.clone());
-                session.set_dictionary(taurine_core::voice::VoiceDictionary::from_csv(
-                    &settings.voice_dictionary,
-                ));
-                if settings.voice_keep_loaded {
-                    let session = session.clone();
-                    std::thread::Builder::new()
-                        .name("tau-voice-keep".to_string())
-                        .spawn(move || {
-                            if let Err(e) = session.ensure_worker_ready() {
-                                tracing::debug!(
-                                    "voice keep-loaded reload failed (lazy fallback): {e}"
-                                );
-                            }
-                        })
-                        .ok();
-                } else {
-                    session.unload_model_if_resident();
-                }
-                if session.capture().is_running() {
-                    let _ = session.capture().restart();
-                }
-            }
-
-            self.state
-                .inline_datetime_enabled
-                .store(settings.inline_datetime_enabled, Ordering::Relaxed);
-            self.state
-                .inline_currency_to_words_enabled
-                .store(settings.inline_currency_to_words_enabled, Ordering::Relaxed);
-            self.state
-                .set_inline_datetime_date_format(settings.inline_datetime_date_format.clone());
-            self.state
-                .set_inline_datetime_time_format(settings.inline_datetime_time_format.clone());
-            self.state.set_inline_datetime_datetime_format(
-                settings.inline_datetime_datetime_format.clone(),
-            );
-            self.state
-                .set_inline_datetime_dialect(settings.inline_datetime_dialect.clone());
-
-            // Update AI setting
-            self.state
-                .inline_ai_enabled
-                .store(settings.inline_ai_enabled, Ordering::Relaxed);
-
-            self.state
-                .inline_tab_completion_enabled
-                .store(settings.inline_tab_completion_enabled, Ordering::Relaxed);
-            self.state
-                .inline_case_transform_enabled
-                .store(settings.inline_case_transform_enabled, Ordering::Relaxed);
-            self.state
-                .inline_dictionary_enabled
-                .store(settings.inline_dictionary_enabled, Ordering::Relaxed);
-
-            self.state
-                .instant_expand
-                .store(settings.instant_expand, Ordering::Relaxed);
-            self.state
-                .ignore_fullscreen_enabled
-                .store(settings.ignore_fullscreen, Ordering::Relaxed);
-
-            // Update pause notifications (atomic)
-            self.pause_notifications_enabled
-                .store(settings.pause_notifications_enabled, Ordering::Relaxed);
-
-            self.pause_audio_enabled
-                .store(settings.pause_audio_enabled, Ordering::Relaxed);
-
-            self.system_tray_enabled
-                .store(settings.system_tray_enabled, Ordering::Relaxed);
-
-            // Update pause hotkey spec (RwLock)
-            if let Some(spec) =
-                crate::input::hotkey::parse_pause_hotkey_setting(&settings.pause_hotkey)
-                && let Ok(mut lock) = self.pause_hotkey_spec.write()
-            {
-                *lock = spec;
-            }
-
-            // Update pause hotkey display (RwLock)
-            if let Ok(mut lock) = self.pause_hotkey_display.write() {
-                *lock = settings.pause_hotkey.clone();
-            }
-
-            // Update spinner style (RwLock)
-            if let Ok(mut lock) = self.spinner_style.write() {
-                *lock = settings.spinner_style;
-            }
-
-            // Update user tier and QuotaGuard unlimited status
-            let tier = taurine_core::db::crud::tier::get_user_tier(&conn);
-            crate::engine::quota_guard::QuotaGuard::global().set_unlimited(tier.is_unlimited());
-
-            settings
-        };
+        self.reload_engine_state(&conn)?;
 
         debug!("Successfully reloaded snippets and settings into service.");
-        taurine_core::settings::set_cached_audio_theme(settings.audio_theme);
-        taurine_core::settings::set_cached_audio_volume(settings.audio_volume);
-        tokio::spawn(crate::dictionary_manager::check_and_update_dictionary());
-        if let Some(ref notify) = self.sync_notify {
+        if !request.into_inner().skip_sync
+            && let Some(ref notify) = self.sync_notify
+        {
             notify.notify_one();
         }
         Ok(Response::new(ReloadResponse { success: true }))
@@ -474,16 +466,24 @@ impl DaemonControl for DaemonService {
                 pushed_settings,
                 pulled_events,
                 pushed_stats,
-            } => Ok(Response::new(SyncResponse {
-                success: true,
-                pulled_snippets: pulled_snippets as u64,
-                pushed_snippets: pushed_snippets as u64,
-                pulled_settings: pulled_settings as u64,
-                pushed_settings: pushed_settings as u64,
-                pulled_events: pulled_events as u64,
-                pushed_stats: pushed_stats as u64,
-                error_message: String::new(),
-            })),
+            } => {
+                if pulled_snippets > 0 || pulled_settings > 0 {
+                    let conn = taurine_core::db::init::setup().map_err(|e| {
+                        Status::internal(format!("Database connection failed: {}", e))
+                    })?;
+                    self.reload_engine_state(&conn)?;
+                }
+                Ok(Response::new(SyncResponse {
+                    success: true,
+                    pulled_snippets: pulled_snippets as u64,
+                    pushed_snippets: pushed_snippets as u64,
+                    pulled_settings: pulled_settings as u64,
+                    pushed_settings: pushed_settings as u64,
+                    pulled_events: pulled_events as u64,
+                    pushed_stats: pushed_stats as u64,
+                    error_message: String::new(),
+                }))
+            }
             crate::services::sync_worker::SyncStatus::NotAuthenticated => {
                 Ok(Response::new(SyncResponse {
                     success: false,
@@ -571,7 +571,7 @@ mod tests {
         add_trigger(&conn, "hello", "world", "all", None, None, None).expect("Failed to add to DB");
 
         // trigger reload directly via gRPC service method
-        let req = Request::new(taurine_core::rpc::ReloadRequest {});
+        let req = Request::new(taurine_core::rpc::ReloadRequest { skip_sync: false });
         let res = service.reload(req).await.expect("Reload failed");
 
         assert!(
@@ -607,7 +607,7 @@ mod tests {
         )
         .unwrap();
 
-        let req = Request::new(taurine_core::rpc::ReloadRequest {});
+        let req = Request::new(taurine_core::rpc::ReloadRequest { skip_sync: false });
         service.reload(req).await.expect("Reload failed");
 
         assert_eq!(
@@ -620,7 +620,7 @@ mod tests {
             .update_setting("inline_tab_completion_enabled", false)
             .unwrap();
 
-        let req = Request::new(taurine_core::rpc::ReloadRequest {});
+        let req = Request::new(taurine_core::rpc::ReloadRequest { skip_sync: false });
         service.reload(req).await.expect("Reload failed");
 
         assert!(!state.inline_tab_completion_enabled.load(Ordering::Relaxed));
@@ -745,10 +745,32 @@ mod tests {
         crate::hook::tests::mock_keystore::use_mock_keystore();
         taurine_core::logs::init_tracing_for_tests();
         let test_dir = std::env::temp_dir().join("taurine_sync_grpc_test");
-        // SAFETY: Setting environment variable for database isolation in server test.
+        let prev_data_dir = std::env::var("TAURINE_DATA_DIR").ok();
+        // SAFETY: Setting environment variable for database isolation in server test under TEST_LOCK.
         unsafe { std::env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
         let _ = std::fs::remove_dir_all(&test_dir);
         std::fs::create_dir_all(&test_dir).unwrap();
+
+        struct EnvGuard {
+            prev: Option<String>,
+            dir: std::path::PathBuf,
+        }
+        impl Drop for EnvGuard {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.dir);
+                // SAFETY: Restoring environment variable after server test under TEST_LOCK.
+                unsafe {
+                    match &self.prev {
+                        Some(v) => std::env::set_var("TAURINE_DATA_DIR", v),
+                        None => std::env::remove_var("TAURINE_DATA_DIR"),
+                    }
+                }
+            }
+        }
+        let _env_guard = EnvGuard {
+            prev: prev_data_dir,
+            dir: test_dir.clone(),
+        };
 
         let _conn = init::setup().expect("Failed to setup DB");
 
@@ -787,10 +809,90 @@ mod tests {
         );
         assert_eq!(inner.pulled_snippets, 0);
         assert_eq!(inner.pushed_snippets, 0);
+    }
 
-        // Cleanup
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn test_reload_engine_state_populates_active_triggers_and_settings() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        crate::hook::tests::mock_keystore::use_mock_keystore();
+        taurine_core::logs::init_tracing_for_tests();
+        let test_dir = std::env::temp_dir().join("taurine_reload_engine_state_test");
+        let prev_data_dir = std::env::var("TAURINE_DATA_DIR").ok();
+        // SAFETY: Setting environment variable for database isolation in server test under TEST_LOCK.
+        unsafe { std::env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
         let _ = std::fs::remove_dir_all(&test_dir);
-        // SAFETY: Cleaning up environment variable after server test.
-        unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
+        std::fs::create_dir_all(&test_dir).unwrap();
+
+        struct EnvGuard {
+            prev: Option<String>,
+            dir: std::path::PathBuf,
+        }
+        impl Drop for EnvGuard {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.dir);
+                // SAFETY: Restoring environment variable after server test under TEST_LOCK.
+                unsafe {
+                    match &self.prev {
+                        Some(v) => std::env::set_var("TAURINE_DATA_DIR", v),
+                        None => std::env::remove_var("TAURINE_DATA_DIR"),
+                    }
+                }
+            }
+        }
+        let _env_guard = EnvGuard {
+            prev: prev_data_dir,
+            dir: test_dir.clone(),
+        };
+
+        let conn = init::setup().expect("Failed to setup DB");
+
+        let state = Arc::new(EngineState::new());
+        let (tx, _rx) = mpsc::channel(1);
+        let pause_hotkey = "Alt + `".to_string();
+        let pause_hotkey_spec = Arc::new(std::sync::RwLock::new(
+            crate::input::hotkey::parse_pause_hotkey_setting(&pause_hotkey).unwrap(),
+        ));
+        let (pause_tx, _pause_rx) = mpsc::channel(1);
+        let service = DaemonService::builder()
+            .shutdown_sender(tx)
+            .state(state.clone())
+            .paused(Arc::new(AtomicBool::new(false)))
+            .pause_notifications_enabled(Arc::new(AtomicBool::new(false)))
+            .pause_hotkey_spec(pause_hotkey_spec)
+            .pause_hotkey_display(Arc::new(std::sync::RwLock::new(pause_hotkey)))
+            .spinner_style(Arc::new(std::sync::RwLock::new(
+                taurine_core::settings::SpinnerStyle::default(),
+            )))
+            .pause_audio_enabled(Arc::new(AtomicBool::new(true)))
+            .system_tray_enabled(Arc::new(AtomicBool::new(true)))
+            .hook_health(crate::input::hook_health::HookHealth::new())
+            .pause_transition_tx(pause_tx)
+            .build()
+            .expect("builder call site is fully populated");
+
+        // Initially state has no triggers
+        assert_eq!(state.fetch_expansion(":synced", None), None);
+
+        // Simulate snippet and setting pulled into DB
+        add_trigger(&conn, ":synced", "pulled payload", "all", None, None, None)
+            .expect("Failed to add trigger");
+
+        // Call reload_engine_state directly (as sync does when pulled_snippets > 0)
+        service
+            .reload_engine_state(&conn)
+            .expect("reload_engine_state must succeed");
+
+        let expansion = state
+            .fetch_expansion(":synced", None)
+            .expect("reload_engine_state should immediately populate engine state cache");
+        assert_eq!(
+            expansion.steps,
+            vec![taurine_core::engine::variables::ExpansionStep::Text(
+                "pulled payload".to_string()
+            )]
+        );
     }
 }

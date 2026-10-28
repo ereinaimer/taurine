@@ -128,6 +128,10 @@ pub fn daemon_paused() -> Option<bool> {
 }
 
 pub fn notify_daemon_reload() {
+    notify_daemon_reload_internal(false);
+}
+
+pub fn notify_daemon_reload_internal(skip_sync: bool) {
     if !crate::service::is_service_running() {
         tracing::debug!("Service is offline; skipping reload notification.");
         return;
@@ -135,9 +139,9 @@ pub fn notify_daemon_reload() {
 
     tracing::debug!("Dispatching Reload instruction to service...");
 
-    let perform_reload = async {
+    let perform_reload = async move {
         if let Ok(mut client) = get_client().await {
-            let req = tonic::Request::new(ReloadRequest {});
+            let req = tonic::Request::new(ReloadRequest { skip_sync });
             if client.reload(req).await.is_ok() {
                 tracing::debug!("Service state reloaded successfully.");
             }

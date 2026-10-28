@@ -1747,11 +1747,15 @@ async fn test_event_driven_sync_worker_wakes_on_notification() {
 
     let cycle_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let cycle_count_server = cycle_count.clone();
+    let stop_signal = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let stop_signal_server = stop_signal.clone();
 
     let server_handle = std::thread::spawn(move || {
         use std::io::{Read, Write};
         let start = std::time::Instant::now();
-        while start.elapsed() < std::time::Duration::from_secs(10) {
+        while !stop_signal_server.load(std::sync::atomic::Ordering::Relaxed)
+            && start.elapsed() < std::time::Duration::from_secs(10)
+        {
             match listener.accept() {
                 Ok((mut stream, _)) => {
                     let _ = stream.set_nonblocking(false);
@@ -1893,6 +1897,7 @@ async fn test_event_driven_sync_worker_wakes_on_notification() {
         elapsed
     );
 
+    stop_signal.store(true, std::sync::atomic::Ordering::Relaxed);
     let _ = server_handle.join();
     taurine_core::cloud::clear_tokens().unwrap();
 }
@@ -1975,7 +1980,7 @@ async fn test_pause_resume_and_reload_signal_sync() {
     use taurine_core::rpc::daemon_control_server::DaemonControl;
 
     // 1. Verify that reload() signals sync_notify
-    let reload_req = tonic::Request::new(taurine_core::rpc::ReloadRequest {});
+    let reload_req = tonic::Request::new(taurine_core::rpc::ReloadRequest { skip_sync: false });
     let res = service
         .reload(reload_req)
         .await
@@ -1989,6 +1994,23 @@ async fn test_pause_resume_and_reload_signal_sync() {
         }
         _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
             panic!("reload did not signal sync_notify");
+        }
+    }
+
+    // 1b. Verify that reload with skip_sync = true does not signal sync_notify
+    let skip_reload_req = tonic::Request::new(taurine_core::rpc::ReloadRequest { skip_sync: true });
+    let res = service
+        .reload(skip_reload_req)
+        .await
+        .expect("reload request failed");
+    assert!(res.into_inner().success);
+
+    tokio::select! {
+        _ = sync_notify.notified() => {
+            panic!("reload with skip_sync: true should NOT signal sync_notify");
+        }
+        _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
+            // Success: notify was not fired
         }
     }
 

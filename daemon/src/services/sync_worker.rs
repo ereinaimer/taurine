@@ -111,6 +111,7 @@ impl SyncWorker {
                 };
                 rt.block_on(async move {
                     let mut fallback_ticker = tokio::time::interval(fallback_interval);
+                    fallback_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
                     let client = CloudClient::default_or_from_env();
                     let mut last_sync = std::time::Instant::now() - Duration::from_secs(60);
                     const DEBOUNCE_MS: u64 = 300;
@@ -191,7 +192,7 @@ impl SyncWorker {
                 }
 
                 if pulled_snippets > 0 || pulled_settings > 0 {
-                    taurine_core::rpc::notify_daemon_reload();
+                    taurine_core::rpc::notify_daemon_reload_internal(true);
                 }
             }
             SyncStatus::Error(err) => {

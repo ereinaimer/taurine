@@ -31,7 +31,9 @@ message ShutdownResponse {
     bool success = 1;
 }
 
-message ReloadRequest {}
+message ReloadRequest {
+    bool skip_sync = 1;
+}
 
 message ReloadResponse {
     bool success = 1;

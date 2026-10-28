@@ -983,7 +983,9 @@ pub fn process_menu_event(
                     tracing::warn!(error = %e, "Failed to set voice input device from tray");
                 } else {
                     spawn_daemon_call("reload", |mut client| async move {
-                        if let Err(error) = client.reload(taurine_core::rpc::ReloadRequest {}).await
+                        if let Err(error) = client
+                            .reload(taurine_core::rpc::ReloadRequest { skip_sync: false })
+                            .await
                         {
                             tracing::warn!(%error, "tray reload request failed");
                         }
