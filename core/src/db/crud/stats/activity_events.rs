@@ -1,3 +1,4 @@
+use crate::db::crud::CloudActivityEventPayload;
 use rusqlite::{Connection, Result, params};
 use serde::{Deserialize, Serialize};
 
@@ -123,6 +124,42 @@ pub fn insert_activity_event(conn: &Connection, event: &NewActivityEvent) -> Res
     )?;
 
     Ok(id)
+}
+
+pub fn reconcile_cloud_activity_events(
+    conn: &Connection,
+    events: &[CloudActivityEventPayload],
+) -> Result<usize> {
+    if events.is_empty() {
+        return Ok(0);
+    }
+
+    let mut stmt = conn.prepare_cached(
+        "INSERT OR IGNORE INTO activity_events (
+            id, trigger_id, timestamp, date, category, app_key, word_count, time_saved_ms, content, version, is_synced, created_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1, ?11)",
+    )?;
+
+    let mut inserted = 0;
+    for evt in events {
+        let created_at = evt.timestamp / 1000;
+        let count = stmt.execute(params![
+            evt.id,
+            evt.trigger_id,
+            evt.timestamp,
+            evt.date,
+            evt.category,
+            evt.app_key,
+            evt.word_count as i64,
+            evt.time_saved_ms as i64,
+            evt.content,
+            evt.version as i64,
+            created_at,
+        ])?;
+        inserted += count;
+    }
+
+    Ok(inserted)
 }
 
 pub fn get_activity_events(
@@ -418,5 +455,59 @@ mod tests {
         assert_eq!(voice_only[0].id, "evt-4");
         assert_eq!(voice_only[1].id, "evt-2");
         assert_eq!(voice_only[2].id, "evt-0");
+    }
+
+    #[test]
+    fn test_reconcile_cloud_activity_events() {
+        let conn = setup_test_db();
+
+        let remote_events = vec![
+            CloudActivityEventPayload {
+                device_id: "dev-laptop".to_string(),
+                id: "remote-evt-1".to_string(),
+                trigger_id: Some("trig-1".to_string()),
+                timestamp: 1_700_000_100,
+                date: "2026-10-28".to_string(),
+                category: "text".to_string(),
+                app_key: "code.exe".to_string(),
+                word_count: 10,
+                time_saved_ms: 2500,
+                content: Some("expanded code snippet".to_string()),
+                version: 1,
+            },
+            CloudActivityEventPayload {
+                device_id: "dev-desktop".to_string(),
+                id: "remote-evt-2".to_string(),
+                trigger_id: None,
+                timestamp: 1_700_000_200,
+                date: "2026-10-28".to_string(),
+                category: "voice".to_string(),
+                app_key: "slack.exe".to_string(),
+                word_count: 25,
+                time_saved_ms: 5000,
+                content: Some("dictated message from desktop".to_string()),
+                version: 1,
+            },
+        ];
+
+        let inserted = reconcile_cloud_activity_events(&conn, &remote_events).unwrap();
+        assert_eq!(inserted, 2);
+
+        let local_events = get_activity_events(&conn, 10, 0).unwrap();
+        assert_eq!(local_events.len(), 2);
+        assert_eq!(local_events[0].id, "remote-evt-2");
+        assert!(local_events[0].is_synced);
+        assert_eq!(
+            local_events[0].content.as_deref(),
+            Some("dictated message from desktop")
+        );
+
+        // Reconciling again is idempotent (no duplicate insertions)
+        let inserted_again = reconcile_cloud_activity_events(&conn, &remote_events).unwrap();
+        assert_eq!(inserted_again, 0);
+
+        // Pulled events must not be queued as unsynced
+        let unsynced = super::get_unsynced_activity_events(&conn, 10).unwrap();
+        assert!(unsynced.is_empty());
     }
 }

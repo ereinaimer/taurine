@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Bidirectional Cloud Sync**: Synchronize and restore snippets, settings, activity history, and multi-device statistics across devices with conflict-free aggregation.
 - **Activity Event Logging**: Record individual user actions with precise timestamps, application context, word counts, and time saved.
 - **Activity Output History & Retention**: Retain full text content for voice dictations and expansions with a rolling 30-day history window and cross-device synchronization.
 - **Streak Tracking**: Track consecutive daily active execution streaks and all-time records.

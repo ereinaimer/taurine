@@ -14,7 +14,7 @@ use crate::stats::TriggerStatKind;
 pub use activity_events::{
     ActivityCategory, ActivityEventRow, NewActivityEvent, get_activity_events,
     get_recent_activity_events, get_unsynced_activity_events, insert_activity_event,
-    mark_activity_events_synced, prune_expired_activity_events,
+    mark_activity_events_synced, prune_expired_activity_events, reconcile_cloud_activity_events,
 };
 pub use app_stats::{
     AppStatRow, AppStatsSortBy, TopAppStat, format_app_display_name, get_top_app_stats_with_conn,
@@ -32,7 +32,8 @@ pub use streak::{StreakInfo, calculate_streaks};
 pub use sync_helpers::{
     CloudActivityEventPayload, CloudTriggerDailyStatPayload, CloudUserAppStatPayload,
     CloudUserStatPayload, get_unsynced_app_stats, get_unsynced_stats, mark_app_stats_synced,
-    mark_stats_synced,
+    mark_stats_synced, reconcile_cloud_app_stats, reconcile_cloud_trigger_daily_stats,
+    reconcile_cloud_user_stats,
 };
 pub use trigger_daily_stats::{
     TopTriggerDailyStat, TriggerDailyStatRow, get_top_triggers_daily_with_conn,

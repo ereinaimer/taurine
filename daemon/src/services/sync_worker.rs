@@ -11,7 +11,8 @@ use taurine_core::db::crud::{
     get_unsynced_activity_events, get_unsynced_app_stats, get_unsynced_settings,
     get_unsynced_stats, get_unsynced_trigger_daily_stats, mark_activity_events_synced,
     mark_app_stats_synced, mark_settings_synced, mark_stats_synced,
-    mark_trigger_daily_stats_synced, reconcile_cloud_setting,
+    mark_trigger_daily_stats_synced, reconcile_cloud_activity_events, reconcile_cloud_app_stats,
+    reconcile_cloud_setting, reconcile_cloud_trigger_daily_stats, reconcile_cloud_user_stats,
 };
 
 /// The execution outcome of a sync cycle.
@@ -23,6 +24,7 @@ pub enum SyncStatus {
         pushed_snippets: usize,
         pulled_settings: usize,
         pushed_settings: usize,
+        pulled_events: usize,
         pushed_stats: usize,
     },
     Error(String),
@@ -78,12 +80,14 @@ impl SyncWorker {
                                         pushed_snippets,
                                         pulled_settings,
                                         pushed_settings,
+                                        pulled_events,
                                         pushed_stats,
                                     } => {
                                         if pulled_snippets > 0
                                             || pushed_snippets > 0
                                             || pulled_settings > 0
                                             || pushed_settings > 0
+                                            || pulled_events > 0
                                             || pushed_stats > 0
                                         {
                                             tracing::info!(
@@ -91,6 +95,7 @@ impl SyncWorker {
                                                 pushed_snippets,
                                                 pulled_settings,
                                                 pushed_settings,
+                                                pulled_events,
                                                 pushed_stats,
                                                 "Cloud sync cycle succeeded"
                                             );
@@ -98,6 +103,10 @@ impl SyncWorker {
                                             tracing::debug!(
                                                 "Cloud sync cycle succeeded (no changes)"
                                             );
+                                        }
+
+                                        if pulled_snippets > 0 || pulled_settings > 0 {
+                                            taurine_core::rpc::notify_daemon_reload();
                                         }
                                     }
                                     SyncStatus::Error(err) => {
@@ -599,6 +608,258 @@ impl SyncWorker {
             }
         }
 
+        // Pull remote activity events (last 30 days)
+        let thirty_days_ago_secs = now_epoch.saturating_sub(30 * 86400);
+        let thirty_days_ago_date =
+            Self::unix_secs_to_rfc3339(thirty_days_ago_secs)[..10].to_string();
+
+        let events_pull_url = format!(
+            "{}/rest/v1/activity_events?date=gte.{}&order=timestamp.asc",
+            client.config().supabase_url.trim_end_matches('/'),
+            thirty_days_ago_date
+        );
+
+        let mut events_pull_res = http_client
+            .get(&events_pull_url)
+            .header("apikey", &client.config().anon_key)
+            .header("Authorization", format!("Bearer {}", tokens.access_token))
+            .header("Accept", "application/json")
+            .send()
+            .await;
+
+        if let Ok(ref r) = events_pull_res
+            && r.status() == reqwest::StatusCode::UNAUTHORIZED
+        {
+            tracing::debug!("Received 401 pulling activity events; refreshing session...");
+            if Self::refresh_session_tokens(client, &mut tokens)
+                .await
+                .is_ok()
+            {
+                events_pull_res = http_client
+                    .get(&events_pull_url)
+                    .header("apikey", &client.config().anon_key)
+                    .header("Authorization", format!("Bearer {}", tokens.access_token))
+                    .header("Accept", "application/json")
+                    .send()
+                    .await;
+            }
+        }
+
+        let mut pulled_events = 0;
+        match events_pull_res {
+            Ok(res) => {
+                if !res.status().is_success() {
+                    let status = res.status();
+                    let text = res.text().await.unwrap_or_default();
+                    return SyncStatus::Error(format!(
+                        "Failed to pull activity events ({status}): {text}"
+                    ));
+                }
+                match res.json::<Vec<CloudActivityEventPayload>>().await {
+                    Ok(remote_events) => {
+                        match reconcile_cloud_activity_events(conn, &remote_events) {
+                            Ok(count) => {
+                                pulled_events += count;
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to reconcile activity events: {e}");
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        return SyncStatus::Error(format!(
+                            "Failed to deserialize remote activity events: {e}"
+                        ));
+                    }
+                }
+            }
+            Err(e) => {
+                return SyncStatus::Error(format!("Network error pulling activity events: {e}"));
+            }
+        }
+
+        // Pull remote trigger daily stats (last 30 days)
+        let trigger_stats_pull_url = format!(
+            "{}/rest/v1/trigger_daily_stats?date=gte.{}&order=date.asc",
+            client.config().supabase_url.trim_end_matches('/'),
+            thirty_days_ago_date
+        );
+
+        let mut trigger_stats_pull_res = http_client
+            .get(&trigger_stats_pull_url)
+            .header("apikey", &client.config().anon_key)
+            .header("Authorization", format!("Bearer {}", tokens.access_token))
+            .header("Accept", "application/json")
+            .send()
+            .await;
+
+        if let Ok(ref r) = trigger_stats_pull_res
+            && r.status() == reqwest::StatusCode::UNAUTHORIZED
+        {
+            tracing::debug!("Received 401 pulling trigger daily stats; refreshing session...");
+            if Self::refresh_session_tokens(client, &mut tokens)
+                .await
+                .is_ok()
+            {
+                trigger_stats_pull_res = http_client
+                    .get(&trigger_stats_pull_url)
+                    .header("apikey", &client.config().anon_key)
+                    .header("Authorization", format!("Bearer {}", tokens.access_token))
+                    .header("Accept", "application/json")
+                    .send()
+                    .await;
+            }
+        }
+
+        match trigger_stats_pull_res {
+            Ok(res) => {
+                if !res.status().is_success() {
+                    let status = res.status();
+                    let text = res.text().await.unwrap_or_default();
+                    return SyncStatus::Error(format!(
+                        "Failed to pull trigger daily stats ({status}): {text}"
+                    ));
+                }
+                match res.json::<Vec<CloudTriggerDailyStatPayload>>().await {
+                    Ok(remote_stats) => {
+                        if let Err(e) = reconcile_cloud_trigger_daily_stats(conn, &remote_stats) {
+                            tracing::warn!("Failed to reconcile trigger daily stats: {e}");
+                        }
+                    }
+                    Err(e) => {
+                        return SyncStatus::Error(format!(
+                            "Failed to deserialize remote trigger daily stats: {e}"
+                        ));
+                    }
+                }
+            }
+            Err(e) => {
+                return SyncStatus::Error(format!(
+                    "Network error pulling trigger daily stats: {e}"
+                ));
+            }
+        }
+
+        // Pull remote global user stats (last 30 days)
+        let user_stats_pull_url = format!(
+            "{}/rest/v1/user_stats?date=gte.{}&order=date.asc",
+            client.config().supabase_url.trim_end_matches('/'),
+            thirty_days_ago_date
+        );
+
+        let mut user_stats_pull_res = http_client
+            .get(&user_stats_pull_url)
+            .header("apikey", &client.config().anon_key)
+            .header("Authorization", format!("Bearer {}", tokens.access_token))
+            .header("Accept", "application/json")
+            .send()
+            .await;
+
+        if let Ok(ref r) = user_stats_pull_res
+            && r.status() == reqwest::StatusCode::UNAUTHORIZED
+        {
+            tracing::debug!("Received 401 pulling user stats; refreshing session...");
+            if Self::refresh_session_tokens(client, &mut tokens)
+                .await
+                .is_ok()
+            {
+                user_stats_pull_res = http_client
+                    .get(&user_stats_pull_url)
+                    .header("apikey", &client.config().anon_key)
+                    .header("Authorization", format!("Bearer {}", tokens.access_token))
+                    .header("Accept", "application/json")
+                    .send()
+                    .await;
+            }
+        }
+
+        match user_stats_pull_res {
+            Ok(res) => {
+                if !res.status().is_success() {
+                    let status = res.status();
+                    let text = res.text().await.unwrap_or_default();
+                    return SyncStatus::Error(format!(
+                        "Failed to pull user stats ({status}): {text}"
+                    ));
+                }
+                match res.json::<Vec<CloudUserStatPayload>>().await {
+                    Ok(remote_stats) => {
+                        if let Err(e) = reconcile_cloud_user_stats(conn, &remote_stats) {
+                            tracing::warn!("Failed to reconcile user stats: {e}");
+                        }
+                    }
+                    Err(e) => {
+                        return SyncStatus::Error(format!(
+                            "Failed to deserialize remote user stats: {e}"
+                        ));
+                    }
+                }
+            }
+            Err(e) => {
+                return SyncStatus::Error(format!("Network error pulling user stats: {e}"));
+            }
+        }
+
+        // Pull remote user app stats (last 30 days)
+        let app_stats_pull_url = format!(
+            "{}/rest/v1/user_app_stats?date=gte.{}&order=date.asc",
+            client.config().supabase_url.trim_end_matches('/'),
+            thirty_days_ago_date
+        );
+
+        let mut app_stats_pull_res = http_client
+            .get(&app_stats_pull_url)
+            .header("apikey", &client.config().anon_key)
+            .header("Authorization", format!("Bearer {}", tokens.access_token))
+            .header("Accept", "application/json")
+            .send()
+            .await;
+
+        if let Ok(ref r) = app_stats_pull_res
+            && r.status() == reqwest::StatusCode::UNAUTHORIZED
+        {
+            tracing::debug!("Received 401 pulling app stats; refreshing session...");
+            if Self::refresh_session_tokens(client, &mut tokens)
+                .await
+                .is_ok()
+            {
+                app_stats_pull_res = http_client
+                    .get(&app_stats_pull_url)
+                    .header("apikey", &client.config().anon_key)
+                    .header("Authorization", format!("Bearer {}", tokens.access_token))
+                    .header("Accept", "application/json")
+                    .send()
+                    .await;
+            }
+        }
+
+        match app_stats_pull_res {
+            Ok(res) => {
+                if !res.status().is_success() {
+                    let status = res.status();
+                    let text = res.text().await.unwrap_or_default();
+                    return SyncStatus::Error(format!(
+                        "Failed to pull app stats ({status}): {text}"
+                    ));
+                }
+                match res.json::<Vec<CloudUserAppStatPayload>>().await {
+                    Ok(remote_stats) => {
+                        if let Err(e) = reconcile_cloud_app_stats(conn, &remote_stats) {
+                            tracing::warn!("Failed to reconcile app stats: {e}");
+                        }
+                    }
+                    Err(e) => {
+                        return SyncStatus::Error(format!(
+                            "Failed to deserialize remote app stats: {e}"
+                        ));
+                    }
+                }
+            }
+            Err(e) => {
+                return SyncStatus::Error(format!("Network error pulling app stats: {e}"));
+            }
+        }
+
         // Upload unsynced trigger daily stats
         let unsynced_trigger_stats = match get_unsynced_trigger_daily_stats(conn, 100) {
             Ok(rows) => rows,
@@ -902,6 +1163,7 @@ impl SyncWorker {
             pushed_snippets,
             pulled_settings,
             pushed_settings,
+            pulled_events,
             pushed_stats,
         }
     }

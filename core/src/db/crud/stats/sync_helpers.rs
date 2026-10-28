@@ -1,4 +1,4 @@
-use rusqlite::{Connection, Result};
+use rusqlite::{Connection, OptionalExtension, Result};
 use serde::{Deserialize, Serialize};
 
 use super::activity_events::ActivityEventRow;
@@ -286,6 +286,244 @@ pub fn mark_app_stats_synced(conn: &Connection, keys: &[(&str, &str)]) -> Result
         stmt.execute(rusqlite::params![app_key, date])?;
     }
     Ok(())
+}
+
+#[derive(Default)]
+struct UserStatAgg {
+    executions: i64,
+    ai_executions: i64,
+    voice_executions: i64,
+    words_spoken: i64,
+    words_expanded: i64,
+    time_saved_ms: i64,
+    version: i64,
+}
+
+#[derive(Default)]
+struct AppStatAgg {
+    executions: u64,
+    words_spoken: u64,
+    words_expanded: u64,
+    time_saved_ms: u64,
+    version: u64,
+}
+
+#[derive(Default)]
+struct TriggerStatAgg {
+    executions: u64,
+    words_spoken: u64,
+    words_expanded: u64,
+    time_saved_ms: u64,
+    version: u64,
+}
+
+/// Reconciles remote cloud user stats into the local SQLite database.
+///
+/// Multi-device payloads are grouped by date. If the local date row doesn't exist
+/// or has `is_synced = 1` (no dirty local modifications pending push), it is inserted or
+/// updated with the cloud totals and marked `is_synced = 1`.
+pub fn reconcile_cloud_user_stats(
+    conn: &Connection,
+    stats: &[CloudUserStatPayload],
+) -> Result<usize> {
+    if stats.is_empty() {
+        return Ok(0);
+    }
+
+    use std::collections::BTreeMap;
+    let mut by_date: BTreeMap<&str, UserStatAgg> = BTreeMap::new();
+    for s in stats {
+        let entry = by_date.entry(&s.date).or_default();
+        entry.executions += s.executions;
+        entry.ai_executions += s.ai_executions;
+        entry.voice_executions += s.voice_executions;
+        entry.words_spoken += s.words_spoken;
+        entry.words_expanded += s.words_expanded;
+        entry.time_saved_ms += s.time_saved_ms;
+        entry.version = entry.version.max(s.version);
+    }
+
+    let mut check_stmt = conn.prepare_cached("SELECT is_synced FROM stats WHERE date = ?1")?;
+    let mut upsert_stmt = conn.prepare_cached(
+        "INSERT INTO stats (
+            date, executions, ai_executions, voice_executions, words_spoken, words_expanded, time_saved_ms, version, is_synced, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9)
+        ON CONFLICT(date) DO UPDATE SET
+            executions       = excluded.executions,
+            ai_executions    = excluded.ai_executions,
+            voice_executions = excluded.voice_executions,
+            words_spoken     = excluded.words_spoken,
+            words_expanded   = excluded.words_expanded,
+            time_saved_ms    = excluded.time_saved_ms,
+            version          = excluded.version,
+            is_synced        = 1,
+            updated_at       = excluded.updated_at
+        WHERE stats.is_synced = 1",
+    )?;
+
+    let now_secs = crate::db::now_unix_secs();
+    let mut count = 0;
+    for (date, agg) in by_date {
+        let is_dirty: Option<bool> = check_stmt
+            .query_row([date], |row| Ok(!row.get::<_, bool>(0)?))
+            .optional()?;
+
+        // If local exists and is dirty (is_synced = 0), do not overwrite unpushed local changes
+        if is_dirty == Some(true) {
+            continue;
+        }
+
+        let rows = upsert_stmt.execute(rusqlite::params![
+            date,
+            agg.executions,
+            agg.ai_executions,
+            agg.voice_executions,
+            agg.words_spoken,
+            agg.words_expanded,
+            agg.time_saved_ms,
+            agg.version,
+            now_secs,
+        ])?;
+        count += rows;
+    }
+
+    Ok(count)
+}
+
+/// Reconciles remote cloud app stats into the local SQLite database.
+pub fn reconcile_cloud_app_stats(
+    conn: &Connection,
+    stats: &[CloudUserAppStatPayload],
+) -> Result<usize> {
+    if stats.is_empty() {
+        return Ok(0);
+    }
+
+    use std::collections::BTreeMap;
+    let mut by_key: BTreeMap<(&str, &str), AppStatAgg> = BTreeMap::new();
+    for s in stats {
+        let entry = by_key.entry((&s.app_key, &s.date)).or_default();
+        entry.executions += s.executions;
+        entry.words_spoken += s.words_spoken;
+        entry.words_expanded += s.words_expanded;
+        entry.time_saved_ms += s.time_saved_ms;
+        entry.version = entry.version.max(s.version);
+    }
+
+    let mut check_stmt =
+        conn.prepare_cached("SELECT is_synced FROM app_stats WHERE app_key = ?1 AND date = ?2")?;
+    let mut upsert_stmt = conn.prepare_cached(
+        "INSERT INTO app_stats (
+            app_key, date, executions, words_spoken, words_expanded, time_saved_ms, version, is_synced, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8)
+        ON CONFLICT(app_key, date) DO UPDATE SET
+            executions     = excluded.executions,
+            words_spoken   = excluded.words_spoken,
+            words_expanded = excluded.words_expanded,
+            time_saved_ms  = excluded.time_saved_ms,
+            version        = excluded.version,
+            is_synced      = 1,
+            updated_at     = excluded.updated_at
+        WHERE app_stats.is_synced = 1",
+    )?;
+
+    let now_secs = crate::db::now_unix_secs();
+    let mut count = 0;
+    for ((app_key, date), agg) in by_key {
+        let is_dirty: Option<bool> = check_stmt
+            .query_row(rusqlite::params![app_key, date], |row| {
+                Ok(!row.get::<_, bool>(0)?)
+            })
+            .optional()?;
+
+        if is_dirty == Some(true) {
+            continue;
+        }
+
+        let rows = upsert_stmt.execute(rusqlite::params![
+            app_key,
+            date,
+            agg.executions as i64,
+            agg.words_spoken as i64,
+            agg.words_expanded as i64,
+            agg.time_saved_ms as i64,
+            agg.version as i64,
+            now_secs,
+        ])?;
+        count += rows;
+    }
+
+    Ok(count)
+}
+
+/// Reconciles remote cloud per-trigger daily stats into the local SQLite database.
+pub fn reconcile_cloud_trigger_daily_stats(
+    conn: &Connection,
+    stats: &[CloudTriggerDailyStatPayload],
+) -> Result<usize> {
+    if stats.is_empty() {
+        return Ok(0);
+    }
+
+    use std::collections::BTreeMap;
+    let mut by_key: BTreeMap<(&str, &str, &str), TriggerStatAgg> = BTreeMap::new();
+    for s in stats {
+        let entry = by_key
+            .entry((&s.trigger_id, &s.date, &s.app_key))
+            .or_default();
+        entry.executions += s.executions;
+        entry.words_spoken += s.words_spoken;
+        entry.words_expanded += s.words_expanded;
+        entry.time_saved_ms += s.time_saved_ms;
+        entry.version = entry.version.max(s.version);
+    }
+
+    let mut check_stmt = conn.prepare_cached(
+        "SELECT is_synced FROM trigger_daily_stats WHERE trigger_id = ?1 AND date = ?2 AND app_key = ?3",
+    )?;
+    let mut upsert_stmt = conn.prepare_cached(
+        "INSERT INTO trigger_daily_stats (
+            trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version, is_synced, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9)
+        ON CONFLICT(trigger_id, date, app_key) DO UPDATE SET
+            executions     = excluded.executions,
+            words_spoken   = excluded.words_spoken,
+            words_expanded = excluded.words_expanded,
+            time_saved_ms  = excluded.time_saved_ms,
+            version        = excluded.version,
+            is_synced      = 1,
+            updated_at     = excluded.updated_at
+        WHERE trigger_daily_stats.is_synced = 1",
+    )?;
+
+    let now_secs = crate::db::now_unix_secs();
+    let mut count = 0;
+    for ((trigger_id, date, app_key), agg) in by_key {
+        let is_dirty: Option<bool> = check_stmt
+            .query_row(rusqlite::params![trigger_id, date, app_key], |row| {
+                Ok(!row.get::<_, bool>(0)?)
+            })
+            .optional()?;
+
+        if is_dirty == Some(true) {
+            continue;
+        }
+
+        let rows = upsert_stmt.execute(rusqlite::params![
+            trigger_id,
+            date,
+            app_key,
+            agg.executions as i64,
+            agg.words_spoken as i64,
+            agg.words_expanded as i64,
+            agg.time_saved_ms as i64,
+            agg.version as i64,
+            now_secs,
+        ])?;
+        count += rows;
+    }
+
+    Ok(count)
 }
 
 #[cfg(test)]
@@ -595,5 +833,55 @@ mod tests {
         let unsynced = get_unsynced_stats(&conn, 1).unwrap();
         assert_eq!(unsynced.len(), 1);
         assert_eq!(unsynced[0].date, "2026-10-01");
+    }
+
+    #[test]
+    fn test_reconcile_cloud_user_stats_multi_device() {
+        let conn = setup_test_db();
+
+        // Fresh database: no stats exist
+        let remote_stats = vec![
+            CloudUserStatPayload {
+                device_id: "laptop-1".to_string(),
+                date: "2026-10-28".to_string(),
+                executions: 10,
+                ai_executions: 2,
+                voice_executions: 3,
+                words_spoken: 150,
+                words_expanded: 300,
+                time_saved_ms: 6000,
+                version: 1,
+            },
+            CloudUserStatPayload {
+                device_id: "desktop-1".to_string(),
+                date: "2026-10-28".to_string(),
+                executions: 20,
+                ai_executions: 5,
+                voice_executions: 10,
+                words_spoken: 400,
+                words_expanded: 800,
+                time_saved_ms: 12000,
+                version: 2,
+            },
+        ];
+
+        let reconciled = reconcile_cloud_user_stats(&conn, &remote_stats).unwrap();
+        assert_eq!(reconciled, 1);
+
+        let row = crate::db::crud::get_stat(&conn, "2026-10-28")
+            .unwrap()
+            .unwrap();
+        // Aggregated across both devices: 10 + 20 = 30
+        assert_eq!(row.executions, 30);
+        assert_eq!(row.ai_executions, 7);
+        assert_eq!(row.voice_executions, 13);
+        assert_eq!(row.words_spoken, 550);
+        assert_eq!(row.words_expanded, 1100);
+        assert_eq!(row.time_saved_ms, 18000);
+        assert_eq!(row.version, 2);
+
+        // Pulled stats must have is_synced = 1 (not queued as unsynced)
+        let unsynced = get_unsynced_stats(&conn, 10).unwrap();
+        assert!(unsynced.is_empty());
     }
 }

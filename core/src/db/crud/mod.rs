@@ -60,9 +60,11 @@ pub use stats::{
     get_trigger_daily_stats_by_trigger, get_unsynced_activity_events, get_unsynced_app_stats,
     get_unsynced_stats, get_unsynced_trigger_daily_stats, increment_stat, insert_activity_event,
     mark_activity_events_synced, mark_app_stats_synced, mark_stats_synced,
-    mark_trigger_daily_stats_synced, record_calculation_usage, record_trigger_stat,
-    record_trigger_stat_with_conn, record_voice_dictation_usage, record_voice_trigger_usage,
-    resolve_trigger_id, upsert_app_stat_with_conn, upsert_trigger_daily_stat_with_conn,
+    mark_trigger_daily_stats_synced, reconcile_cloud_activity_events, reconcile_cloud_app_stats,
+    reconcile_cloud_trigger_daily_stats, reconcile_cloud_user_stats, record_calculation_usage,
+    record_trigger_stat, record_trigger_stat_with_conn, record_voice_dictation_usage,
+    record_voice_trigger_usage, resolve_trigger_id, upsert_app_stat_with_conn,
+    upsert_trigger_daily_stat_with_conn,
 };
 
 pub const SUPPORTED_TARGET_OS_VALUES: [&str; 6] = ["all", "win", "linux", "mac", "android", "ios"];
