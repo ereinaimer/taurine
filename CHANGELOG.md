@@ -12,7 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Activity Event Logging**: Record individual user actions with precise timestamps, application context, word counts, and time saved.
 - **Activity Output History & Retention**: Retain full text content for voice dictations and expansions with a rolling 30-day history window and cross-device synchronization.
 - **Streak Tracking**: Track consecutive daily active execution streaks and all-time records.
-- **Home Dashboard**: A flat activity card feed with tag and relative time on one line, fully wrapped content, a sticky title and date headers, a focus highlight, and copy on the active card, plus a draggable account and weekly-quota pane with the reset countdown.
+- **Home Dashboard**: A flat activity card feed with a tag row, fully wrapped content, a left-aligned clock and copy meta row beneath it, a sticky title and date headers, a focus highlight, and copy on the active card, plus a draggable account and weekly-quota pane with the reset countdown.
+- **Voice Activity**: Voice entries in the home feed show what was actually said instead of the inserted snippet output.
+- **Home Divider**: When the activity column is fully collapsed, the account pane sits flush on the navigation rail and the rail divider is the single boundary.
 - **Snippet Enable and Disable**: Toggle individual snippets directly with `taurine enable` and `taurine disable`.
 - **Cloud Authentication**: Sign in and out of Taurine Cloud with `taurine login` and `taurine logout`.
 - **Cloud Quota & Tier Status**: View subscription tier, weekly quota balance, and usage limits in `taurine status`.

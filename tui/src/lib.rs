@@ -3595,6 +3595,41 @@ mod tests {
     }
 
     #[test]
+    fn parked_home_account_pane_leaves_one_divider() {
+        use ratatui::{Terminal, backend::TestBackend};
+
+        let mut app = library_app();
+        let home = nav_button(&app, NavRailItem::Home);
+        handle_tui_mouse_event(&mut app, left_click(home.x + 2, home.y + 1), TEST_AREA);
+        app.home_page_mut()
+            .set_account_ratio(home::account::MAX_RATIO);
+
+        let backend = TestBackend::new(TEST_AREA.width, TEST_AREA.height);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal
+            .draw(|frame| render_app(frame, &mut app, TEST_AREA))
+            .expect("test draw");
+
+        let full = workspace_full(&app, TEST_AREA);
+        let split = home::split_home(full, app.home_page().account_ratio());
+        assert_eq!(split.center.width, 0, "activity fully minimized");
+        assert!(
+            split.props_divider.is_none(),
+            "no page divider beside the rail divider"
+        );
+
+        let buffer = terminal.backend().buffer();
+        let line: String = (full.x.saturating_sub(1)..full.x.saturating_add(12))
+            .map(|x| buffer[(x, full.y)].symbol())
+            .collect();
+        assert_eq!(line.matches('│').count(), 1, "one divider: {line:?}");
+        assert!(
+            line.contains("ACCOUNT"),
+            "account pane starts past the single divider: {line:?}"
+        );
+    }
+
+    #[test]
     fn home_divider_drags_the_account_pane() {
         let mut app = library_app();
         let home = nav_button(&app, NavRailItem::Home);

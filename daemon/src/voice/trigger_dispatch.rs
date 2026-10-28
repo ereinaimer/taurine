@@ -63,7 +63,9 @@ pub fn fire_voice_trigger_with_args(
         spoken_transcript,
         output_chars,
         active_app,
-        Some(display.clone()),
+        // honey: the activity feed shows what the user said for voice
+        // events, not the snippet output.
+        Some(spoken_transcript.to_string()),
     );
     let _ = increment_usage_count_by_id(conn, &inv.trigger_id);
     Some(display)

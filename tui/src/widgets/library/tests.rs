@@ -4589,11 +4589,14 @@ fn split_extreme_ratios_park_without_resurrection() {
     assert!((before.center.width as i16 - parked.center.width as i16).abs() <= 2);
     assert!((parked.props.width as i16 - before.props.width as i16).abs() <= 2);
 
-    // Deep overflow parks props nearly full screen.
+    // Deep overflow parks props full screen; it starts flush on the
+    // rail so the rail divider stays the only vertical boundary.
     let parked = split_panes(area, DEFAULT_SPLIT_RATIO, 2.0);
     assert_eq!(parked.list.width, 0);
     assert_eq!(parked.center.width, 0);
-    assert_eq!(parked.props.width, 99);
+    assert_eq!(parked.props.x, area.x);
+    assert_eq!(parked.props.width, 100);
+    assert_eq!(parked.props_divider, None);
 
     // List side parks fully open with no survivors.
     let parked = split_panes(area, 1.0, DEFAULT_DETAIL_RATIO);
@@ -4611,11 +4614,11 @@ fn visible_dividers_hide_parked_nothing_dividers() {
         visible_divider_columns(area, 1.0, DEFAULT_DETAIL_RATIO),
         vec![(DividerSide::List, 99)]
     );
-    // Props parked full screen: only its own divider paints, on the
-    // first column.
+    // Props parked full screen: no page divider; the nav rail divider
+    // is the single boundary.
     assert_eq!(
         visible_divider_columns(area, DEFAULT_SPLIT_RATIO, 2.0),
-        vec![(DividerSide::Props, 0)]
+        Vec::new()
     );
     // Ordinary split paints both, tagged in order.
     let split = split_panes(area, DEFAULT_SPLIT_RATIO, DEFAULT_DETAIL_RATIO);

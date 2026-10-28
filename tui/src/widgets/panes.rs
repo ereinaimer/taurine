@@ -200,19 +200,29 @@ pub(crate) fn split_panes(area: Rect, list_ratio: f32, props_ratio: f32) -> Pane
         width: center_width,
         height: area.height,
     };
+    // honey: the same rule for a fully parked right pane. It starts
+    // flush on the rail and fills the workspace, so the rail divider is
+    // the single boundary instead of a second line beside it.
     let props = Rect {
-        x: center.x.saturating_add(center.width).saturating_add(1),
+        x: if right_parked {
+            area.x
+        } else {
+            center.x.saturating_add(center.width).saturating_add(1)
+        },
         y: area.y,
         width: if right_parked {
-            area.width.saturating_sub(1)
+            area.width
         } else {
             right_width
         },
         height: area.height,
     };
     let list_divider = (list.width > 0).then_some(list.x.saturating_add(list.width));
-    let props_divider =
-        (center.width > 0 || props.width > 0).then_some(center.x.saturating_add(center.width));
+    let props_divider = if right_parked {
+        None
+    } else {
+        (center.width > 0 || props.width > 0).then_some(center.x.saturating_add(center.width))
+    };
     PaneSplit {
         list,
         center,
@@ -341,8 +351,12 @@ mod tests {
         let area = Rect::new(0, 0, 80, 20);
         let parked = split_panes(area, 0.0, 2.0);
         assert_eq!(parked.center.width, 0);
-        assert_eq!(parked.props_divider, Some(0));
-        assert_eq!(parked.props.width, area.width - 1);
+        assert_eq!(
+            parked.props_divider, None,
+            "the rail divider is the single boundary"
+        );
+        assert_eq!(parked.props.x, area.x, "the parked pane sits flush");
+        assert_eq!(parked.props.width, area.width);
     }
 
     #[test]

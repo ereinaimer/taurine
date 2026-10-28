@@ -27,12 +27,13 @@ const PANE_PAD_X: u16 = 2;
 const HOME_LIST_RATIO: f32 = 0.0;
 
 /// Card chrome: a blank top pad, the tag row, a spacer row under the
-/// tag, and a blank bottom pad. The spacer is card fill, so the trigger
-/// pill never crowds the payload.
+/// tag, a blank row after the content, the meta row that carries the
+/// clock and copy button, and a blank bottom pad. Payload rows sit in
+/// between.
 const CARD_TAG_ROW: usize = 1;
 const CARD_SPACER_ROW: usize = CARD_TAG_ROW + 1;
 const CARD_PAYLOAD_START: usize = CARD_SPACER_ROW + 1;
-const CARD_CHROME_LINES: usize = CARD_PAYLOAD_START + 1;
+const CARD_CHROME_LINES: usize = CARD_PAYLOAD_START + 3;
 /// One page-background row between cards.
 const CARD_GAP_LINES: usize = 1;
 /// Smallest card block: chrome, one payload row, and the gap.
@@ -51,8 +52,6 @@ const STICKY_DATE_ROW: u16 = 2;
 const CARD_MAX_WIDTH: u16 = 100;
 /// Horizontal breathing room inside a card.
 const CARD_PAD_X: u16 = 2;
-/// Blank cells between payload text and the copy button.
-const CONTENT_GAP: u16 = 6;
 
 const COPY_LABEL: &str = " copy ";
 
@@ -299,13 +298,13 @@ fn wrap_payload(body: &str, width: usize) -> Vec<String> {
     lines
 }
 
-/// Cells available for payload text: the card's inner width minus the
-/// copy column and the gutter before it. The column is reserved on every
-/// card, so selecting one never reflows its text.
+/// Cells available for payload text: the card's full inner width. The
+/// clock and copy button live on the meta row below a blank row, so the
+/// payload never needs a reserved right column.
 fn payload_width(card_width: u16) -> usize {
-    let inner = card_width.saturating_sub(CARD_PAD_X.saturating_mul(2));
-    let reserved = cell_width(COPY_LABEL) as u16 + CONTENT_GAP;
-    inner.saturating_sub(reserved).max(1) as usize
+    card_width
+        .saturating_sub(CARD_PAD_X.saturating_mul(2))
+        .max(1) as usize
 }
 
 /// Drawn height of the whole feed, headers included.
@@ -490,23 +489,14 @@ fn render_card(
         }
     }
 
-    let copy_width = cell_width(COPY_LABEL) as u16;
-    if active && inner_width > copy_width.saturating_add(CONTENT_GAP) {
-        // The button rides the last payload row; the text column already
-        // reserves its cells on every row.
-        let last = line + CARD_PAYLOAD_START + card.lines.len() - 1;
-        if let Some(row) = visible_line(content, scroll, last) {
-            let button = Rect {
-                x: content
-                    .x
-                    .saturating_add(width)
-                    .saturating_sub(CARD_PAD_X)
-                    .saturating_sub(copy_width),
-                y: row.y,
-                width: copy_width,
-                height: 1,
-            };
-            render_copy_button(frame, button, theme);
+    let meta_row = line + CARD_PAYLOAD_START + card.lines.len() + 1;
+    if let Some(row) = visible_line(content, scroll, meta_row) {
+        let area = Rect {
+            x: inner_x,
+            width: inner_width,
+            ..row
+        };
+        if let Some(button) = render_meta_line(frame, area, theme, event, active) {
             hits.copies.push(CopyHit {
                 event: card.index,
                 area: button,
@@ -515,7 +505,46 @@ fn render_card(
     }
 }
 
-/// Line 1: the source tag on the left, the relative clock pinned right.
+/// Bottom meta row: the relative clock on the left, and on the active
+/// card the copy button right beside it. Nothing is right-aligned.
+fn render_meta_line(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    event: &RecentActivity,
+    active: bool,
+) -> Option<Rect> {
+    if area.width == 0 {
+        return None;
+    }
+    let when = truncate(&event_time(event), area.width as usize);
+    let time_width = cell_width(&when) as u16;
+    frame.render_widget(
+        Paragraph::new(when).style(Style::default().fg(theme.description)),
+        Rect {
+            width: time_width,
+            ..area
+        },
+    );
+    if !active {
+        return None;
+    }
+    let copy_width = cell_width(COPY_LABEL) as u16;
+    let x = area.x.saturating_add(time_width).saturating_add(1);
+    if x.saturating_add(copy_width) > area.right() {
+        return None;
+    }
+    let button = Rect {
+        x,
+        y: area.y,
+        width: copy_width,
+        height: 1,
+    };
+    render_copy_button(frame, button, theme);
+    Some(button)
+}
+
+/// Line 1: the source tag on the left. The clock moved to the meta row.
 fn render_tag_line(
     frame: &mut Frame,
     area: Rect,
@@ -523,34 +552,8 @@ fn render_tag_line(
     event: &RecentActivity,
     card_bg: Color,
 ) {
-    let when = event_time(event);
-    let time_width = cell_width(&when) as u16;
-    // Same gutter the payload keeps before the copy button: tags never
-    // crowd the clock.
-    let tag_width = area
-        .width
-        .saturating_sub(time_width)
-        .saturating_sub(CONTENT_GAP);
-    if tag_width > 0 {
-        let spans = tag_spans(event, tag_width as usize, theme, card_bg);
-        frame.render_widget(
-            Paragraph::new(Line::from(spans)),
-            Rect {
-                width: tag_width,
-                ..area
-            },
-        );
-    }
-    if time_width > 0 && time_width <= area.width {
-        frame.render_widget(
-            Paragraph::new(when).style(Style::default().fg(theme.description)),
-            Rect {
-                x: area.right().saturating_sub(time_width),
-                width: time_width,
-                ..area
-            },
-        );
-    }
+    let spans = tag_spans(event, area.width as usize, theme, card_bg);
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
 fn tag_spans(
@@ -704,9 +707,16 @@ fn render_copy_button(frame: &mut Frame, area: Rect, theme: &Theme) {
     );
 }
 
-/// The text an event produced, with the trigger description as the
-/// fallback for events recorded before content capture.
+/// The text an event produced. Voice triggers record the snippet they
+/// inserted, but the feed wants what was actually said, so their trigger
+/// phrase wins; dictations carry the transcript in content.
 pub(crate) fn event_body(event: &RecentActivity) -> &str {
+    if event.category == ActivityCategory::Voice
+        && event.trigger != "Dictation"
+        && !event.trigger.trim().is_empty()
+    {
+        return &event.trigger;
+    }
     match event.content.as_deref() {
         Some(content) if !content.trim().is_empty() => content,
         _ => &event.detail,
@@ -869,6 +879,11 @@ mod tests {
         TITLE_LINES + DATE_BLOCK_LINES + n * CARD_MIN_BLOCK_LINES
     }
 
+    /// Document row of a card's meta line for a payload of `lines` rows.
+    fn meta_row(card: usize, lines: usize) -> u16 {
+        (card_top(card) + CARD_PAYLOAD_START + lines + 1) as u16
+    }
+
     #[test]
     fn home_page_paints_no_blue() {
         let mut state = sample_state();
@@ -947,6 +962,8 @@ mod tests {
         let tag_row = (card_top(0) + CARD_TAG_ROW) as u16;
         let spacer = (card_top(0) + CARD_SPACER_ROW) as u16;
         let payload = (card_top(0) + CARD_PAYLOAD_START) as u16;
+        let meta = meta_row(0, 1);
+        let when = event_time(&state.stats().recent_activity[0]);
 
         assert!(row_text(&buffer, 100, tag_row).contains(" aa "));
         assert!(
@@ -958,7 +975,30 @@ mod tests {
             DARK_THEME.card.active_bg,
             "spacer keeps the card fill"
         );
-        assert!(row_text(&buffer, 100, payload).contains("first body"));
+        let payload_line = row_text(&buffer, 100, payload);
+        assert!(payload_line.contains("first body"));
+        assert!(!payload_line.contains(COPY_LABEL));
+        let meta_line = row_text(&buffer, 100, meta);
+        assert_eq!(
+            meta_line.trim(),
+            format!("{when}  copy"),
+            "clock and copy share the meta row"
+        );
+        let bottom_pad = meta + 1;
+        assert!(
+            row_text(&buffer, 100, bottom_pad).trim().is_empty(),
+            "a blank bottom padding row follows the meta row"
+        );
+        assert_eq!(
+            buffer[(content.x, bottom_pad)].bg,
+            DARK_THEME.card.active_bg,
+            "bottom padding keeps the card fill"
+        );
+        assert_eq!(
+            buffer[(content.x, bottom_pad + 1)].bg,
+            DARK_THEME.background,
+            "the page gap follows the bottom padding"
+        );
     }
 
     #[test]
@@ -983,22 +1023,23 @@ mod tests {
 
         let first = draw(&mut state, 100, 30);
         assert_eq!(first.matches(COPY_LABEL).count(), 1);
+        let lines: Vec<&str> = first.lines().collect();
         assert!(
-            first
-                .lines()
-                .nth(card_top(0) + CARD_PAYLOAD_START)
-                .is_some_and(|line| { line.contains(COPY_LABEL) && line.contains("first body") })
+            lines[meta_row(0, 1) as usize].contains(COPY_LABEL),
+            "copy sits beside the clock"
         );
+        assert!(
+            lines[card_top(0) + CARD_PAYLOAD_START].contains("first body"),
+            "payload sits above the meta row"
+        );
+        assert!(!lines[card_top(0) + CARD_PAYLOAD_START].contains(COPY_LABEL));
 
         state.select(1);
         let second = draw(&mut state, 100, 30);
         assert_eq!(second.matches(COPY_LABEL).count(), 1);
-        assert!(
-            second
-                .lines()
-                .nth(card_top(1) + CARD_PAYLOAD_START)
-                .is_some_and(|line| { line.contains(COPY_LABEL) && line.contains("second body") })
-        );
+        let lines: Vec<&str> = second.lines().collect();
+        assert!(lines[meta_row(1, 1) as usize].contains(COPY_LABEL));
+        assert!(lines[card_top(1) + CARD_PAYLOAD_START].contains("second body"));
     }
 
     #[test]
@@ -1050,53 +1091,24 @@ mod tests {
     }
 
     #[test]
-    fn tag_and_clock_share_the_first_card_line() {
+    fn tag_line_carries_tags_and_meta_line_carries_the_clock() {
         let mut state = sample_state();
         let buffer = render_buffer(&mut state, 120, 40);
-        let content = content_area(120, 40);
-        let line = row_text(&buffer, 120, (card_top(0) + CARD_TAG_ROW) as u16);
         let when = event_time(&state.stats().recent_activity[0]);
 
-        assert!(line.contains(" gs "), "tag missing: {line:?}");
+        let tag_line = row_text(&buffer, 120, (card_top(0) + CARD_TAG_ROW) as u16);
+        assert!(tag_line.contains(" gs "), "tag missing: {tag_line:?}");
         assert!(
-            line.trim_end().ends_with(&when),
-            "clock is not flush right: {line:?}"
+            !tag_line.contains(&when),
+            "clock moved below the content: {tag_line:?}"
         );
-        let inner_right = content.x + card_width(content) - CARD_PAD_X;
+
+        let meta_line = row_text(&buffer, 120, meta_row(0, 1));
         assert_eq!(
-            line.trim_end().len() as u16,
-            inner_right,
-            "clock ends at the card's inner right edge"
+            meta_line.trim(),
+            format!("{when}  copy"),
+            "clock and copy share the left-aligned meta row"
         );
-    }
-
-    #[test]
-    fn tag_keeps_the_content_gap_before_the_clock() {
-        let mut state = state_with_activity(vec![activity_event(
-            today_noon_millis(),
-            "a-rather-long-trigger-that-fills-the-tag-column",
-            "body",
-        )]);
-        let buffer = render_buffer(&mut state, 60, 30);
-        let content = content_area(60, 30);
-        let when = event_time(&state.stats().recent_activity[0]);
-        let time_width = cell_width(&when) as u16;
-        let clock_x = content.x + card_width(content) - CARD_PAD_X - time_width;
-        let row = (card_top(0) + CARD_TAG_ROW) as u16;
-
-        let last = (content.x..clock_x)
-            .rev()
-            .find(|&x| !buffer[(x, row)].symbol().trim().is_empty())
-            .expect("tag pill");
-        let gap = clock_x.saturating_sub(1).saturating_sub(last);
-        assert!(
-            gap >= CONTENT_GAP,
-            "tag ends at {last}, clock starts at {clock_x}, gap {gap}"
-        );
-        let clock: String = (clock_x..clock_x + time_width)
-            .map(|x| buffer[(x, row)].symbol())
-            .collect();
-        assert_eq!(clock, when);
     }
 
     #[test]
@@ -1125,40 +1137,51 @@ mod tests {
     }
 
     #[test]
-    fn wrapped_payload_keeps_a_gutter_before_the_copy_button() {
+    fn voice_trigger_shows_the_spoken_phrase_not_the_snippet_output() {
+        let mut event = voice_event(today_noon_millis(), "unlimited voice output");
+        event.trigger = "hello voice".to_string();
+        let mut state = state_with_activity(vec![event]);
+        let text = draw(&mut state, 80, 30);
+
+        assert!(
+            text.contains("hello voice"),
+            "spoken phrase missing:\n{text}"
+        );
+        assert!(
+            !text.contains("unlimited voice output"),
+            "snippet output leaked into the feed:\n{text}"
+        );
+        assert!(text.contains(" voice "), "voice tag missing");
+    }
+
+    #[test]
+    fn wrapped_payload_uses_the_full_card_width() {
         let long = "a very long payload that will wrap across the card instead of being \
                     cut off, and keeps going for a while longer so it cannot fit on one line"
             .repeat(2);
         let mut state = state_with_activity(vec![activity_event(today_noon_millis(), "gs", &long)]);
         let buffer = render_buffer(&mut state, 100, 40);
         let content = content_area(100, 40);
-        let inner_right = content.x + card_width(content) - CARD_PAD_X;
-        let button_x = inner_right - cell_width(COPY_LABEL) as u16;
+        let inner_width = card_width(content) - CARD_PAD_X * 2;
         let rows = feed_rows(&state.stats().recent_activity, content.width);
         let line_count = match &rows[1] {
             FeedRow::Card(card) => card.lines.len(),
             FeedRow::Date(_) => panic!("second row is the card"),
         };
         assert!(line_count > 1, "payload wraps onto several rows");
-        let first_payload = (card_top(0) + CARD_PAYLOAD_START) as u16;
-        let last_payload = (card_top(0) + CARD_PAYLOAD_START + line_count - 1) as u16;
+        assert_eq!(
+            payload_width(card_width(content)) as u16,
+            inner_width,
+            "payload gets the full inner width"
+        );
 
-        let button: String = (button_x..inner_right)
-            .map(|x| buffer[(x, last_payload)].symbol())
-            .collect();
-        assert_eq!(button, COPY_LABEL, "copy rides the last payload row");
-
-        let text_width = payload_width(card_width(content)) as u16;
-        let text_limit = content.x + CARD_PAD_X + text_width;
-        for row in first_payload..=last_payload {
-            let gutter: String = (text_limit..button_x)
-                .map(|x| buffer[(x, row)].symbol())
-                .collect();
-            assert!(
-                gutter.trim().is_empty(),
-                "gutter touched on row {row}: {gutter:?}"
-            );
-        }
+        let when = event_time(&state.stats().recent_activity[0]);
+        let meta_line = row_text(&buffer, 100, meta_row(0, line_count));
+        assert_eq!(
+            meta_line.trim(),
+            format!("{when}  copy"),
+            "clock and copy sit together under the content"
+        );
         assert!(!draw(&mut state, 100, 40).contains('…'), "no truncation");
     }
 
@@ -1218,9 +1241,10 @@ mod tests {
         let mut state = sample_state();
         let _ = draw(&mut state, 120, 40);
         let content = content_area(120, 40);
-        let inner_right = content.x + card_width(content) - CARD_PAD_X;
-        let button_x = inner_right - cell_width(COPY_LABEL) as u16;
-        let row = (card_top(0) + CARD_PAYLOAD_START) as u16;
+        let when = event_time(&state.stats().recent_activity[0]);
+        let time_width = cell_width(&when) as u16;
+        let button_x = content.x + CARD_PAD_X + time_width + 1;
+        let row = meta_row(0, 1);
 
         assert_eq!(state.copy_at(button_x + 1, row), Some(0));
         assert_eq!(state.copy_at(content.x + 1, row), None);
@@ -1379,6 +1403,23 @@ mod tests {
         assert!(
             first_page.contains("Recent Activity"),
             "title scrolls back in"
+        );
+    }
+
+    #[test]
+    fn parked_account_pane_sits_flush_on_the_rail() {
+        let area = Rect::new(7, 0, 93, 30);
+        let split = split_home(area, account::MAX_RATIO);
+
+        assert_eq!(split.center.width, 0, "activity fully minimized");
+        assert_eq!(split.props.x, area.x, "account pane sits flush on the rail");
+        assert_eq!(
+            split.props.width, area.width,
+            "account pane fills the workspace"
+        );
+        assert_eq!(
+            split.props_divider, None,
+            "the rail divider is the single boundary"
         );
     }
 
