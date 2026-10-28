@@ -46,6 +46,9 @@ const EVENT_TICK_RATE: Duration = Duration::from_millis(250);
 /// modifier-only presses, so the overlay reads them from the host instead.
 const RECORDER_POLL_RATE: Duration = Duration::from_millis(33);
 
+/// Frame cadence while the home feed glides between scroll positions.
+const SCROLL_FRAME_RATE: Duration = Duration::from_millis(16);
+
 pub fn run() -> taurine_core::Result<()> {
     let mut app = App::default();
     // honey: the saved layout lands before the first draw so the panes
@@ -99,6 +102,8 @@ pub fn run() -> taurine_core::Result<()> {
             events.next_with_timeout(frame)?
         } else if app.hotkey_recorder().is_some() {
             events.next_with_timeout(RECORDER_POLL_RATE)?
+        } else if home_visible(&app) && app.home_page().scroll_animating() {
+            events.next_with_timeout(SCROLL_FRAME_RATE)?
         } else {
             events.next()?
         };
@@ -1030,7 +1035,7 @@ fn handle_tui_mouse_event(
             }
             if home_visible(app) {
                 let down = mouse.kind == MouseEventKind::ScrollDown;
-                home::scroll_cards(app.home_page_mut(), if down { 1 } else { -1 });
+                app.home_page_mut().smooth_scroll(if down { 1 } else { -1 });
                 return;
             }
             if !library_visible(app) {
@@ -3791,10 +3796,10 @@ mod tests {
     }
 
     #[test]
-    fn home_wheel_scrolls_one_card() {
+    fn home_wheel_smooth_scrolls() {
         use ratatui::{Terminal, backend::TestBackend};
 
-        let mut app = home_app_with_events(3);
+        let mut app = home_app_with_events(8);
         let backend = TestBackend::new(TEST_AREA.width, TEST_AREA.height);
         let mut terminal = Terminal::new(backend).expect("test terminal");
         terminal
@@ -3809,23 +3814,34 @@ mod tests {
             mouse_at(column, row, MouseEventKind::ScrollDown),
             TEST_AREA,
         );
-        assert_eq!(
-            app.home_page().scroll(),
-            home::CARD_MIN_BLOCK_LINES,
-            "one card per wheel notch"
+        assert!(
+            app.home_page().scroll_animating(),
+            "wheel starts a smooth glide"
         );
+        for _ in 0..10 {
+            terminal
+                .draw(|frame| render_app(frame, &mut app, TEST_AREA))
+                .expect("test draw");
+            if !app.home_page().scroll_animating() {
+                break;
+            }
+        }
+        assert_eq!(app.home_page().scroll(), 3, "one notch moves three lines");
+
         handle_tui_mouse_event(
             &mut app,
             mouse_at(column, row, MouseEventKind::ScrollUp),
             TEST_AREA,
         );
+        for _ in 0..10 {
+            terminal
+                .draw(|frame| render_app(frame, &mut app, TEST_AREA))
+                .expect("test draw");
+            if !app.home_page().scroll_animating() {
+                break;
+            }
+        }
         assert_eq!(app.home_page().scroll(), 0);
-        handle_tui_mouse_event(
-            &mut app,
-            mouse_at(column, row, MouseEventKind::ScrollUp),
-            TEST_AREA,
-        );
-        assert_eq!(app.home_page().scroll(), 0, "top of the page stops");
     }
 
     #[test]

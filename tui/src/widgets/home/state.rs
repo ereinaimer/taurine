@@ -7,6 +7,10 @@ use crate::widgets::panes::{DividerPointer, DividerSide};
 const REFRESH_INTERVAL_MS: u64 = 10_000;
 /// How long the copy button shows its check after a successful copy.
 pub(crate) const COPY_FEEDBACK_MS: u64 = 1_200;
+/// Lines advanced per wheel notch before easing catches up.
+const SCROLL_STEP_LINES: usize = 3;
+/// Share of the remaining distance covered each animation frame.
+const SCROLL_EASE: f32 = 0.3;
 
 /// A drawn activity card, recorded so the pointer can highlight it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,10 +36,12 @@ pub(crate) struct HomePageState {
     selection_moved: bool,
     page_cards: usize,
     scroll: usize,
+    scroll_target: usize,
+    scroll_animating: bool,
+    max_scroll: usize,
     account_ratio: f32,
     dividers: DividerPointer,
     copied: Option<(usize, u64)>,
-    card_spans: Vec<(usize, usize)>,
     card_hits: Vec<CardHit>,
     copy_hits: Vec<CopyHit>,
     last_refresh_ms: u64,
@@ -53,10 +59,12 @@ impl Default for HomePageState {
             selection_moved: false,
             page_cards: 0,
             scroll: 0,
+            scroll_target: 0,
+            scroll_animating: false,
+            max_scroll: 0,
             account_ratio: account::DEFAULT_RATIO,
             dividers: DividerPointer::default(),
             copied: None,
-            card_spans: Vec::new(),
             card_hits: Vec::new(),
             copy_hits: Vec::new(),
             last_refresh_ms: 0,
@@ -89,6 +97,8 @@ impl HomePageState {
         self.load_error = None;
         self.hovered = None;
         self.copied = None;
+        self.scroll_target = self.scroll;
+        self.scroll_animating = false;
         let len = self.stats.recent_activity.len();
         self.selected = match (self.selected, len) {
             (_, 0) => None,
@@ -212,36 +222,62 @@ impl HomePageState {
         self.scroll
     }
 
+    pub(crate) const fn scroll_animating(&self) -> bool {
+        self.scroll_animating
+    }
+
     pub(crate) const fn set_scroll(&mut self, scroll: usize) {
         self.scroll = scroll;
-    }
-
-    /// Document spans (top line, block height) for every card in the feed.
-    pub(crate) fn set_card_spans(&mut self, spans: Vec<(usize, usize)>) {
-        self.card_spans = spans;
-    }
-
-    /// Wheel step: move exactly one card's block, based on the card at
-    /// the viewport's top edge.
-    pub(crate) fn scroll_card(&mut self, delta: isize, band: usize) {
-        if self.card_spans.is_empty() || delta == 0 {
-            return;
+        if !self.scroll_animating {
+            self.scroll_target = scroll;
         }
-        let anchor = self.scroll.saturating_add(band);
-        let index = self.card_spans.iter().position(|(top, _)| *top >= anchor);
-        if delta > 0 {
-            let height = index
-                .map(|index| self.card_spans[index].1)
-                .unwrap_or_else(|| self.card_spans.last().map_or(0, |span| span.1));
-            self.scroll = self.scroll.saturating_add(height);
+    }
+
+    /// Clamp the wheel target and the current position to the viewport.
+    pub(crate) fn set_max_scroll(&mut self, max: usize) {
+        self.max_scroll = max;
+        self.scroll_target = self.scroll_target.min(max);
+        self.scroll = self.scroll.min(max);
+    }
+
+    /// Snap the scroll, cancelling any in-flight wheel glide.
+    pub(crate) fn jump_scroll(&mut self, scroll: usize) {
+        self.scroll = scroll;
+        self.scroll_target = scroll;
+        self.scroll_animating = false;
+    }
+
+    /// Queue a wheel notch; the next frames ease toward the target.
+    pub(crate) fn smooth_scroll(&mut self, notches: isize) {
+        let step = SCROLL_STEP_LINES as isize * notches;
+        let target = if step >= 0 {
+            self.scroll_target.saturating_add(step as usize)
         } else {
-            let height = match index {
-                Some(0) => self.card_spans[0].1,
-                Some(index) => self.card_spans[index - 1].1,
-                None => self.card_spans.last().map_or(0, |span| span.1),
-            };
-            self.scroll = self.scroll.saturating_sub(height);
+            self.scroll_target.saturating_sub(step.unsigned_abs())
+        };
+        self.scroll_target = target.min(self.max_scroll);
+        self.scroll_animating = self.scroll_target != self.scroll;
+    }
+
+    /// One animation frame: move a fraction of the remaining distance.
+    pub(crate) fn advance_scroll(&mut self) -> usize {
+        if !self.scroll_animating {
+            return self.scroll;
         }
+        let target = self.scroll_target.min(self.max_scroll);
+        if self.scroll == target {
+            self.scroll_animating = false;
+            return self.scroll;
+        }
+        let diff = target as isize - self.scroll as isize;
+        let step = ((diff as f32) * SCROLL_EASE).round() as isize;
+        let step = if step == 0 { diff.signum() } else { step };
+        let next = (self.scroll as isize + step).clamp(0, self.max_scroll as isize) as usize;
+        self.scroll = next;
+        if next == target {
+            self.scroll_animating = false;
+        }
+        next
     }
 
     pub(crate) fn set_card_hits(&mut self, hits: Vec<CardHit>) {
@@ -351,20 +387,51 @@ mod tests {
     }
 
     #[test]
-    fn card_scroll_steps_one_card_block() {
+    fn smooth_scroll_eases_toward_the_target() {
         let mut state = HomePageState::default();
-        state.set_card_spans(vec![(4, 8), (12, 8), (20, 8)]);
+        state.set_max_scroll(100);
+        state.smooth_scroll(1);
+        assert!(state.scroll_animating());
 
-        state.scroll_card(1, 4);
-        assert_eq!(state.scroll(), 8, "first card block");
-        state.scroll_card(1, 4);
-        assert_eq!(state.scroll(), 16, "second card block");
-        state.scroll_card(-1, 4);
-        assert_eq!(state.scroll(), 8);
-        state.scroll_card(-1, 4);
+        let mut last = state.scroll();
+        for _ in 0..10 {
+            let next = state.advance_scroll();
+            assert!(next >= last, "scrolls forward");
+            assert!(next - last <= SCROLL_STEP_LINES, "one small step per frame");
+            last = next;
+            if !state.scroll_animating() {
+                break;
+            }
+        }
+        assert_eq!(state.scroll(), SCROLL_STEP_LINES);
+        assert!(!state.scroll_animating());
+
+        state.smooth_scroll(-1);
+        for _ in 0..10 {
+            state.advance_scroll();
+            if !state.scroll_animating() {
+                break;
+            }
+        }
         assert_eq!(state.scroll(), 0);
-        state.scroll_card(-1, 4);
-        assert_eq!(state.scroll(), 0, "top of the feed stops");
+    }
+
+    #[test]
+    fn smooth_scroll_clamps_at_the_ends() {
+        let mut state = HomePageState::default();
+        state.set_max_scroll(2);
+        state.smooth_scroll(1);
+        while state.scroll_animating() {
+            state.advance_scroll();
+        }
+        assert_eq!(state.scroll(), 2, "max clamps the target");
+
+        state.jump_scroll(2);
+        state.smooth_scroll(-1);
+        while state.scroll_animating() {
+            state.advance_scroll();
+        }
+        assert_eq!(state.scroll(), 0);
     }
 
     #[test]

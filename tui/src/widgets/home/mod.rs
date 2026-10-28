@@ -38,7 +38,7 @@ const CARD_CHROME_LINES: usize = CARD_PAYLOAD_START + 3;
 /// One page-background row between cards.
 const CARD_GAP_LINES: usize = 1;
 /// Smallest card block: chrome, one payload row, and the gap.
-pub(crate) const CARD_MIN_BLOCK_LINES: usize = CARD_CHROME_LINES + 1 + CARD_GAP_LINES;
+const CARD_MIN_BLOCK_LINES: usize = CARD_CHROME_LINES + 1 + CARD_GAP_LINES;
 /// Date header plus the blank row beneath it.
 const DATE_BLOCK_LINES: usize = 2;
 /// Section title plus the blank row beneath it.
@@ -157,12 +157,12 @@ pub(crate) fn render_home_content(
 
     let feed_start = TITLE_LINES;
     let rows = feed_rows(&state.stats().recent_activity, content.width);
-    state.set_card_spans(card_spans(&rows));
     let feed_lines = rows_height(&rows).max(1);
     let viewport = content.height as usize;
     let max_scroll = (feed_start + feed_lines).saturating_sub(viewport);
+    state.set_max_scroll(max_scroll);
 
-    let mut scroll = state.scroll().min(max_scroll);
+    let mut scroll = state.scroll();
     // Keyboard selection pulls its card fully into view; free scrolling
     // and hover never move the page.
     if state.selection_moved()
@@ -181,9 +181,10 @@ pub(crate) fn render_home_content(
         } else if bottom > scroll + viewport {
             scroll = bottom.saturating_sub(viewport);
         }
+        state.jump_scroll(scroll.min(max_scroll));
     }
     state.clear_selection_moved();
-    let scroll = scroll.min(max_scroll);
+    scroll = state.advance_scroll().min(max_scroll);
     state.set_scroll(scroll);
     state.set_page_cards((viewport / CARD_MIN_BLOCK_LINES).max(1));
 
@@ -342,27 +343,6 @@ fn card_position(rows: &[FeedRow], selected: usize) -> Option<(usize, usize)> {
         }
     }
     None
-}
-
-/// Document span of every card, in feed order.
-fn card_spans(rows: &[FeedRow]) -> Vec<(usize, usize)> {
-    let mut line = TITLE_LINES;
-    let mut spans = Vec::new();
-    for row in rows {
-        match row {
-            FeedRow::Date(_) => line += DATE_BLOCK_LINES,
-            FeedRow::Card(card) => {
-                spans.push((line, card.block_height()));
-                line += card.block_height();
-            }
-        }
-    }
-    spans
-}
-
-/// Wheel scroll: one card block per notch.
-pub(crate) fn scroll_cards(state: &mut HomePageState, delta: isize) {
-    state.scroll_card(delta, STICKY_BAND_LINES);
 }
 
 /// Where the feed starts in the document and how far the page is scrolled.
@@ -1316,23 +1296,36 @@ mod tests {
     }
 
     #[test]
-    fn wheel_scrolls_one_card_block_at_a_time() {
+    fn wheel_smooth_scrolls_in_small_steps() {
         let noon = today_noon_millis();
-        let mut state = state_with_activity(vec![
-            activity_event(noon, "a", "one"),
-            activity_event(noon - 1_000, "b", "two"),
-            activity_event(noon - 2_000, "c", "three"),
-        ]);
-        let _ = draw(&mut state, 100, 40);
+        let mut state = state_with_activity(
+            (0..8)
+                .map(|index| {
+                    activity_event(
+                        noon - index as i64 * 1_000,
+                        &format!("t{index}"),
+                        &format!("body {index}"),
+                    )
+                })
+                .collect(),
+        );
+        let _ = draw(&mut state, 100, 20);
 
-        scroll_cards(&mut state, 1);
-        assert_eq!(state.scroll(), CARD_MIN_BLOCK_LINES);
-        scroll_cards(&mut state, 1);
-        assert_eq!(state.scroll(), CARD_MIN_BLOCK_LINES * 2);
-        scroll_cards(&mut state, -1);
-        assert_eq!(state.scroll(), CARD_MIN_BLOCK_LINES);
-        scroll_cards(&mut state, -1);
-        assert_eq!(state.scroll(), 0);
+        state.smooth_scroll(1);
+        assert!(state.scroll_animating(), "wheel starts a glide");
+
+        let mut last = state.scroll();
+        for _ in 0..10 {
+            let _ = draw(&mut state, 100, 20);
+            let now = state.scroll();
+            assert!(now >= last, "scrolls forward");
+            assert!(now - last <= 3, "one small step per frame");
+            last = now;
+            if !state.scroll_animating() {
+                break;
+            }
+        }
+        assert_eq!(state.scroll(), 3, "one notch moves three lines");
     }
 
     #[test]
