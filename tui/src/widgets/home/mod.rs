@@ -12,16 +12,27 @@ use taurine_core::stats::{HomeStats, RecentActivity};
 use crate::theme::Theme;
 use crate::widgets::hotkey;
 use crate::widgets::library::detail::relative_time;
+use crate::widgets::panes::{self, DividerSide, PaneSplit};
 use crate::widgets::wrap::{cell_width, wrap_line};
 
+pub mod account;
 pub mod state;
 
 use self::state::{CardHit, CopyHit, HomePageState};
 
 const PANE_PAD_X: u16 = 2;
 
-/// Card chrome: one blank top row, the tag row, one blank bottom row.
-const CARD_CHROME_LINES: usize = 3;
+/// Home is the library split with the list collapsed: activity in the
+/// center, account and quota in the props slot.
+const HOME_LIST_RATIO: f32 = 0.0;
+
+/// Card chrome: a blank top pad, the tag row, a spacer row under the
+/// tag, and a blank bottom pad. The spacer is card fill, so the trigger
+/// pill never crowds the payload.
+const CARD_TAG_ROW: usize = 1;
+const CARD_SPACER_ROW: usize = CARD_TAG_ROW + 1;
+const CARD_PAYLOAD_START: usize = CARD_SPACER_ROW + 1;
+const CARD_CHROME_LINES: usize = CARD_PAYLOAD_START + 1;
 /// One page-background row between cards.
 const CARD_GAP_LINES: usize = 1;
 /// Smallest card block: chrome, one payload row, and the gap.
@@ -60,9 +71,48 @@ const MONTHS: [&str; 12] = [
     "December",
 ];
 
-/// Home is a quiet column of flat activity cards under a section title.
-/// The date header of the group under the viewport's top edge sticks
-/// there while that group is on screen.
+pub(crate) fn split_home(area: Rect, account_ratio: f32) -> PaneSplit {
+    if area.width < 5 {
+        return PaneSplit {
+            list: Rect::default(),
+            center: area,
+            props: Rect::default(),
+            list_divider: None,
+            props_divider: None,
+        };
+    }
+    panes::split_panes(area, HOME_LIST_RATIO, account_ratio)
+}
+
+pub(crate) fn visible_divider_columns(area: Rect, account_ratio: f32) -> Vec<(DividerSide, u16)> {
+    split_home(area, account_ratio)
+        .props_divider
+        .map(|column| (DividerSide::Props, column))
+        .into_iter()
+        .collect()
+}
+
+pub(crate) fn divider_hit(
+    area: Rect,
+    account_ratio: f32,
+    column: u16,
+    row: u16,
+) -> Option<DividerSide> {
+    if row < area.y || row >= area.y.saturating_add(area.height) {
+        return None;
+    }
+    let split = split_home(area, account_ratio);
+    (split.props_divider == Some(column)).then_some(DividerSide::Props)
+}
+
+pub(crate) fn ratio_for_column(area: Rect, column: u16) -> f32 {
+    panes::detail_ratio_for_column(area, HOME_LIST_RATIO, column)
+}
+
+/// Home is a quiet column of flat activity cards under a section title,
+/// with the account pane in the library's props slot. The date header of
+/// the group under the viewport's top edge sticks there while that group
+/// is on screen.
 pub(crate) fn render_home_content(
     frame: &mut Frame,
     area: Rect,
@@ -72,7 +122,17 @@ pub(crate) fn render_home_content(
     if area.width == 0 || area.height == 0 {
         return;
     }
-    let content = padded(area, PANE_PAD_X, 0);
+    let split = split_home(area, state.account_ratio());
+    if split.props.width > 0 {
+        account::render(
+            frame,
+            split.props,
+            theme,
+            state.account(),
+            account::now_epoch(),
+        );
+    }
+    let content = padded(split.center, PANE_PAD_X, 0);
     if content.width < 4 || content.height == 0 {
         return;
     }
@@ -400,7 +460,7 @@ fn render_card(
         return;
     }
 
-    if let Some(row) = visible_line(content, scroll, line + 1) {
+    if let Some(row) = visible_line(content, scroll, line + CARD_TAG_ROW) {
         render_tag_line(
             frame,
             Rect {
@@ -416,7 +476,7 @@ fn render_card(
 
     let text_width = payload_width(width) as u16;
     for (offset, text) in card.lines.iter().enumerate() {
-        if let Some(row) = visible_line(content, scroll, line + 2 + offset)
+        if let Some(row) = visible_line(content, scroll, line + CARD_PAYLOAD_START + offset)
             && !text.is_empty()
         {
             frame.render_widget(
@@ -434,7 +494,7 @@ fn render_card(
     if active && inner_width > copy_width.saturating_add(CONTENT_GAP) {
         // The button rides the last payload row; the text column already
         // reserves its cells on every row.
-        let last = line + 1 + card.lines.len();
+        let last = line + CARD_PAYLOAD_START + card.lines.len() - 1;
         if let Some(row) = visible_line(content, scroll, last) {
             let button = Rect {
                 x: content
@@ -708,6 +768,7 @@ mod tests {
 
     fn sample_state() -> HomePageState {
         let mut state = HomePageState::default();
+        state.set_account_ratio(0.0);
         state.replace_stats(HomeStats {
             recent_activity: vec![RecentActivity {
                 timestamp: library::now_millis() as i64 - 120_000,
@@ -790,6 +851,7 @@ mod tests {
 
     fn state_with_activity(activity: Vec<RecentActivity>) -> HomePageState {
         let mut state = HomePageState::default();
+        state.set_account_ratio(0.0);
         state.replace_stats(HomeStats {
             recent_activity: activity,
             ..HomeStats::default()
@@ -798,7 +860,8 @@ mod tests {
     }
 
     fn content_area(width: u16, height: u16) -> Rect {
-        padded(Rect::new(0, 0, width, height), PANE_PAD_X, 0)
+        let center = split_home(Rect::new(0, 0, width, height), 0.0).center;
+        padded(center, PANE_PAD_X, 0)
     }
 
     /// Document line the nth single-line card starts on.
@@ -873,6 +936,32 @@ mod tests {
     }
 
     #[test]
+    fn cards_keep_a_spacer_row_between_the_tag_and_payload() {
+        let noon = today_noon_millis();
+        let mut state = state_with_activity(vec![
+            activity_event(noon, "aa", "first body"),
+            activity_event(noon - 1_000, "zz", "second body"),
+        ]);
+        let buffer = render_buffer(&mut state, 100, 40);
+        let content = content_area(100, 40);
+        let tag_row = (card_top(0) + CARD_TAG_ROW) as u16;
+        let spacer = (card_top(0) + CARD_SPACER_ROW) as u16;
+        let payload = (card_top(0) + CARD_PAYLOAD_START) as u16;
+
+        assert!(row_text(&buffer, 100, tag_row).contains(" aa "));
+        assert!(
+            row_text(&buffer, 100, spacer).trim().is_empty(),
+            "spacer row is blank"
+        );
+        assert_eq!(
+            buffer[(content.x, spacer)].bg,
+            DARK_THEME.card.active_bg,
+            "spacer keeps the card fill"
+        );
+        assert!(row_text(&buffer, 100, payload).contains("first body"));
+    }
+
+    #[test]
     fn cards_stop_widening_on_large_screens() {
         let mut state = sample_state();
         let buffer = render_buffer(&mut state, 140, 30);
@@ -897,7 +986,7 @@ mod tests {
         assert!(
             first
                 .lines()
-                .nth(card_top(0) + 2)
+                .nth(card_top(0) + CARD_PAYLOAD_START)
                 .is_some_and(|line| { line.contains(COPY_LABEL) && line.contains("first body") })
         );
 
@@ -907,7 +996,7 @@ mod tests {
         assert!(
             second
                 .lines()
-                .nth(card_top(1) + 2)
+                .nth(card_top(1) + CARD_PAYLOAD_START)
                 .is_some_and(|line| { line.contains(COPY_LABEL) && line.contains("second body") })
         );
     }
@@ -965,7 +1054,7 @@ mod tests {
         let mut state = sample_state();
         let buffer = render_buffer(&mut state, 120, 40);
         let content = content_area(120, 40);
-        let line = row_text(&buffer, 120, (card_top(0) + 1) as u16);
+        let line = row_text(&buffer, 120, (card_top(0) + CARD_TAG_ROW) as u16);
         let when = event_time(&state.stats().recent_activity[0]);
 
         assert!(line.contains(" gs "), "tag missing: {line:?}");
@@ -993,7 +1082,7 @@ mod tests {
         let when = event_time(&state.stats().recent_activity[0]);
         let time_width = cell_width(&when) as u16;
         let clock_x = content.x + card_width(content) - CARD_PAD_X - time_width;
-        let row = (card_top(0) + 1) as u16;
+        let row = (card_top(0) + CARD_TAG_ROW) as u16;
 
         let last = (content.x..clock_x)
             .rev()
@@ -1051,8 +1140,8 @@ mod tests {
             FeedRow::Date(_) => panic!("second row is the card"),
         };
         assert!(line_count > 1, "payload wraps onto several rows");
-        let first_payload = (card_top(0) + 2) as u16;
-        let last_payload = (card_top(0) + 1 + line_count) as u16;
+        let first_payload = (card_top(0) + CARD_PAYLOAD_START) as u16;
+        let last_payload = (card_top(0) + CARD_PAYLOAD_START + line_count - 1) as u16;
 
         let button: String = (button_x..inner_right)
             .map(|x| buffer[(x, last_payload)].symbol())
@@ -1086,7 +1175,7 @@ mod tests {
         assert!(text.contains("mouse back"));
         assert!(
             text.lines()
-                .nth(card_top(0) + 1)
+                .nth(card_top(0) + CARD_TAG_ROW)
                 .is_some_and(|line| line.contains(" ralt ") && line.contains(" m ")),
             "keycaps sit on the tag line"
         );
@@ -1131,7 +1220,7 @@ mod tests {
         let content = content_area(120, 40);
         let inner_right = content.x + card_width(content) - CARD_PAD_X;
         let button_x = inner_right - cell_width(COPY_LABEL) as u16;
-        let row = (card_top(0) + 2) as u16;
+        let row = (card_top(0) + CARD_PAYLOAD_START) as u16;
 
         assert_eq!(state.copy_at(button_x + 1, row), Some(0));
         assert_eq!(state.copy_at(content.x + 1, row), None);
@@ -1291,6 +1380,51 @@ mod tests {
             first_page.contains("Recent Activity"),
             "title scrolls back in"
         );
+    }
+
+    #[test]
+    fn home_splits_activity_and_account_panes() {
+        use taurine_core::db::crud::UserTier;
+
+        let mut state = sample_state();
+        state.set_account_ratio(0.3);
+        state.replace_account(account::AccountInfo {
+            authenticated: true,
+            email: Some("user@example.com".to_string()),
+            tier: UserTier::Free,
+            quota: Some(account::QuotaWindow {
+                remaining_percentage: 74.5,
+                reset_epoch: account::now_epoch() + 5 * 86_400 + 11 * 3_600,
+            }),
+            device: "DESKTOP-TAURINE".to_string(),
+        });
+        let text = draw(&mut state, 120, 40);
+        let split = split_home(Rect::new(0, 0, 120, 40), state.account_ratio());
+
+        assert!(split.props.width > 0, "account pane is open");
+        assert!(
+            split.props.x > split.center.x,
+            "account pane is on the right"
+        );
+        assert!(split.props_divider.is_some(), "one draggable gutter");
+        assert!(
+            text.contains("Recent Activity"),
+            "activity stays on the left"
+        );
+        assert!(text.contains("ACCOUNT"));
+        assert!(text.contains("user@example.com"));
+        assert!(text.contains("Free plan"));
+        assert!(text.contains("WEEKLY QUOTA"));
+        assert!(text.contains("74.5% left"));
+        assert!(text.contains("Resets in 5d 11h"));
+    }
+
+    #[test]
+    fn activity_test_layout_uses_a_collapsed_account_pane() {
+        let state = sample_state();
+        assert_eq!(state.account_ratio(), 0.0);
+        let split = split_home(Rect::new(0, 0, 100, 30), state.account_ratio());
+        assert_eq!(split.props.width, 0);
     }
 
     #[test]

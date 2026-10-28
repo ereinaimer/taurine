@@ -1,6 +1,9 @@
 use ratatui::layout::Rect;
 use taurine_core::stats::HomeStats;
 
+use crate::widgets::home::account::{self, AccountInfo};
+use crate::widgets::panes::{DividerPointer, DividerSide};
+
 const REFRESH_INTERVAL_MS: u64 = 10_000;
 
 /// A drawn activity card, recorded so the pointer can highlight it.
@@ -17,24 +20,56 @@ pub(crate) struct CopyHit {
     pub(crate) area: Rect,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct HomePageState {
     stats: HomeStats,
+    account: AccountInfo,
     load_error: Option<String>,
     selected: Option<usize>,
     hovered: Option<usize>,
     selection_moved: bool,
     page_cards: usize,
     scroll: usize,
+    account_ratio: f32,
+    dividers: DividerPointer,
     card_hits: Vec<CardHit>,
     copy_hits: Vec<CopyHit>,
     last_refresh_ms: u64,
     refresh_requested: bool,
 }
 
+impl Default for HomePageState {
+    fn default() -> Self {
+        Self {
+            stats: HomeStats::default(),
+            account: AccountInfo::default(),
+            load_error: None,
+            selected: None,
+            hovered: None,
+            selection_moved: false,
+            page_cards: 0,
+            scroll: 0,
+            account_ratio: account::DEFAULT_RATIO,
+            dividers: DividerPointer::default(),
+            card_hits: Vec::new(),
+            copy_hits: Vec::new(),
+            last_refresh_ms: 0,
+            refresh_requested: false,
+        }
+    }
+}
+
 impl HomePageState {
     pub(crate) const fn stats(&self) -> &HomeStats {
         &self.stats
+    }
+
+    pub(crate) const fn account(&self) -> &AccountInfo {
+        &self.account
+    }
+
+    pub(crate) fn replace_account(&mut self, account: AccountInfo) {
+        self.account = account;
     }
 
     pub(crate) fn load_error(&self) -> Option<&str> {
@@ -57,6 +92,51 @@ impl HomePageState {
 
     pub(crate) fn set_load_error(&mut self, error: String) {
         self.load_error = Some(error);
+    }
+
+    pub(crate) fn account_ratio(&self) -> f32 {
+        self.account_ratio
+            .clamp(account::MIN_RATIO, account::MAX_RATIO)
+    }
+
+    pub(crate) fn set_account_ratio(&mut self, ratio: f32) {
+        self.account_ratio = ratio.clamp(account::MIN_RATIO, account::MAX_RATIO);
+    }
+
+    pub(crate) const fn dividers(&self) -> &DividerPointer {
+        &self.dividers
+    }
+
+    pub(crate) const fn divider_drag(&self) -> Option<DividerSide> {
+        self.dividers.drag()
+    }
+
+    pub(crate) fn set_divider_hover(&mut self, hover: Option<DividerSide>) {
+        self.dividers.set_hover(hover);
+    }
+
+    pub(crate) fn set_divider_drag(&mut self, drag: Option<DividerSide>) {
+        self.dividers.set_drag(drag);
+    }
+
+    /// Double-click toggles the account pane: default width collapses, a
+    /// collapsed pane restores the default, and any custom width resets.
+    pub(crate) fn divider_double_click_at(&mut self, side: DividerSide, now: u64) -> bool {
+        if !self.dividers.double_click_at(side, now) {
+            return false;
+        }
+        // honey: drag math rarely lands exactly on a constant, so
+        // near-enough counts for both ends of the toggle.
+        const NEAR: f32 = 0.0001;
+        let ratio = self.account_ratio();
+        if ratio <= account::MIN_RATIO + NEAR {
+            self.set_account_ratio(account::DEFAULT_RATIO);
+        } else if (ratio - account::DEFAULT_RATIO).abs() <= NEAR {
+            self.set_account_ratio(account::MIN_RATIO);
+        } else {
+            self.set_account_ratio(account::DEFAULT_RATIO);
+        }
+        true
     }
 
     pub(crate) const fn selected(&self) -> Option<usize> {
@@ -322,6 +402,42 @@ mod tests {
         assert_eq!(state.active(), Some(2));
     }
 
+    #[test]
+    fn account_ratio_clamps_to_its_range() {
+        let mut state = HomePageState::default();
+        assert_eq!(state.account_ratio(), account::DEFAULT_RATIO);
+
+        state.set_account_ratio(-1.0);
+        assert_eq!(state.account_ratio(), account::MIN_RATIO);
+
+        state.set_account_ratio(9.0);
+        assert_eq!(state.account_ratio(), account::MAX_RATIO);
+    }
+
+    #[test]
+    fn divider_double_click_toggles_default_and_collapsed() {
+        use crate::widgets::panes::{DIVIDER_DOUBLE_CLICK_MS, DividerSide};
+
+        let mut state = HomePageState::default();
+        let side = DividerSide::Props;
+
+        assert!(!state.divider_double_click_at(side, 1_000));
+        assert!(state.divider_double_click_at(side, 1_100));
+        assert_eq!(state.account_ratio(), account::MIN_RATIO);
+
+        assert!(!state.divider_double_click_at(side, 2_000));
+        assert!(state.divider_double_click_at(side, 2_100));
+        assert_eq!(state.account_ratio(), account::DEFAULT_RATIO);
+
+        state.set_account_ratio(0.9);
+        assert!(!state.divider_double_click_at(side, 3_000));
+        assert!(state.divider_double_click_at(side, 3_000 + DIVIDER_DOUBLE_CLICK_MS));
+        assert_eq!(
+            state.account_ratio(),
+            account::DEFAULT_RATIO,
+            "a custom width resets to default"
+        );
+    }
     #[test]
     fn hit_testing_separates_cards_from_copy_buttons() {
         let mut state = HomePageState::default();

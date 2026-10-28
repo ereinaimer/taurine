@@ -203,6 +203,17 @@ fn render_page_dividers(
                 |row| library::divider_glyph(side, row, content_divider_row),
             );
         }
+    } else if home_visible(app) {
+        let page = app.home_page();
+        for (side, column) in home::visible_divider_columns(full, page.account_ratio()) {
+            panes::render_divider(
+                frame,
+                area,
+                column,
+                page.dividers().color(theme, side),
+                |_| "│",
+            );
+        }
     }
 }
 
@@ -950,6 +961,21 @@ fn handle_tui_mouse_event(
     // honey: grabbing a divider starts a drag; pointer motion after that
     // moves the split freely without re-hitting the gutter column.
     fn grab_divider(app: &mut App, page: ratatui::layout::Rect, column: u16, row: u16) -> bool {
+        if home_visible(app) {
+            let Some(side) = home::divider_hit(page, app.home_page().account_ratio(), column, row)
+            else {
+                return false;
+            };
+            // honey: double-click resets the pane instead of grabbing.
+            if app
+                .home_page_mut()
+                .divider_double_click_at(side, library::now_millis())
+            {
+                return true;
+            }
+            app.home_page_mut().set_divider_drag(Some(side));
+            return true;
+        }
         let ratios = (
             app.library_page().split_ratio(),
             app.library_page().detail_ratio(),
@@ -966,6 +992,13 @@ fn handle_tui_mouse_event(
     }
 
     fn drag_divider_to(app: &mut App, page: ratatui::layout::Rect, column: u16) {
+        if home_visible(app) {
+            if app.home_page().divider_drag().is_some() {
+                let ratio = home::ratio_for_column(page, column);
+                app.home_page_mut().set_account_ratio(ratio);
+            }
+            return;
+        }
         let Some(side) = app.library_page().divider_drag() else {
             return;
         };
@@ -1062,6 +1095,7 @@ fn handle_tui_mouse_event(
         MouseEventKind::Moved => {
             app.set_props_hover(None);
             app.home_page_mut().clear_hover();
+            app.home_page_mut().set_divider_hover(None);
             // honey: the rail is behind every overlay, so hover only
             // tracks it on the bare workspace.
             if app.palette_open() || modal_open {
@@ -1081,7 +1115,17 @@ fn handle_tui_mouse_event(
                 return;
             }
             if home_visible(app) {
-                app.home_page_mut().hover_at(mouse.column, mouse.row);
+                let full = workspace_full(app, area);
+                let hover = home::divider_hit(
+                    full,
+                    app.home_page().account_ratio(),
+                    mouse.column,
+                    mouse.row,
+                );
+                app.home_page_mut().set_divider_hover(hover);
+                if hover.is_none() {
+                    app.home_page_mut().hover_at(mouse.column, mouse.row);
+                }
                 app.set_toggle_hover(None);
                 return;
             }
@@ -1206,6 +1250,10 @@ fn handle_tui_mouse_event(
                 return;
             }
             if home_visible(app) {
+                if app.home_page().divider_drag().is_some() {
+                    let full = workspace_full(app, area);
+                    drag_divider_to(app, full, mouse.column);
+                }
                 return;
             }
             if !library_visible(app) {
@@ -1255,6 +1303,7 @@ fn handle_tui_mouse_event(
             }
             app.nav_rail_mut().end_drag();
             app.library_page_mut().set_divider_drag(None);
+            app.home_page_mut().set_divider_drag(None);
             app.library_page_mut().release_app_filter_divider();
             app.library_page_mut().release_create_divider();
         }
@@ -1469,6 +1518,10 @@ fn handle_tui_mouse_event(
                 return;
             }
             if home_visible(app) {
+                let full = workspace_full(app, area);
+                if grab_divider(app, full, mouse.column, mouse.row) {
+                    return;
+                }
                 if let Some(index) = app.home_page().copy_at(mouse.column, mouse.row) {
                     app.home_page_mut().select(index);
                     copy_home_event(app, index);
@@ -1976,11 +2029,33 @@ fn copy_selected_home_event(app: &mut App) {
 }
 
 fn refresh_home_page(app: &mut App) {
-    match taurine_core::db::init::setup()
-        .and_then(|conn| taurine_core::stats::load_home_stats(&conn))
-    {
-        Ok(stats) => {
+    let loaded = taurine_core::db::init::setup().and_then(|conn| {
+        let stats = taurine_core::stats::load_home_stats(&conn)?;
+        // honey: account and quota come from local state only; the email
+        // is read from the token claim, never fetched over the network.
+        let tokens = taurine_core::cloud::get_tokens().ok().flatten();
+        let now = home::account::now_epoch();
+        let quota = taurine_core::db::key::get_or_create_db_key()
+            .ok()
+            .and_then(|key| {
+                taurine_core::db::crud::quota::get_or_init_quota_ledger(&conn, &key, now).ok()
+            })
+            .map(|row| home::account::QuotaWindow::from_row(&row));
+        let account = home::account::AccountInfo {
+            authenticated: tokens.is_some(),
+            email: tokens
+                .as_ref()
+                .and_then(|tokens| taurine_core::cloud::extract_jwt_email(&tokens.access_token)),
+            tier: taurine_core::db::crud::get_user_tier(&conn),
+            quota,
+            device: taurine_core::cloud::get_device_name(),
+        };
+        Ok((stats, account))
+    });
+    match loaded {
+        Ok((stats, account)) => {
             app.home_page_mut().replace_stats(stats);
+            app.home_page_mut().replace_account(account);
             app.home_page_mut().mark_refreshed(library::now_millis());
         }
         Err(error) => {
@@ -3502,7 +3577,7 @@ mod tests {
             !text.contains("Most Used Triggers"),
             "usage section removed"
         );
-        assert!(!text.contains('│'), "home is one column with no divider");
+        assert!(text.contains('│'), "home has a draggable account divider");
 
         let library = nav_button(&app, NavRailItem::Library);
         handle_tui_mouse_event(
@@ -3520,27 +3595,97 @@ mod tests {
     }
 
     #[test]
-    fn home_page_has_no_divider() {
+    fn home_divider_drags_the_account_pane() {
         let mut app = library_app();
         let home = nav_button(&app, NavRailItem::Home);
         handle_tui_mouse_event(&mut app, left_click(home.x + 2, home.y + 1), TEST_AREA);
 
         let full = workspace_full(&app, TEST_AREA);
-        let middle = full.x + full.width / 2;
+        let before = app.home_page().account_ratio();
+        let divider = home::split_home(full, before)
+            .props_divider
+            .expect("home divider");
         let row = full.y + 5;
-        handle_tui_mouse_event(&mut app, left_click(middle, row), TEST_AREA);
-        handle_tui_mouse_event(
-            &mut app,
-            mouse_at(
-                middle.saturating_sub(8),
-                row,
-                MouseEventKind::Drag(MouseButton::Left),
-            ),
-            TEST_AREA,
+
+        handle_tui_mouse_event(&mut app, left_click(divider, row), TEST_AREA);
+        assert_eq!(
+            app.home_page().divider_drag(),
+            Some(panes::DividerSide::Props)
         );
 
-        assert!(app.library_page().divider_drag().is_none());
-        assert!(!app.layout_needs_save(), "home has no draggable pane");
+        let target = divider.saturating_sub(10);
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(target, row, MouseEventKind::Drag(MouseButton::Left)),
+            TEST_AREA,
+        );
+        assert!(
+            app.home_page().account_ratio() > before,
+            "dragging left grows the account pane"
+        );
+
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(target, row, MouseEventKind::Up(MouseButton::Left)),
+            TEST_AREA,
+        );
+        assert_eq!(app.home_page().divider_drag(), None);
+        assert!(app.layout_needs_save(), "the settled width is worth saving");
+    }
+
+    #[test]
+    fn home_divider_double_click_resets_the_account_pane() {
+        let mut app = library_app();
+        let home = nav_button(&app, NavRailItem::Home);
+        handle_tui_mouse_event(&mut app, left_click(home.x + 2, home.y + 1), TEST_AREA);
+        app.home_page_mut().set_account_ratio(0.5);
+
+        let full = workspace_full(&app, TEST_AREA);
+        let divider = home::split_home(full, 0.5)
+            .props_divider
+            .expect("home divider");
+        let row = full.y + 5;
+
+        handle_tui_mouse_event(&mut app, left_click(divider, row), TEST_AREA);
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(divider, row, MouseEventKind::Up(MouseButton::Left)),
+            TEST_AREA,
+        );
+        handle_tui_mouse_event(&mut app, left_click(divider, row), TEST_AREA);
+
+        assert_eq!(
+            app.home_page().account_ratio(),
+            home::account::DEFAULT_RATIO
+        );
+    }
+
+    #[test]
+    fn home_divider_runs_the_full_terminal_height() {
+        use ratatui::{Terminal, backend::TestBackend};
+
+        let mut app = library_app();
+        let home = nav_button(&app, NavRailItem::Home);
+        handle_tui_mouse_event(&mut app, left_click(home.x + 2, home.y + 1), TEST_AREA);
+
+        let backend = TestBackend::new(TEST_AREA.width, TEST_AREA.height);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal
+            .draw(|frame| render_app(frame, &mut app, TEST_AREA))
+            .expect("test draw");
+
+        let full = workspace_full(&app, TEST_AREA);
+        let divider = home::split_home(full, app.home_page().account_ratio())
+            .props_divider
+            .expect("home divider");
+        let buffer = terminal.backend().buffer();
+        for row in 0..TEST_AREA.height {
+            assert_eq!(
+                buffer[(divider, row)].symbol(),
+                "│",
+                "divider stops at row {row}"
+            );
+        }
     }
 
     #[test]

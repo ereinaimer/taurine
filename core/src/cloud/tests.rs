@@ -470,3 +470,21 @@ fn test_generate_pkce_challenge() {
     assert_ne!(verifier, v2);
     assert_ne!(challenge, c2);
 }
+
+#[test]
+fn test_extract_jwt_email_reads_only_the_email_claim() {
+    use base64::Engine;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+
+    let claims = serde_json::json!({"sub": "user-id", "email": "user@example.com"}).to_string();
+    let token = format!("e30.{}.signature", URL_SAFE_NO_PAD.encode(claims));
+    assert_eq!(
+        super::extract_jwt_email(&token).as_deref(),
+        Some("user@example.com")
+    );
+
+    let no_email = serde_json::json!({"sub": "user-id"}).to_string();
+    let token = format!("e30.{}.signature", URL_SAFE_NO_PAD.encode(no_email));
+    assert_eq!(super::extract_jwt_email(&token), None);
+    assert_eq!(super::extract_jwt_email("not-a-jwt"), None);
+}

@@ -1,5 +1,4 @@
-//! Hidden persistence for the pane layout: the two main divider ratios and
-//! the create-popup split.
+//! Hidden persistence for the divider ratios and the create-popup split.
 //!
 //! Stored as one internal settings row (`tui_pane_layout`) so the TUI comes
 //! back the way it was left. No CLI flag and no Settings row: the JSON is
@@ -7,6 +6,9 @@
 
 use serde_json::Value;
 
+use crate::widgets::home::account::{
+    DEFAULT_RATIO as DEFAULT_HOME_RATIO, MAX_RATIO as MAX_HOME_RATIO, MIN_RATIO as MIN_HOME_RATIO,
+};
 use crate::widgets::library::state::{CREATE_DEFAULT_SPLIT, CREATE_MAX_SPLIT, CREATE_MIN_SPLIT};
 use crate::widgets::library::{
     DEFAULT_DETAIL_RATIO, DEFAULT_SPLIT_RATIO, MAX_DETAIL_RATIO, MAX_SPLIT_RATIO, MIN_DETAIL_RATIO,
@@ -21,6 +23,7 @@ pub(crate) struct TuiLayout {
     pub(crate) list_ratio: f32,
     pub(crate) detail_ratio: f32,
     pub(crate) create_split: f32,
+    pub(crate) home_ratio: f32,
 }
 
 impl Default for TuiLayout {
@@ -29,6 +32,7 @@ impl Default for TuiLayout {
             list_ratio: DEFAULT_SPLIT_RATIO,
             detail_ratio: DEFAULT_DETAIL_RATIO,
             create_split: CREATE_DEFAULT_SPLIT,
+            home_ratio: DEFAULT_HOME_RATIO,
         }
     }
 }
@@ -71,6 +75,12 @@ impl TuiLayout {
                 CREATE_MAX_SPLIT,
                 CREATE_DEFAULT_SPLIT,
             ),
+            home_ratio: clamped(
+                self.home_ratio,
+                MIN_HOME_RATIO,
+                MAX_HOME_RATIO,
+                DEFAULT_HOME_RATIO,
+            ),
         }
     }
 
@@ -81,6 +91,7 @@ impl TuiLayout {
             "list_ratio": layout.list_ratio,
             "detail_ratio": layout.detail_ratio,
             "create_split": layout.create_split,
+            "home_ratio": layout.home_ratio,
         })
     }
 
@@ -106,6 +117,13 @@ impl TuiLayout {
                     CREATE_MIN_SPLIT,
                     CREATE_MAX_SPLIT,
                 )?,
+                // honey: rows written before the account pane have no
+                // home_ratio; they open at the default width instead of
+                // discarding the other saved widths.
+                home_ratio: object
+                    .get("home_ratio")
+                    .and_then(|value| ratio_from_json(value, MIN_HOME_RATIO, MAX_HOME_RATIO))
+                    .unwrap_or(DEFAULT_HOME_RATIO),
             }
             .sanitized(),
         )
@@ -169,6 +187,7 @@ mod tests {
             list_ratio: 0.3,
             detail_ratio: 0.9,
             create_split: 0.6,
+            home_ratio: 0.55,
         }
     }
 
@@ -178,6 +197,7 @@ mod tests {
         assert_eq!(layout.list_ratio, DEFAULT_SPLIT_RATIO);
         assert_eq!(layout.detail_ratio, DEFAULT_DETAIL_RATIO);
         assert_eq!(layout.create_split, CREATE_DEFAULT_SPLIT);
+        assert_eq!(layout.home_ratio, DEFAULT_HOME_RATIO);
     }
 
     #[test]
@@ -194,6 +214,7 @@ mod tests {
         assert!(value["list_ratio"].is_number());
         assert!(value["detail_ratio"].is_number());
         assert!(value["create_split"].is_number());
+        assert!(value["home_ratio"].is_number());
 
         let mut keys: Vec<&str> = value
             .as_object()
@@ -204,15 +225,18 @@ mod tests {
         keys.sort_unstable();
         assert_eq!(
             keys,
-            ["create_split", "detail_ratio", "list_ratio", "version"]
+            [
+                "create_split",
+                "detail_ratio",
+                "home_ratio",
+                "list_ratio",
+                "version"
+            ]
         );
     }
 
     #[test]
-    fn layout_json_with_a_stale_home_ratio_still_loads() {
-        // honey: rows written while Home had a draggable activity pane
-        // carry home_ratio; the extra key is ignored rather than
-        // discarding the library widths.
+    fn layout_json_reads_the_home_ratio() {
         let value = json!({
             "version": TUI_LAYOUT_VERSION,
             "list_ratio": 0.3,
@@ -221,11 +245,28 @@ mod tests {
             "home_ratio": 0.55,
         });
 
+        let layout = TuiLayout::from_json(&value).expect("layout");
+
+        assert_eq!(layout.home_ratio, 0.55);
+    }
+
+    #[test]
+    fn layout_json_without_home_ratio_uses_the_default() {
+        // honey: rows written before the account pane have no home_ratio;
+        // keep the other widths and open Home at its default split.
+        let value = json!({
+            "version": TUI_LAYOUT_VERSION,
+            "list_ratio": 0.3,
+            "detail_ratio": 0.9,
+            "create_split": 0.6,
+        });
+
         let layout = TuiLayout::from_json(&value).expect("legacy layout");
 
         assert_eq!(layout.list_ratio, 0.3);
         assert_eq!(layout.detail_ratio, 0.9);
         assert_eq!(layout.create_split, 0.6);
+        assert_eq!(layout.home_ratio, DEFAULT_HOME_RATIO);
     }
 
     #[test]
@@ -279,21 +320,25 @@ mod tests {
             "list_ratio": -3.0,
             "detail_ratio": 99.0,
             "create_split": 5.0,
+            "home_ratio": -1.0,
         });
         let layout = TuiLayout::from_json(&value).expect("valid layout");
         assert_eq!(layout.list_ratio, MIN_SPLIT_RATIO);
         assert_eq!(layout.detail_ratio, MAX_DETAIL_RATIO);
         assert_eq!(layout.create_split, CREATE_MAX_SPLIT);
+        assert_eq!(layout.home_ratio, MIN_HOME_RATIO);
 
         let clamped = TuiLayout {
             list_ratio: 9.0,
             detail_ratio: -1.0,
             create_split: 0.0,
+            home_ratio: 9.0,
         }
         .to_json();
         assert_eq!(clamped["list_ratio"], json!(MAX_SPLIT_RATIO));
         assert_eq!(clamped["detail_ratio"], json!(MIN_DETAIL_RATIO));
         assert_eq!(clamped["create_split"], json!(CREATE_MIN_SPLIT));
+        assert_eq!(clamped["home_ratio"], json!(MAX_HOME_RATIO));
     }
 
     #[test]
@@ -303,6 +348,7 @@ mod tests {
             "list_ratio": 1e39,
             "detail_ratio": 1e39,
             "create_split": 1e39,
+            "home_ratio": 1e39,
         });
 
         let layout = TuiLayout::from_json(&value).expect("valid layout");
@@ -310,6 +356,7 @@ mod tests {
         assert_eq!(layout.list_ratio, MAX_SPLIT_RATIO);
         assert_eq!(layout.detail_ratio, MAX_DETAIL_RATIO);
         assert_eq!(layout.create_split, CREATE_MAX_SPLIT);
+        assert_eq!(layout.home_ratio, MAX_HOME_RATIO);
     }
 
     #[test]
@@ -318,6 +365,7 @@ mod tests {
             list_ratio: f32::NAN,
             detail_ratio: f32::INFINITY,
             create_split: f32::NEG_INFINITY,
+            home_ratio: f32::NAN,
         }
         .sanitized();
         assert_eq!(layout, TuiLayout::default());

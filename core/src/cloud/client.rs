@@ -320,21 +320,29 @@ impl CloudClient {
     }
 }
 
+fn jwt_claims(access_token: &str) -> Option<serde_json::Value> {
+    let payload = access_token.split('.').nth(1)?;
+    let decoded = URL_SAFE_NO_PAD
+        .decode(payload)
+        .or_else(|_| URL_SAFE_NO_PAD.decode(payload.trim_end_matches('=')))
+        .ok()?;
+    serde_json::from_slice(&decoded).ok()
+}
+
 fn extract_jwt_user_id(access_token: &str) -> Option<String> {
-    let parts: Vec<&str> = access_token.split('.').collect();
-    if parts.len() >= 2 {
-        let payload_str = parts[1];
-        let decoded = URL_SAFE_NO_PAD
-            .decode(payload_str)
-            .or_else(|_| URL_SAFE_NO_PAD.decode(payload_str.trim_end_matches('=')))
-            .ok()?;
-        let json: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
-        json.get("sub")
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string)
-    } else {
-        None
-    }
+    jwt_claims(access_token)?
+        .get("sub")?
+        .as_str()
+        .map(ToString::to_string)
+}
+
+/// Email carried by the access token, when the provider includes one.
+/// Decoded locally; no network call and no account identifier.
+pub fn extract_jwt_email(access_token: &str) -> Option<String> {
+    jwt_claims(access_token)?
+        .get("email")?
+        .as_str()
+        .map(ToString::to_string)
 }
 
 /// Generates a cryptographically secure PKCE code verifier and challenge pair (S256).
