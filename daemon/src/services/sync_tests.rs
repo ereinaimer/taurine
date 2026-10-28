@@ -1275,12 +1275,13 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
         use std::io::{Read, Write};
         let start = std::time::Instant::now();
         let mut handled = 0;
-        // Cycle 1: 6 GETs (snippets, settings, activity, trigger stats, user stats, app stats)
-        while handled < 6 && start.elapsed() < std::time::Duration::from_secs(4) {
+        // Cycle 1: 6 GETs (restore from cloud)
+        // Cycle 2: 6 GETs + 6 POSTs (push local mutations to cloud)
+        while handled < 18 && start.elapsed() < std::time::Duration::from_secs(6) {
             match listener.accept() {
                 Ok((mut stream, _)) => {
                     let _ = stream.set_nonblocking(false);
-                    let mut buf = [0u8; 4096];
+                    let mut buf = [0u8; 8192];
                     let n = match stream.read(&mut buf) {
                         Ok(n) => n,
                         Err(_) => continue,
@@ -1322,6 +1323,10 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
                             body
                         );
                         stream.write_all(resp.as_bytes()).unwrap();
+                    } else if req.starts_with("POST /rest/v1/snippets") {
+                        assert!(req.contains("local-snippet-2"));
+                        let resp = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                        stream.write_all(resp.as_bytes()).unwrap();
                     } else if req.starts_with("GET /rest/v1/user_settings") {
                         let remote_setting = taurine_core::db::crud::CloudSettingPayload {
                             key: "wpm".to_string(),
@@ -1335,6 +1340,10 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
                             body.len(),
                             body
                         );
+                        stream.write_all(resp.as_bytes()).unwrap();
+                    } else if req.starts_with("POST /rest/v1/user_settings") {
+                        assert!(req.contains("audio_volume"));
+                        let resp = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
                         stream.write_all(resp.as_bytes()).unwrap();
                     } else if req.starts_with("GET /rest/v1/activity_events") {
                         let remote_event = CloudActivityEventPayload {
@@ -1357,6 +1366,11 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
                             body
                         );
                         stream.write_all(resp.as_bytes()).unwrap();
+                    } else if req.starts_with("POST /rest/v1/activity_events") {
+                        assert!(req.contains("evt-local-2"));
+                        assert!(req.contains("\"device_id\":"));
+                        let resp = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                        stream.write_all(resp.as_bytes()).unwrap();
                     } else if req.starts_with("GET /rest/v1/trigger_daily_stats") {
                         let remote_trigger_stat = CloudTriggerDailyStatPayload {
                             device_id: "device-remote-1".to_string(),
@@ -1375,6 +1389,11 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
                             body.len(),
                             body
                         );
+                        stream.write_all(resp.as_bytes()).unwrap();
+                    } else if req.starts_with("POST /rest/v1/trigger_daily_stats") {
+                        assert!(req.contains("local-snippet-2"));
+                        assert!(req.contains("\"device_id\":"));
+                        let resp = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
                         stream.write_all(resp.as_bytes()).unwrap();
                     } else if req.starts_with("GET /rest/v1/user_stats") {
                         let remote_user_stat = CloudUserStatPayload {
@@ -1395,6 +1414,11 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
                             body
                         );
                         stream.write_all(resp.as_bytes()).unwrap();
+                    } else if req.starts_with("POST /rest/v1/user_stats") {
+                        assert!(req.contains("2026-10-28"));
+                        assert!(req.contains("\"device_id\":"));
+                        let resp = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                        stream.write_all(resp.as_bytes()).unwrap();
                     } else if req.starts_with("GET /rest/v1/user_app_stats") {
                         let remote_app_stat = CloudUserAppStatPayload {
                             device_id: "device-remote-1".to_string(),
@@ -1412,6 +1436,11 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
                             body.len(),
                             body
                         );
+                        stream.write_all(resp.as_bytes()).unwrap();
+                    } else if req.starts_with("POST /rest/v1/user_app_stats") {
+                        assert!(req.contains("code.exe"));
+                        assert!(req.contains("\"device_id\":"));
+                        let resp = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
                         stream.write_all(resp.as_bytes()).unwrap();
                     }
                     handled += 1;
@@ -1516,6 +1545,171 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
     );
     assert!(
         taurine_core::db::crud::get_unsynced_trigger_daily_stats(&conn, 10)
+            .unwrap()
+            .is_empty()
+    );
+
+    // =========================================================================
+    // CYCLE 2: Local mutations on the device -> verify push uploads to cloud
+    // =========================================================================
+
+    // 1. Create a new trigger locally (marked is_synced = 0)
+    conn.execute(
+        "INSERT INTO triggers (
+            id, description, output, action_type, target_os, only_apps, except_apps,
+            tags, is_enabled, auto_case, version, is_deleted, is_synced, created_at, updated_at
+        ) VALUES ('local-snippet-2', 'Local snippet 2', 'Local output 2', 'text', 'all', NULL, NULL,
+                  '[]', 1, 0, 1, 0, 0, 1000, 1000)",
+        [],
+    )
+    .unwrap();
+
+    conn.execute(
+        "INSERT INTO trigger_aliases (
+            id, trigger_id, invocation, invocation_type, require_confirmation, strict_threshold, created_at
+        ) VALUES ('alias-loc2', 'local-snippet-2', 'loc2', 'word', 0, NULL, 1000)",
+        [],
+    )
+    .unwrap();
+
+    // 2. Update a syncable setting locally (marked is_synced = 0)
+    taurine_core::db::crud::upsert_setting(&conn, "audio_volume", "85").unwrap();
+
+    // 3. Generate a local activity event (marked is_synced = 0)
+    taurine_core::db::crud::insert_activity_event(
+        &conn,
+        &taurine_core::db::crud::NewActivityEvent {
+            id: Some("evt-local-2".to_string()),
+            trigger_id: Some("local-snippet-2".to_string()),
+            timestamp: Some(1730000500000),
+            date: Some("2026-10-28".to_string()),
+            category: taurine_core::db::crud::ActivityCategory::Text,
+            app_key: Some("code.exe".to_string()),
+            word_count: 8,
+            time_saved_ms: 2000,
+            content: Some("Local output 2".to_string()),
+        },
+    )
+    .unwrap();
+
+    // 4. Record local trigger daily stat (marked is_synced = 0)
+    taurine_core::db::crud::stats::upsert_trigger_daily_stat_with_conn(
+        &conn,
+        "local-snippet-2",
+        "2026-10-28",
+        "code.exe",
+        2,
+        0,
+        16,
+        4000,
+    )
+    .unwrap();
+
+    // 5. Increment local global stat (marked is_synced = 0)
+    taurine_core::db::crud::increment_stat(
+        &conn,
+        "2026-10-28",
+        &taurine_core::db::crud::StatDeltas {
+            executions: 2,
+            words_expanded: 16,
+            time_saved_ms: 4000,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    // 6. Record local app stat (marked is_synced = 0)
+    taurine_core::db::crud::upsert_app_stat_with_conn(
+        &conn,
+        "code.exe",
+        "2026-10-28",
+        2,
+        0,
+        16,
+        4000,
+    )
+    .unwrap();
+
+    // Verify unsynced state before cycle 2
+    assert_eq!(
+        taurine_core::db::crud::triggers::get_unsynced_triggers(&conn)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        taurine_core::db::crud::get_unsynced_settings(&conn)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        taurine_core::db::crud::get_unsynced_activity_events(&conn, 10)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        taurine_core::db::crud::get_unsynced_stats(&conn, 10)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        taurine_core::db::crud::get_unsynced_trigger_daily_stats(&conn, 10)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        taurine_core::db::crud::get_unsynced_app_stats(&conn, 10)
+            .unwrap()
+            .len(),
+        1
+    );
+
+    // Run cycle 2
+    let status2 = SyncWorker::run_sync_cycle(&conn, Some(&client)).await;
+    assert_eq!(
+        status2,
+        SyncStatus::Success {
+            pulled_snippets: 0,
+            pushed_snippets: 1,
+            pulled_settings: 0,
+            pushed_settings: 1,
+            pulled_events: 0,
+            pushed_stats: 4,
+        }
+    );
+
+    // Verify all local mutations are now marked is_synced = 1 in SQLite
+    assert!(
+        taurine_core::db::crud::triggers::get_unsynced_triggers(&conn)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        taurine_core::db::crud::get_unsynced_settings(&conn)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        taurine_core::db::crud::get_unsynced_activity_events(&conn, 10)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        taurine_core::db::crud::get_unsynced_stats(&conn, 10)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        taurine_core::db::crud::get_unsynced_trigger_daily_stats(&conn, 10)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        taurine_core::db::crud::get_unsynced_app_stats(&conn, 10)
             .unwrap()
             .is_empty()
     );
