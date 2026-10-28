@@ -743,7 +743,7 @@ fn clock_time(at: DateTime<Local>) -> String {
 
 fn render_copy_button(frame: &mut Frame, area: Rect, theme: &Theme, copied: bool) {
     let (label, bg) = if copied {
-        (COPIED_LABEL, theme.success)
+        (COPIED_LABEL, theme.success_bg)
     } else {
         (COPY_LABEL, theme.keycap.bg)
     };
@@ -1299,7 +1299,7 @@ mod tests {
             .collect();
 
         assert_eq!(label, COPIED_LABEL);
-        assert_eq!(buffer[(button_x, row)].bg, DARK_THEME.success);
+        assert_eq!(buffer[(button_x, row)].bg, DARK_THEME.success_bg);
         assert_eq!(buffer[(button_x + 1, row)].symbol(), "\u{f00c}");
 
         // Once the flash expires the copy glyph comes back.
