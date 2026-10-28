@@ -8,6 +8,7 @@ service DaemonControl {
     rpc Reload (ReloadRequest) returns (ReloadResponse);
     rpc Pause (PauseRequest) returns (PauseResponse);
     rpc Resume (ResumeRequest) returns (ResumeResponse);
+    rpc Sync (SyncRequest) returns (SyncResponse);
 }
 
 message StatusRequest {}
@@ -44,4 +45,17 @@ message PauseResponse {
 message ResumeRequest {}
 message ResumeResponse {
     bool success = 1;
+}
+
+message SyncRequest {}
+
+message SyncResponse {
+    bool success = 1;
+    uint64 pulled_snippets = 2;
+    uint64 pushed_snippets = 3;
+    uint64 pulled_settings = 4;
+    uint64 pushed_settings = 5;
+    uint64 pulled_events = 6;
+    uint64 pushed_stats = 7;
+    string error_message = 8;
 }

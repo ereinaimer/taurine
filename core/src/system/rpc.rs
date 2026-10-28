@@ -164,6 +164,28 @@ pub fn notify_daemon_reload() {
     }
 }
 
+pub async fn trigger_daemon_sync() -> Result<SyncResponse, String> {
+    let mut client = get_client()
+        .await
+        .map_err(|e| format!("Could not reach Taurine daemon: {e}"))?;
+    let response = client
+        .sync(tonic::Request::new(SyncRequest {}))
+        .await
+        .map_err(|s| format!("Daemon synchronization failed: {}", s.message()))?;
+    Ok(response.into_inner())
+}
+
+pub fn request_daemon_sync() -> Result<SyncResponse, String> {
+    if !crate::service::is_service_running() {
+        return Err("Taurine service is not running.".to_string());
+    }
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| format!("Failed to create runtime: {e}"))?;
+    rt.block_on(trigger_daemon_sync())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -271,6 +293,22 @@ mod tests {
         assert!(
             elapsed.as_millis() < 50,
             "set_daemon_paused should return in < 50ms when service is offline, took {:?}",
+            elapsed
+        );
+    }
+
+    #[test]
+    fn test_request_daemon_sync_skips_when_service_not_running() {
+        let _guard = lock();
+        let _temp_dir = force_service_offline();
+        let start = std::time::Instant::now();
+        let result = request_daemon_sync();
+        let elapsed = start.elapsed();
+        clear_offline_override();
+        assert_eq!(result, Err("Taurine service is not running.".to_string()));
+        assert!(
+            elapsed.as_millis() < 50,
+            "request_daemon_sync should return in < 50ms when service is offline, took {:?}",
             elapsed
         );
     }

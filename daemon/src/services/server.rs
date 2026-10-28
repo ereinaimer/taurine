@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use taurine_core::engine::EngineState;
 use taurine_core::rpc::{
     PauseRequest, PauseResponse, ReloadRequest, ReloadResponse, ResumeRequest, ResumeResponse,
-    ShutdownRequest, ShutdownResponse, StatusRequest, StatusResponse,
+    ShutdownRequest, ShutdownResponse, StatusRequest, StatusResponse, SyncRequest, SyncResponse,
     daemon_control_server::DaemonControl,
 };
 use tokio::sync::mpsc;
@@ -437,6 +437,67 @@ impl DaemonControl for DaemonService {
         }
         Ok(Response::new(ResumeResponse { success: true }))
     }
+
+    async fn sync(&self, _request: Request<SyncRequest>) -> Result<Response<SyncResponse>, Status> {
+        let handle = tokio::runtime::Handle::current();
+        let outcome = tokio::task::spawn_blocking(move || {
+            let conn = taurine_core::db::init::setup()
+                .map_err(|e| format!("Database connection failed: {}", e))?;
+            let client = taurine_core::cloud::CloudClient::default_or_from_env();
+            let status = handle.block_on(crate::services::sync_worker::SyncWorker::run_sync_cycle(
+                &conn,
+                Some(&client),
+            ));
+            Ok::<_, String>(status)
+        })
+        .await
+        .map_err(|e| Status::internal(format!("Sync worker thread join error: {}", e)))?
+        .map_err(Status::internal)?;
+
+        match outcome {
+            crate::services::sync_worker::SyncStatus::Success {
+                pulled_snippets,
+                pushed_snippets,
+                pulled_settings,
+                pushed_settings,
+                pulled_events,
+                pushed_stats,
+            } => Ok(Response::new(SyncResponse {
+                success: true,
+                pulled_snippets: pulled_snippets as u64,
+                pushed_snippets: pushed_snippets as u64,
+                pulled_settings: pulled_settings as u64,
+                pushed_settings: pushed_settings as u64,
+                pulled_events: pulled_events as u64,
+                pushed_stats: pushed_stats as u64,
+                error_message: String::new(),
+            })),
+            crate::services::sync_worker::SyncStatus::NotAuthenticated => {
+                Ok(Response::new(SyncResponse {
+                    success: false,
+                    pulled_snippets: 0,
+                    pushed_snippets: 0,
+                    pulled_settings: 0,
+                    pushed_settings: 0,
+                    pulled_events: 0,
+                    pushed_stats: 0,
+                    error_message: "User is not authenticated with Taurine Cloud.".to_string(),
+                }))
+            }
+            crate::services::sync_worker::SyncStatus::Error(err) => {
+                Ok(Response::new(SyncResponse {
+                    success: false,
+                    pulled_snippets: 0,
+                    pushed_snippets: 0,
+                    pulled_settings: 0,
+                    pushed_settings: 0,
+                    pulled_events: 0,
+                    pushed_stats: 0,
+                    error_message: err,
+                }))
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -661,5 +722,63 @@ mod tests {
             Ok(false),
             "full channel keeps its value; the new transition goes to the warn path"
         );
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn test_grpc_sync_returns_not_authenticated_when_logged_out() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        crate::hook::tests::mock_keystore::use_mock_keystore();
+        taurine_core::logs::init_tracing_for_tests();
+        let test_dir = std::env::temp_dir().join("taurine_sync_grpc_test");
+        // SAFETY: Setting environment variable for database isolation in server test.
+        unsafe { std::env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
+        let _ = std::fs::remove_dir_all(&test_dir);
+        std::fs::create_dir_all(&test_dir).unwrap();
+
+        let _conn = init::setup().expect("Failed to setup DB");
+
+        let state = Arc::new(EngineState::new());
+        let (tx, _rx) = mpsc::channel(1);
+        let pause_hotkey = "Alt + `".to_string();
+        let pause_hotkey_spec = Arc::new(std::sync::RwLock::new(
+            crate::input::hotkey::parse_pause_hotkey_setting(&pause_hotkey).unwrap(),
+        ));
+        let (pause_tx, _pause_rx) = mpsc::channel(1);
+        let service = DaemonService::builder()
+            .shutdown_sender(tx)
+            .state(state)
+            .paused(Arc::new(AtomicBool::new(false)))
+            .pause_notifications_enabled(Arc::new(AtomicBool::new(false)))
+            .pause_hotkey_spec(pause_hotkey_spec)
+            .pause_hotkey_display(Arc::new(std::sync::RwLock::new(pause_hotkey)))
+            .spinner_style(Arc::new(std::sync::RwLock::new(
+                taurine_core::settings::SpinnerStyle::default(),
+            )))
+            .pause_audio_enabled(Arc::new(AtomicBool::new(true)))
+            .system_tray_enabled(Arc::new(AtomicBool::new(true)))
+            .hook_health(crate::input::hook_health::HookHealth::new())
+            .pause_transition_tx(pause_tx)
+            .build()
+            .expect("builder call site is fully populated");
+
+        let req = Request::new(taurine_core::rpc::SyncRequest {});
+        let res = service.sync(req).await.expect("sync request failed");
+        let inner = res.into_inner();
+
+        assert!(!inner.success);
+        assert_eq!(
+            inner.error_message,
+            "User is not authenticated with Taurine Cloud."
+        );
+        assert_eq!(inner.pulled_snippets, 0);
+        assert_eq!(inner.pushed_snippets, 0);
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&test_dir);
+        // SAFETY: Cleaning up environment variable after server test.
+        unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
     }
 }
