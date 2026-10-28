@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Home Dashboard**: A flat activity card feed with a tag row, fully wrapped content, a left-aligned clock and copy meta row beneath it, a sticky title and date headers, a focus highlight, and copy on the active card, plus a draggable account and weekly-quota pane with the reset countdown.
 - **Unified Highlight Fill**: The theme highlight, selected rows, rail pills, and active activity cards now share the same fill, with activity cards dimmed beneath it.
 - **Voice Activity**: Voice entries in the home feed show what was actually said instead of the inserted snippet output.
+- **TUI Toasts**: Removed the temporary in-TUI toast banners; a dedicated notification overlay will replace them.
 - **Home Divider**: When the activity column is fully collapsed, the account pane sits flush on the navigation rail and the rail divider is the single boundary.
 - **Snippet Enable and Disable**: Toggle individual snippets directly with `taurine enable` and `taurine disable`.
 - **Cloud Authentication**: Sign in and out of Taurine Cloud with `taurine login` and `taurine logout`.

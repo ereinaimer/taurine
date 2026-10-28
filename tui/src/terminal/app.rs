@@ -21,7 +21,6 @@ pub(crate) struct App {
     settings_page: SettingsPageState,
     settings_overlay_open: bool,
     should_quit: bool,
-    notification: Option<String>,
     current_theme: &'static Theme,
     toggle_animations: ToggleAnimations,
     toggle_hover: Option<ToggleId>,
@@ -47,7 +46,6 @@ impl Default for App {
             settings_page: SettingsPageState::default(),
             settings_overlay_open: false,
             should_quit: false,
-            notification: None,
             current_theme: &DARK_THEME,
             toggle_animations: ToggleAnimations::default(),
             toggle_hover: None,
@@ -345,18 +343,6 @@ impl App {
         if self.transition_effect.as_ref().is_some_and(Effect::done) {
             self.transition_effect = None;
         }
-    }
-
-    pub(crate) fn notification(&self) -> Option<&str> {
-        self.notification.as_deref()
-    }
-
-    pub(crate) fn clear_notification(&mut self) {
-        self.notification = None;
-    }
-
-    pub(crate) fn set_notification(&mut self, message: String) {
-        self.notification = Some(message);
     }
 }
 

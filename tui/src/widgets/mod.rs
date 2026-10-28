@@ -4,7 +4,6 @@ pub mod hotkey;
 pub mod labeled;
 pub mod library;
 pub mod nav_rail;
-pub mod notification;
 pub mod palette;
 pub mod panes;
 pub mod settings;

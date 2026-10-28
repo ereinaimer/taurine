@@ -39,7 +39,6 @@ use ratatui::{Terminal, backend::CrosstermBackend, style::Style, widgets::Block}
 use terminal::app::App;
 use terminal::event::{Event, EventHandler};
 use tracing::error;
-use widgets::notification;
 
 const EVENT_TICK_RATE: Duration = Duration::from_millis(250);
 
@@ -248,10 +247,6 @@ fn render_app(frame: &mut ratatui::Frame, app: &mut App, area: ratatui::layout::
         || app.hotkey_recorder().is_some();
     let (rail, icons) = app.nav_rail_graphics();
     nav_rail::render(frame, area, theme, rail, icons, any_modal);
-
-    if let Some(msg) = app.notification() {
-        notification::render_notification(frame, area, theme, msg);
-    }
 
     if any_modal {
         dim_frame(frame);
@@ -485,8 +480,6 @@ fn switch_page(app: &mut App, page: ActivePage) {
 }
 
 fn handle_tui_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
-    app.clear_notification();
-
     // honey: the recorder captures every chord, including Ctrl+C and
     // Ctrl+P, so it takes the keyboard before the global shortcuts.
     if app.hotkey_recorder().is_some() {
@@ -658,11 +651,6 @@ fn handle_tui_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
     {
         let interaction = app.library_page_mut().handle_key(key);
         apply_library_interaction(app, interaction);
-        if let Some(library::LibraryModal::Import(state)) = app.library_page().modal()
-            && let Some(err) = state.error()
-        {
-            app.set_notification(err.to_string());
-        }
         return;
     }
 
@@ -807,7 +795,6 @@ fn commit_hotkey_recorder(app: &mut App) {
 /// the dialog is visible and owns keyboard input.
 fn open_exchange_modal(app: &mut App, open: fn(&mut library::LibraryPageState)) {
     if app.library_page().is_modal_open() || app.is_settings_overlay_open() {
-        app.set_notification("Close the current dialog first.".to_string());
         return;
     }
     switch_page(app, ActivePage::Library);
@@ -831,7 +818,6 @@ fn execute_palette_command(app: &mut App, command: palette::PaletteCommand) {
         PaletteCommand::ResetLayout => app.library_page_mut().reset_layout(),
         PaletteCommand::NewTrigger => {
             if app.library_page().is_modal_open() || app.is_settings_overlay_open() {
-                app.set_notification("Close the current dialog first.".to_string());
                 return;
             }
             let flush = app.library_page_mut().commit_edit();
@@ -847,9 +833,7 @@ fn execute_palette_command(app: &mut App, command: palette::PaletteCommand) {
         PaletteCommand::OpenSettings => {
             if app.is_settings_overlay_open() {
                 app.close_settings_overlay();
-            } else if app.library_page().is_modal_open() {
-                app.set_notification("Close the current dialog first.".to_string());
-            } else {
+            } else if !app.library_page().is_modal_open() {
                 let flush = app.library_page_mut().commit_edit();
                 apply_library_interaction(app, flush);
                 app.open_settings_overlay();
@@ -863,9 +847,8 @@ fn execute_palette_command(app: &mut App, command: palette::PaletteCommand) {
                 Ok(()) => {
                     // A restarted daemon always comes back unpaused.
                     app.set_daemon_paused(false);
-                    app.set_notification("Taurine restarted.".to_string());
                 }
-                Err(err) => app.set_notification(format!("Restart failed: {err}")),
+                Err(err) => error!(error = %err, "Failed to restart Taurine"),
             }
         }
         // honey: the pause/resume RPC blocks up to the 2s transport
@@ -873,18 +856,8 @@ fn execute_palette_command(app: &mut App, command: palette::PaletteCommand) {
         PaletteCommand::TogglePause => {
             let paused = !app.daemon_paused();
             match taurine_core::rpc::set_daemon_paused(paused) {
-                Ok(()) => {
-                    app.set_daemon_paused(paused);
-                    app.set_notification(
-                        if paused {
-                            "Taurine paused."
-                        } else {
-                            "Taurine resumed."
-                        }
-                        .to_string(),
-                    );
-                }
-                Err(err) => app.set_notification(err),
+                Ok(()) => app.set_daemon_paused(paused),
+                Err(err) => error!(error = %err, "Failed to toggle daemon pause"),
             }
         }
         PaletteCommand::Quit => {
@@ -953,8 +926,6 @@ fn handle_tui_mouse_event(
             KeyModifiers::NONE,
         )
     }
-
-    app.clear_notification();
 
     let modal_open = app.library_page().is_modal_open() || app.is_settings_overlay_open();
 
@@ -1829,10 +1800,7 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
                 refresh_library_page(app);
                 app.library_page_mut().open_import_result_modal(&outcome);
             }
-            Err(error) => {
-                app.library_page_mut().set_save_error(error.to_string());
-                app.set_notification(error.to_string());
-            }
+            Err(error) => app.library_page_mut().set_save_error(error.to_string()),
         }
         return;
     }
@@ -2019,7 +1987,6 @@ fn copy_home_event(app: &mut App, index: usize) {
         return;
     }
     library::actions::write_clipboard(body);
-    app.set_notification("Copied to clipboard".to_string());
 }
 
 fn copy_selected_home_event(app: &mut App) {
@@ -3882,7 +3849,6 @@ mod tests {
             library::actions::read_clipboard().as_deref(),
             Some("body 0")
         );
-        assert_eq!(app.notification(), Some("Copied to clipboard"));
 
         // Clicking the body text selects nothing and copies nothing.
         handle_tui_mouse_event(&mut app, left_click(full.x + 3, row), TEST_AREA);
