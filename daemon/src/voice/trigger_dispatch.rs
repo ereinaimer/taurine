@@ -12,7 +12,7 @@ pub fn fire_voice_trigger_with_args(
     inv: ResolvedInvocation,
     args: &ArgMap,
     spoken_transcript: &str,
-    conn: &Connection,
+    conn: &mut Connection,
     active_app: Option<String>,
     spinner_style: taurine_core::settings::SpinnerStyle,
 ) -> Option<String> {
@@ -59,14 +59,16 @@ pub fn fire_voice_trigger_with_args(
     crate::injector::spawn_guarded_injection_thread("tau-voice-disp", move || {
         crate::injector::inject_expansion_for_voice(steps, spinner_style);
     });
-    taurine_core::db::crud::record_voice_trigger_usage(
+    taurine_core::db::crud::record_voice_trigger_usage_with_conn(
+        conn,
         spoken_transcript,
         output_chars,
         active_app,
         // honey: the activity feed shows what the user said for voice
         // events, not the snippet output.
         Some(spoken_transcript.to_string()),
-    );
+    )
+    .ok();
     let _ = increment_usage_count_by_id(conn, &inv.trigger_id);
     Some(display)
 }
@@ -76,7 +78,7 @@ pub fn fire_voice_trigger_with_args(
 /// erase (`delete_count` 0) and never participates in Backspace Undo.
 pub fn fire_voice_trigger(
     inv: ResolvedInvocation,
-    conn: &Connection,
+    conn: &mut Connection,
     active_app: Option<String>,
     spinner_style: taurine_core::settings::SpinnerStyle,
 ) {

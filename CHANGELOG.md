@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Activity Output History & Retention**: Retain full text content for voice dictations and expansions with a rolling 30-day history window and cross-device synchronization.
 - **Streak Tracking**: Track consecutive daily active execution streaks and all-time records.
 - **Home Dashboard**: A flat activity card feed with a tag row, fully wrapped content, a left-aligned clock and copy meta row beneath it, a sticky title and date headers, a focus highlight, and copy on the active card, plus a draggable account and weekly-quota pane with the reset countdown.
+- **Unified Highlight Fill**: The theme highlight, selected rows, rail pills, and active activity cards now share the same fill, with activity cards dimmed beneath it.
 - **Voice Activity**: Voice entries in the home feed show what was actually said instead of the inserted snippet output.
 - **Home Divider**: When the activity column is fully collapsed, the account pane sits flush on the navigation rail and the rail divider is the single boundary.
 - **Snippet Enable and Disable**: Toggle individual snippets directly with `taurine enable` and `taurine disable`.

@@ -22,7 +22,8 @@ pub use app_stats::{
 };
 pub use recorder::{
     TriggerStatEvent, record_trigger_stat, record_trigger_stat_with_conn,
-    record_voice_dictation_usage, record_voice_trigger_usage, resolve_trigger_id,
+    record_voice_dictation_usage, record_voice_trigger_usage, record_voice_trigger_usage_with_conn,
+    resolve_trigger_id,
 };
 pub use stat_delete::delete_stat;
 pub use stat_get::{get_stat, get_stat_counters};

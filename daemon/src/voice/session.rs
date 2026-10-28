@@ -1700,7 +1700,7 @@ impl VoiceSessionManager {
 
         // Check if transcribed text matches any active voice trigger
         let normalized_spoken = taurine_core::db::crud::normalize_voice_phrase(trimmed);
-        if let Ok(conn) = taurine_core::db::get_conn()
+        if let Ok(mut conn) = taurine_core::db::get_conn()
             && let Ok(invocations) = taurine_core::db::crud::list_active_voice_invocations(&conn)
         {
             let in_scope: Vec<taurine_core::db::crud::ResolvedInvocation> = invocations
@@ -1734,7 +1734,7 @@ impl VoiceSessionManager {
                     inv,
                     &matched.args,
                     &normalized_spoken,
-                    &conn,
+                    &mut conn,
                     active_app.clone(),
                     taurine_core::settings::SpinnerStyle::default(),
                 )

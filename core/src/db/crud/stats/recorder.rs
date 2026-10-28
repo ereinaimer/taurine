@@ -365,7 +365,31 @@ pub fn record_voice_trigger_usage(
     app: Option<String>,
     content: Option<String>,
 ) {
-    record_trigger_stat(TriggerStatEvent {
+    record_trigger_stat(voice_trigger_event(phrase, output_chars, app, content));
+}
+
+/// Records a voice trigger on a caller-supplied connection, so tests and
+/// callers holding their own database never leak into the app store.
+pub fn record_voice_trigger_usage_with_conn(
+    conn: &mut Connection,
+    phrase: &str,
+    output_chars: usize,
+    app: Option<String>,
+    content: Option<String>,
+) -> crate::Result<()> {
+    record_trigger_stat_with_conn(
+        conn,
+        &voice_trigger_event(phrase, output_chars, app, content),
+    )
+}
+
+fn voice_trigger_event(
+    phrase: &str,
+    output_chars: usize,
+    app: Option<String>,
+    content: Option<String>,
+) -> TriggerStatEvent {
+    TriggerStatEvent {
         trigger_id: None,
         trigger: Some(phrase.to_string()),
         trigger_chars: phrase.chars().count(),
@@ -376,7 +400,7 @@ pub fn record_voice_trigger_usage(
         app,
         words_count: None,
         content: content.or_else(|| Some(phrase.to_string())),
-    });
+    }
 }
 
 #[cfg(test)]
@@ -747,5 +771,24 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].category, crate::db::crud::ActivityCategory::Text);
         assert_eq!(events[0].content.as_deref(), Some("Hello World!"));
+    }
+
+    #[test]
+    fn voice_trigger_usage_records_on_the_given_connection() {
+        let (_dir, mut conn) = crate::testing::open_test_db();
+
+        record_voice_trigger_usage_with_conn(
+            &mut conn,
+            "hello voice",
+            21,
+            None,
+            Some("hello voice".to_string()),
+        )
+        .unwrap();
+
+        let events = crate::db::crud::get_activity_events(&conn, 10, 0).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].category, crate::db::crud::ActivityCategory::Voice);
+        assert_eq!(events[0].content.as_deref(), Some("hello voice"));
     }
 }

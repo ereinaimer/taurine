@@ -224,7 +224,7 @@ fn test_voice_trigger_drops_when_quota_exhausted() {
     let original_balance = QuotaGuard::global().balance();
     QuotaGuard::global().set_balance(0.0);
 
-    let conn = create_test_db();
+    let mut conn = create_test_db();
     let inv = taurine_core::db::crud::ResolvedInvocation {
         trigger_id: "test-id".to_string(),
         invocation: "hello".to_string(),
@@ -248,7 +248,7 @@ fn test_voice_trigger_drops_when_quota_exhausted() {
         inv,
         &ArgMap::default(),
         "hello",
-        &conn,
+        &mut conn,
         None,
         SpinnerStyle::default(),
     );
@@ -402,7 +402,7 @@ fn test_voice_trigger_dispatches_when_unlimited_even_at_zero_balance() {
     QuotaGuard::global().set_balance(0.0);
     QuotaGuard::global().set_unlimited(true);
 
-    let conn = create_test_db();
+    let mut conn = create_test_db();
     let inv = taurine_core::db::crud::ResolvedInvocation {
         trigger_id: "paid-voice-test".to_string(),
         invocation: "hello voice".to_string(),
@@ -426,7 +426,7 @@ fn test_voice_trigger_dispatches_when_unlimited_even_at_zero_balance() {
         inv,
         &ArgMap::default(),
         "hello voice",
-        &conn,
+        &mut conn,
         None,
         SpinnerStyle::default(),
     );

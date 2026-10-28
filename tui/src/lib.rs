@@ -3862,11 +3862,14 @@ mod tests {
 
         let full = workspace_full(&app, TEST_AREA);
         let buffer = terminal.backend().buffer();
+        let copy_width = crate::widgets::wrap::cell_width(home::COPY_LABEL) as u16;
         let mut button = None;
         'rows: for y in full.top()..full.bottom() {
-            for x in full.left()..full.right().saturating_sub(6) {
-                let label: String = (x..x + 6).map(|x| buffer[(x, y)].symbol()).collect();
-                if label == " copy " {
+            for x in full.left()..full.right().saturating_sub(copy_width) {
+                let label: String = (x..x + copy_width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect();
+                if label == home::COPY_LABEL {
                     button = Some((x + 1, y));
                     break 'rows;
                 }
@@ -3903,11 +3906,14 @@ mod tests {
             .expect("test draw");
 
         let buffer = terminal.backend().buffer();
+        let copy_width = crate::widgets::wrap::cell_width(home::COPY_LABEL) as u16;
         let mut button = None;
         'rows: for y in TEST_AREA.top()..TEST_AREA.bottom() {
-            for x in TEST_AREA.left()..TEST_AREA.right().saturating_sub(5) {
-                let label: String = (x..x + 6).map(|x| buffer[(x, y)].symbol()).collect();
-                if label == " copy " {
+            for x in TEST_AREA.left()..TEST_AREA.right().saturating_sub(copy_width) {
+                let label: String = (x..x + copy_width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect();
+                if label == home::COPY_LABEL {
                     button = Some((x, y));
                     break 'rows;
                 }

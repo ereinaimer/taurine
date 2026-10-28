@@ -63,8 +63,8 @@ pub use stats::{
     mark_trigger_daily_stats_synced, reconcile_cloud_activity_events, reconcile_cloud_app_stats,
     reconcile_cloud_trigger_daily_stats, reconcile_cloud_user_stats, record_calculation_usage,
     record_trigger_stat, record_trigger_stat_with_conn, record_voice_dictation_usage,
-    record_voice_trigger_usage, resolve_trigger_id, upsert_app_stat_with_conn,
-    upsert_trigger_daily_stat_with_conn,
+    record_voice_trigger_usage, record_voice_trigger_usage_with_conn, resolve_trigger_id,
+    upsert_app_stat_with_conn, upsert_trigger_daily_stat_with_conn,
 };
 
 pub const SUPPORTED_TARGET_OS_VALUES: [&str; 6] = ["all", "win", "linux", "mac", "android", "ios"];

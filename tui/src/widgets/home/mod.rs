@@ -53,7 +53,8 @@ const CARD_MAX_WIDTH: u16 = 100;
 /// Horizontal breathing room inside a card.
 const CARD_PAD_X: u16 = 2;
 
-const COPY_LABEL: &str = " copy ";
+/// Nerd Font copy glyph in a flat pill: one cell of padding each side.
+pub(crate) const COPY_LABEL: &str = " \u{f4bb} ";
 
 const MONTHS: [&str; 12] = [
     "January",
@@ -981,7 +982,7 @@ mod tests {
         let meta_line = row_text(&buffer, 100, meta);
         assert_eq!(
             meta_line.trim(),
-            format!("{when}  copy"),
+            format!("{when}  \u{f4bb}"),
             "clock and copy share the meta row"
         );
         let bottom_pad = meta + 1;
@@ -1106,7 +1107,7 @@ mod tests {
         let meta_line = row_text(&buffer, 120, meta_row(0, 1));
         assert_eq!(
             meta_line.trim(),
-            format!("{when}  copy"),
+            format!("{when}  \u{f4bb}"),
             "clock and copy share the left-aligned meta row"
         );
     }
@@ -1179,7 +1180,7 @@ mod tests {
         let meta_line = row_text(&buffer, 100, meta_row(0, line_count));
         assert_eq!(
             meta_line.trim(),
-            format!("{when}  copy"),
+            format!("{when}  \u{f4bb}"),
             "clock and copy sit together under the content"
         );
         assert!(!draw(&mut state, 100, 40).contains('…'), "no truncation");
@@ -1305,7 +1306,10 @@ mod tests {
         );
         assert!(rows[3].trim().is_empty());
         assert!(last.contains("old body 9"), "oldest event reachable");
-        assert!(last.contains(" copy "), "active card keeps its copy button");
+        assert!(
+            last.contains(COPY_LABEL),
+            "active card keeps its copy button"
+        );
     }
 
     #[test]
