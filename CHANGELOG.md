@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Streak Tracking**: Track consecutive daily active execution streaks and all-time records.
 - **Home Dashboard**: A flat activity card feed with a tag row, fully wrapped content, a left-aligned clock and copy meta row beneath it, a sticky title and date headers, a focus highlight, and copy on the active card, plus a draggable account and weekly-quota pane with the reset countdown.
 - **Unified Highlight Fill**: The theme highlight, selected rows, rail pills, and active activity cards now share the same fill, with activity cards dimmed beneath it.
+- **Copy Feedback**: A successful copy flips the activity copy button to a green check mark for a moment.
 - **Voice Activity**: Voice entries in the home feed show what was actually said instead of the inserted snippet output.
 - **TUI Toasts**: Removed the temporary in-TUI toast banners; a dedicated notification overlay will replace them.
 - **Home Divider**: When the activity column is fully collapsed, the account pane sits flush on the navigation rail and the rail divider is the single boundary.

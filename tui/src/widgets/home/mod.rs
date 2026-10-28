@@ -12,6 +12,7 @@ use taurine_core::stats::{HomeStats, RecentActivity};
 use crate::theme::Theme;
 use crate::widgets::hotkey;
 use crate::widgets::library::detail::relative_time;
+use crate::widgets::library::now_millis;
 use crate::widgets::panes::{self, DividerSide, PaneSplit};
 use crate::widgets::wrap::{cell_width, wrap_line};
 
@@ -37,7 +38,7 @@ const CARD_CHROME_LINES: usize = CARD_PAYLOAD_START + 3;
 /// One page-background row between cards.
 const CARD_GAP_LINES: usize = 1;
 /// Smallest card block: chrome, one payload row, and the gap.
-const CARD_MIN_BLOCK_LINES: usize = CARD_CHROME_LINES + 1 + CARD_GAP_LINES;
+pub(crate) const CARD_MIN_BLOCK_LINES: usize = CARD_CHROME_LINES + 1 + CARD_GAP_LINES;
 /// Date header plus the blank row beneath it.
 const DATE_BLOCK_LINES: usize = 2;
 /// Section title plus the blank row beneath it.
@@ -55,6 +56,8 @@ const CARD_PAD_X: u16 = 2;
 
 /// Nerd Font copy glyph in a flat pill: one cell of padding each side.
 pub(crate) const COPY_LABEL: &str = " \u{f4bb} ";
+/// The same pill showing a check once the copy succeeds.
+pub(crate) const COPIED_LABEL: &str = " \u{f00c} ";
 
 const MONTHS: [&str; 12] = [
     "January",
@@ -154,6 +157,7 @@ pub(crate) fn render_home_content(
 
     let feed_start = TITLE_LINES;
     let rows = feed_rows(&state.stats().recent_activity, content.width);
+    state.set_card_spans(card_spans(&rows));
     let feed_lines = rows_height(&rows).max(1);
     let viewport = content.height as usize;
     let max_scroll = (feed_start + feed_lines).saturating_sub(viewport);
@@ -189,8 +193,12 @@ pub(crate) fn render_home_content(
         scroll,
     };
     let active = state.active();
+    let focus = FeedFocus {
+        active,
+        copied: state.copied_event(now_millis()),
+    };
     let mut hits = FeedHits::default();
-    render_feed(frame, theme, state.stats(), &rows, view, active, &mut hits);
+    render_feed(frame, theme, state.stats(), &rows, view, focus, &mut hits);
     let sticky = sticky_date(&rows, view);
     let title_pinned = scroll > 0;
     let covered = content
@@ -336,6 +344,27 @@ fn card_position(rows: &[FeedRow], selected: usize) -> Option<(usize, usize)> {
     None
 }
 
+/// Document span of every card, in feed order.
+fn card_spans(rows: &[FeedRow]) -> Vec<(usize, usize)> {
+    let mut line = TITLE_LINES;
+    let mut spans = Vec::new();
+    for row in rows {
+        match row {
+            FeedRow::Date(_) => line += DATE_BLOCK_LINES,
+            FeedRow::Card(card) => {
+                spans.push((line, card.block_height()));
+                line += card.block_height();
+            }
+        }
+    }
+    spans
+}
+
+/// Wheel scroll: one card block per notch.
+pub(crate) fn scroll_cards(state: &mut HomePageState, delta: isize) {
+    state.scroll_card(delta, STICKY_BAND_LINES);
+}
+
 /// Where the feed starts in the document and how far the page is scrolled.
 #[derive(Debug, Clone, Copy)]
 struct FeedViewport {
@@ -351,13 +380,20 @@ struct FeedHits {
     copies: Vec<CopyHit>,
 }
 
+/// Which card owns the focus and which one just copied.
+#[derive(Debug, Clone, Copy, Default)]
+struct FeedFocus {
+    active: Option<usize>,
+    copied: Option<usize>,
+}
+
 fn render_feed(
     frame: &mut Frame,
     theme: &Theme,
     stats: &HomeStats,
     rows: &[FeedRow],
     view: FeedViewport,
-    active: Option<usize>,
+    focus: FeedFocus,
     hits: &mut FeedHits,
 ) {
     let FeedViewport {
@@ -394,7 +430,8 @@ fn render_feed(
                     scroll,
                     line,
                     width,
-                    active: active == Some(card.index),
+                    active: focus.active == Some(card.index),
+                    copied: focus.copied == Some(card.index),
                     theme,
                 };
                 render_card(frame, &stats.recent_activity[card.index], card, view, hits);
@@ -412,6 +449,7 @@ struct CardView<'a> {
     line: usize,
     width: u16,
     active: bool,
+    copied: bool,
     theme: &'a Theme,
 }
 
@@ -428,6 +466,7 @@ fn render_card(
         line,
         width,
         active,
+        copied,
         theme,
     } = view;
     let bg = if active {
@@ -497,7 +536,7 @@ fn render_card(
             width: inner_width,
             ..row
         };
-        if let Some(button) = render_meta_line(frame, area, theme, event, active) {
+        if let Some(button) = render_meta_line(frame, area, theme, event, active, copied) {
             hits.copies.push(CopyHit {
                 event: card.index,
                 area: button,
@@ -514,6 +553,7 @@ fn render_meta_line(
     theme: &Theme,
     event: &RecentActivity,
     active: bool,
+    copied: bool,
 ) -> Option<Rect> {
     if area.width == 0 {
         return None;
@@ -541,7 +581,7 @@ fn render_meta_line(
         width: copy_width,
         height: 1,
     };
-    render_copy_button(frame, button, theme);
+    render_copy_button(frame, button, theme, copied);
     Some(button)
 }
 
@@ -701,9 +741,14 @@ fn clock_time(at: DateTime<Local>) -> String {
     )
 }
 
-fn render_copy_button(frame: &mut Frame, area: Rect, theme: &Theme) {
+fn render_copy_button(frame: &mut Frame, area: Rect, theme: &Theme, copied: bool) {
+    let (label, bg) = if copied {
+        (COPIED_LABEL, theme.success)
+    } else {
+        (COPY_LABEL, theme.keycap.bg)
+    };
     frame.render_widget(
-        Paragraph::new(COPY_LABEL).style(Style::default().bg(theme.keycap.bg).fg(theme.text)),
+        Paragraph::new(label).style(Style::default().bg(bg).fg(theme.text)),
         area,
     );
 }
@@ -1235,6 +1280,59 @@ mod tests {
         assert!(text.contains("ago"), "relative timestamp missing");
         assert!(!text.contains("Today"), "old group is not today");
         assert!(text.contains("open taurine tui"));
+    }
+
+    #[test]
+    fn copied_card_flashes_a_green_check() {
+        let mut state = sample_state();
+        let before = library::now_millis();
+        state.mark_copied(0, before);
+
+        let buffer = render_buffer(&mut state, 100, 30);
+        let content = content_area(100, 30);
+        let when = event_time(&state.stats().recent_activity[0]);
+        let time_width = cell_width(&when) as u16;
+        let button_x = content.x + CARD_PAD_X + time_width + 1;
+        let row = meta_row(0, 1);
+        let label: String = (button_x..button_x + cell_width(COPIED_LABEL) as u16)
+            .map(|x| buffer[(x, row)].symbol())
+            .collect();
+
+        assert_eq!(label, COPIED_LABEL);
+        assert_eq!(buffer[(button_x, row)].bg, DARK_THEME.success);
+        assert_eq!(buffer[(button_x + 1, row)].symbol(), "\u{f00c}");
+
+        // Once the flash expires the copy glyph comes back.
+        state.mark_copied(
+            0,
+            before.saturating_sub(state::COPY_FEEDBACK_MS.saturating_add(1)),
+        );
+        let buffer = render_buffer(&mut state, 100, 30);
+        let label: String = (button_x..button_x + cell_width(COPY_LABEL) as u16)
+            .map(|x| buffer[(x, row)].symbol())
+            .collect();
+        assert_eq!(label, COPY_LABEL);
+        assert_eq!(buffer[(button_x, row)].bg, DARK_THEME.keycap.bg);
+    }
+
+    #[test]
+    fn wheel_scrolls_one_card_block_at_a_time() {
+        let noon = today_noon_millis();
+        let mut state = state_with_activity(vec![
+            activity_event(noon, "a", "one"),
+            activity_event(noon - 1_000, "b", "two"),
+            activity_event(noon - 2_000, "c", "three"),
+        ]);
+        let _ = draw(&mut state, 100, 40);
+
+        scroll_cards(&mut state, 1);
+        assert_eq!(state.scroll(), CARD_MIN_BLOCK_LINES);
+        scroll_cards(&mut state, 1);
+        assert_eq!(state.scroll(), CARD_MIN_BLOCK_LINES * 2);
+        scroll_cards(&mut state, -1);
+        assert_eq!(state.scroll(), CARD_MIN_BLOCK_LINES);
+        scroll_cards(&mut state, -1);
+        assert_eq!(state.scroll(), 0);
     }
 
     #[test]

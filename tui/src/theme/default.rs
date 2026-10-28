@@ -18,7 +18,7 @@ pub const DARK_THEME: Theme = Theme {
     accent: Color::Rgb(0x1E, 0x90, 0xFF),
     error: Color::Red,
     warning: Color::Yellow,
-    success: Color::Green,
+    success: Color::Rgb(0x45, 0xE7, 0x72),
     // honey: Atom One Dark token roles; template punctuation reuses the
     // muted UI grey instead of growing another field.
     syntax_comment: Color::Rgb(0x5C, 0x63, 0x70),

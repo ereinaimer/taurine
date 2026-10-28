@@ -1030,7 +1030,7 @@ fn handle_tui_mouse_event(
             }
             if home_visible(app) {
                 let down = mouse.kind == MouseEventKind::ScrollDown;
-                app.home_page_mut().scroll_by(if down { 1 } else { -1 });
+                home::scroll_cards(app.home_page_mut(), if down { 1 } else { -1 });
                 return;
             }
             if !library_visible(app) {
@@ -1976,8 +1976,8 @@ fn refresh_library_page(app: &mut App) {
     }
 }
 
-/// Copies one activity event's stored text; silent scripts have nothing to
-/// copy, so the toast only appears when something was written.
+/// Copies one activity event's stored text and flashes the check mark on
+/// its copy button. Silent scripts have nothing to copy.
 fn copy_home_event(app: &mut App, index: usize) {
     let Some(event) = app.home_page().stats().recent_activity.get(index) else {
         return;
@@ -1987,6 +1987,8 @@ fn copy_home_event(app: &mut App, index: usize) {
         return;
     }
     library::actions::write_clipboard(body);
+    app.home_page_mut()
+        .mark_copied(index, library::now_millis());
 }
 
 fn copy_selected_home_event(app: &mut App) {
@@ -3789,8 +3791,16 @@ mod tests {
     }
 
     #[test]
-    fn home_wheel_scrolls_the_page() {
+    fn home_wheel_scrolls_one_card() {
+        use ratatui::{Terminal, backend::TestBackend};
+
         let mut app = home_app_with_events(3);
+        let backend = TestBackend::new(TEST_AREA.width, TEST_AREA.height);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal
+            .draw(|frame| render_app(frame, &mut app, TEST_AREA))
+            .expect("test draw");
+
         let full = workspace_full(&app, TEST_AREA);
         let (column, row) = (full.x + 4, full.y + 6);
 
@@ -3799,7 +3809,11 @@ mod tests {
             mouse_at(column, row, MouseEventKind::ScrollDown),
             TEST_AREA,
         );
-        assert_eq!(app.home_page().scroll(), 1);
+        assert_eq!(
+            app.home_page().scroll(),
+            home::CARD_MIN_BLOCK_LINES,
+            "one card per wheel notch"
+        );
         handle_tui_mouse_event(
             &mut app,
             mouse_at(column, row, MouseEventKind::ScrollUp),
@@ -3848,6 +3862,16 @@ mod tests {
         assert_eq!(
             library::actions::read_clipboard().as_deref(),
             Some("body 0")
+        );
+
+        terminal
+            .draw(|frame| render_app(frame, &mut app, TEST_AREA))
+            .expect("test draw");
+        let buffer = terminal.backend().buffer();
+        assert!(
+            (full.top()..full.bottom()).any(|y| (full.left()..full.right())
+                .any(|x| buffer[(x, y)].symbol() == "\u{f00c}")),
+            "copy button shows the check mark"
         );
 
         // Clicking the body text selects nothing and copies nothing.

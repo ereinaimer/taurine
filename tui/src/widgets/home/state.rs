@@ -5,6 +5,8 @@ use crate::widgets::home::account::{self, AccountInfo};
 use crate::widgets::panes::{DividerPointer, DividerSide};
 
 const REFRESH_INTERVAL_MS: u64 = 10_000;
+/// How long the copy button shows its check after a successful copy.
+pub(crate) const COPY_FEEDBACK_MS: u64 = 1_200;
 
 /// A drawn activity card, recorded so the pointer can highlight it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,6 +34,8 @@ pub(crate) struct HomePageState {
     scroll: usize,
     account_ratio: f32,
     dividers: DividerPointer,
+    copied: Option<(usize, u64)>,
+    card_spans: Vec<(usize, usize)>,
     card_hits: Vec<CardHit>,
     copy_hits: Vec<CopyHit>,
     last_refresh_ms: u64,
@@ -51,6 +55,8 @@ impl Default for HomePageState {
             scroll: 0,
             account_ratio: account::DEFAULT_RATIO,
             dividers: DividerPointer::default(),
+            copied: None,
+            card_spans: Vec::new(),
             card_hits: Vec::new(),
             copy_hits: Vec::new(),
             last_refresh_ms: 0,
@@ -82,6 +88,7 @@ impl HomePageState {
         self.stats = stats;
         self.load_error = None;
         self.hovered = None;
+        self.copied = None;
         let len = self.stats.recent_activity.len();
         self.selected = match (self.selected, len) {
             (_, 0) => None,
@@ -209,12 +216,32 @@ impl HomePageState {
         self.scroll = scroll;
     }
 
-    pub(crate) fn scroll_by(&mut self, delta: isize) {
-        self.scroll = if delta >= 0 {
-            self.scroll.saturating_add(delta as usize)
+    /// Document spans (top line, block height) for every card in the feed.
+    pub(crate) fn set_card_spans(&mut self, spans: Vec<(usize, usize)>) {
+        self.card_spans = spans;
+    }
+
+    /// Wheel step: move exactly one card's block, based on the card at
+    /// the viewport's top edge.
+    pub(crate) fn scroll_card(&mut self, delta: isize, band: usize) {
+        if self.card_spans.is_empty() || delta == 0 {
+            return;
+        }
+        let anchor = self.scroll.saturating_add(band);
+        let index = self.card_spans.iter().position(|(top, _)| *top >= anchor);
+        if delta > 0 {
+            let height = index
+                .map(|index| self.card_spans[index].1)
+                .unwrap_or_else(|| self.card_spans.last().map_or(0, |span| span.1));
+            self.scroll = self.scroll.saturating_add(height);
         } else {
-            self.scroll.saturating_sub(delta.unsigned_abs())
-        };
+            let height = match index {
+                Some(0) => self.card_spans[0].1,
+                Some(index) => self.card_spans[index - 1].1,
+                None => self.card_spans.last().map_or(0, |span| span.1),
+            };
+            self.scroll = self.scroll.saturating_sub(height);
+        }
     }
 
     pub(crate) fn set_card_hits(&mut self, hits: Vec<CardHit>) {
@@ -247,6 +274,18 @@ impl HomePageState {
             .iter()
             .find(|hit| contains(hit.area, column, row))
             .map(|hit| hit.event)
+    }
+
+    /// Flash the check mark on a card's copy button after a copy.
+    pub(crate) fn mark_copied(&mut self, index: usize, now_ms: u64) {
+        self.copied = Some((index, now_ms.saturating_add(COPY_FEEDBACK_MS)));
+    }
+
+    /// Card whose copy button should show the check right now.
+    pub(crate) fn copied_event(&self, now_ms: u64) -> Option<usize> {
+        self.copied
+            .filter(|(_, until)| now_ms < *until)
+            .map(|(index, _)| index)
     }
 
     pub(crate) fn refresh_due(&self, now_ms: u64) -> bool {
@@ -312,14 +351,19 @@ mod tests {
     }
 
     #[test]
-    fn scroll_steps_and_stops_at_the_top() {
+    fn card_scroll_steps_one_card_block() {
         let mut state = HomePageState::default();
+        state.set_card_spans(vec![(4, 8), (12, 8), (20, 8)]);
 
-        state.scroll_by(3);
-        assert_eq!(state.scroll(), 3);
-        state.scroll_by(-1);
-        assert_eq!(state.scroll(), 2);
-        state.scroll_by(-10);
+        state.scroll_card(1, 4);
+        assert_eq!(state.scroll(), 8, "first card block");
+        state.scroll_card(1, 4);
+        assert_eq!(state.scroll(), 16, "second card block");
+        state.scroll_card(-1, 4);
+        assert_eq!(state.scroll(), 8);
+        state.scroll_card(-1, 4);
+        assert_eq!(state.scroll(), 0);
+        state.scroll_card(-1, 4);
         assert_eq!(state.scroll(), 0, "top of the feed stops");
     }
 
@@ -454,5 +498,18 @@ mod tests {
         assert_eq!(state.card_at(3, 14), None, "gap row is not a card");
         assert_eq!(state.copy_at(56, 12), Some(3));
         assert_eq!(state.copy_at(3, 12), None, "body text is not the button");
+    }
+
+    #[test]
+    fn copy_feedback_lasts_for_the_flash_window() {
+        let mut state = HomePageState::default();
+        state.mark_copied(2, 5_000);
+
+        assert_eq!(state.copied_event(5_000), Some(2));
+        assert_eq!(state.copied_event(6_199), Some(2));
+        assert_eq!(state.copied_event(6_200), None, "flash expires");
+
+        state.replace_stats(HomeStats::default());
+        assert_eq!(state.copied_event(5_001), None, "a refresh clears it");
     }
 }
