@@ -207,47 +207,11 @@ pub(crate) fn detail_contains(
 }
 
 /// Wrap one source line to the pane width: greedy whole words, one
-/// visual row per entry, each with its source char range. Words move
-/// whole to the next row; only a lone word longer than the width
-/// hard-breaks (paths, URLs). The consumed break space is dropped so
-/// continuation rows start clean; interior spacing is preserved.
-/// Blank lines stay blank; tabs flatten.
+/// visual row per entry, each with its source char range. Delegates to
+/// the shared wrapper so the content box, home feed, and any future
+/// pane all break words the same way.
 pub(crate) fn wrap_content_spans(line: &str, width: u16) -> Vec<(String, std::ops::Range<usize>)> {
-    let width = (width.max(1)) as usize;
-    let flat = line.replace('\t', "  ");
-    let trimmed = flat.trim_end();
-    if trimmed.is_empty() {
-        return vec![(String::new(), 0..0)];
-    }
-    let chars: Vec<char> = trimmed.chars().collect();
-    let mut rows = Vec::new();
-    let mut start = 0usize;
-    while start < chars.len() {
-        if chars.len() - start <= width {
-            rows.push((chars[start..].iter().collect(), start..chars.len()));
-            break;
-        }
-        let end = start + width;
-        match chars[start..end].iter().rposition(|ch| *ch == ' ') {
-            Some(gap) => {
-                rows.push((
-                    chars[start..start + gap].iter().collect(),
-                    start..start + gap,
-                ));
-                start += gap + 1;
-            }
-            None => {
-                // honey: overlong word hard-breaks; the only cut this
-                // wrapper ever makes.
-                rows.push((chars[start..end].iter().collect(), start..end));
-                start = end;
-                while start < chars.len() && chars[start] == ' ' {
-                    start += 1;
-                }
-            }
-        }
-    }
-    rows
+    crate::widgets::wrap::wrap_line(line, width as usize, width as usize)
 }
 
 /// Wrap source lines to the pane width, one visual row per chunk.

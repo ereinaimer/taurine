@@ -6,23 +6,20 @@ pub(crate) const STAT_CARD_COUNT: usize = 4;
 
 const REFRESH_INTERVAL_MS: u64 = 10_000;
 
-/// One drawn activity line, recorded so the pointer can hit it. `copy` is
-/// set only on the body line, which carries the copy button.
+/// A drawn copy button, recorded so the pointer can find it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct ActivityHit {
+pub(crate) struct CopyHit {
     pub(crate) event: usize,
     pub(crate) area: Rect,
-    pub(crate) copy: Option<Rect>,
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct HomePageState {
     stats: HomeStats,
     load_error: Option<String>,
-    selected: Option<usize>,
     scroll: usize,
     page: usize,
-    hits: Vec<ActivityHit>,
+    copy_hits: Vec<CopyHit>,
     last_refresh_ms: u64,
     refresh_requested: bool,
 }
@@ -39,57 +36,18 @@ impl HomePageState {
     pub(crate) fn replace_stats(&mut self, stats: HomeStats) {
         self.stats = stats;
         self.load_error = None;
-        self.selected = self.clamp_selection(self.selected.unwrap_or(0));
     }
 
     pub(crate) fn set_load_error(&mut self, error: String) {
         self.load_error = Some(error);
     }
 
-    pub(crate) const fn selected(&self) -> Option<usize> {
-        self.selected
-    }
-
-    fn clamp_selection(&self, index: usize) -> Option<usize> {
-        let len = self.stats.recent_activity.len();
-        (len > 0).then(|| index.min(len - 1))
-    }
-
-    pub(crate) fn select(&mut self, index: usize) {
-        self.selected = self.clamp_selection(index);
-    }
-
-    /// Moves the cursor between events; the render keeps it in view.
-    pub(crate) fn move_selection(&mut self, delta: isize) {
-        let Some(current) = self.selected else {
-            self.selected = self.clamp_selection(0);
-            return;
-        };
-        let next = if delta >= 0 {
-            current.saturating_add(delta as usize)
-        } else {
-            current.saturating_sub(delta.unsigned_abs())
-        };
-        self.selected = self.clamp_selection(next);
-    }
-
-    /// PageUp/PageDown step, using the viewport height the last frame drew.
-    pub(crate) fn page_selection(&mut self, delta: isize) {
-        let page = self.page.max(1) as isize;
-        self.move_selection(delta.saturating_mul(page));
-    }
-
-    pub(crate) fn select_first(&mut self) {
-        self.selected = self.clamp_selection(0);
-    }
-
-    pub(crate) fn select_last(&mut self) {
-        let len = self.stats.recent_activity.len();
-        self.selected = len.checked_sub(1);
-    }
-
     pub(crate) const fn scroll(&self) -> usize {
         self.scroll
+    }
+
+    pub(crate) const fn set_scroll(&mut self, scroll: usize) {
+        self.scroll = scroll;
     }
 
     /// Viewport height recorded by the last render, used as the page step.
@@ -97,39 +55,38 @@ impl HomePageState {
         self.page = page;
     }
 
-    pub(crate) const fn set_scroll(&mut self, scroll: usize) {
-        self.scroll = scroll;
+    pub(crate) fn scroll_by(&mut self, delta: isize) {
+        self.scroll = if delta >= 0 {
+            self.scroll.saturating_add(delta as usize)
+        } else {
+            self.scroll.saturating_sub(delta.unsigned_abs())
+        };
     }
 
-    /// Scrolls the document just enough to show `start..end`, then clamps
-    /// to the last full page so the cards can scroll fully out of view.
-    pub(crate) fn reveal(&mut self, start: usize, end: usize, viewport: usize, max: usize) {
-        if start < self.scroll {
-            self.scroll = start;
-        } else if end > self.scroll.saturating_add(viewport) {
-            self.scroll = end.saturating_sub(viewport);
-        }
-        self.scroll = self.scroll.min(max);
+    /// PageUp/PageDown step, using the viewport height the last frame drew.
+    pub(crate) fn scroll_page(&mut self, delta: isize) {
+        let page = self.page.max(1) as isize;
+        self.scroll_by(delta.saturating_mul(page));
     }
 
-    pub(crate) fn set_hits(&mut self, hits: Vec<ActivityHit>) {
-        self.hits = hits;
+    pub(crate) const fn scroll_to_start(&mut self) {
+        self.scroll = 0;
     }
 
-    /// Event under the pointer, if any drawn line covers it.
-    pub(crate) fn event_at(&self, column: u16, row: u16) -> Option<usize> {
-        self.hits
-            .iter()
-            .find(|hit| contains(hit.area, column, row))
-            .map(|hit| hit.event)
+    pub(crate) const fn scroll_to_end(&mut self) {
+        self.scroll = usize::MAX;
+    }
+
+    pub(crate) fn set_copy_hits(&mut self, hits: Vec<CopyHit>) {
+        self.copy_hits = hits;
     }
 
     /// Event whose copy button covers the pointer.
     pub(crate) fn copy_at(&self, column: u16, row: u16) -> Option<usize> {
-        self.hits.iter().find_map(|hit| {
-            let button = hit.copy?;
-            contains(button, column, row).then_some(hit.event)
-        })
+        self.copy_hits
+            .iter()
+            .find(|hit| contains(hit.area, column, row))
+            .map(|hit| hit.event)
     }
 
     pub(crate) fn refresh_due(&self, now_ms: u64) -> bool {
@@ -211,28 +168,6 @@ pub(crate) fn format_time_saved(ms: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use taurine_core::stats::RecentActivity;
-
-    fn event(trigger: &str) -> RecentActivity {
-        RecentActivity {
-            timestamp: 0,
-            category: taurine_core::db::crud::ActivityCategory::Text,
-            trigger: trigger.to_string(),
-            detail: String::new(),
-            content: None,
-            app: String::new(),
-            word_count: 0,
-        }
-    }
-
-    fn state_with(len: usize) -> HomePageState {
-        let mut state = HomePageState::default();
-        state.replace_stats(HomeStats {
-            recent_activity: (0..len).map(|i| event(&format!("t{i}"))).collect(),
-            ..HomeStats::default()
-        });
-        state
-    }
 
     #[test]
     fn refresh_is_due_after_the_interval() {
@@ -251,97 +186,56 @@ mod tests {
     }
 
     #[test]
-    fn selection_starts_on_the_newest_event_and_clamps() {
-        let mut state = state_with(3);
-        assert_eq!(state.selected(), Some(0));
+    fn scroll_steps_and_stops_at_the_top() {
+        let mut state = HomePageState::default();
 
-        state.move_selection(-1);
-        assert_eq!(state.selected(), Some(0), "top of the feed stops");
-
-        state.move_selection(10);
-        assert_eq!(state.selected(), Some(2), "bottom of the feed stops");
-
-        state.select_last();
-        assert_eq!(state.selected(), Some(2));
-        state.select_first();
-        assert_eq!(state.selected(), Some(0));
+        state.scroll_by(3);
+        assert_eq!(state.scroll(), 3);
+        state.scroll_by(-1);
+        assert_eq!(state.scroll(), 2);
+        state.scroll_by(-10);
+        assert_eq!(state.scroll(), 0, "top of the feed stops");
     }
 
     #[test]
-    fn page_selection_steps_by_the_viewport() {
-        let mut state = state_with(50);
+    fn page_scroll_steps_by_the_viewport() {
+        let mut state = HomePageState::default();
         state.set_page(10);
 
-        state.page_selection(1);
-        assert_eq!(state.selected(), Some(10));
-        state.page_selection(-1);
-        assert_eq!(state.selected(), Some(0));
+        state.scroll_page(1);
+        assert_eq!(state.scroll(), 10);
+        state.scroll_page(-1);
+        assert_eq!(state.scroll(), 0);
     }
 
     #[test]
-    fn empty_activity_has_no_selection() {
-        let mut state = state_with(0);
-        assert_eq!(state.selected(), None);
-
-        state.move_selection(1);
-        assert_eq!(state.selected(), None);
-        state.select_last();
-        assert_eq!(state.selected(), None);
-    }
-
-    #[test]
-    fn shrinking_the_feed_keeps_the_selection_in_range() {
-        let mut state = state_with(10);
-        state.select_last();
-        assert_eq!(state.selected(), Some(9));
-
-        state.replace_stats(HomeStats {
-            recent_activity: vec![event("only")],
-            ..HomeStats::default()
-        });
-        assert_eq!(state.selected(), Some(0));
-    }
-
-    #[test]
-    fn reveal_scrolls_only_when_the_selection_leaves_the_viewport() {
+    fn end_jumps_past_every_page_and_home_returns() {
         let mut state = HomePageState::default();
 
-        state.reveal(5, 8, 10, 100);
-        assert_eq!(state.scroll(), 0, "already visible");
-
-        state.reveal(20, 23, 10, 100);
-        assert_eq!(state.scroll(), 13, "selection at the bottom edge");
-
-        state.reveal(2, 5, 10, 100);
-        assert_eq!(state.scroll(), 2, "selection at the top edge");
-
-        state.reveal(90, 93, 10, 40);
-        assert_eq!(state.scroll(), 40, "never past the last page");
+        state.scroll_to_end();
+        assert_eq!(state.scroll(), usize::MAX);
+        state.scroll_to_start();
+        assert_eq!(state.scroll(), 0);
     }
 
     #[test]
-    fn hit_testing_finds_rows_and_copy_buttons() {
+    fn hit_testing_finds_only_copy_buttons() {
         let mut state = HomePageState::default();
-        let row = Rect::new(0, 10, 80, 1);
-        let button = Rect::new(70, 11, 6, 1);
-        state.set_hits(vec![
-            ActivityHit {
+        state.set_copy_hits(vec![
+            CopyHit {
                 event: 3,
-                area: row,
-                copy: None,
+                area: Rect::new(70, 11, 6, 1),
             },
-            ActivityHit {
-                event: 3,
-                area: Rect::new(0, 11, 80, 1),
-                copy: Some(button),
+            CopyHit {
+                event: 4,
+                area: Rect::new(70, 20, 6, 1),
             },
         ]);
 
-        assert_eq!(state.event_at(4, 10), Some(3));
-        assert_eq!(state.event_at(4, 11), Some(3));
-        assert_eq!(state.event_at(4, 12), None);
         assert_eq!(state.copy_at(72, 11), Some(3));
+        assert_eq!(state.copy_at(72, 20), Some(4));
         assert_eq!(state.copy_at(4, 11), None, "body text is not the button");
+        assert_eq!(state.copy_at(72, 12), None);
     }
 
     #[test]

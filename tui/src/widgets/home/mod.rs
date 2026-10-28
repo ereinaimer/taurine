@@ -12,10 +12,11 @@ use taurine_core::stats::{HomeStats, RecentActivity};
 use crate::theme::Theme;
 use crate::widgets::hotkey;
 use crate::widgets::library::detail::relative_time;
+use crate::widgets::wrap::{cell_width, wrap_line};
 
 pub mod state;
 
-use self::state::{ActivityHit, HomePageState, STAT_CARD_COUNT, format_count, format_time_saved};
+use self::state::{CopyHit, HomePageState, STAT_CARD_COUNT, format_count, format_time_saved};
 
 const PANE_PAD_X: u16 = 2;
 const CARD_HEIGHT: u16 = 4;
@@ -33,6 +34,10 @@ const TITLE_LINES: usize = 2;
 const CARDS_GAP_LINES: usize = 1;
 
 const COPY_LABEL: &str = " copy ";
+
+/// Blank cells kept between the left text column and the right-hand
+/// clock/button column, so content never runs into either.
+const CONTENT_GAP: u16 = 6;
 
 const MONTHS: [&str; 12] = [
     "January",
@@ -79,20 +84,12 @@ pub(crate) fn render_home_content(
     let cards_height = cards_height(content.width);
     let feed_start =
         cards_height as usize + usize::from(cards_height > 0) * CARDS_GAP_LINES + TITLE_LINES;
-    let rows = feed_rows(&state.stats().recent_activity);
+    let today = Local::now().date_naive();
+    let rows = feed_rows(&state.stats().recent_activity, content.width, today);
     let feed_lines = rows_height(&rows).max(1);
     let viewport = content.height as usize;
     let max_scroll = (feed_start + feed_lines).saturating_sub(viewport);
 
-    // The cursor owns the scroll: moving it past an edge pulls the page
-    // just far enough to show the event again. Selecting the newest
-    // event also scrolls back to the document top so the cards return.
-    if let Some(selected) = state.selected()
-        && let Some(line) = item_line(&rows, selected)
-    {
-        let start = if selected == 0 { 0 } else { feed_start + line };
-        state.reveal(start, feed_start + line + ITEM_LINES, viewport, max_scroll);
-    }
     let scroll = state.scroll().min(max_scroll);
     state.set_scroll(scroll);
     state.set_page(viewport);
@@ -106,21 +103,13 @@ pub(crate) fn render_home_content(
         scroll,
     };
     let mut hits = Vec::new();
-    render_feed(
-        frame,
-        theme,
-        state.stats(),
-        state.selected(),
-        &rows,
-        view,
-        &mut hits,
-    );
+    render_feed(frame, theme, state.stats(), &rows, view, &mut hits);
     if scroll > feed_start {
         // honey: the pinned date covers the first feed row, so clicks
         // there must not reach the event underneath it.
         hits.retain(|hit| hit.area.y != content.y);
     }
-    state.set_hits(hits);
+    state.set_copy_hits(hits);
 
     render_sticky_date(frame, theme, &rows, view);
 }
@@ -274,23 +263,61 @@ fn render_title(frame: &mut Frame, content: Rect, theme: &Theme, cards_height: u
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FeedRow {
     Date(NaiveDate),
-    Item(usize),
+    Item(ItemLayout),
 }
 
-/// One entry per drawn line, in document order.
-fn feed_rows(activity: &[RecentActivity]) -> Vec<FeedRow> {
+struct ItemLayout {
+    index: usize,
+    kind: ItemKind,
+}
+
+enum ItemKind {
+    /// Voice dictation: the content itself, wrapped, with no label line.
+    Voice(Vec<String>),
+    /// Everything else: a trigger line and a one-line body preview.
+    Label(String),
+}
+
+impl ItemLayout {
+    /// Drawn height, including the blank row after the item.
+    fn height(&self) -> usize {
+        match &self.kind {
+            ItemKind::Voice(lines) => lines.len().max(1) + 1,
+            ItemKind::Label(_) => ITEM_LINES,
+        }
+    }
+}
+
+/// One entry per drawn block, in document order.
+fn feed_rows(activity: &[RecentActivity], width: u16, today: NaiveDate) -> Vec<FeedRow> {
+    // honey: wrapped lines are rebuilt every frame; the feed is capped at
+    // 30 days, so this stays cheap. Cache by width if it ever grows.
     let mut rows = Vec::with_capacity(activity.len() + 4);
     let mut previous: Option<NaiveDate> = None;
     for (index, event) in activity.iter().enumerate() {
-        let date = local_datetime(event.timestamp).date_naive();
+        let at = local_datetime(event.timestamp);
+        let date = at.date_naive();
         if previous != Some(date) {
             rows.push(FeedRow::Date(date));
             previous = Some(date);
         }
-        rows.push(FeedRow::Item(index));
+        let kind = if is_dictation(event) {
+            let when = activity_time(at, today);
+            let (first, rest) = voice_budgets(width, &when);
+            let mut lines = wrap_text(event_body(event), first, rest);
+            // The clock owns the first line and the copy button the last,
+            // so even an empty or one-line dictation gets a second line
+            // for the button and the clock always sits flush right.
+            while lines.len() < 2 {
+                lines.push(String::new());
+            }
+            ItemKind::Voice(lines)
+        } else {
+            ItemKind::Label(event_body(event).to_string())
+        };
+        rows.push(FeedRow::Item(ItemLayout { index, kind }));
     }
     rows
 }
@@ -300,30 +327,41 @@ fn rows_height(rows: &[FeedRow]) -> usize {
     rows.iter()
         .map(|row| match row {
             FeedRow::Date(_) => GROUP_HEADER_LINES,
-            FeedRow::Item(_) => ITEM_LINES,
+            FeedRow::Item(item) => item.height(),
         })
         .sum()
 }
 
-fn item_line(rows: &[FeedRow], event: usize) -> Option<usize> {
-    let mut line = 0usize;
-    for row in rows {
-        match *row {
-            FeedRow::Date(_) => line += GROUP_HEADER_LINES,
-            FeedRow::Item(index) => {
-                if index == event {
-                    return Some(line);
-                }
-                line += ITEM_LINES;
-            }
-        }
-    }
-    None
+fn is_dictation(event: &RecentActivity) -> bool {
+    event.category == ActivityCategory::Voice
 }
 
-#[cfg(test)]
-fn activity_line_count(activity: &[RecentActivity]) -> usize {
-    rows_height(&feed_rows(activity))
+/// Line budgets for a dictation. The clock is flush right on the first
+/// line, so text stops a gap short of it; later lines clear the copy
+/// column the same way.
+fn voice_budgets(width: u16, when: &str) -> (usize, usize) {
+    let copy = cell_width(COPY_LABEL) as u16;
+    let time = cell_width(when) as u16;
+    let clock = width.saturating_sub(time.saturating_add(1));
+    let first = clock.saturating_sub(CONTENT_GAP);
+    let rest = width
+        .saturating_sub(copy.saturating_add(1))
+        .saturating_sub(CONTENT_GAP);
+    (first as usize, rest as usize)
+}
+
+/// Wraps text into lines of at most `first` cells on the first line and
+/// `rest` on every later line. The shared wrapper keeps words whole; only
+/// a word longer than a line is split, so the whole dictation is shown.
+fn wrap_text(text: &str, first: usize, rest: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    for source in text.lines() {
+        let budget = if lines.is_empty() { first } else { rest };
+        for (row, _) in wrap_line(source, budget, rest) {
+            lines.push(row);
+        }
+    }
+    lines
 }
 
 /// Where the feed starts in the document and how far the page is scrolled.
@@ -338,10 +376,9 @@ fn render_feed(
     frame: &mut Frame,
     theme: &Theme,
     stats: &HomeStats,
-    selected: Option<usize>,
     rows: &[FeedRow],
     view: FeedViewport,
-    hits: &mut Vec<ActivityHit>,
+    hits: &mut Vec<CopyHit>,
 ) {
     let FeedViewport {
         content,
@@ -363,45 +400,57 @@ fn render_feed(
         if line >= viewport_end {
             break;
         }
-        match *row {
+        match row {
             FeedRow::Date(date) => {
                 if let Some(area) = visible_line(content, scroll, line) {
-                    render_group_header(frame, area, theme, date, today);
+                    render_group_header(frame, area, theme, *date, today);
                 }
                 line += GROUP_HEADER_LINES;
             }
-            FeedRow::Item(index) => {
-                let event = &stats.recent_activity[index];
-                let is_selected = selected == Some(index);
-                let at = local_datetime(event.timestamp);
-                let when = activity_time(at, today);
-                let body = event_body(event);
-
-                if let Some(area) = visible_line(content, scroll, line) {
-                    render_trigger(
-                        frame,
-                        area,
-                        theme,
-                        event,
-                        &when,
-                        activity_text_width(area.width, &when),
-                        is_selected,
-                    );
-                    hits.push(ActivityHit {
-                        event: index,
-                        area,
-                        copy: None,
-                    });
+            FeedRow::Item(item) => {
+                let event = &stats.recent_activity[item.index];
+                let when = activity_time(local_datetime(event.timestamp), today);
+                match &item.kind {
+                    ItemKind::Voice(lines) => {
+                        let last = lines.len().saturating_sub(1);
+                        for (offset, text) in lines.iter().enumerate() {
+                            if let Some(area) = visible_line(content, scroll, line + offset) {
+                                render_voice_line(frame, area, theme, text, &when, offset == 0);
+                            }
+                        }
+                        if let Some(area) = visible_line(content, scroll, line + last)
+                            && let Some(button) = copy_button_rect(area)
+                        {
+                            render_copy_button(frame, button, theme);
+                            hits.push(CopyHit {
+                                event: item.index,
+                                area: button,
+                            });
+                        }
+                        line += item.height();
+                    }
+                    ItemKind::Label(body) => {
+                        if let Some(area) = visible_line(content, scroll, line) {
+                            render_trigger(
+                                frame,
+                                area,
+                                theme,
+                                event,
+                                &when,
+                                activity_text_width(area.width, &when),
+                            );
+                        }
+                        if let Some(area) = visible_line(content, scroll, line + 1)
+                            && let Some(button) = render_label_body(frame, area, theme, body)
+                        {
+                            hits.push(CopyHit {
+                                event: item.index,
+                                area: button,
+                            });
+                        }
+                        line += item.height();
+                    }
                 }
-                if let Some(area) = visible_line(content, scroll, line.saturating_add(1)) {
-                    let copy = render_body(frame, area, theme, body, is_selected);
-                    hits.push(ActivityHit {
-                        event: index,
-                        area,
-                        copy,
-                    });
-                }
-                line += ITEM_LINES;
             }
         }
     }
@@ -467,14 +516,14 @@ fn render_sticky_date(frame: &mut Frame, theme: &Theme, rows: &[FeedRow], view: 
         if line > scroll {
             break;
         }
-        match *row {
+        match row {
             FeedRow::Date(date) => {
                 if line < scroll {
-                    sticky = Some(date);
+                    sticky = Some(*date);
                 }
                 line += GROUP_HEADER_LINES;
             }
-            FeedRow::Item(_) => line += ITEM_LINES,
+            FeedRow::Item(item) => line += item.height(),
         }
     }
     let Some(date) = sticky else {
@@ -514,11 +563,13 @@ fn clock_time(at: DateTime<Local>) -> String {
     )
 }
 
-/// Text stops one cell before the right-aligned time, so nothing runs
+/// Text stops a gap before the right-aligned time, so nothing runs
 /// underneath it.
 fn activity_text_width(width: u16, when: &str) -> u16 {
     let when_width = cell_width(when) as u16;
-    width.saturating_sub(when_width.saturating_add(1))
+    width
+        .saturating_sub(when_width.saturating_add(1))
+        .saturating_sub(CONTENT_GAP)
 }
 
 fn render_trigger(
@@ -528,22 +579,15 @@ fn render_trigger(
     event: &RecentActivity,
     when: &str,
     text_width: u16,
-    selected: bool,
 ) {
     let trigger_width = text_width as usize;
-    let (keycap_bg, base_bg) = if selected {
-        (theme.keycap.on_surface, theme.surface)
-    } else {
-        (theme.keycap.bg, theme.background)
-    };
-
     let mut spans = if is_hotkey_activity(event) {
         hotkey::render_hotkey_spans(
             &event.trigger,
             trigger_width,
-            keycap_bg,
+            theme.keycap.bg,
             theme.text,
-            base_bg,
+            theme.background,
         )
     } else {
         vec![Span::styled(
@@ -551,40 +595,70 @@ fn render_trigger(
             Style::default().fg(theme.text),
         )]
     };
+    // Pad to the clock's fixed cell, not to the text budget, so the gap
+    // never shifts the clock off the right edge.
+    let clock_x = area
+        .width
+        .saturating_sub(cell_width(when) as u16)
+        .saturating_sub(1);
     let used = hotkey::spans_width(&spans);
-    spans.push(Span::raw(" ".repeat(trigger_width.saturating_sub(used))));
+    spans.push(Span::raw(
+        " ".repeat((clock_x as usize).saturating_sub(used)),
+    ));
     spans.push(Span::styled(
         when.to_string(),
         Style::default().fg(theme.description),
     ));
 
-    let style = if selected {
-        Style::default().bg(theme.surface)
-    } else {
-        Style::default()
-    };
-    frame.render_widget(Paragraph::new(Line::from(spans)).style(style), area);
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
-/// Draws the event's text and its copy button; returns the button's rect.
-fn render_body(
+/// One wrapped dictation line: the clock ends the first line at the same
+/// right edge the copy button uses on the last.
+fn render_voice_line(
     frame: &mut Frame,
     area: Rect,
     theme: &Theme,
-    body: &str,
-    selected: bool,
-) -> Option<Rect> {
+    text: &str,
+    when: &str,
+    first: bool,
+) {
+    let time = cell_width(when) as u16;
+    let time_x = area.right().saturating_sub(1).saturating_sub(time);
+    // Draw into exactly the budget the wrapper used, so a wrapped row is
+    // never clipped mid-word.
+    let (first_width, rest_width) = voice_budgets(area.width, when);
+    let text_width = if first { first_width } else { rest_width } as u16;
+
+    if text_width > 0 {
+        frame.render_widget(
+            Paragraph::new(text.to_string()).style(Style::default().fg(theme.description)),
+            Rect {
+                width: text_width,
+                ..area
+            },
+        );
+    }
+    if first && time > 0 && time_x >= area.x && time_x.saturating_add(time) <= area.right() {
+        frame.render_widget(
+            Paragraph::new(when.to_string()).style(Style::default().fg(theme.description)),
+            Rect {
+                x: time_x,
+                width: time,
+                ..area
+            },
+        );
+    }
+}
+
+/// Draws the event's one-line preview and its copy button; returns the
+/// button's rect.
+fn render_label_body(frame: &mut Frame, area: Rect, theme: &Theme, body: &str) -> Option<Rect> {
     if body.trim().is_empty() || area.width == 0 {
         return None;
     }
-    let button_width = cell_width(COPY_LABEL) as u16;
-    let text_width = area.width.saturating_sub(button_width.saturating_add(1));
-    let row_style = if selected {
-        Style::default().bg(theme.surface)
-    } else {
-        Style::default()
-    };
-
+    let button = copy_button_rect(area)?;
+    let text_width = button.x.saturating_sub(area.x).saturating_sub(CONTENT_GAP);
     if text_width > 0 {
         // honey: content can be multi-line; the preview is one flat line.
         let flat: String = body
@@ -593,29 +667,31 @@ fn render_body(
             .collect();
         frame.render_widget(
             Paragraph::new(truncate(flat.trim(), text_width as usize))
-                .style(row_style.fg(theme.description)),
+                .style(Style::default().fg(theme.description)),
             Rect {
                 width: text_width,
                 ..area
             },
         );
     }
-
-    let button = Rect {
-        x: area.right().saturating_sub(button_width),
-        width: button_width,
-        ..area
-    };
-    let button_bg = if selected {
-        theme.keycap.on_surface
-    } else {
-        theme.keycap.bg
-    };
-    frame.render_widget(
-        Paragraph::new(COPY_LABEL).style(Style::default().bg(button_bg).fg(theme.text)),
-        button,
-    );
+    render_copy_button(frame, button, theme);
     Some(button)
+}
+
+fn copy_button_rect(area: Rect) -> Option<Rect> {
+    let width = cell_width(COPY_LABEL) as u16;
+    (area.width > width).then(|| Rect {
+        x: area.right().saturating_sub(width),
+        width,
+        ..area
+    })
+}
+
+fn render_copy_button(frame: &mut Frame, area: Rect, theme: &Theme) {
+    frame.render_widget(
+        Paragraph::new(COPY_LABEL).style(Style::default().bg(theme.keycap.bg).fg(theme.text)),
+        area,
+    );
 }
 
 /// The text an event produced, with the trigger description as the
@@ -647,11 +723,6 @@ fn padded(area: Rect, x: u16, y: u16) -> Rect {
     }
 }
 
-/// Terminal cells a string occupies; wide glyphs count as two.
-fn cell_width(text: &str) -> usize {
-    Span::raw(text).width()
-}
-
 /// Truncate to `width` cells so a wide glyph can never push the line past
 /// its column budget.
 fn truncate(text: &str, width: usize) -> String {
@@ -679,7 +750,7 @@ fn truncate(text: &str, width: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use ratatui::{Terminal, backend::TestBackend};
+    use ratatui::{Terminal, backend::TestBackend, buffer::Buffer};
 
     use taurine_core::db::crud::StreakInfo;
 
@@ -714,14 +785,18 @@ mod tests {
         state
     }
 
-    fn draw(state: &mut HomePageState, width: u16, height: u16) -> String {
+    fn render_buffer(state: &mut HomePageState, width: u16, height: u16) -> Buffer {
         let area = Rect::new(0, 0, width, height);
         let backend = TestBackend::new(width, height);
         let mut terminal = Terminal::new(backend).expect("test terminal");
         terminal
             .draw(|frame| render_home_content(frame, area, &DARK_THEME, state))
             .expect("test draw");
-        let buffer = terminal.backend().buffer();
+        terminal.backend().buffer().clone()
+    }
+
+    fn draw(state: &mut HomePageState, width: u16, height: u16) -> String {
+        let buffer = render_buffer(state, width, height);
         let mut text = String::new();
         for y in 0..height {
             for x in 0..width {
@@ -759,6 +834,18 @@ mod tests {
         }
     }
 
+    fn voice_event(timestamp: i64, body: &str) -> RecentActivity {
+        RecentActivity {
+            timestamp,
+            category: ActivityCategory::Voice,
+            trigger: "Dictation".to_string(),
+            detail: String::new(),
+            content: Some(body.to_string()),
+            app: String::new(),
+            word_count: 0,
+        }
+    }
+
     fn state_with_activity(activity: Vec<RecentActivity>) -> HomePageState {
         let mut state = HomePageState::default();
         state.replace_stats(HomeStats {
@@ -779,15 +866,9 @@ mod tests {
     #[test]
     fn home_page_paints_no_blue() {
         let mut state = sample_state();
-        let area = Rect::new(0, 0, 120, 40);
-        let backend = TestBackend::new(area.width, area.height);
-        let mut terminal = Terminal::new(backend).expect("test terminal");
-        terminal
-            .draw(|frame| render_home_content(frame, area, &DARK_THEME, &mut state))
-            .expect("test draw");
-        let buffer = terminal.backend().buffer();
-        for y in area.top()..area.bottom() {
-            for x in area.left()..area.right() {
+        let buffer = render_buffer(&mut state, 120, 40);
+        for y in 0..40 {
+            for x in 0..120 {
                 let fg = buffer[(x, y)].fg;
                 assert_ne!(fg, DARK_THEME.primary, "blue value at {x},{y}");
                 assert_ne!(fg, DARK_THEME.accent, "blue accent at {x},{y}");
@@ -821,6 +902,23 @@ mod tests {
         }
         assert!(!text.contains("█"), "no usage bars");
         assert!(!text.contains("●"), "no carousel dots");
+    }
+
+    #[test]
+    fn activity_rows_have_no_selection_background() {
+        let mut state = sample_state();
+        let (_, feed_start) = content_area(120, 40);
+        let buffer = render_buffer(&mut state, 120, 40);
+
+        for y in feed_start as u16..40 {
+            for x in 0..120 {
+                assert_ne!(
+                    buffer[(x, y)].bg,
+                    DARK_THEME.surface,
+                    "highlighted activity cell at {x},{y}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -884,7 +982,7 @@ mod tests {
     }
 
     #[test]
-    fn activity_body_truncates_with_an_ellipsis() {
+    fn label_body_truncates_with_an_ellipsis() {
         let mut state = state_with_activity(vec![activity_event(
             today_noon_millis(),
             "gs",
@@ -902,15 +1000,9 @@ mod tests {
             "gs",
             &"a long description ".repeat(40),
         )]);
-        let area = Rect::new(0, 0, 120, 40);
-        let backend = TestBackend::new(area.width, area.height);
-        let mut terminal = Terminal::new(backend).expect("test terminal");
-        terminal
-            .draw(|frame| render_home_content(frame, area, &DARK_THEME, &mut state))
-            .expect("test draw");
-        let buffer = terminal.backend().buffer();
+        let buffer = render_buffer(&mut state, 120, 40);
 
-        let (content, feed_start) = content_area(area.width, area.height);
+        let (content, feed_start) = content_area(120, 40);
         let body_row = content.y + (feed_start + GROUP_HEADER_LINES + 1) as u16;
         let button_x = content.right() - cell_width(COPY_LABEL) as u16;
 
@@ -931,15 +1023,9 @@ mod tests {
             "gs",
             &"描述文字内容".repeat(30),
         )]);
-        let area = Rect::new(0, 0, 120, 40);
-        let backend = TestBackend::new(area.width, area.height);
-        let mut terminal = Terminal::new(backend).expect("test terminal");
-        terminal
-            .draw(|frame| render_home_content(frame, area, &DARK_THEME, &mut state))
-            .expect("test draw");
-        let buffer = terminal.backend().buffer();
+        let buffer = render_buffer(&mut state, 120, 40);
 
-        let (content, feed_start) = content_area(area.width, area.height);
+        let (content, feed_start) = content_area(120, 40);
         let body_row = content.y + (feed_start + GROUP_HEADER_LINES + 1) as u16;
         let button_x = content.right() - cell_width(COPY_LABEL) as u16;
         let button: String = (button_x..content.right())
@@ -953,7 +1039,184 @@ mod tests {
     }
 
     #[test]
-    fn copy_button_hit_test_selects_the_event() {
+    fn voice_dictation_shows_the_content_without_a_label() {
+        let at = today_noon_millis();
+        let when = activity_time(local_datetime(at), Local::now().date_naive());
+        let mut state = state_with_activity(vec![voice_event(
+            at,
+            "remind me to call mom tomorrow morning",
+        )]);
+        let text = draw(&mut state, 120, 40);
+
+        assert!(!text.contains("Dictation"), "voice events carry no label");
+        assert!(text.contains("remind me to call mom tomorrow morning"));
+        assert!(text.contains(&when), "clock time missing: {when}");
+        assert!(text.contains(" copy "), "copy button missing");
+    }
+
+    #[test]
+    fn voice_dictation_wraps_the_whole_text() {
+        let at = today_noon_millis();
+        let when = activity_time(local_datetime(at), Local::now().date_naive());
+        let content = "the quick brown fox jumps over the lazy dog and keeps running through \
+                       the field until it reaches the river bank where it stops";
+        let mut state = state_with_activity(vec![voice_event(at, content)]);
+        let text = draw(&mut state, 60, 40);
+
+        assert!(!text.contains('…'), "dictation is never truncated");
+        assert!(text.contains("river bank"), "tail missing:\n{text}");
+
+        let (content_area, feed_start) = content_area(60, 40);
+        let (first, rest) = voice_budgets(content_area.width, &when);
+        let wrapped = wrap_text(content, first, rest);
+        assert!(wrapped.len() > 1, "dictation wraps onto more lines");
+        assert_eq!(wrapped.join(" "), content, "every word survives wrapping");
+
+        let rows: Vec<&str> = text.lines().collect();
+        let first_row = feed_start + GROUP_HEADER_LINES;
+        assert!(
+            rows[first_row].contains(&when),
+            "clock rides the first line: {:?}",
+            rows[first_row]
+        );
+        assert!(
+            rows[first_row].contains("quick"),
+            "dictation starts on the first line: {:?}",
+            rows[first_row]
+        );
+        let last_row = first_row + wrapped.len() - 1;
+        assert_eq!(
+            rows[last_row].matches(COPY_LABEL).count(),
+            1,
+            "copy button follows the last line: {:?}",
+            rows[last_row]
+        );
+    }
+
+    #[test]
+    fn voice_copy_button_clears_the_text_column() {
+        let content = "a very long dictation that has to wrap many times so the copy button \
+                       sits on the final line of the item without covering any words";
+        let mut state = state_with_activity(vec![voice_event(today_noon_millis(), content)]);
+        let buffer = render_buffer(&mut state, 60, 40);
+        let (content_area, _) = content_area(60, 40);
+
+        // Every visible copy button ends at the content's right edge.
+        let button_x = content_area.right() - cell_width(COPY_LABEL) as u16;
+        let mut seen = 0;
+        for y in 0..40u16 {
+            let button: String = (button_x..content_area.right())
+                .map(|x| buffer[(x, y)].symbol())
+                .collect();
+            if button == COPY_LABEL {
+                seen += 1;
+                let text: String = (content_area.x..button_x)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect();
+                assert!(
+                    !text.contains("copy"),
+                    "text runs under the copy button at row {y}"
+                );
+            }
+        }
+        assert_eq!(seen, 1, "exactly one copy button per dictation");
+    }
+
+    fn row_text(buffer: &Buffer, content: Rect, y: u16) -> String {
+        (content.x..content.right())
+            .map(|x| buffer[(x, y)].symbol())
+            .collect()
+    }
+
+    #[test]
+    fn clock_ends_at_the_right_edge_of_every_item() {
+        let at = today_noon_millis();
+        let when = activity_time(local_datetime(at), Local::now().date_naive());
+
+        for event in [
+            activity_event(at, "gs", "git status"),
+            voice_event(at, "a short dictation"),
+        ] {
+            let mut state = state_with_activity(vec![event]);
+            let buffer = render_buffer(&mut state, 80, 30);
+            let (content, _) = content_area(80, 30);
+
+            let row = (content.y..content.bottom())
+                .find(|&y| row_text(&buffer, content, y).contains(&when))
+                .expect("clock row");
+            let line = row_text(&buffer, content, row);
+            assert!(
+                line.trim_end().ends_with(&when),
+                "clock is not last on its line: {line:?}"
+            );
+            let clock_end = content.x + line.trim_end().len() as u16 - 1;
+            assert_eq!(
+                clock_end,
+                content.right() - 2,
+                "clock is not flush right: {line:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn content_keeps_a_gap_before_the_right_column() {
+        let at = today_noon_millis();
+        let when = activity_time(local_datetime(at), Local::now().date_naive());
+        let long = "content that is long enough to reach the right side of the pane and keep going";
+        let mut state =
+            state_with_activity(vec![activity_event(at, "gs", long), voice_event(at, long)]);
+        let buffer = render_buffer(&mut state, 100, 40);
+        let (content, _) = content_area(100, 40);
+        let clock_x = content.right() - 1 - cell_width(&when) as u16;
+        let button_x = content.right() - cell_width(COPY_LABEL) as u16;
+
+        let mut clock_rows = 0;
+        let mut button_rows = 0;
+        for y in content.y..content.bottom() {
+            let line = row_text(&buffer, content, y);
+            let column = if line.contains(COPY_LABEL) {
+                button_rows += 1;
+                button_x
+            } else if line.contains(&when) {
+                clock_rows += 1;
+                clock_x
+            } else {
+                continue;
+            };
+            let last = (content.x..column)
+                .rev()
+                .find(|&x| !buffer[(x, y)].symbol().trim().is_empty());
+            if let Some(last) = last {
+                assert!(
+                    last + CONTENT_GAP < column,
+                    "content runs into the right column on row {y}: {line:?}"
+                );
+            }
+        }
+        assert!(clock_rows >= 2, "both event kinds draw a clock");
+        assert!(button_rows >= 2, "both event kinds draw a copy button");
+    }
+
+    #[test]
+    fn one_line_dictation_puts_the_copy_under_the_clock() {
+        let at = today_noon_millis();
+        let when = activity_time(local_datetime(at), Local::now().date_naive());
+        let mut state = state_with_activity(vec![voice_event(at, "short note")]);
+        let buffer = render_buffer(&mut state, 80, 30);
+        let (content, feed_start) = content_area(80, 30);
+        let first = content.y + (feed_start + GROUP_HEADER_LINES) as u16;
+
+        let text_line = row_text(&buffer, content, first);
+        assert!(text_line.contains("short note"), "{text_line:?}");
+        assert!(text_line.contains(&when), "{text_line:?}");
+
+        let copy_line = row_text(&buffer, content, first + 1);
+        assert!(copy_line.contains(COPY_LABEL), "{copy_line:?}");
+        assert!(!copy_line.contains(&when), "clock stays on the first line");
+    }
+
+    #[test]
+    fn copy_button_hit_test_finds_the_event() {
         let mut state = state_with_activity(vec![activity_event(
             today_noon_millis(),
             "gs",
@@ -965,11 +1228,6 @@ mod tests {
         let button_x = content.right() - cell_width(COPY_LABEL) as u16;
 
         assert_eq!(state.copy_at(button_x + 1, body_row), Some(0));
-        assert_eq!(
-            state.event_at(button_x + 1, body_row),
-            Some(0),
-            "the button row still selects its event"
-        );
         assert_eq!(state.copy_at(content.x + 1, body_row), None);
     }
 
@@ -1018,7 +1276,8 @@ mod tests {
         assert!(first.contains("TIME SAVED"), "cards start at the top");
         assert!(!first.contains("old body"), "older day starts offscreen");
 
-        state.select(20);
+        let (_, feed_start) = content_area(100, 30);
+        state.set_scroll(feed_start + 40);
         let middle = draw(&mut state, 100, 30);
         assert!(!middle.contains("TIME SAVED"), "cards scrolled away");
         assert!(
@@ -1030,7 +1289,7 @@ mod tests {
             middle.lines().next()
         );
 
-        state.select_last();
+        state.scroll_to_end();
         let last = draw(&mut state, 100, 30);
         assert!(
             last.lines()
@@ -1044,7 +1303,7 @@ mod tests {
     }
 
     #[test]
-    fn selecting_past_the_viewport_scrolls_the_page() {
+    fn scrolling_reaches_the_oldest_event_and_back() {
         let noon = today_noon_millis();
         let activity = (0..40)
             .map(|index| {
@@ -1062,24 +1321,60 @@ mod tests {
         assert!(!first_page.contains("t39"), "oldest event starts offscreen");
         assert_eq!(state.scroll(), 0);
 
-        state.select_last();
+        state.scroll_to_end();
         let last_page = draw(&mut state, 120, 30);
         assert!(last_page.contains("t39"), "end reaches the oldest event");
         assert!(!last_page.contains("t0 "), "newest event scrolled away");
 
-        let (_, feed_start) = content_area(120, 30);
-        let total = feed_start + activity_line_count(&state.stats().recent_activity);
-        let viewport = padded(Rect::new(0, 0, 120, 30), PANE_PAD_X, 0).height as usize;
+        let (content, feed_start) = content_area(120, 30);
+        let total = feed_start
+            + rows_height(&feed_rows(
+                &state.stats().recent_activity,
+                content.width,
+                Local::now().date_naive(),
+            ));
         assert_eq!(
             state.scroll(),
-            total.saturating_sub(viewport),
+            total.saturating_sub(30),
             "scroll clamps to the last page"
         );
 
-        state.select_first();
+        state.scroll_to_start();
         let first_page = draw(&mut state, 120, 30);
         assert!(first_page.contains("t0"));
         assert!(first_page.contains("TIME SAVED"), "cards scroll back in");
+    }
+
+    #[test]
+    fn wrap_text_keeps_every_word() {
+        let text = "alpha beta gamma delta epsilon zeta eta theta";
+        let lines = wrap_text(text, 12, 10);
+
+        assert_eq!(lines.join(" "), text, "no word is dropped");
+        for (index, line) in lines.iter().enumerate() {
+            let budget = if index == 0 { 12 } else { 10 };
+            assert!(
+                cell_width(line) <= budget,
+                "{line:?} exceeds {budget} cells"
+            );
+        }
+    }
+
+    #[test]
+    fn wrap_text_splits_words_that_do_not_fit() {
+        let lines = wrap_text("abcdefghijklmnop", 5, 4);
+
+        assert_eq!(lines.concat(), "abcdefghijklmnop");
+        assert!(cell_width(&lines[0]) <= 5);
+        assert!(lines[1..].iter().all(|line| cell_width(line) <= 4));
+    }
+
+    #[test]
+    fn wrap_text_counts_terminal_cells() {
+        let lines = wrap_text("日本語テキスト", 4, 4);
+
+        assert_eq!(lines.concat(), "日本語テキスト");
+        assert!(lines.iter().all(|line| cell_width(line) <= 4));
     }
 
     #[test]
@@ -1091,8 +1386,8 @@ mod tests {
 
     #[test]
     fn detail_width_follows_the_time_column() {
-        assert_eq!(activity_text_width(30, "2m ago"), 23);
-        assert_eq!(activity_text_width(30, "11:30 AM"), 21);
+        assert_eq!(activity_text_width(30, "2m ago"), 17);
+        assert_eq!(activity_text_width(30, "11:30 AM"), 15);
         assert_eq!(activity_text_width(3, "2m ago"), 0);
     }
 

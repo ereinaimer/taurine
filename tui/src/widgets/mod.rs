@@ -12,3 +12,4 @@ pub mod slider;
 pub mod textarea;
 pub mod toggle;
 pub mod util;
+pub mod wrap;

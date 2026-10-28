@@ -625,17 +625,16 @@ fn handle_tui_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
             refresh_home_page(app);
             return;
         }
-        // honey: the activity feed owns Up/Down/Page/Home/End on Home;
-        // the page step comes from the viewport the last frame drew.
+        // honey: the page scrolls as one document; the page step comes
+        // from the viewport the last frame drew.
         if matches!(key.modifiers, KeyModifiers::NONE | KeyModifiers::SHIFT) {
             match key.code {
-                KeyCode::Up => app.home_page_mut().move_selection(-1),
-                KeyCode::Down => app.home_page_mut().move_selection(1),
-                KeyCode::PageUp => app.home_page_mut().page_selection(-1),
-                KeyCode::PageDown => app.home_page_mut().page_selection(1),
-                KeyCode::Home => app.home_page_mut().select_first(),
-                KeyCode::End => app.home_page_mut().select_last(),
-                KeyCode::Char('c') | KeyCode::Enter => copy_selected_home_event(app),
+                KeyCode::Up => app.home_page_mut().scroll_by(-1),
+                KeyCode::Down => app.home_page_mut().scroll_by(1),
+                KeyCode::PageUp => app.home_page_mut().scroll_page(-1),
+                KeyCode::PageDown => app.home_page_mut().scroll_page(1),
+                KeyCode::Home => app.home_page_mut().scroll_to_start(),
+                KeyCode::End => app.home_page_mut().scroll_to_end(),
                 _ => {}
             }
         }
@@ -1026,8 +1025,7 @@ fn handle_tui_mouse_event(
             }
             if home_visible(app) {
                 let down = mouse.kind == MouseEventKind::ScrollDown;
-                app.home_page_mut()
-                    .move_selection(if down { 1 } else { -1 });
+                app.home_page_mut().scroll_by(if down { 1 } else { -1 });
                 return;
             }
             if !library_visible(app) {
@@ -1470,8 +1468,6 @@ fn handle_tui_mouse_event(
             if home_visible(app) {
                 if let Some(index) = app.home_page().copy_at(mouse.column, mouse.row) {
                     copy_home_event(app, index);
-                } else if let Some(index) = app.home_page().event_at(mouse.column, mouse.row) {
-                    app.home_page_mut().select(index);
                 }
                 return;
             }
@@ -1965,12 +1961,6 @@ fn copy_home_event(app: &mut App, index: usize) {
     }
     library::actions::write_clipboard(body);
     app.set_notification("Copied to clipboard".to_string());
-}
-
-fn copy_selected_home_event(app: &mut App) {
-    if let Some(index) = app.home_page().selected() {
-        copy_home_event(app, index);
-    }
 }
 
 fn refresh_home_page(app: &mut App) {
@@ -3576,28 +3566,30 @@ mod tests {
     }
 
     #[test]
-    fn home_keys_move_the_activity_selection() {
+    fn home_keys_scroll_the_page() {
         let mut app = home_app_with_events(5);
 
         let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
         handle_tui_key_event(&mut app, key(KeyCode::Down));
-        assert_eq!(app.home_page().selected(), Some(1));
+        assert_eq!(app.home_page().scroll(), 1);
         handle_tui_key_event(&mut app, key(KeyCode::PageDown));
         assert_eq!(
-            app.home_page().selected(),
-            Some(2),
+            app.home_page().scroll(),
+            2,
             "one-row page step before the first draw"
         );
-        handle_tui_key_event(&mut app, key(KeyCode::End));
-        assert_eq!(app.home_page().selected(), Some(4));
-        handle_tui_key_event(&mut app, key(KeyCode::Up));
-        assert_eq!(app.home_page().selected(), Some(3));
+        handle_tui_key_event(&mut app, key(KeyCode::PageUp));
+        assert_eq!(app.home_page().scroll(), 1);
         handle_tui_key_event(&mut app, key(KeyCode::Home));
-        assert_eq!(app.home_page().selected(), Some(0));
+        assert_eq!(app.home_page().scroll(), 0);
+        handle_tui_key_event(&mut app, key(KeyCode::Up));
+        assert_eq!(app.home_page().scroll(), 0, "top of the page stops");
+        handle_tui_key_event(&mut app, key(KeyCode::End));
+        assert_eq!(app.home_page().scroll(), usize::MAX);
     }
 
     #[test]
-    fn home_wheel_moves_the_activity_selection() {
+    fn home_wheel_scrolls_the_page() {
         let mut app = home_app_with_events(3);
         let full = workspace_full(&app, TEST_AREA);
         let (column, row) = (full.x + 4, full.y + 6);
@@ -3607,39 +3599,61 @@ mod tests {
             mouse_at(column, row, MouseEventKind::ScrollDown),
             TEST_AREA,
         );
-        assert_eq!(app.home_page().selected(), Some(1));
+        assert_eq!(app.home_page().scroll(), 1);
         handle_tui_mouse_event(
             &mut app,
             mouse_at(column, row, MouseEventKind::ScrollUp),
             TEST_AREA,
         );
-        assert_eq!(app.home_page().selected(), Some(0));
+        assert_eq!(app.home_page().scroll(), 0);
         handle_tui_mouse_event(
             &mut app,
             mouse_at(column, row, MouseEventKind::ScrollUp),
             TEST_AREA,
         );
-        assert_eq!(app.home_page().selected(), Some(0), "top of the feed stops");
+        assert_eq!(app.home_page().scroll(), 0, "top of the page stops");
     }
 
     #[test]
-    fn home_keys_copy_the_selected_event() {
+    fn home_copy_button_writes_the_event() {
+        use ratatui::{Terminal, backend::TestBackend};
+
         let mut app = home_app_with_events(2);
         library::actions::set_mock_clipboard(None);
 
-        let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
-        handle_tui_key_event(&mut app, key(KeyCode::Char('c')));
+        let backend = TestBackend::new(TEST_AREA.width, TEST_AREA.height);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal
+            .draw(|frame| render_app(frame, &mut app, TEST_AREA))
+            .expect("test draw");
+
+        let full = workspace_full(&app, TEST_AREA);
+        let buffer = terminal.backend().buffer();
+        let mut button = None;
+        'rows: for y in full.top()..full.bottom() {
+            for x in full.left()..full.right().saturating_sub(6) {
+                let label: String = (x..x + 6).map(|x| buffer[(x, y)].symbol()).collect();
+                if label == " copy " {
+                    button = Some((x + 1, y));
+                    break 'rows;
+                }
+            }
+        }
+        let (column, row) = button.expect("copy button drawn");
+
+        handle_tui_mouse_event(&mut app, left_click(column, row), TEST_AREA);
         assert_eq!(
             library::actions::read_clipboard().as_deref(),
             Some("body 0")
         );
         assert_eq!(app.notification(), Some("Copied to clipboard"));
 
-        handle_tui_key_event(&mut app, key(KeyCode::Down));
-        handle_tui_key_event(&mut app, key(KeyCode::Enter));
+        // Clicking the body text selects nothing and copies nothing.
+        handle_tui_mouse_event(&mut app, left_click(full.x + 3, row), TEST_AREA);
         assert_eq!(
             library::actions::read_clipboard().as_deref(),
-            Some("body 1")
+            Some("body 0"),
+            "body text is not a copy button"
         );
     }
 
