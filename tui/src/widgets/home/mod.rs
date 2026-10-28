@@ -16,22 +16,16 @@ use crate::widgets::wrap::{cell_width, wrap_line};
 
 pub mod state;
 
-use self::state::{CopyHit, HomePageState, STAT_CARD_COUNT, format_count, format_time_saved};
+use self::state::{CopyHit, HomePageState};
 
 const PANE_PAD_X: u16 = 2;
-const CARD_HEIGHT: u16 = 4;
-const CARD_GAP: u16 = 1;
-const CARD_MIN_WIDTH: u16 = 16;
-const MAX_CARDS_PER_ROW: usize = 2;
 
 /// Date header plus the blank row beneath it.
 const GROUP_HEADER_LINES: usize = 2;
 /// Trigger line, body line, and the blank row that follows each event.
 const ITEM_LINES: usize = 3;
-/// Section title plus the blank row beneath it.
+/// Section title plus the blank row beneath it; the feed starts here.
 const TITLE_LINES: usize = 2;
-/// Blank row between the cards and the section title.
-const CARDS_GAP_LINES: usize = 1;
 
 const COPY_LABEL: &str = " copy ";
 
@@ -54,8 +48,9 @@ const MONTHS: [&str; 12] = [
     "December",
 ];
 
-/// Home is one scrollable document: cards, then the activity feed. The
-/// date header of the group under the viewport's top edge sticks there.
+/// Home opens straight on Recent Activity as one scrollable document.
+/// The date header of the group under the viewport's top edge sticks
+/// there while that group is on screen.
 pub(crate) fn render_home_content(
     frame: &mut Frame,
     area: Rect,
@@ -81,9 +76,7 @@ pub(crate) fn render_home_content(
         return;
     }
 
-    let cards_height = cards_height(content.width);
-    let feed_start =
-        cards_height as usize + usize::from(cards_height > 0) * CARDS_GAP_LINES + TITLE_LINES;
+    let feed_start = TITLE_LINES;
     let today = Local::now().date_naive();
     let rows = feed_rows(&state.stats().recent_activity, content.width, today);
     let feed_lines = rows_height(&rows).max(1);
@@ -94,8 +87,7 @@ pub(crate) fn render_home_content(
     state.set_scroll(scroll);
     state.set_page(viewport);
 
-    render_cards(frame, content, theme, state.stats(), cards_height, scroll);
-    render_title(frame, content, theme, cards_height, scroll);
+    render_title(frame, content, theme, scroll);
 
     let view = FeedViewport {
         content,
@@ -114,147 +106,8 @@ pub(crate) fn render_home_content(
     render_sticky_date(frame, theme, &rows, view);
 }
 
-/// At most two cards share a row; narrower panes stack them.
-fn cards_per_row(width: u16) -> usize {
-    ((width + CARD_GAP) / (CARD_MIN_WIDTH + CARD_GAP)).clamp(1, MAX_CARDS_PER_ROW as u16) as usize
-}
-
-fn card_width(width: u16, per_row: usize) -> u16 {
-    width.saturating_sub(CARD_GAP * (per_row as u16 - 1)) / per_row as u16
-}
-
-/// Height of the whole card grid, including the gaps between rows.
-fn cards_height(width: u16) -> u16 {
-    let per_row = cards_per_row(width);
-    if card_width(width, per_row) < 8 {
-        return 0;
-    }
-    let rows = STAT_CARD_COUNT.div_ceil(per_row) as u16;
-    rows.saturating_mul(CARD_HEIGHT)
-        .saturating_add(rows.saturating_sub(1).saturating_mul(CARD_GAP))
-}
-
-struct StatCard {
-    label: &'static str,
-    value: String,
-}
-
-fn stat_cards(stats: &HomeStats) -> [StatCard; STAT_CARD_COUNT] {
-    let streak = stats.streak;
-    [
-        StatCard {
-            label: "Time Saved",
-            value: format_time_saved(stats.time_saved_ms),
-        },
-        StatCard {
-            label: "Words Spoken",
-            value: format_count(stats.words_spoken),
-        },
-        StatCard {
-            label: "Words Expanded",
-            value: format_count(stats.words_expanded),
-        },
-        StatCard {
-            label: "Day Streak",
-            value: streak_days(streak.current_streak),
-        },
-    ]
-}
-
-fn streak_days(days: u32) -> String {
-    if days == 1 {
-        "1 day".to_string()
-    } else {
-        format!("{days} days")
-    }
-}
-
-fn render_cards(
-    frame: &mut Frame,
-    content: Rect,
-    theme: &Theme,
-    stats: &HomeStats,
-    cards_height: u16,
-    scroll: usize,
-) {
-    if cards_height == 0 {
-        return;
-    }
-    let per_row = cards_per_row(content.width);
-    let width = card_width(content.width, per_row);
-    let cards = stat_cards(stats);
-
-    for (index, card) in cards.iter().enumerate() {
-        let row = (index / per_row) as u16;
-        let column = (index % per_row) as u16;
-        let top = row.saturating_mul(CARD_HEIGHT + CARD_GAP);
-        let shifted_top = top as i32 - scroll as i32;
-        let visible_top = shifted_top.max(0);
-        let visible_bottom = (shifted_top + CARD_HEIGHT as i32).min(content.height as i32);
-        if visible_bottom <= visible_top {
-            continue;
-        }
-        render_card(
-            frame,
-            Rect {
-                x: content
-                    .x
-                    .saturating_add(column.saturating_mul(width + CARD_GAP)),
-                y: content.y.saturating_add(visible_top as u16),
-                width,
-                height: (visible_bottom - visible_top) as u16,
-            },
-            (visible_top - shifted_top) as u16,
-            theme,
-            card,
-        );
-    }
-}
-
-/// `clipped` rows were scrolled off the card's top, so its label and
-/// value lines shift up by that much.
-fn render_card(frame: &mut Frame, area: Rect, clipped: u16, theme: &Theme, card: &StatCard) {
-    frame.render_widget(
-        Block::default().style(Style::default().bg(theme.surface)),
-        area,
-    );
-    let inner = Rect {
-        x: area.x.saturating_add(2),
-        y: area.y,
-        width: area.width.saturating_sub(4),
-        height: area.height,
-    };
-    if inner.width == 0 {
-        return;
-    }
-
-    let line = |offset: u16| -> Option<Rect> {
-        let row = offset.checked_sub(clipped)?;
-        (row < area.height).then(|| Rect {
-            x: inner.x,
-            y: area.y.saturating_add(row),
-            width: inner.width,
-            height: 1,
-        })
-    };
-    if let Some(area) = line(1) {
-        frame.render_widget(
-            Paragraph::new(card.label.to_uppercase()).style(Style::default().fg(theme.text_muted)),
-            area,
-        );
-    }
-    if let Some(area) = line(2) {
-        frame.render_widget(
-            Paragraph::new(card.value.clone())
-                .style(Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
-            area,
-        );
-    }
-}
-
-fn render_title(frame: &mut Frame, content: Rect, theme: &Theme, cards_height: u16, scroll: usize) {
-    let line = cards_height as usize + usize::from(cards_height > 0) * CARDS_GAP_LINES;
-    if let Some(area) = visible_line(content, scroll, line) {
+fn render_title(frame: &mut Frame, content: Rect, theme: &Theme, scroll: usize) {
+    if let Some(area) = visible_line(content, scroll, 0) {
         frame.render_widget(
             Paragraph::new("Recent Activity")
                 .style(Style::default().fg(theme.text).add_modifier(Modifier::BOLD)),
@@ -752,8 +605,6 @@ fn truncate(text: &str, width: usize) -> String {
 mod tests {
     use ratatui::{Terminal, backend::TestBackend, buffer::Buffer};
 
-    use taurine_core::db::crud::StreakInfo;
-
     use super::*;
     use crate::theme::default::DARK_THEME;
     use crate::widgets::library;
@@ -761,14 +612,6 @@ mod tests {
     fn sample_state() -> HomePageState {
         let mut state = HomePageState::default();
         state.replace_stats(HomeStats {
-            words_spoken: 12_400,
-            words_expanded: 48_200,
-            time_saved_ms: 8_040_000,
-            expansions_run: 1_204,
-            streak: StreakInfo {
-                current_streak: 7,
-                longest_streak: 21,
-            },
             recent_activity: vec![RecentActivity {
                 timestamp: library::now_millis() as i64 - 120_000,
                 category: ActivityCategory::Text,
@@ -778,9 +621,7 @@ mod tests {
                 app: "Windowsterminal".to_string(),
                 word_count: 42,
             }],
-            most_used_words: Vec::new(),
-            most_used_hotkeys: Vec::new(),
-            top_apps: Vec::new(),
+            ..HomeStats::default()
         });
         state
     }
@@ -858,9 +699,7 @@ mod tests {
     /// Content pane the page draws into, and the first feed line inside it.
     fn content_area(width: u16, height: u16) -> (Rect, usize) {
         let content = padded(Rect::new(0, 0, width, height), PANE_PAD_X, 0);
-        let cards = cards_height(content.width);
-        let feed_start = cards as usize + usize::from(cards > 0) * CARDS_GAP_LINES + TITLE_LINES;
-        (content, feed_start)
+        (content, TITLE_LINES)
     }
 
     #[test]
@@ -877,15 +716,21 @@ mod tests {
     }
 
     #[test]
-    fn home_renders_cards_and_activity_without_most_used() {
+    fn home_opens_on_the_activity_feed_without_cards() {
         let mut state = sample_state();
         let text = draw(&mut state, 120, 40);
 
-        assert!(text.contains("TIME SAVED"));
-        assert!(text.contains("2h 14m"));
-        assert!(text.contains("WORDS SPOKEN"));
-        assert!(text.contains("12.4k"));
-        assert!(text.contains("Recent Activity"));
+        assert!(
+            text.lines()
+                .next()
+                .is_some_and(|line| line.trim() == "Recent Activity"),
+            "the page starts on Recent Activity: {:?}",
+            text.lines().next()
+        );
+        assert!(!text.contains("TIME SAVED"), "stat cards removed");
+        assert!(!text.contains("WORDS SPOKEN"), "stat cards removed");
+        assert!(!text.contains("WORDS EXPANDED"), "stat cards removed");
+        assert!(!text.contains("DAY STREAK"), "stat cards removed");
         assert!(text.contains("Today"));
         assert!(text.contains("gs"));
         assert!(text.contains("tautui --home"), "activity body missing");
@@ -1245,7 +1090,7 @@ mod tests {
     }
 
     #[test]
-    fn cards_scroll_up_and_the_date_stays_pinned() {
+    fn title_scrolls_away_and_the_date_stays_pinned() {
         use chrono::{Local, TimeZone};
 
         let old = Local
@@ -1273,13 +1118,16 @@ mod tests {
         let mut state = state_with_activity(activity);
 
         let first = draw(&mut state, 100, 30);
-        assert!(first.contains("TIME SAVED"), "cards start at the top");
+        assert!(
+            first.contains("Recent Activity"),
+            "page starts at the title"
+        );
         assert!(!first.contains("old body"), "older day starts offscreen");
 
         let (_, feed_start) = content_area(100, 30);
         state.set_scroll(feed_start + 40);
         let middle = draw(&mut state, 100, 30);
-        assert!(!middle.contains("TIME SAVED"), "cards scrolled away");
+        assert!(!middle.contains("Recent Activity"), "title scrolled away");
         assert!(
             middle
                 .lines()
@@ -1342,7 +1190,10 @@ mod tests {
         state.scroll_to_start();
         let first_page = draw(&mut state, 120, 30);
         assert!(first_page.contains("t0"));
-        assert!(first_page.contains("TIME SAVED"), "cards scroll back in");
+        assert!(
+            first_page.contains("Recent Activity"),
+            "title scrolls back in"
+        );
     }
 
     #[test]
@@ -1392,43 +1243,11 @@ mod tests {
     }
 
     #[test]
-    fn cards_show_at_most_two_per_row() {
-        let text = draw(&mut sample_state(), 100, 40);
-
-        for label in ["TIME SAVED", "WORDS SPOKEN", "WORDS EXPANDED", "DAY STREAK"] {
-            assert!(text.contains(label), "{label} missing from the grid");
-        }
-        assert!(!text.contains("EXPANSIONS"), "all-time expansions removed");
-        for detail in ["estimated", "dictated", "from snippets", "best 21"] {
-            assert!(!text.contains(detail), "{detail} still under a card");
-        }
-
-        assert_eq!(cards_per_row(200), 2, "never more than two cards per row");
-        assert_eq!(cards_per_row(100), 2);
-        assert_eq!(cards_per_row(20), 1, "narrow panes stack the cards");
-
-        // The first two cards share a row; the third starts the next one.
-        let rows: Vec<usize> = text
-            .lines()
-            .enumerate()
-            .filter(|(_, line)| line.contains("TIME SAVED") || line.contains("WORDS EXPANDED"))
-            .map(|(row, _)| row)
-            .collect();
-        assert_eq!(rows.len(), 2);
-        assert!(rows[0] < rows[1], "third card wraps below the first row");
-        assert!(
-            text.lines().nth(rows[0]).is_some_and(|line| {
-                line.contains("TIME SAVED") && line.contains("WORDS SPOKEN")
-            })
-        );
-    }
-
-    #[test]
     fn empty_stats_show_quiet_empty_states() {
         let text = draw(&mut HomePageState::default(), 120, 40);
 
+        assert!(text.contains("Recent Activity"));
         assert!(text.contains("No activity yet."));
         assert!(!text.contains("No usage yet."), "most used section removed");
-        assert!(text.contains("0s"));
     }
 }

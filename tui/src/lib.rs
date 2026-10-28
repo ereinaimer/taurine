@@ -3477,8 +3477,11 @@ mod tests {
             }
             text.push('\n');
         }
-        assert!(text.contains("TIME SAVED"), "home cards missing");
         assert!(text.contains("Recent Activity"), "home activity missing");
+        assert!(
+            !text.contains("TIME SAVED") && !text.contains("WORDS SPOKEN"),
+            "home opens on the feed with no stat cards"
+        );
         assert!(
             text.contains("No activity yet."),
             "home empty state missing"

@@ -1,9 +1,6 @@
 use ratatui::layout::Rect;
 use taurine_core::stats::HomeStats;
 
-/// Stat cards rendered above the activity feed.
-pub(crate) const STAT_CARD_COUNT: usize = 4;
-
 const REFRESH_INTERVAL_MS: u64 = 10_000;
 
 /// A drawn copy button, recorded so the pointer can find it.
@@ -108,63 +105,6 @@ fn contains(area: Rect, column: u16, row: u16) -> bool {
     column >= area.x && column < area.right() && row >= area.y && row < area.bottom()
 }
 
-/// Compact counts for the stat cards: grouped below ten thousand,
-/// abbreviated above it so a card never overflows its value line.
-pub(crate) fn format_count(n: u64) -> String {
-    if n < 10_000 {
-        return group_thousands(n);
-    }
-    if n < 1_000_000 {
-        return compact(n as f64 / 1_000.0, "k");
-    }
-    compact(n as f64 / 1_000_000.0, "M")
-}
-
-fn group_thousands(n: u64) -> String {
-    let digits = n.to_string();
-    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
-    for (index, digit) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(digit);
-    }
-    out
-}
-
-fn compact(value: f64, suffix: &str) -> String {
-    let rounded = format!("{value:.1}");
-    let trimmed = rounded.strip_suffix(".0").unwrap_or(&rounded);
-    format!("{trimmed}{suffix}")
-}
-
-/// Estimated time saved, from seconds up to whole days.
-pub(crate) fn format_time_saved(ms: u64) -> String {
-    let secs = ms / 1_000;
-    if secs < 60 {
-        return format!("{secs}s");
-    }
-    if secs < 3_600 {
-        return format!("{}m", secs / 60);
-    }
-    if secs < 86_400 {
-        let hours = secs / 3_600;
-        let minutes = (secs % 3_600) / 60;
-        return if minutes == 0 {
-            format!("{hours}h")
-        } else {
-            format!("{hours}h {minutes}m")
-        };
-    }
-    let days = secs / 86_400;
-    let hours = (secs % 86_400) / 3_600;
-    if hours == 0 {
-        format!("{days}d")
-    } else {
-        format!("{days}d {hours}h")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -236,26 +176,5 @@ mod tests {
         assert_eq!(state.copy_at(72, 20), Some(4));
         assert_eq!(state.copy_at(4, 11), None, "body text is not the button");
         assert_eq!(state.copy_at(72, 12), None);
-    }
-
-    #[test]
-    fn counts_abbreviate_only_above_ten_thousand() {
-        assert_eq!(format_count(0), "0");
-        assert_eq!(format_count(999), "999");
-        assert_eq!(format_count(1_000), "1,000");
-        assert_eq!(format_count(9_999), "9,999");
-        assert_eq!(format_count(10_000), "10k");
-        assert_eq!(format_count(12_400), "12.4k");
-        assert_eq!(format_count(1_200_000), "1.2M");
-    }
-
-    #[test]
-    fn time_saved_scales_from_seconds_to_days() {
-        assert_eq!(format_time_saved(0), "0s");
-        assert_eq!(format_time_saved(42_000), "42s");
-        assert_eq!(format_time_saved(60_000), "1m");
-        assert_eq!(format_time_saved(3_600_000), "1h");
-        assert_eq!(format_time_saved(5_400_000), "1h 30m");
-        assert_eq!(format_time_saved(90_000_000), "1d 1h");
     }
 }
