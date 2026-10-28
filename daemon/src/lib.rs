@@ -100,6 +100,16 @@ mod uds_perm_tests {
 }
 
 pub fn start() -> taurine_core::error::Result<()> {
+    let is_authenticated = taurine_core::cloud::get_tokens()
+        .map(|t| t.is_some())
+        .unwrap_or(false);
+    if !is_authenticated {
+        return Err(taurine_core::error::Error::Config(
+            "Please log in to use Taurine. Run 'taurine login' to continue.".into(),
+        ));
+    }
+    crate::engine::quota_guard::QuotaGuard::global().set_authenticated(true);
+
     let _liveness_guard = match taurine_core::service::acquire_service_liveness() {
         Some(guard) => guard,
         None => {

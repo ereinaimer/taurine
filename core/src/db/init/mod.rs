@@ -53,6 +53,44 @@ pub fn setup_at_path(db_path: &Path) -> Result<Connection> {
     }
 }
 
+/// Completely purges all user data and tables from SQLite, and deletes the local database files if accessible.
+pub fn purge_local_database() -> Result<()> {
+    let db_path = crate::paths::get_db_path();
+    if db_path.exists() {
+        if let Ok(conn) = open_connection_at(&db_path) {
+            let _ = conn.execute_batch(
+                "PRAGMA foreign_keys = OFF;
+                 DELETE FROM trigger_aliases;
+                 DELETE FROM scripts;
+                 DELETE FROM assets;
+                 DELETE FROM activity_events;
+                 DELETE FROM trigger_daily_stats;
+                 DELETE FROM app_stats;
+                 DELETE FROM stats;
+                 DELETE FROM triggers;
+                 DELETE FROM workspaces WHERE id != 'default';
+                 DELETE FROM quota_ledger;
+                 DELETE FROM ai_presets;
+                 DELETE FROM settings;
+                 PRAGMA foreign_keys = ON;
+                 VACUUM;",
+            );
+        }
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(format!("{}-wal", db_path.display()));
+        let _ = std::fs::remove_file(format!("{}-shm", db_path.display()));
+    }
+
+    if let Ok(mut guard) = LAST_CHECKED
+        .get_or_init(|| std::sync::Mutex::new(None))
+        .lock()
+    {
+        *guard = None;
+    }
+
+    Ok(())
+}
+
 fn init_database(db_path: &Path) -> Result<Connection> {
     let conn = open_connection_at(db_path)?;
     schema::ensure_schema(&conn)?;
@@ -696,5 +734,37 @@ mod tests {
             has_checked_fingerprint_for_test(&db_path),
             "unchanged file must be recorded after a passing check"
         );
+    }
+
+    #[test]
+    fn test_purge_local_database_clears_records_and_files() {
+        let _guard = lock();
+        use_mock_keyring();
+        let temp_dir = TempDir::new().expect("temp dir");
+        // SAFETY: access to TAURINE_DATA_DIR is serialized by TEST_LOCK
+        unsafe { std::env::set_var("TAURINE_DATA_DIR", temp_dir.path()) };
+
+        let conn = setup().expect("setup succeeds");
+        conn.execute(
+            "INSERT INTO triggers (id, output, created_at, updated_at) VALUES ('trig1', 'out1', 1, 1)",
+            [],
+        )
+        .expect("insert trigger succeeds");
+        drop(conn);
+
+        purge_local_database().expect("purge succeeds");
+
+        // Verify that database was purged
+        let db_path = crate::paths::get_db_path();
+        if db_path.exists() {
+            let conn2 = setup().expect("re-setup succeeds");
+            let count: i64 = conn2
+                .query_row("SELECT count(*) FROM triggers", [], |r| r.get(0))
+                .expect("query count");
+            assert_eq!(count, 0);
+        }
+
+        // SAFETY: access to TAURINE_DATA_DIR is serialized by TEST_LOCK
+        unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
     }
 }

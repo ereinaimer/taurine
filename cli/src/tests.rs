@@ -717,7 +717,7 @@ fn test_unauthenticated_add_rejected_with_login_message() {
     match result {
         Err(taurine_core::error::Error::Config(msg)) => {
             assert!(
-                msg.contains("Authentication required. Please run 'taurine login' to continue."),
+                msg.contains("Please log in to use Taurine. Run 'taurine login' to continue."),
                 "Expected login prompt, got: {msg}"
             );
         }
@@ -737,7 +737,7 @@ fn test_unauthenticated_delete_rejected_with_login_message() {
     match result {
         Err(taurine_core::error::Error::Config(msg)) => {
             assert!(
-                msg.contains("Authentication required. Please run 'taurine login' to continue."),
+                msg.contains("Please log in to use Taurine. Run 'taurine login' to continue."),
                 "Expected login prompt, got: {msg}"
             );
         }
@@ -755,9 +755,7 @@ fn test_unauthenticated_up_and_restart_rejected_with_login_message() {
     let res_up = run(cli_up, LaunchTarget::Command);
     match res_up {
         Err(taurine_core::error::Error::Config(msg)) => {
-            assert!(
-                msg.contains("Authentication required. Please run 'taurine login' to continue.")
-            );
+            assert!(msg.contains("Please log in to use Taurine. Run 'taurine login' to continue."));
         }
         other => panic!("expected Config error for up, got {other:?}"),
     }
@@ -766,12 +764,83 @@ fn test_unauthenticated_up_and_restart_rejected_with_login_message() {
     let res_restart = run(cli_restart, LaunchTarget::Command);
     match res_restart {
         Err(taurine_core::error::Error::Config(msg)) => {
-            assert!(
-                msg.contains("Authentication required. Please run 'taurine login' to continue.")
-            );
+            assert!(msg.contains("Please log in to use Taurine. Run 'taurine login' to continue."));
         }
         other => panic!("expected Config error for restart, got {other:?}"),
     }
+}
+
+#[test]
+fn test_unauthenticated_tui_and_daemon_rejected_with_login_message() {
+    let _lock = crate::commands::TEST_LOCK.lock().unwrap();
+    crate::commands::test_keyring::use_shared_test_keyring();
+    let _ = taurine_core::cloud::clear_tokens();
+
+    let cli_tui = Cli::try_parse_from(["taurine"]).expect("tui parses");
+    let res_tui = run(cli_tui, LaunchTarget::Tui);
+    match res_tui {
+        Err(taurine_core::error::Error::Config(msg)) => {
+            assert!(msg.contains("Please log in to use Taurine. Run 'taurine login' to continue."));
+        }
+        other => panic!("expected Config error for tui, got {other:?}"),
+    }
+
+    let cli_daemon = Cli::try_parse_from(["taurine", "--daemon"]).expect("daemon parses");
+    let res_daemon = run(cli_daemon, LaunchTarget::Daemon);
+    match res_daemon {
+        Err(taurine_core::error::Error::Config(msg)) => {
+            assert!(msg.contains("Please log in to use Taurine. Run 'taurine login' to continue."));
+        }
+        other => panic!("expected Config error for daemon, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_unauthenticated_list_rejected_with_login_message() {
+    let _lock = crate::commands::TEST_LOCK.lock().unwrap();
+    crate::commands::test_keyring::use_shared_test_keyring();
+    let _ = taurine_core::cloud::clear_tokens();
+
+    let cli_list = Cli::try_parse_from(["taurine", "list"]).expect("list parses");
+    let res_list = run(cli_list, LaunchTarget::Command);
+    match res_list {
+        Err(taurine_core::error::Error::Config(msg)) => {
+            assert!(msg.contains("Please log in to use Taurine. Run 'taurine login' to continue."));
+        }
+        other => panic!("expected Config error for list, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_logout_purges_local_database_and_stops_daemon() {
+    let _lock = crate::commands::TEST_LOCK.lock().unwrap();
+    crate::commands::test_keyring::use_shared_test_keyring();
+    let temp = tempfile::tempdir().expect("tempdir");
+    // SAFETY: access to TAURINE_DATA_DIR is serialized by TEST_LOCK
+    unsafe { std::env::set_var("TAURINE_DATA_DIR", temp.path()) };
+
+    let mock_tokens = taurine_core::cloud::AuthTokens {
+        access_token: "mock-access-token".to_string(),
+        refresh_token: "mock-refresh-token".to_string(),
+        user_id: "user-uuid-12345".to_string(),
+        expires_at: Some(9999999999),
+    };
+    taurine_core::cloud::store_tokens(&mock_tokens).expect("store tokens succeeds");
+
+    let conn = taurine_core::db::init::setup().expect("setup succeeds");
+    conn.execute(
+        "INSERT INTO triggers (id, output, created_at, updated_at) VALUES ('logout_trig', 'output', 1, 1)",
+        [],
+    )
+    .expect("insert trigger succeeds");
+    drop(conn);
+
+    crate::commands::auth::execute_logout(false).expect("logout succeeds");
+
+    assert!(taurine_core::cloud::get_tokens().unwrap().is_none());
+
+    // SAFETY: access to TAURINE_DATA_DIR is serialized by TEST_LOCK
+    unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
 }
 
 #[test]

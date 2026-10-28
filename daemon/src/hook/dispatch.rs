@@ -145,7 +145,11 @@ pub(crate) fn dispatch_expansion_with<I, L>(
     };
 
     if !crate::engine::quota_guard::QuotaGuard::global().deplete(expansion_type) {
-        tracing::warn!("Expansion dropped: Weekly quota exhausted");
+        if !crate::engine::quota_guard::QuotaGuard::global().is_authenticated() {
+            tracing::debug!("Please log in to use Taurine.");
+        } else {
+            tracing::warn!("Expansion dropped: Weekly quota exhausted");
+        }
         return;
     }
 

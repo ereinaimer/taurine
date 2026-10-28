@@ -205,7 +205,12 @@ impl DaemonService {
             *lock = settings.spinner_style;
         }
 
-        // Update user tier and QuotaGuard unlimited status
+        // Update auth status, user tier, and QuotaGuard unlimited status
+        let is_auth = taurine_core::cloud::get_tokens()
+            .map(|t| t.is_some())
+            .unwrap_or(false);
+        crate::engine::quota_guard::QuotaGuard::global().set_authenticated(is_auth);
+
         let tier = taurine_core::db::crud::tier::get_user_tier(conn);
         crate::engine::quota_guard::QuotaGuard::global().set_unlimited(tier.is_unlimited());
 
@@ -532,11 +537,10 @@ mod tests {
         crate::hook::tests::mock_keystore::use_mock_keystore();
         // Setup tracing + env override for test dir
         taurine_core::logs::init_tracing_for_tests();
-        let test_dir = std::env::temp_dir().join("taurine_reload_test");
+        let temp = tempfile::tempdir().expect("tempdir");
+        let test_dir = temp.path();
         // SAFETY: Setting environment variable for database isolation in server test.
         unsafe { std::env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
-        let _ = std::fs::remove_dir_all(&test_dir);
-        std::fs::create_dir_all(&test_dir).unwrap();
 
         let conn = init::setup().expect("Failed to setup DB");
 
@@ -626,7 +630,6 @@ mod tests {
         assert!(!state.inline_tab_completion_enabled.load(Ordering::Relaxed));
 
         // Cleanup
-        let _ = std::fs::remove_dir_all(&test_dir);
         unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
     }
 

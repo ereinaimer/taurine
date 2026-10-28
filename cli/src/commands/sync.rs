@@ -12,11 +12,11 @@ pub fn execute_sync(json: bool) -> Result<()> {
                 "{}",
                 serde_json::json!({
                     "success": false,
-                    "error": "Not authenticated. Run `taurine login` first."
+                    "error": "Please log in to use Taurine. Run 'taurine login' to continue."
                 })
             );
         } else {
-            eprintln!("You are not logged in. Run `taurine login` to connect to Taurine Cloud.");
+            eprintln!("Please log in to use Taurine. Run 'taurine login' to continue.");
         }
         return Ok(());
     }

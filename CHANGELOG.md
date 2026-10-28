@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Mandatory Authentication Gate**: Require an active Taurine Cloud account to launch Taurine or trigger expansions, and purge local data on logout.
 - **Event-Driven Cloud Sync**: Synchronize triggers and settings immediately on changes, pause/resume transitions, and via the new `taurine sync` command.
 - **Bidirectional Cloud Sync**: Synchronize and restore snippets, settings, activity history, and multi-device statistics across devices with conflict-free aggregation.
 - **Activity Event Logging**: Record individual user actions with precise timestamps, application context, word counts, and time saved.

@@ -10,7 +10,7 @@ pub fn ensure_authenticated() -> Result<taurine_core::cloud::AuthTokens> {
     match taurine_core::cloud::get_tokens() {
         Ok(Some(tokens)) => Ok(tokens),
         _ => Err(taurine_core::error::Error::Config(
-            "Authentication required. Please run 'taurine login' to continue.".into(),
+            "Please log in to use Taurine. Run 'taurine login' to continue.".into(),
         )),
     }
 }
@@ -162,11 +162,16 @@ pub fn execute_login(
     Ok(())
 }
 
-/// Logs out the user by clearing credentials from the keystore and resetting local tier cache.
+/// Logs out the user by stopping the daemon, clearing credentials from the keystore,
+/// and purging the local database.
 pub fn execute_logout(json: bool) -> Result<()> {
+    // If the service is running, stop it
+    if taurine_core::service::is_service_running() {
+        let _ = taurine_core::service::down();
+    }
+
     taurine_core::cloud::clear_tokens()?;
-    let conn = taurine_core::db::init::setup()?;
-    taurine_core::db::crud::set_user_tier(&conn, UserTier::Free)?;
+    taurine_core::db::init::purge_local_database()?;
 
     if json {
         println!("{}", serde_json::json!({ "status": "logged_out" }));

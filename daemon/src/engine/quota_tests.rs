@@ -106,6 +106,76 @@ fn test_deplete_fails_when_exhausted() {
 }
 
 #[test]
+fn test_unauthenticated_guard_blocks_all_expansions() {
+    let guard = QuotaGuard::new_with_balance(100.0);
+    assert!(guard.is_authenticated());
+    assert!(guard.can_expand());
+    assert!(guard.deplete(ExpansionType::Text));
+
+    guard.set_authenticated(false);
+    assert!(!guard.is_authenticated());
+    assert!(!guard.can_expand());
+    assert!(!guard.deplete(ExpansionType::Text));
+    assert!(!guard.deplete(ExpansionType::Dynamic));
+    assert!(!guard.deplete(ExpansionType::VoiceTrigger));
+    assert!(!guard.deplete(ExpansionType::VoiceDictation));
+
+    guard.set_authenticated(true);
+    assert!(guard.is_authenticated());
+    assert!(guard.can_expand());
+    assert!(guard.deplete(ExpansionType::Text));
+}
+
+#[test]
+fn test_dispatch_expansion_drops_when_unauthenticated() {
+    let _lock = taurine_core::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let original_balance = QuotaGuard::global().balance();
+    let original_auth = QuotaGuard::global().is_authenticated();
+
+    QuotaGuard::global().set_balance(100.0);
+    QuotaGuard::global().set_authenticated(false);
+
+    let expansion = ExpansionResult {
+        delete_count: 2,
+        steps: vec![ExpansionStep::Text("hello".to_string())],
+        trigger: "hi".to_string(),
+        undo_trigger: None,
+        is_calculation: false,
+        stat_kind: TriggerStatKind::Snippet,
+        track_usage: false,
+        follow_up: None,
+    };
+
+    let injected = Arc::new(AtomicBool::new(false));
+    let injected_clone = Arc::clone(&injected);
+    let state = Arc::new(taurine_core::engine::EngineState::new());
+
+    dispatch_expansion_with(
+        expansion,
+        SpinnerStyle::default(),
+        state,
+        move |_steps, _delete_count, _spinner| {
+            injected_clone.store(true, Ordering::SeqCst);
+            crate::injector::InjectionReport {
+                completed: true,
+                successful_chars: 5,
+            }
+        },
+        |_follow_up, _spinner| {},
+    );
+
+    assert!(
+        !injected.load(Ordering::SeqCst),
+        "Expansion must be dropped when user is unauthenticated"
+    );
+
+    QuotaGuard::global().set_authenticated(original_auth);
+    QuotaGuard::global().set_balance(original_balance);
+}
+
+#[test]
 fn test_flush_to_db() {
     let conn = create_test_db();
     let key = [42u8; 32];

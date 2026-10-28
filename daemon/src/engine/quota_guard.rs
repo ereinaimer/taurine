@@ -30,6 +30,7 @@ struct QuotaInner {
     balance: f64,
     unflushed_delta: f64,
     is_unlimited: bool,
+    is_authenticated: bool,
 }
 
 /// In-memory fast-path guard that monitors and depletes weekly countdown quota.
@@ -63,6 +64,7 @@ impl QuotaGuard {
                 balance: initial_balance.clamp(0.0, 100.0),
                 unflushed_delta: 0.0,
                 is_unlimited: false,
+                is_authenticated: true,
             }),
         }
     }
@@ -88,6 +90,20 @@ impl QuotaGuard {
         Self::global().set_balance(initial_balance);
     }
 
+    /// Sets whether the user is authenticated with Taurine Cloud.
+    pub fn set_authenticated(&self, authenticated: bool) {
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        inner.is_authenticated = authenticated;
+    }
+
+    /// Returns whether the user is authenticated with Taurine Cloud.
+    pub fn is_authenticated(&self) -> bool {
+        self.inner
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_authenticated
+    }
+
     /// Sets whether the quota guard operates in unlimited mode (bypassing quota depletion).
     pub fn set_unlimited(&self, unlimited: bool) {
         let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
@@ -105,7 +121,7 @@ impl QuotaGuard {
     /// Checks if expansions are permitted (< 0.1ms hot-path check).
     pub fn can_expand(&self) -> bool {
         let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        inner.is_unlimited || inner.balance > 0.0
+        inner.is_authenticated && (inner.is_unlimited || inner.balance > 0.0)
     }
 
     /// Checks if quota is fully depleted (<= 0.0%).
@@ -135,14 +151,18 @@ impl QuotaGuard {
 
     /// Depletes quota for given expansion type.
     ///
-    /// Returns true if permitted and burned, false if blocked due to depletion.
-    /// Voice dictation is free and unlimited, so it always returns true.
+    /// Returns true if permitted and burned, false if blocked due to depletion or unauthenticated state.
+    /// Voice dictation is free and unlimited, so it returns true as long as the user is authenticated.
     pub fn deplete(&self, exp_type: ExpansionType) -> bool {
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        if !inner.is_authenticated {
+            return false;
+        }
+
         if exp_type == ExpansionType::VoiceDictation {
             return true;
         }
 
-        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         if inner.is_unlimited {
             return true;
         }

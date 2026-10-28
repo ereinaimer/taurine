@@ -92,7 +92,7 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
     match launch_target {
         LaunchTarget::Daemon => {
             info!("Initializing Taurine v{VERSION}");
-
+            commands::auth::ensure_authenticated()?;
             // Execute the startup sequence (database init, seed, etc.)
             taurine_daemon::start()?;
             info!("Taurine service has been stopped cleanly.");
@@ -105,7 +105,10 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
             let _ = commands::update::run_auto_update();
             return Ok(());
         }
-        LaunchTarget::Tui => return taurine_tui::run(),
+        LaunchTarget::Tui => {
+            commands::auth::ensure_authenticated()?;
+            return taurine_tui::run();
+        }
         LaunchTarget::Command => {}
     }
 
@@ -159,10 +162,12 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
             voice,
             workspace,
         }) => {
+            commands::auth::ensure_authenticated()?;
             commands::list::execute(sort, asc, desc, json, tags, voice, workspace)?;
         }
 
         Some(Commands::Export { path, yes }) => {
+            commands::auth::ensure_authenticated()?;
             commands::export::execute(path, yes)?;
         }
         Some(Commands::Import {
@@ -170,17 +175,21 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
             conflict,
             yes,
         }) => {
+            commands::auth::ensure_authenticated()?;
             commands::import::execute(path, conflict, yes)?;
         }
-        Some(Commands::Config { action }) => match action {
-            Some(ConfigAction::Set { key, value }) => {
-                commands::config::execute_set(key, value, json)?
+        Some(Commands::Config { action }) => {
+            commands::auth::ensure_authenticated()?;
+            match action {
+                Some(ConfigAction::Set { key, value }) => {
+                    commands::config::execute_set(key, value, json)?
+                }
+                Some(ConfigAction::List) | None => commands::config::execute_list(json)?,
+                Some(ConfigAction::Reset { key, all }) => {
+                    commands::config::execute_reset_command(key, all, json)?;
+                }
             }
-            Some(ConfigAction::List) | None => commands::config::execute_list(json)?,
-            Some(ConfigAction::Reset { key, all }) => {
-                commands::config::execute_reset_command(key, all, json)?;
-            }
-        },
+        }
         Some(Commands::Ai {
             yes,
             provider,
@@ -190,6 +199,7 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
             remove,
             remove_all,
         }) => {
+            commands::auth::ensure_authenticated()?;
             commands::ai::execute(commands::ai::AiCommandArgs {
                 yes,
                 provider: provider.map(Into::into),
@@ -204,19 +214,20 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
         Some(Commands::Completions { action }) => {
             commands::completions::handle_completion(action.as_ref())?;
         }
-        Some(Commands::Workspace { action }) => match action {
-            Some(crate::args::WorkspaceAction::Add { name }) => {
-                commands::auth::ensure_authenticated()?;
-                commands::workspace::execute_add(&name, json)?;
+        Some(Commands::Workspace { action }) => {
+            commands::auth::ensure_authenticated()?;
+            match action {
+                Some(crate::args::WorkspaceAction::Add { name }) => {
+                    commands::workspace::execute_add(&name, json)?;
+                }
+                Some(crate::args::WorkspaceAction::Delete { name }) => {
+                    commands::workspace::execute_delete(&name, json)?;
+                }
+                Some(crate::args::WorkspaceAction::List) | None => {
+                    commands::workspace::execute_list(json)?;
+                }
             }
-            Some(crate::args::WorkspaceAction::Delete { name }) => {
-                commands::auth::ensure_authenticated()?;
-                commands::workspace::execute_delete(&name, json)?;
-            }
-            Some(crate::args::WorkspaceAction::List) | None => {
-                commands::workspace::execute_list(json)?;
-            }
-        },
+        }
         None => {
             use clap::CommandFactory;
             let mut cmd = Cli::command();

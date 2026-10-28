@@ -19,7 +19,11 @@ pub fn fire_voice_trigger_with_args(
     if !crate::engine::quota_guard::QuotaGuard::global()
         .deplete(crate::engine::quota_guard::ExpansionType::VoiceTrigger)
     {
-        tracing::warn!("Voice trigger dropped: Weekly quota exhausted");
+        if !crate::engine::quota_guard::QuotaGuard::global().is_authenticated() {
+            tracing::debug!("Please log in to use Taurine.");
+        } else {
+            tracing::warn!("Voice trigger dropped: Weekly quota exhausted");
+        }
         return None;
     }
 
