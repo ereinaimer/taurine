@@ -192,6 +192,8 @@ fn test_pkce_auth_url_generation() {
     let url = client.auth_url(redirect_uri, code_challenge);
 
     assert!(url.starts_with("https://taurine.supabase.co/auth/v1/authorize"));
+    assert!(url.contains("provider=google"));
+    assert!(!url.contains("provider=github"));
     assert!(url.contains("code_challenge=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"));
     assert!(url.contains("code_challenge_method=s256"));
     assert!(url.contains("response_type=code"));

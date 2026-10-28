@@ -84,7 +84,7 @@ pub(crate) enum Commands {
         #[arg(long)]
         no_browser: bool,
 
-        /// OAuth provider to authenticate with (e.g. github, google, gitlab)
+        /// OAuth provider to authenticate with (defaults to google)
         #[arg(long)]
         provider: Option<String>,
 

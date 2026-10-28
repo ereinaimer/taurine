@@ -86,7 +86,7 @@ impl CloudClient {
 
     /// Generates the GoTrue OAuth authorize URL with PKCE challenge and redirect URI.
     pub fn auth_url(&self, redirect_uri: &str, code_challenge: &str) -> String {
-        self.auth_url_for_provider("github", redirect_uri, code_challenge)
+        self.auth_url_for_provider("google", redirect_uri, code_challenge)
     }
 
     /// Exchanges an OAuth authorization code and PKCE code verifier for an active session.

@@ -43,7 +43,12 @@ pub fn execute_login(
         let password = pass_input.trim();
         rt.block_on(async { client.sign_in_with_password(user_email, password).await })?
     } else {
-        let provider_name = provider.unwrap_or("github");
+        let provider_name = provider.unwrap_or("google");
+        if !provider_name.eq_ignore_ascii_case("google") {
+            return Err(taurine_core::Error::Config(
+                "Unsupported auth provider. Only 'google' and email login are supported.".into(),
+            ));
+        }
         let (code, redirect_uri) = if no_browser {
             let redirect_uri = "http://127.0.0.1/callback";
             let auth_url = client.auth_url_for_provider(provider_name, redirect_uri, &challenge);

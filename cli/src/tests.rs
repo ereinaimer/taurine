@@ -644,7 +644,7 @@ fn test_login_args_parsing() {
         "login",
         "--no-browser",
         "--provider",
-        "github",
+        "google",
         "--email",
         "user@example.com",
     ])
@@ -656,7 +656,7 @@ fn test_login_args_parsing() {
             email,
         }) => {
             assert!(no_browser);
-            assert_eq!(provider.as_deref(), Some("github"));
+            assert_eq!(provider.as_deref(), Some("google"));
             assert_eq!(email.as_deref(), Some("user@example.com"));
         }
         other => panic!("expected Login with options, got {other:?}"),
@@ -664,6 +664,18 @@ fn test_login_args_parsing() {
 
     let cli = Cli::try_parse_from(["taurine", "logout"]).expect("logout parses");
     assert!(matches!(cli.command, Some(Commands::Logout)));
+}
+
+#[test]
+fn test_login_rejects_unsupported_provider() {
+    let result = crate::commands::auth::execute_login(true, Some("github"), None, false);
+    match result {
+        Err(taurine_core::Error::Config(msg)) => {
+            assert!(msg.contains("Unsupported auth provider"));
+            assert!(msg.contains("google"));
+        }
+        other => panic!("expected Config error for unsupported provider, got {other:?}"),
+    }
 }
 
 #[test]
