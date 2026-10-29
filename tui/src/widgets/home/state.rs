@@ -3,14 +3,11 @@ use taurine_core::stats::HomeStats;
 
 use crate::widgets::home::account::{self, AccountInfo};
 use crate::widgets::panes::{DividerPointer, DividerSide};
+use crate::widgets::scroll::SmoothScroll;
 
 const REFRESH_INTERVAL_MS: u64 = 10_000;
 /// How long the copy button shows its check after a successful copy.
 pub(crate) const COPY_FEEDBACK_MS: u64 = 1_200;
-/// Lines advanced per wheel notch before easing catches up.
-const SCROLL_STEP_LINES: usize = 3;
-/// Share of the remaining distance covered each animation frame.
-const SCROLL_EASE: f32 = 0.3;
 
 /// A drawn activity card, recorded so the pointer can highlight it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,10 +32,7 @@ pub(crate) struct HomePageState {
     hovered: Option<usize>,
     selection_moved: bool,
     page_cards: usize,
-    scroll: usize,
-    scroll_target: usize,
-    scroll_animating: bool,
-    max_scroll: usize,
+    scroll: SmoothScroll,
     account_ratio: f32,
     dividers: DividerPointer,
     copied: Option<(usize, u64)>,
@@ -58,10 +52,7 @@ impl Default for HomePageState {
             hovered: None,
             selection_moved: false,
             page_cards: 0,
-            scroll: 0,
-            scroll_target: 0,
-            scroll_animating: false,
-            max_scroll: 0,
+            scroll: SmoothScroll::default(),
             account_ratio: account::DEFAULT_RATIO,
             dividers: DividerPointer::default(),
             copied: None,
@@ -97,8 +88,7 @@ impl HomePageState {
         self.load_error = None;
         self.hovered = None;
         self.copied = None;
-        self.scroll_target = self.scroll;
-        self.scroll_animating = false;
+        self.scroll.stop();
         let len = self.stats.recent_activity.len();
         self.selected = match (self.selected, len) {
             (_, 0) => None,
@@ -219,65 +209,35 @@ impl HomePageState {
     }
 
     pub(crate) const fn scroll(&self) -> usize {
-        self.scroll
+        self.scroll.scroll()
     }
 
     pub(crate) const fn scroll_animating(&self) -> bool {
-        self.scroll_animating
+        self.scroll.animating()
     }
 
-    pub(crate) const fn set_scroll(&mut self, scroll: usize) {
-        self.scroll = scroll;
-        if !self.scroll_animating {
-            self.scroll_target = scroll;
-        }
+    pub(crate) fn set_scroll(&mut self, scroll: usize) {
+        self.scroll.set(scroll);
     }
 
     /// Clamp the wheel target and the current position to the viewport.
     pub(crate) fn set_max_scroll(&mut self, max: usize) {
-        self.max_scroll = max;
-        self.scroll_target = self.scroll_target.min(max);
-        self.scroll = self.scroll.min(max);
+        self.scroll.set_max(max);
     }
 
     /// Snap the scroll, cancelling any in-flight wheel glide.
     pub(crate) fn jump_scroll(&mut self, scroll: usize) {
-        self.scroll = scroll;
-        self.scroll_target = scroll;
-        self.scroll_animating = false;
+        self.scroll.jump(scroll);
     }
 
     /// Queue a wheel notch; the next frames ease toward the target.
     pub(crate) fn smooth_scroll(&mut self, notches: isize) {
-        let step = SCROLL_STEP_LINES as isize * notches;
-        let target = if step >= 0 {
-            self.scroll_target.saturating_add(step as usize)
-        } else {
-            self.scroll_target.saturating_sub(step.unsigned_abs())
-        };
-        self.scroll_target = target.min(self.max_scroll);
-        self.scroll_animating = self.scroll_target != self.scroll;
+        self.scroll.queue(notches);
     }
 
     /// One animation frame: move a fraction of the remaining distance.
     pub(crate) fn advance_scroll(&mut self) -> usize {
-        if !self.scroll_animating {
-            return self.scroll;
-        }
-        let target = self.scroll_target.min(self.max_scroll);
-        if self.scroll == target {
-            self.scroll_animating = false;
-            return self.scroll;
-        }
-        let diff = target as isize - self.scroll as isize;
-        let step = ((diff as f32) * SCROLL_EASE).round() as isize;
-        let step = if step == 0 { diff.signum() } else { step };
-        let next = (self.scroll as isize + step).clamp(0, self.max_scroll as isize) as usize;
-        self.scroll = next;
-        if next == target {
-            self.scroll_animating = false;
-        }
-        next
+        self.scroll.advance()
     }
 
     pub(crate) fn set_card_hits(&mut self, hits: Vec<CardHit>) {
@@ -346,6 +306,7 @@ fn contains(area: Rect, column: u16, row: u16) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::widgets::scroll::STEP_LINES;
     use taurine_core::db::crud::ActivityCategory;
     use taurine_core::stats::RecentActivity;
 
@@ -397,13 +358,13 @@ mod tests {
         for _ in 0..10 {
             let next = state.advance_scroll();
             assert!(next >= last, "scrolls forward");
-            assert!(next - last <= SCROLL_STEP_LINES, "one small step per frame");
+            assert!(next - last <= STEP_LINES, "one small step per frame");
             last = next;
             if !state.scroll_animating() {
                 break;
             }
         }
-        assert_eq!(state.scroll(), SCROLL_STEP_LINES);
+        assert_eq!(state.scroll(), STEP_LINES);
         assert!(!state.scroll_animating());
 
         state.smooth_scroll(-1);

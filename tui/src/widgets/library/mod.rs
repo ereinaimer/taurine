@@ -90,7 +90,7 @@ pub fn render_library_content(
     frame: &mut Frame,
     area: Rect,
     theme: &Theme,
-    state: &LibraryPageState,
+    state: &mut LibraryPageState,
     animations: &ToggleAnimations,
     hovered: Option<ToggleId>,
     hovered_add: Option<props::PropsHit>,

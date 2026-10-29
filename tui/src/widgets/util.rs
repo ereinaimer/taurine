@@ -31,19 +31,6 @@ pub(crate) fn caret_position(x: u16, y: u16, cursor: usize, width: u16) -> (u16,
     (x.saturating_add(column), y)
 }
 
-pub(crate) fn visible_range(total: usize, selected: usize, visible_count: usize) -> (usize, usize) {
-    if total <= visible_count {
-        return (0, total);
-    }
-    let mut start = selected.saturating_sub(visible_count.saturating_sub(1));
-    let mut end = (start + visible_count).min(total);
-    if end - start < visible_count {
-        start = end.saturating_sub(visible_count);
-        end = total.min(start + visible_count);
-    }
-    (start, end)
-}
-
 /// Window `[start, end)` of variable-height rows containing `selected`
 /// that fits in `available` rows. Anchors `selected` at the bottom first,
 /// then fills above and below. Shared by settings and the command palette.

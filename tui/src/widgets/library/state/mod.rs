@@ -28,6 +28,7 @@ use crate::widgets::library::actions::{
     EditedField, LibraryImportOutcome, LibraryInteraction, PendingLibraryDelete,
     PendingLibraryEdit, PreparedLibraryImport,
 };
+use crate::widgets::scroll::SmoothScroll;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ButtonSelection {
@@ -118,7 +119,8 @@ pub(crate) struct LibraryPageState {
     selected: usize,
     search: TextField,
     search_mode: bool,
-    window_anchor: Option<usize>,
+    list_scroll: SmoothScroll,
+    list_selection_moved: bool,
     pub(crate) modal: Option<LibraryModal>,
     status_message: Option<String>,
     load_error: Option<String>,
@@ -152,7 +154,8 @@ impl Default for LibraryPageState {
             selected: 0,
             search: TextField::new(""),
             search_mode: false,
-            window_anchor: None,
+            list_scroll: SmoothScroll::default(),
+            list_selection_moved: false,
             modal: None,
             status_message: None,
             load_error: None,
@@ -174,9 +177,9 @@ impl LibraryPageState {
     pub(crate) fn replace_items(&mut self, mut items: Vec<LibraryTrigger>) {
         // honey: a refresh (e.g. after a target switch commit) must not
         // kill a live session; drop it only when its trigger is gone.
-        // The click-time anchor survives for the same reason: stale
-        // values fall back safely inside visible_window.
-        let anchor = self.window_anchor;
+        // The scroll position survives for the same reason: stale values
+        // are clamped by the next render.
+        let scroll = self.list_scroll.scroll();
         let live_edit = self
             .edit
             .take()
@@ -188,7 +191,8 @@ impl LibraryPageState {
         self.edit = live_edit;
         self.reset_detail_scroll();
         self.rebuild_filter();
-        self.window_anchor = anchor;
+        self.list_scroll.jump(scroll);
+        self.list_selection_moved = false;
     }
 
     pub(crate) fn set_load_error(&mut self, error: String) {
@@ -1320,22 +1324,41 @@ impl LibraryPageState {
         }
     }
 
-    /// Visible window preferring a click-time anchor so a clicked row stays
-    /// where it was; falls back to bottom-anchored scrolling when stale.
-    pub(crate) fn visible_window(&self, capacity: usize) -> (usize, usize) {
-        let total = self.filtered_len();
-        if capacity == 0 || total == 0 {
-            return (0, 0);
-        }
-        let selected = self.selected_index().unwrap_or(0);
-        if let Some(anchor) = self.window_anchor {
-            let start = anchor.min(total.saturating_sub(1));
-            let end = start.saturating_add(capacity).min(total);
-            if selected >= start && selected < end {
-                return (start, end);
-            }
-        }
-        crate::widgets::util::visible_range(total, selected, capacity)
+    /// Current eased line offset from the top of the list.
+    pub(crate) fn list_scroll(&self) -> usize {
+        self.list_scroll.scroll()
+    }
+
+    pub(crate) fn list_scroll_animating(&self) -> bool {
+        self.list_scroll.animating()
+    }
+
+    /// Clamp the wheel target and the current position to the viewport.
+    pub(crate) fn set_list_scroll_max(&mut self, max: usize) {
+        self.list_scroll.set_max(max);
+    }
+
+    /// Snap the list, cancelling any in-flight wheel glide.
+    pub(crate) fn jump_list_scroll(&mut self, scroll: usize) {
+        self.list_scroll.jump(scroll);
+    }
+
+    /// Queue a wheel notch over the list.
+    pub(crate) fn smooth_scroll_list(&mut self, notches: isize) {
+        self.list_scroll.queue(notches);
+    }
+
+    /// One animation frame: move a fraction of the remaining distance.
+    pub(crate) fn advance_list_scroll(&mut self) -> usize {
+        self.list_scroll.advance()
+    }
+
+    pub(crate) fn list_selection_moved(&self) -> bool {
+        self.list_selection_moved
+    }
+
+    pub(crate) fn clear_list_selection_moved(&mut self) {
+        self.list_selection_moved = false;
     }
 
     pub(crate) fn filtered_len(&self) -> usize {
@@ -1346,6 +1369,8 @@ impl LibraryPageState {
     /// so the topmost entries stay visible with the cursor on the row
     /// touching the search bar.
     pub(crate) fn select_first_window_bottom(&mut self, capacity: usize) {
+        self.list_scroll.jump(0);
+        self.list_selection_moved = false;
         let total = self.filtered_indices.len();
         if total == 0 || capacity == 0 {
             self.selected = 0;
@@ -1369,6 +1394,7 @@ impl LibraryPageState {
             return false;
         };
         self.selected = position;
+        self.list_selection_moved = true;
         self.reset_detail_scroll();
         true
     }
@@ -1393,12 +1419,13 @@ impl LibraryPageState {
             return false;
         };
         self.selected = position;
+        self.list_selection_moved = true;
         self.reset_detail_scroll();
         true
     }
 
     pub(crate) fn select_after_delete(&mut self, previous_index: usize) {
-        self.window_anchor = None;
+        self.list_selection_moved = true;
         if self.filtered_indices.is_empty() {
             self.selected = 0;
         } else {
@@ -1464,7 +1491,6 @@ impl LibraryPageState {
                 self.search_mode = true;
                 self.search.insert(ch);
                 self.selected = 0;
-                self.window_anchor = None;
                 self.rebuild_filter();
                 LibraryInteraction::handled()
             }
@@ -2177,7 +2203,7 @@ impl LibraryPageState {
     }
 
     fn move_selection(&mut self, delta: isize) {
-        self.window_anchor = None;
+        self.list_selection_moved = true;
         self.reset_detail_scroll();
         let Some(current) = self.selected_index() else {
             self.selected = 0;
@@ -2190,7 +2216,8 @@ impl LibraryPageState {
     }
 
     fn rebuild_filter(&mut self) {
-        self.window_anchor = None;
+        self.list_scroll.jump(0);
+        self.list_selection_moved = false;
         self.reset_detail_scroll();
         let previously_selected = self.selected_item().cloned();
         self.filtered_indices = self
@@ -2212,10 +2239,12 @@ impl LibraryPageState {
                 .position(|item_index| self.items[*item_index] == previous_item)
         {
             self.selected = position;
+            self.list_selection_moved = true;
             return;
         }
 
         self.selected = 0;
+        self.list_selection_moved = true;
     }
 
     fn selected_item(&self) -> Option<&LibraryTrigger> {
@@ -2228,23 +2257,18 @@ impl LibraryPageState {
         self.search.place(cursor);
     }
 
-    /// Click selects the row and records the click-time window start so the
-    /// list does not jump. A pending edit commits first when the click
-    /// lands on another row; blank text silently no-ops.
-    pub(crate) fn click_item(
-        &mut self,
-        filtered_position: usize,
-        anchor: usize,
-    ) -> LibraryInteraction {
+    /// Click selects the row; the free-scroll offset stays put so the list
+    /// never jumps. A pending edit commits first when the click lands on
+    /// another row; blank text silently no-ops.
+    pub(crate) fn click_item(&mut self, filtered_position: usize) -> LibraryInteraction {
+        self.list_selection_moved = false;
         if self.edit.is_some() && Some(filtered_position) != self.selected_index() {
             let interaction = self.commit_edit();
             self.selected = filtered_position;
-            self.window_anchor = Some(anchor);
             self.reset_detail_scroll();
             return interaction;
         }
         self.selected = filtered_position;
-        self.window_anchor = Some(anchor);
         self.reset_detail_scroll();
         LibraryInteraction::handled()
     }

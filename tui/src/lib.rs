@@ -102,7 +102,9 @@ pub fn run() -> taurine_core::Result<()> {
             events.next_with_timeout(frame)?
         } else if app.hotkey_recorder().is_some() {
             events.next_with_timeout(RECORDER_POLL_RATE)?
-        } else if home_visible(&app) && app.home_page().scroll_animating() {
+        } else if (home_visible(&app) && app.home_page().scroll_animating())
+            || (library_visible(&app) && app.library_page().list_scroll_animating())
+        {
             events.next_with_timeout(SCROLL_FRAME_RATE)?
         } else {
             events.next()?
@@ -444,15 +446,20 @@ fn render_page_content(
 ) {
     match app.nav_rail().active_page {
         ActivePage::Home => home::render_home_content(frame, full, theme, app.home_page_mut()),
-        ActivePage::Library => library::render_library_content(
-            frame,
-            full,
-            theme,
-            app.library_page(),
-            app.toggle_animations(),
-            app.toggle_hover(),
-            app.props_hover(),
-        ),
+        ActivePage::Library => {
+            let animations = app.toggle_animations().clone();
+            let hovered = app.toggle_hover();
+            let hovered_add = app.props_hover();
+            library::render_library_content(
+                frame,
+                full,
+                theme,
+                app.library_page_mut(),
+                &animations,
+                hovered,
+                hovered_add,
+            );
+        }
     }
 }
 
@@ -1066,6 +1073,12 @@ fn handle_tui_mouse_event(
                     .scroll_detail(if down { 1 } else { -1 }, max);
                 return;
             }
+            if library::list::list_contains(full, page, mouse.column, mouse.row) {
+                let down = mouse.kind == MouseEventKind::ScrollDown;
+                app.library_page_mut()
+                    .smooth_scroll_list(if down { 1 } else { -1 });
+                return;
+            }
             handle_tui_key_event(app, scroll_key(mouse.kind == MouseEventKind::ScrollDown));
         }
         MouseEventKind::Moved => {
@@ -1516,8 +1529,7 @@ fn handle_tui_mouse_event(
             }
             match library::list::hit_test(full, app.library_page(), mouse.column, mouse.row) {
                 Some(library::list::LibraryHit::Item(position)) => {
-                    let anchor = library::list::window_start(full, app.library_page());
-                    let interaction = app.library_page_mut().click_item(position, anchor);
+                    let interaction = app.library_page_mut().click_item(position);
                     apply_library_interaction(app, interaction);
                 }
                 Some(library::list::LibraryHit::SearchAt(cursor)) => {
@@ -2368,6 +2380,38 @@ mod tests {
                 interpreter: None,
                 behavior: None,
             })]);
+    }
+
+    /// Enough rows to overflow the list viewport in workspace tests.
+    fn seed_library_items(app: &mut App, count: usize) {
+        app.library_page_mut().replace_items(
+            (0..count)
+                .map(|index| {
+                    let id = format!("test-{index}");
+                    let invocation = format!("alt+{index}");
+                    LibraryTrigger::single(TriggerListItem {
+                        id: id.clone(),
+                        description: None,
+                        invocations: vec![hotkey_alias(&id, &invocation)],
+                        display: invocation,
+                        output: format!("out {index}"),
+                        action_type: "text".to_string(),
+                        target_os: "win".to_string(),
+                        only_apps: None,
+                        except_apps: None,
+                        auto_case: false,
+                        is_enabled: true,
+                        usage_count: 0,
+                        last_used_at: None,
+                        created_at: 0,
+                        tags: "[]".to_string(),
+                        script_content: None,
+                        interpreter: None,
+                        behavior: None,
+                    })
+                })
+                .collect(),
+        );
     }
 
     #[test]
@@ -3842,6 +3886,70 @@ mod tests {
             }
         }
         assert_eq!(app.home_page().scroll(), 0);
+    }
+
+    #[test]
+    fn library_wheel_smooth_scrolls_the_list() {
+        use ratatui::{Terminal, backend::TestBackend};
+
+        let mut app = library_app();
+        seed_library_items(&mut app, 40);
+        let backend = TestBackend::new(TEST_AREA.width, TEST_AREA.height);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal
+            .draw(|frame| render_app(frame, &mut app, TEST_AREA))
+            .expect("test draw");
+
+        let full = workspace_full(&app, TEST_AREA);
+        let page = app.library_page();
+        let content = library::left_content(full, page.split_ratio(), page.detail_ratio());
+        let (list_area, _) =
+            library::content_sections(content, false, page.search_field(), page.is_search_active());
+        assert!(list_area.height > 0, "the seeded list is on screen");
+        let (column, row) = (list_area.x + 2, list_area.y + 2);
+
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(column, row, MouseEventKind::ScrollDown),
+            TEST_AREA,
+        );
+        assert!(
+            app.library_page().list_scroll_animating(),
+            "wheel starts a smooth glide"
+        );
+        for _ in 0..10 {
+            terminal
+                .draw(|frame| render_app(frame, &mut app, TEST_AREA))
+                .expect("test draw");
+            if !app.library_page().list_scroll_animating() {
+                break;
+            }
+        }
+        assert_eq!(
+            app.library_page().list_scroll(),
+            3,
+            "one notch moves three lines"
+        );
+        assert_eq!(
+            app.library_page().selected_index(),
+            Some(0),
+            "the wheel never moves the cursor"
+        );
+
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(column, row, MouseEventKind::ScrollUp),
+            TEST_AREA,
+        );
+        for _ in 0..10 {
+            terminal
+                .draw(|frame| render_app(frame, &mut app, TEST_AREA))
+                .expect("test draw");
+            if !app.library_page().list_scroll_animating() {
+                break;
+            }
+        }
+        assert_eq!(app.library_page().list_scroll(), 0);
     }
 
     #[test]

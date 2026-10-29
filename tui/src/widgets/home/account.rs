@@ -178,7 +178,7 @@ fn quota_bar(remaining: f64, width: usize, theme: &Theme) -> Line<'static> {
         Span::styled("█".repeat(filled), Style::default().fg(theme.text_muted)),
         Span::styled(
             "░".repeat(width.saturating_sub(filled)),
-            Style::default().fg(theme.border),
+            Style::default().fg(theme.track),
         ),
     ])
 }

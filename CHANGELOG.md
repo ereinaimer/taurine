@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Home Dashboard**: A flat activity card feed with a tag row, fully wrapped content, a left-aligned clock and copy meta row beneath it, a sticky title and date headers, a focus highlight, and copy on the active card, plus a draggable account and weekly-quota pane with the reset countdown.
 - **Unified Highlight Fill**: The theme highlight, selected rows, rail pills, and active activity cards now share the same fill, with activity cards dimmed beneath it.
 - **Smooth Activity Scroll**: The home feed eases three lines per wheel notch instead of jumping.
+- **Smooth Library Scroll**: The library trigger list eases three lines per wheel notch like the home feed.
 - **Copy Feedback**: A successful copy flips the activity copy button to a green check mark for a moment.
 - **Voice Activity**: Voice entries in the home feed show what was actually said instead of the inserted snippet output.
 - **TUI Toasts**: Removed the temporary in-TUI toast banners; a dedicated notification overlay will replace them.
@@ -51,6 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Trigger Display Names**: Replaced redundant trigger display names with primary trigger invocations and descriptions across the CLI and TUI.
 
 ### Fixed
+- **Weekly Quota Bar**: Show the unfilled quota track so the remaining weekly balance is readable.
 - **Hotkey Expansion Telemetry**: Shortcuts that inject text now properly record expanded word counts and estimated time saved.
 - **Cloud Login Defaults**: Sign in to Taurine Cloud directly without configuring manual environment variables.
 - **Background Service Startup**: Prevent `taurine up` from falsely reporting the service as already running when an interactive terminal or TUI session is active.
