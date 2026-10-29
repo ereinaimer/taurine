@@ -517,7 +517,8 @@ impl DaemonControl for DaemonService {
                     pushed_settings: 0,
                     pulled_events: 0,
                     pushed_stats: 0,
-                    error_message: "User is not authenticated with Taurine Cloud.".to_string(),
+                    error_message: "User is not authenticated. Run taurine login to continue."
+                        .to_string(),
                 }))
             }
             crate::services::sync_worker::SyncStatus::Error(err) => {
@@ -827,7 +828,7 @@ mod tests {
         assert!(!inner.success);
         assert_eq!(
             inner.error_message,
-            "User is not authenticated with Taurine Cloud."
+            "User is not authenticated. Run taurine login to continue."
         );
         assert_eq!(inner.pulled_snippets, 0);
         assert_eq!(inner.pushed_snippets, 0);

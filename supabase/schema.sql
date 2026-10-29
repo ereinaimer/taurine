@@ -1,5 +1,5 @@
 -- ============================================================================
--- Taurine Cloud Baseline Schema
+-- Taurine Baseline Schema
 -- Execute in Supabase SQL Editor or apply via Supabase CLI.
 -- ============================================================================
 
@@ -9,9 +9,7 @@
 CREATE TABLE IF NOT EXISTS public.snippets (
     id           UUID        PRIMARY KEY,
     user_id      UUID        NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE,
-    local_id     TEXT        NOT NULL DEFAULT '',
     workspace_id UUID        NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000'::uuid,
-    name         TEXT        NOT NULL DEFAULT '',
     output       TEXT        NOT NULL DEFAULT '',
     description  TEXT,
     action_type  TEXT        NOT NULL DEFAULT 'text',
@@ -27,6 +25,9 @@ CREATE TABLE IF NOT EXISTS public.snippets (
     created_at   BIGINT      NOT NULL DEFAULT 0,
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE public.snippets DROP COLUMN IF EXISTS local_id;
+ALTER TABLE public.snippets DROP COLUMN IF EXISTS name;
 
 ALTER TABLE public.snippets ENABLE ROW LEVEL SECURITY;
 
@@ -66,6 +67,105 @@ CREATE POLICY "Users can manage their own quota ledger"
 
 GRANT ALL ON TABLE public.quota_ledger TO authenticated;
 GRANT ALL ON TABLE public.quota_ledger TO service_role;
+
+-- ----------------------------------------------------------------------------
+-- 2b. Quota Burn Events (Idempotent Delta Tracking)
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.quota_burn_events (
+    id          UUID             PRIMARY KEY,
+    user_id     UUID             NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE,
+    device_id   TEXT             NOT NULL DEFAULT '',
+    week_epoch  BIGINT           NOT NULL,
+    delta       DOUBLE PRECISION NOT NULL,
+    created_at  TIMESTAMPTZ      NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.quota_burn_events ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can manage their own quota burn events" ON public.quota_burn_events;
+CREATE POLICY "Users can manage their own quota burn events"
+    ON public.quota_burn_events
+    FOR ALL
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+
+GRANT ALL ON TABLE public.quota_burn_events TO authenticated;
+GRANT ALL ON TABLE public.quota_burn_events TO service_role;
+
+-- ----------------------------------------------------------------------------
+-- 2c. Quota Burn RPC (Atomic Delta Deduction with Idempotency)
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.record_quota_burn(
+    p_week_epoch BIGINT,
+    p_delta DOUBLE PRECISION,
+    p_device_id TEXT,
+    p_mutation_id TEXT
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_user_id UUID;
+    v_new_balance DOUBLE PRECISION;
+    v_mut_uuid UUID;
+BEGIN
+    v_user_id := auth.uid();
+    IF v_user_id IS NULL THEN
+        RAISE EXCEPTION 'Not authenticated';
+    END IF;
+
+    -- Safely parse or default the mutation UUID
+    BEGIN
+        v_mut_uuid := p_mutation_id::UUID;
+    EXCEPTION WHEN others THEN
+        v_mut_uuid := gen_random_uuid();
+    END;
+
+    -- Check for idempotency: if already recorded, return current balance
+    IF EXISTS (
+        SELECT 1 FROM public.quota_burn_events
+        WHERE id = v_mut_uuid AND user_id = v_user_id
+    ) THEN
+        SELECT remaining_percentage INTO v_new_balance
+        FROM public.quota_ledger
+        WHERE user_id = v_user_id AND week_start_epoch = p_week_epoch;
+
+        RETURN jsonb_build_object('new_balance', COALESCE(v_new_balance, 100.0));
+    END IF;
+
+    -- Record the burn event
+    INSERT INTO public.quota_burn_events (id, user_id, device_id, week_epoch, delta, created_at)
+    VALUES (v_mut_uuid, v_user_id, p_device_id, p_week_epoch, p_delta, now());
+
+    -- Atomically update the quota ledger
+    INSERT INTO public.quota_ledger (
+        user_id,
+        week_start_epoch,
+        remaining_percentage,
+        last_expansion_at,
+        updated_at
+    )
+    VALUES (
+        v_user_id,
+        p_week_epoch,
+        GREATEST(0.0, 100.0 - p_delta),
+        extract(epoch from now())::BIGINT,
+        extract(epoch from now())::BIGINT
+    )
+    ON CONFLICT (user_id, week_start_epoch)
+    DO UPDATE SET
+        remaining_percentage = GREATEST(0.0, public.quota_ledger.remaining_percentage - p_delta),
+        last_expansion_at = extract(epoch from now())::BIGINT,
+        updated_at = extract(epoch from now())::BIGINT
+    RETURNING remaining_percentage INTO v_new_balance;
+
+    RETURN jsonb_build_object('new_balance', v_new_balance);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.record_quota_burn(BIGINT, DOUBLE PRECISION, TEXT, TEXT) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.record_quota_burn(BIGINT, DOUBLE PRECISION, TEXT, TEXT) TO service_role;
 
 -- ----------------------------------------------------------------------------
 -- 3. User Settings Store (Portable Key-Value Config Sync)

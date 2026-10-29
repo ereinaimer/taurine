@@ -1109,3 +1109,16 @@ fn test_sync_command_unauthenticated() {
     // SAFETY: access to TAURINE_DATA_DIR is serialized by TEST_LOCK
     unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
 }
+
+#[test]
+fn test_cli_help_does_not_contain_taurine_cloud() {
+    use clap::CommandFactory;
+    let mut cmd = crate::args::Cli::command();
+    let mut help_buf = Vec::new();
+    cmd.write_help(&mut help_buf).unwrap();
+    let help_str = String::from_utf8_lossy(&help_buf);
+    assert!(
+        !help_str.contains("Taurine Cloud"),
+        "CLI help must not mention Taurine Cloud"
+    );
+}

@@ -8,27 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Mandatory Authentication Gate**: Require an active Taurine Cloud account to launch Taurine or trigger expansions, and purge local data on logout.
-- **Event-Driven Cloud Sync**: Synchronize triggers and settings immediately on changes, pause/resume transitions, and via the new `taurine sync` command.
+- **Mandatory Authentication Gate**: Require an active Taurine account to launch Taurine or trigger expansions, and purge local data on logout.
 - **Bidirectional Cloud Sync**: Synchronize and restore snippets, settings, activity history, and multi-device statistics across devices with conflict-free aggregation.
-- **Activity Event Logging**: Record individual user actions with precise timestamps, application context, word counts, and time saved.
+- **Activity Event Logging**: Record individual user actions with timestamps, application context, word counts, and time saved.
 - **Activity Output History & Retention**: Retain full text content for voice dictations and expansions with a rolling 30-day history window and cross-device synchronization.
 - **Streak Tracking**: Track consecutive daily active execution streaks and all-time records.
 - **Home Dashboard**: Flat activity card feed with sticky date headers, active card actions, and weekly quota overview.
 - **Voice Activity**: Voice entries in the activity feed display the recognized speech text instead of the inserted snippet output.
 - **Snippet Enable and Disable**: Toggle individual snippets directly with `taurine enable` and `taurine disable`.
-- **Cloud Authentication**: Sign in and out of Taurine Cloud with `taurine login` and `taurine logout`.
 - **Cloud Quota & Tier Status**: View subscription tier, weekly quota balance, and usage limits in `taurine status`.
-- **Workspace Management**: Create, list, and delete snippet workspaces with the new `taurine workspace` command.
-- **Workspace Filtering**: Assign and filter triggers by workspace with the `--workspace` flag.
-- **Unlimited Voice Dictation**: Talk as long as you want with no time cutoffs.
-- **Smarter Custom Words**: Personal dictionary and voice shortcuts take priority over everyday speech.
-- **Keep Voice Model Loaded**: Optional setting to keep the dictation model in memory for instant start after long idle periods.
-- **Voice Error Sound**: Play a distinct error tone when dictation fails because the microphone or voice engine is unavailable.
-- **Pause Media While Dictating**: Automatically pause audio and video playback during active voice recording.
-- **Cleaner Trigger List**: Listing shows one line per trigger with invocation, output preview, and multi-tag filtering.
+- **Workspace Management**: Organize, filter, and manage snippet workspaces with the `taurine workspace` command and `--workspace` flag.
 - **Trigger Usage History**: Record daily per-trigger expansion stats and active application context in the local database.
-- **Settings & Stats Sync**: Synchronize allowed user preferences and daily trigger statistics across authorized cloud devices.
 - **Redesigned TUI Workspace**: Full-height responsive layout featuring a vector-icon navigation rail, draggable split views, and smooth mouse scrolling.
 - **Command Palette**: Quick-access command palette (`Ctrl+P`) with real-time search, descriptions, and direct execution shortcuts.
 - **In-TUI Trigger Creator**: Create and configure triggers directly (`Ctrl+N`) with interactive type pickers, tag builder, and running application selectors.
@@ -38,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Status Command Streamlining**: Displays account email instead of raw ID, shows relative countdown for weekly quota reset, and removes redundant unlimited labels.
-- **Google Cloud Authentication**: Replaced GitHub OAuth with Google OAuth as the default cloud authentication provider alongside email login.
+- **Google Authentication**: Replaced GitHub OAuth with Google OAuth as the default cloud authentication provider alongside email login.
 - **Word-Based Telemetry**: Replaced keystroke metrics with separate counts for words spoken and words expanded across daily statistics and cloud synchronization.
 - **Monetization Simplification**: Free tier now includes unlimited snippets, workspaces, and devices, gating exclusively on weekly expansion quota.
 
@@ -47,10 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Trigger Display Names**: Replaced redundant trigger display names with primary trigger invocations and descriptions across the CLI and TUI.
 
 ### Fixed
-- **Cloud State Restoration**: Reliably restore and synchronize quota balances, triggers, settings, and telemetry when signing in and out of Taurine Cloud.
+- **Cloud State Restoration**: Reliably restore and synchronize quota balances, triggers, settings, and telemetry when signing in and out of Taurine.
 - **Weekly Quota Indicator**: Correctly display remaining weekly balance tracks on account summaries and status views.
 - **Hotkey Expansion Telemetry**: Shortcuts that inject text now properly record expanded word counts and estimated time saved.
-- **Cloud Login Defaults**: Sign in to Taurine Cloud directly without configuring manual environment variables.
+- **Login Defaults**: Sign in to Taurine directly without configuring manual environment variables.
 - **Background Service Startup**: Prevent `taurine up` from falsely reporting the service as already running when an interactive terminal or TUI session is active.
 - **Quota Depletion**: Ensure trigger expansions update weekly quota balance and sync accurately with cloud status.
 - **Service Stop Fallback**: `taurine stop` and `taurine restart` now terminate an unresponsive background instance instead of reporting a false failure or starting a duplicate.

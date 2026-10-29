@@ -114,9 +114,7 @@ pub fn execute_sync(json: bool) -> Result<()> {
                     serde_json::json!({ "success": false, "error": "Not authenticated" })
                 );
             } else {
-                eprintln!(
-                    "You are not logged in. Run `taurine login` to connect to Taurine Cloud."
-                );
+                eprintln!("You are not logged in. Run taurine login to continue.");
             }
         }
         taurine_daemon::SyncStatus::Error(err) => {

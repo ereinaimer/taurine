@@ -77,7 +77,7 @@ pub(crate) enum Commands {
     Update,
     /// Check Taurine status
     Status,
-    /// Log in to Taurine Cloud
+    /// Log in to Taurine
     #[command(alias = "signin")]
     Login {
         /// Do not open the browser automatically; print URL and prompt for code
@@ -92,10 +92,10 @@ pub(crate) enum Commands {
         #[arg(long)]
         email: Option<String>,
     },
-    /// Log out from Taurine Cloud
+    /// Log out from Taurine
     #[command(alias = "signout")]
     Logout,
-    /// Synchronize triggers, settings, and telemetry with Taurine Cloud
+    /// Synchronize triggers, settings, and telemetry
     #[command(aliases = ["push", "pull"])]
     Sync,
     #[cfg(target_os = "linux")]
