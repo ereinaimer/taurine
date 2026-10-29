@@ -1965,3 +1965,86 @@ fn test_audit_payload_tags_missing_default_teaches_semicolon_syntax() {
     );
     assert!(!msg.contains('`'), "must not contain backticks: {msg}");
 }
+
+#[test]
+fn test_create_trigger_entry_generates_uuid_and_enqueues_outbox() {
+    init_tracing_for_tests();
+    let (_dir, conn) = open_test_db();
+
+    let entry = NewEntry {
+        description: Some("Outbox test trigger".to_string()),
+        content: "Hello outbox!".to_string(),
+        action_type: "text".to_string(),
+        target_os: "all".to_string(),
+        only_apps: None,
+        except_apps: None,
+        tags_json: "[]".to_string(),
+        auto_case: false,
+        interpreter: None,
+        behavior: None,
+        invocations: vec![(InvocationType::Word, "outboxtest".to_string(), false)],
+    };
+
+    let (id, aliases) = create_trigger_entry(&conn, &entry).unwrap();
+    assert!(
+        uuid::Uuid::parse_str(&id).is_ok(),
+        "ID must be a valid UUID v4"
+    );
+    assert_eq!(aliases.len(), 1);
+
+    let batch = crate::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    assert_eq!(batch.len(), 1);
+    assert_eq!(batch[0].entity_type, "snippet");
+    assert_eq!(batch[0].entity_id, id);
+    assert_eq!(batch[0].operation, "upsert");
+    assert_eq!(batch[0].payload["id"], id);
+    assert_eq!(batch[0].payload["output"], "Hello outbox!");
+}
+
+#[test]
+fn test_update_and_delete_trigger_entry_enqueue_outbox() {
+    init_tracing_for_tests();
+    let (_dir, conn) = open_test_db();
+
+    let entry = NewEntry {
+        description: Some("Outbox update/delete test".to_string()),
+        content: "Original content".to_string(),
+        action_type: "text".to_string(),
+        target_os: "all".to_string(),
+        only_apps: None,
+        except_apps: None,
+        tags_json: "[]".to_string(),
+        auto_case: false,
+        interpreter: None,
+        behavior: None,
+        invocations: vec![(InvocationType::Word, "upd_del_test".to_string(), false)],
+    };
+
+    let (id, _) = create_trigger_entry(&conn, &entry).unwrap();
+
+    let batch = crate::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    crate::db::crud::delete_outbox_batch(&conn, batch.last().unwrap().id).unwrap();
+
+    let mut updated_entry = entry.clone();
+    updated_entry.content = "Updated content".to_string();
+    update_trigger_entry(&conn, &id, &updated_entry).unwrap();
+
+    let batch = crate::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    assert_eq!(batch.len(), 1);
+    assert_eq!(batch[0].entity_type, "snippet");
+    assert_eq!(batch[0].entity_id, id);
+    assert_eq!(batch[0].operation, "upsert");
+    assert_eq!(batch[0].payload["output"], "Updated content");
+
+    crate::db::crud::delete_outbox_batch(&conn, batch.last().unwrap().id).unwrap();
+
+    let deleted = delete_trigger_entry(&conn, &id).unwrap();
+    assert!(deleted);
+
+    let batch = crate::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    assert_eq!(batch.len(), 1);
+    assert_eq!(batch[0].entity_type, "snippet");
+    assert_eq!(batch[0].entity_id, id);
+    assert_eq!(batch[0].operation, "delete");
+    assert_eq!(batch[0].payload["is_deleted"], true);
+}

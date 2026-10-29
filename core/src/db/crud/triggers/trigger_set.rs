@@ -687,13 +687,65 @@ fn create_entry_inner(
             *require_confirmation,
         )?);
     }
+    enqueue_trigger_outbox(conn, &id, "upsert")?;
     Ok((id, aliases))
+}
+
+pub(crate) fn enqueue_trigger_outbox(
+    conn: &Connection,
+    trigger_id: &str,
+    operation: &str,
+) -> Result<()> {
+    if let Some(trigger) = super::trigger_get::get_trigger(conn, trigger_id)? {
+        let aliases = super::aliases::list_aliases(conn, trigger_id)?;
+        let payload = super::trigger_sync::serialize_trigger_to_cloud_snippet(&trigger, &aliases);
+        let payload_val =
+            serde_json::to_value(&payload).map_err(|e| crate::Error::Config(e.to_string()))?;
+        crate::db::crud::enqueue_outbox(conn, "snippet", trigger_id, operation, payload_val)?;
+    }
+    Ok(())
 }
 
 /// Inserts a new multi-invocation entry: one parent row plus one alias
 /// row per invocation, atomically.
 pub fn create_entry(conn: &Connection, entry: NewEntry) -> Result<(String, Vec<TriggerAliasRow>)> {
-    with_transaction(conn, || create_entry_inner(conn, &entry))
+    create_trigger_entry(conn, entry)
+}
+
+pub fn create_trigger_entry(
+    conn: &Connection,
+    entry: impl std::borrow::Borrow<NewEntry>,
+) -> Result<(String, Vec<TriggerAliasRow>)> {
+    with_transaction(conn, || create_entry_inner(conn, entry.borrow()))
+}
+
+pub fn update_trigger_entry(
+    conn: &Connection,
+    trigger_id: &str,
+    entry: impl std::borrow::Borrow<NewEntry>,
+) -> Result<AddOutcome> {
+    with_transaction(conn, || {
+        let entry = entry.borrow();
+        let requested: Vec<(InvocationType, String, bool)> = entry
+            .invocations
+            .iter()
+            .map(|(t, s, rc)| (*t, s.nfc().collect::<String>(), *rc))
+            .collect();
+        update_entry_inner(conn, trigger_id, entry, &requested)
+    })
+}
+
+pub fn delete_trigger_entry(conn: &Connection, trigger_id: &str) -> Result<bool> {
+    let active: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM triggers WHERE id = ?1 AND is_deleted = 0)",
+        [trigger_id],
+        |row| row.get(0),
+    )?;
+    if !active {
+        return Ok(false);
+    }
+    super::aliases::tombstone_entry(conn, trigger_id, now_unix_secs())?;
+    Ok(true)
 }
 
 /// Parent columns compared by the upsert update path.
@@ -900,6 +952,7 @@ fn update_entry_inner(
             *require_confirmation,
         )?;
     }
+    enqueue_trigger_outbox(conn, parent_id, "upsert")?;
     Ok(AddOutcome::Updated)
 }
 
@@ -1123,6 +1176,7 @@ pub fn update_existing_trigger(
             &prepared.stored_trigger,
             false,
         )?;
+        enqueue_trigger_outbox(conn, update.id, "upsert")?;
         Ok(())
     })
 }

@@ -537,6 +537,7 @@ pub fn tombstone_entry(conn: &Connection, trigger_id: &str, now: i64) -> Result<
             "DELETE FROM trigger_aliases WHERE trigger_id = ?1",
             [trigger_id],
         )?;
+        super::trigger_set::enqueue_trigger_outbox(conn, trigger_id, "delete")?;
         Ok(())
     })
 }

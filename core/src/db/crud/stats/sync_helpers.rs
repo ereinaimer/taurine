@@ -217,6 +217,10 @@ pub fn get_unsynced_stats(conn: &Connection, limit: usize) -> Result<Vec<StatRow
     let mut stmt = conn.prepare_cached(
         "SELECT date, executions, ai_executions, voice_executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
          FROM stats
+         WHERE EXISTS (
+             SELECT 1 FROM sync_outbox
+             WHERE entity_type = 'stat' AND entity_id = stats.date
+         )
          ORDER BY updated_at ASC
          LIMIT ?1",
     )?;
@@ -241,17 +245,28 @@ pub fn get_unsynced_stats(conn: &Connection, limit: usize) -> Result<Vec<StatRow
     Ok(result)
 }
 
-/// Marks the specified dates in `stats` as synchronized (`is_synced = 1`).
-pub fn mark_stats_synced(_conn: &Connection, _dates: &[&str]) -> Result<()> {
+/// Marks the specified dates in `stats` as synchronized.
+pub fn mark_stats_synced(conn: &Connection, dates: &[&str]) -> Result<()> {
+    for date in dates {
+        conn.execute(
+            "DELETE FROM sync_outbox WHERE entity_type = 'stat' AND entity_id = ?1",
+            [date],
+        )?;
+    }
     Ok(())
 }
 
-/// Retrieves dirty app stats rows that have not yet been synchronized (`is_synced = 0`),
+/// Retrieves dirty app stats rows that have not yet been synchronized,
 /// ordered chronologically by `updated_at` ascending.
 pub fn get_unsynced_app_stats(conn: &Connection, limit: usize) -> Result<Vec<AppStatRow>> {
     let mut stmt = conn.prepare_cached(
         "SELECT app_key, date, executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
          FROM app_stats
+         WHERE EXISTS (
+             SELECT 1 FROM sync_outbox
+             WHERE entity_type = 'app_stat'
+               AND entity_id = (app_stats.app_key || ':' || app_stats.date)
+         )
          ORDER BY updated_at ASC
          LIMIT ?1",
     )?;
@@ -280,8 +295,15 @@ pub fn get_unsynced_app_stats(conn: &Connection, limit: usize) -> Result<Vec<App
     Ok(result)
 }
 
-/// Marks the specified `(app_key, date)` pairs in `app_stats` as synchronized (`is_synced = 1`).
-pub fn mark_app_stats_synced(_conn: &Connection, _keys: &[(&str, &str)]) -> Result<()> {
+/// Marks the specified `(app_key, date)` pairs in `app_stats` as synchronized.
+pub fn mark_app_stats_synced(conn: &Connection, keys: &[(&str, &str)]) -> Result<()> {
+    for (app_key, date) in keys {
+        let entity_id = format!("{app_key}:{date}");
+        conn.execute(
+            "DELETE FROM sync_outbox WHERE entity_type = 'app_stat' AND entity_id = ?1",
+            [&entity_id],
+        )?;
+    }
     Ok(())
 }
 

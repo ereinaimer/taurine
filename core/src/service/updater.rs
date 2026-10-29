@@ -97,15 +97,7 @@ mod tests {
 
     fn open_test_conn() -> Connection {
         let conn = Connection::open_in_memory().expect("failed to open memory DB");
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS settings (
-                key        TEXT    PRIMARY KEY,
-                value      JSON    NOT NULL,
-                version    INTEGER DEFAULT 1,
-                updated_at INTEGER NOT NULL
-            );",
-        )
-        .expect("setup schema failed");
+        crate::db::init::ensure_schema(&conn).expect("setup schema failed");
         conn
     }
 

@@ -123,6 +123,15 @@ pub fn insert_activity_event(conn: &Connection, event: &NewActivityEvent) -> Res
         ],
     )?;
 
+    let entity_id = id.clone();
+    let _ = crate::db::crud::enqueue_outbox(
+        conn,
+        "activity_event",
+        &entity_id,
+        "upsert",
+        serde_json::json!({ "id": &entity_id }),
+    );
+
     Ok(id)
 }
 
@@ -216,13 +225,35 @@ pub fn get_recent_activity_events(
 }
 
 pub fn get_unsynced_activity_events(
-    _conn: &Connection,
-    _limit: usize,
+    conn: &Connection,
+    limit: usize,
 ) -> Result<Vec<ActivityEventRow>> {
-    Ok(Vec::new())
+    let mut stmt = conn.prepare_cached(
+        "SELECT id, trigger_id, timestamp, date, category, app_key, word_count, time_saved_ms, content, version, 0 AS is_synced, created_at
+         FROM activity_events
+         WHERE EXISTS (
+             SELECT 1 FROM sync_outbox
+             WHERE entity_type = 'activity_event' AND entity_id = activity_events.id
+         )
+         ORDER BY timestamp ASC
+         LIMIT ?1",
+    )?;
+
+    let rows = stmt.query_map(params![limit as i64], map_activity_event_row)?;
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row?);
+    }
+    Ok(result)
 }
 
-pub fn mark_activity_events_synced(_conn: &Connection, _ids: &[&str]) -> Result<()> {
+pub fn mark_activity_events_synced(conn: &Connection, ids: &[&str]) -> Result<()> {
+    for id in ids {
+        conn.execute(
+            "DELETE FROM sync_outbox WHERE entity_type = 'activity_event' AND entity_id = ?1",
+            [id],
+        )?;
+    }
     Ok(())
 }
 

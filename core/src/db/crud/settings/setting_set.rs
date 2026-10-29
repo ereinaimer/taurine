@@ -15,6 +15,11 @@ use crate::db::now_unix_secs;
 /// silently resets `version` back to `1`. The `ON CONFLICT … DO UPDATE`
 /// form updates the row in-place, preserving and incrementing `version`.
 pub fn upsert_setting(conn: &Connection, key: &str, value_json: &str) -> Result<()> {
+    set_setting(conn, key, value_json)
+}
+
+/// Sets a setting and enqueues an outbox mutation for cloud synchronization.
+pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {
     let now = now_unix_secs();
 
     conn.execute(
@@ -24,8 +29,23 @@ pub fn upsert_setting(conn: &Connection, key: &str, value_json: &str) -> Result<
              value      = excluded.value,
              version    = version + 1,
              updated_at = excluded.updated_at",
-        (key, value_json, now),
+        (key, value, now),
     )?;
+
+    crate::db::crud::enqueue_outbox(
+        conn,
+        "setting",
+        key,
+        "upsert",
+        serde_json::json!({
+            "key": key,
+            "value": value,
+        }),
+    )
+    .map_err(|e| match e {
+        crate::Error::Database(inner) => inner,
+        other => rusqlite::Error::ToSqlConversionFailure(Box::new(other)),
+    })?;
 
     Ok(())
 }

@@ -77,6 +77,20 @@ pub fn upsert_trigger_daily_stat_with_conn(
             now,
         ],
     )?;
+
+    let entity_id = format!("{trigger_id}:{date}:{app_key}");
+    let _ = crate::db::crud::enqueue_outbox(
+        conn,
+        "trigger_daily_stat",
+        &entity_id,
+        "upsert",
+        serde_json::json!({
+            "trigger_id": trigger_id,
+            "date": date,
+            "app_key": app_key,
+        }),
+    );
+
     Ok(())
 }
 
@@ -169,6 +183,11 @@ pub fn get_unsynced_trigger_daily_stats(
     let mut stmt = conn.prepare_cached(
         "SELECT trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version, 0 AS is_synced, updated_at
          FROM trigger_daily_stats
+         WHERE EXISTS (
+             SELECT 1 FROM sync_outbox
+             WHERE entity_type = 'trigger_daily_stat'
+               AND entity_id = (trigger_daily_stats.trigger_id || ':' || trigger_daily_stats.date || ':' || trigger_daily_stats.app_key)
+         )
          ORDER BY updated_at ASC
          LIMIT ?1",
     )?;
@@ -182,9 +201,16 @@ pub fn get_unsynced_trigger_daily_stats(
 }
 
 pub fn mark_trigger_daily_stats_synced(
-    _conn: &Connection,
-    _items: &[(&str, &str, &str)],
+    conn: &Connection,
+    items: &[(&str, &str, &str)],
 ) -> rusqlite::Result<()> {
+    for (trigger_id, date, app_key) in items {
+        let entity_id = format!("{trigger_id}:{date}:{app_key}");
+        conn.execute(
+            "DELETE FROM sync_outbox WHERE entity_type = 'trigger_daily_stat' AND entity_id = ?1",
+            [&entity_id],
+        )?;
+    }
     Ok(())
 }
 

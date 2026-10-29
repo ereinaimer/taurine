@@ -6,7 +6,7 @@ mod setting_types;
 
 pub use setting_delete::delete_setting;
 pub use setting_get::{get_all_settings, get_setting, get_setting_value};
-pub use setting_set::{seed_default_setting, upsert_setting};
+pub use setting_set::{seed_default_setting, set_setting, upsert_setting};
 pub use setting_sync::{
     CloudSettingPayload, SYNCABLE_SETTINGS, SettingReconcileOutcome, get_unsynced_settings,
     is_setting_syncable, mark_settings_synced, reconcile_cloud_setting,

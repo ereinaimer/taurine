@@ -67,9 +67,8 @@ fn test_sync_serializes_multi_trigger_aliases() {
 
     let payload = serialize_trigger_to_cloud_snippet(&trigger, &aliases);
 
-    assert_eq!(payload.local_id.as_deref(), Some("trig-123"));
+    assert_eq!(payload.id, "trig-123");
     assert_eq!(payload.workspace_id, "00000000-0000-0000-0000-000000000000");
-    assert_eq!(payload.name, "Description here");
     assert_eq!(payload.output, "Hello World");
     assert_eq!(payload.description, Some("Description here".to_string()));
     assert_eq!(payload.action_type, "text");
@@ -108,9 +107,9 @@ fn test_lww_remote_newer_overwrites_local_and_aliases() {
     conn.execute(
         "INSERT INTO triggers (
             id, description, output, action_type, target_os, only_apps, except_apps,
-            tags, is_enabled, auto_case, version, is_deleted, is_synced, created_at, updated_at
+            tags, is_enabled, auto_case, version, is_deleted, created_at, updated_at
         ) VALUES (?1, 'Old Desc', 'old output', 'text', 'all', NULL, NULL,
-                  '[]', 1, 0, 1, 0, 1, 1000, 1000)",
+                  '[]', 1, 0, 1, 0, 1000, 1000)",
         [trigger_id],
     )
     .unwrap();
@@ -128,9 +127,7 @@ fn test_lww_remote_newer_overwrites_local_and_aliases() {
     let remote_snippet = CloudSnippetPayload {
         user_id: None,
         id: trigger_id.to_string(),
-        local_id: Some(trigger_id.to_string()),
         workspace_id: "default".to_string(),
-        name: "Remote Name".to_string(),
         output: "new remote output".to_string(),
         description: Some("New Desc".to_string()),
         action_type: "text".to_string(),
@@ -218,9 +215,9 @@ fn test_lww_local_newer_preserved() {
     conn.execute(
         "INSERT INTO triggers (
             id, description, output, action_type, target_os, only_apps, except_apps,
-            tags, is_enabled, auto_case, version, is_deleted, is_synced, created_at, updated_at
+            tags, is_enabled, auto_case, version, is_deleted, created_at, updated_at
         ) VALUES (?1, 'Local New Name', 'local output', 'text', 'all', NULL, NULL,
-                  '[]', 1, 0, 3, 0, 0, 1000, 3000)",
+                  '[]', 1, 0, 3, 0, 1000, 3000)",
         [trigger_id],
     )
     .unwrap();
@@ -237,9 +234,7 @@ fn test_lww_local_newer_preserved() {
     let remote_snippet = CloudSnippetPayload {
         user_id: None,
         id: trigger_id.to_string(),
-        local_id: Some(trigger_id.to_string()),
         workspace_id: "default".to_string(),
-        name: "Remote Stale Name".to_string(),
         output: "stale output".to_string(),
         description: None,
         action_type: "text".to_string(),
@@ -295,9 +290,9 @@ fn test_sync_reconciles_soft_delete_tombstone() {
     conn.execute(
         "INSERT INTO triggers (
             id, description, output, action_type, target_os, only_apps, except_apps,
-            tags, is_enabled, auto_case, version, is_deleted, is_synced, created_at, updated_at
+            tags, is_enabled, auto_case, version, is_deleted, created_at, updated_at
         ) VALUES (?1, 'Active Snippet', 'content', 'text', 'all', NULL, NULL,
-                  '[]', 1, 0, 1, 0, 1, 1000, 1000)",
+                  '[]', 1, 0, 1, 0, 1000, 1000)",
         [trigger_id],
     )
     .unwrap();
@@ -314,9 +309,7 @@ fn test_sync_reconciles_soft_delete_tombstone() {
     let remote_snippet = CloudSnippetPayload {
         user_id: None,
         id: trigger_id.to_string(),
-        local_id: Some(trigger_id.to_string()),
         workspace_id: "default".to_string(),
-        name: "Active Snippet".to_string(),
         output: "content".to_string(),
         description: None,
         action_type: "text".to_string(),
@@ -368,9 +361,9 @@ fn test_tombstone_gc_purges_old_deleted_rows() {
     conn.execute(
         "INSERT INTO triggers (
             id, description, output, action_type, target_os, tags,
-            is_enabled, auto_case, version, is_deleted, is_synced, created_at, updated_at
+            is_enabled, auto_case, version, is_deleted, created_at, updated_at
         ) VALUES ('tomb-old', 'Old Deleted', '', 'text', 'all', '[]',
-                  1, 0, 2, 1, 1, ?1, ?1)",
+                  1, 0, 2, 1, ?1, ?1)",
         [old_epoch],
     )
     .unwrap();
@@ -379,9 +372,9 @@ fn test_tombstone_gc_purges_old_deleted_rows() {
     conn.execute(
         "INSERT INTO triggers (
             id, description, output, action_type, target_os, tags,
-            is_enabled, auto_case, version, is_deleted, is_synced, created_at, updated_at
+            is_enabled, auto_case, version, is_deleted, created_at, updated_at
         ) VALUES ('tomb-recent', 'Recent Deleted', '', 'text', 'all', '[]',
-                  1, 0, 2, 1, 1, ?1, ?1)",
+                  1, 0, 2, 1, ?1, ?1)",
         [recent_epoch],
     )
     .unwrap();
@@ -390,9 +383,9 @@ fn test_tombstone_gc_purges_old_deleted_rows() {
     conn.execute(
         "INSERT INTO triggers (
             id, description, output, action_type, target_os, tags,
-            is_enabled, auto_case, version, is_deleted, is_synced, created_at, updated_at
+            is_enabled, auto_case, version, is_deleted, created_at, updated_at
         ) VALUES ('active-old', 'Active Old', 'out', 'text', 'all', '[]',
-                  1, 0, 1, 0, 1, ?1, ?1)",
+                  1, 0, 1, 0, ?1, ?1)",
         [old_epoch],
     )
     .unwrap();
@@ -476,13 +469,13 @@ async fn test_sync_worker_authenticated_two_way_cycle() {
     let conn = Connection::open_in_memory().unwrap();
     ensure_schema(&conn).unwrap();
 
-    // Insert an unsynced local trigger (is_synced = 0)
+    // Insert an unsynced local trigger
     conn.execute(
         "INSERT INTO triggers (
             id, description, output, action_type, target_os, only_apps, except_apps,
-            tags, is_enabled, auto_case, version, is_deleted, is_synced, created_at, updated_at
+            tags, is_enabled, auto_case, version, is_deleted, created_at, updated_at
         ) VALUES ('local-push-1', 'Push Me', 'pushed output', 'text', 'all', NULL, NULL,
-                  '[]', 1, 0, 1, 0, 0, 1000, 1000)",
+                  '[]', 1, 0, 1, 0, 1000, 1000)",
         [],
     )
     .unwrap();
@@ -492,6 +485,18 @@ async fn test_sync_worker_authenticated_two_way_cycle() {
             id, trigger_id, invocation, invocation_type, require_confirmation, strict_threshold, created_at
         ) VALUES ('alias-p1', 'local-push-1', 'pushme', 'word', 0, NULL, 1000)",
         [],
+    )
+    .unwrap();
+
+    taurine_core::db::crud::enqueue_outbox(
+        &conn,
+        "snippet",
+        "local-push-1",
+        "upsert",
+        serde_json::json!({
+            "id": "local-push-1",
+            "output": "pushed output",
+        }),
     )
     .unwrap();
 
@@ -511,9 +516,7 @@ async fn test_sync_worker_authenticated_two_way_cycle() {
                 let remote_snippet = CloudSnippetPayload {
                     user_id: None,
                     id: "pulled-from-cloud".to_string(),
-                    local_id: Some("pulled-from-cloud".to_string()),
                     workspace_id: "default".to_string(),
-                    name: "Pulled Cloud Trigger".to_string(),
                     output: "cloud output".to_string(),
                     description: None,
                     action_type: "text".to_string(),
@@ -584,15 +587,9 @@ async fn test_sync_worker_authenticated_two_way_cycle() {
         .unwrap();
     assert!(pulled_exists);
 
-    // Verify pushed local trigger is now marked synced (is_synced = 1)
-    let is_synced: bool = conn
-        .query_row(
-            "SELECT is_synced FROM triggers WHERE id = 'local-push-1'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert!(is_synced);
+    // Verify pushed local trigger outbox is drained
+    let outbox = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    assert!(outbox.iter().all(|e| e.entity_id != "local-push-1"));
 
     server_handle.join().unwrap();
     taurine_core::cloud::clear_tokens().unwrap();
@@ -954,11 +951,9 @@ async fn test_sync_settings_with_strict_allowlist_ignores_sensitive_and_hardware
         .unwrap();
     assert_eq!(vol.value, "75");
 
-    // Verify local wpm is marked synced
-    let wpm = taurine_core::db::crud::get_setting(&conn, "wpm")
-        .unwrap()
-        .unwrap();
-    assert!(wpm.is_synced);
+    // Verify local wpm was synced and outbox drained
+    let unsynced = taurine_core::db::crud::get_unsynced_settings(&conn).unwrap();
+    assert!(!unsynced.iter().any(|s| s.key == "wpm"));
 
     let _ = server_handle.join();
     taurine_core::cloud::clear_tokens().unwrap();
@@ -985,7 +980,7 @@ async fn test_sync_trigger_daily_stats_and_global_stats_upload() {
 
     // Insert dummy trigger for foreign key reference
     conn.execute(
-        "INSERT INTO triggers (id, description, output, created_at, updated_at, is_synced) VALUES ('trig-stat-1', 'test_trig', 'out', 100, 100, 1)",
+        "INSERT INTO triggers (id, description, output, created_at, updated_at) VALUES ('trig-stat-1', 'test_trig', 'out', 100, 100)",
         [],
     )
     .unwrap();
@@ -1324,9 +1319,7 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
                         let remote_snippet = CloudSnippetPayload {
                             user_id: None,
                             id: "cloud-snippet-1".to_string(),
-                            local_id: Some("cloud-snippet-1".to_string()),
                             workspace_id: "default".to_string(),
-                            name: "Cloud Trigger 1".to_string(),
                             output: "Hello from cloud".to_string(),
                             description: Some("Cloud snippet description".to_string()),
                             action_type: "text".to_string(),
@@ -1523,22 +1516,20 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
     let current_week = taurine_core::db::crud::quota::calculate_week_start_epoch(now_epoch);
-    let quota_row: (f64, bool) = conn
+    let quota_row: f64 = conn
         .query_row(
-            "SELECT remaining_percentage, is_synced FROM quota_ledger WHERE week_start_epoch = ?1",
+            "SELECT remaining_percentage FROM quota_ledger WHERE week_start_epoch = ?1",
             [current_week],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(quota_row.0, 75.0);
-    assert!(quota_row.1);
+    assert_eq!(quota_row, 75.0);
 
     // Verify pulled snippet was restored in SQLite
     let snippet_trigger = taurine_core::db::crud::triggers::get_trigger(&conn, "cloud-snippet-1")
         .unwrap()
         .expect("snippet must exist locally");
     assert_eq!(snippet_trigger.output, "Hello from cloud");
-    assert!(snippet_trigger.is_synced);
 
     let aliases = taurine_core::db::crud::triggers::list_aliases(&conn, "cloud-snippet-1").unwrap();
     assert_eq!(aliases.len(), 1);
@@ -1550,14 +1541,12 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
         .expect("wpm setting must exist");
     assert_eq!(wpm_setting.value, "150");
     assert_eq!(wpm_setting.version, 2);
-    assert!(wpm_setting.is_synced);
 
     // Verify activity event was restored
     let events = taurine_core::db::crud::get_activity_events(&conn, 10, 0).unwrap();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].id, "evt-cloud-1");
     assert_eq!(events[0].content.as_deref(), Some("Hello from cloud"));
-    assert!(events[0].is_synced);
 
     // Verify user stats restored
     let user_stat = taurine_core::db::crud::get_stat(&conn, "2026-10-28")
@@ -1565,14 +1554,6 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
         .expect("user stat must exist");
     assert_eq!(user_stat.executions, 12);
     assert_eq!(user_stat.words_expanded, 60);
-    let stat_is_synced: bool = conn
-        .query_row(
-            "SELECT is_synced FROM stats WHERE date = '2026-10-28'",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert!(stat_is_synced);
 
     // Verify trigger daily stats restored
     let trig_stats =
@@ -1581,7 +1562,6 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
     assert_eq!(trig_stats.len(), 1);
     assert_eq!(trig_stats[0].executions, 3);
     assert_eq!(trig_stats[0].app_key, "code.exe");
-    assert!(trig_stats[0].is_synced);
 
     // Ensure no unsynced rows are queued for re-upload
     assert!(
@@ -1614,13 +1594,13 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
     // CYCLE 2: Local mutations on the device -> verify push uploads to cloud
     // =========================================================================
 
-    // 1. Create a new trigger locally (marked is_synced = 0)
+    // 1. Create a new trigger locally
     conn.execute(
         "INSERT INTO triggers (
             id, description, output, action_type, target_os, only_apps, except_apps,
-            tags, is_enabled, auto_case, version, is_deleted, is_synced, created_at, updated_at
+            tags, is_enabled, auto_case, version, is_deleted, created_at, updated_at
         ) VALUES ('local-snippet-2', 'Local snippet 2', 'Local output 2', 'text', 'all', NULL, NULL,
-                  '[]', 1, 0, 1, 0, 0, 1000, 1000)",
+                  '[]', 1, 0, 1, 0, 1000, 1000)",
         [],
     )
     .unwrap();
@@ -1630,6 +1610,18 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
             id, trigger_id, invocation, invocation_type, require_confirmation, strict_threshold, created_at
         ) VALUES ('alias-loc2', 'local-snippet-2', 'loc2', 'word', 0, NULL, 1000)",
         [],
+    )
+    .unwrap();
+
+    taurine_core::db::crud::enqueue_outbox(
+        &conn,
+        "snippet",
+        "local-snippet-2",
+        "upsert",
+        serde_json::json!({
+            "id": "local-snippet-2",
+            "output": "Local output 2",
+        }),
     )
     .unwrap();
 
@@ -1836,9 +1828,7 @@ async fn test_event_driven_sync_worker_wakes_on_notification() {
                             vec![CloudSnippetPayload {
                                 user_id: None,
                                 id: "event-snippet-1".to_string(),
-                                local_id: Some("event-snippet-1".to_string()),
                                 workspace_id: "default".to_string(),
-                                name: "Event Trigger".to_string(),
                                 output: "Event-driven output".to_string(),
                                 description: None,
                                 action_type: "text".to_string(),

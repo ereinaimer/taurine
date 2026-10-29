@@ -45,5 +45,13 @@ pub fn increment_stat(conn: &Connection, date: &str, deltas: &StatDeltas) -> Res
         ),
     )?;
 
+    let _ = crate::db::crud::enqueue_outbox(
+        conn,
+        "stat",
+        date,
+        "upsert",
+        serde_json::json!({ "date": date }),
+    );
+
     Ok(())
 }

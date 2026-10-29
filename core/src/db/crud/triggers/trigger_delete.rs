@@ -21,16 +21,7 @@ fn crate_err(error: crate::Error) -> rusqlite::Error {
 /// Returns `true` if a live row transitioned, `false` if the row did not
 /// exist or was already deleted (no version churn on repeat calls).
 pub fn delete_trigger(conn: &Connection, id: &str) -> Result<bool> {
-    let active: bool = conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM triggers WHERE id = ?1 AND is_deleted = 0)",
-        [id],
-        |row| row.get(0),
-    )?;
-    if !active {
-        return Ok(false);
-    }
-    tombstone_entry(conn, id, now_unix_secs()).map_err(crate_err)?;
-    Ok(true)
+    super::trigger_set::delete_trigger_entry(conn, id).map_err(crate_err)
 }
 
 /// Removes one invocation value from ALL holder parents across all four

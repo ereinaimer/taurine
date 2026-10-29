@@ -73,10 +73,7 @@ pub struct CloudSnippetPayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_id: Option<String>,
     pub id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub local_id: Option<String>,
     pub workspace_id: String,
-    pub name: String,
     pub output: String,
     pub description: Option<String>,
     pub action_type: String,
@@ -122,27 +119,18 @@ pub fn serialize_trigger_to_cloud_snippet(
         aliases.to_vec()
     };
 
-    let cloud_id = if uuid::Uuid::parse_str(&trigger.id).is_ok() {
-        trigger.id.clone()
-    } else {
-        uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, trigger.id.as_bytes()).to_string()
-    };
-
-    let cloud_workspace_id = if uuid::Uuid::parse_str(&trigger.workspace_id).is_ok() {
-        trigger.workspace_id.clone()
-    } else {
+    let cloud_workspace_id = if trigger.workspace_id == "default"
+        || uuid::Uuid::parse_str(&trigger.workspace_id).is_err()
+    {
         "00000000-0000-0000-0000-000000000000".to_string()
+    } else {
+        trigger.workspace_id.clone()
     };
 
     CloudSnippetPayload {
         user_id: None,
-        id: cloud_id,
-        local_id: Some(trigger.id.clone()),
+        id: trigger.id.clone(),
         workspace_id: cloud_workspace_id,
-        name: trigger
-            .description
-            .clone()
-            .unwrap_or_else(|| trigger.display.clone()),
         output: trigger.output.clone(),
         description: trigger.description.clone(),
         action_type: trigger.action_type.clone(),
@@ -180,7 +168,7 @@ pub fn reconcile_cloud_snippet(
     conn: &Connection,
     snippet: &CloudSnippetPayload,
 ) -> crate::Result<ReconcileOutcome> {
-    let target_id = snippet.local_id.as_deref().unwrap_or(&snippet.id);
+    let target_id = &snippet.id;
     let target_ws = if snippet.workspace_id == "00000000-0000-0000-0000-000000000000" {
         "default"
     } else {
@@ -207,14 +195,7 @@ pub fn reconcile_cloud_snippet(
                 ],
             )?;
 
-            let description = snippet
-                .description
-                .as_deref()
-                .or(if snippet.name.is_empty() {
-                    None
-                } else {
-                    Some(&snippet.name)
-                });
+            let description = snippet.description.as_deref();
 
             conn.execute(
                 "INSERT INTO triggers (
@@ -275,15 +256,7 @@ pub fn reconcile_cloud_snippet(
                         ],
                     )?;
 
-                    let description =
-                        snippet
-                            .description
-                            .as_deref()
-                            .or(if snippet.name.is_empty() {
-                                None
-                            } else {
-                                Some(&snippet.name)
-                            });
+                    let description = snippet.description.as_deref();
 
                     conn.execute(
                         "UPDATE triggers SET
@@ -355,7 +328,11 @@ pub fn reconcile_cloud_snippet(
 }
 
 /// Marks a local trigger row as synchronized (`is_synced = 1`).
-pub fn mark_trigger_synced(_conn: &Connection, _trigger_id: &str) -> crate::Result<()> {
+pub fn mark_trigger_synced(conn: &Connection, trigger_id: &str) -> crate::Result<()> {
+    conn.execute(
+        "DELETE FROM sync_outbox WHERE entity_type = 'snippet' AND entity_id = ?1",
+        [trigger_id],
+    )?;
     Ok(())
 }
 
@@ -407,6 +384,10 @@ pub fn get_unsynced_triggers(conn: &Connection) -> Result<Vec<TriggerRow>> {
             a.workspace_id
          FROM triggers a
          LEFT JOIN scripts s ON a.id = s.trigger_id
+         WHERE EXISTS (
+             SELECT 1 FROM sync_outbox o
+             WHERE o.entity_type = 'snippet' AND o.entity_id = a.id
+         )
          ORDER BY a.version, a.updated_at",
     )?;
 

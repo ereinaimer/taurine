@@ -646,7 +646,7 @@ impl SyncWorker {
                         ));
                     }
                     for p in &payloads {
-                        let target_id = p.local_id.as_deref().unwrap_or(&p.id);
+                        let target_id = &p.id;
                         if let Err(e) =
                             taurine_core::db::crud::triggers::mark_trigger_synced(conn, target_id)
                         {

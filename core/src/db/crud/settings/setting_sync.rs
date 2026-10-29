@@ -68,6 +68,10 @@ pub fn get_unsynced_settings(conn: &Connection) -> Result<Vec<SettingRow>> {
     let mut stmt = conn.prepare_cached(
         "SELECT key, CAST(value AS TEXT), version, updated_at, 0 AS is_synced
          FROM   settings
+         WHERE EXISTS (
+             SELECT 1 FROM sync_outbox o
+             WHERE o.entity_type = 'setting' AND o.entity_id = settings.key
+         )
          ORDER BY key",
     )?;
 
@@ -93,7 +97,13 @@ pub fn get_unsynced_settings(conn: &Connection) -> Result<Vec<SettingRow>> {
 }
 
 /// Marks the specified settings as synchronized (`is_synced = 1`).
-pub fn mark_settings_synced(_conn: &Connection, _keys: &[&str]) -> Result<()> {
+pub fn mark_settings_synced(conn: &Connection, keys: &[&str]) -> Result<()> {
+    for key in keys {
+        conn.execute(
+            "DELETE FROM sync_outbox WHERE entity_type = 'setting' AND entity_id = ?1",
+            [key],
+        )?;
+    }
     Ok(())
 }
 
@@ -257,5 +267,20 @@ mod tests {
         let row_after = crate::db::crud::get_setting(&conn, "wpm").unwrap().unwrap();
         assert_eq!(row_after.value, "110");
         assert_eq!(row_after.version, 1);
+    }
+
+    #[test]
+    fn test_set_setting_appends_to_sync_outbox() {
+        let conn = setup_test_db();
+
+        super::super::set_setting(&conn, "wpm", "120").unwrap();
+
+        let batch = crate::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+        assert_eq!(batch.len(), 1);
+        assert_eq!(batch[0].entity_type, "setting");
+        assert_eq!(batch[0].entity_id, "wpm");
+        assert_eq!(batch[0].operation, "upsert");
+        assert_eq!(batch[0].payload["key"], "wpm");
+        assert_eq!(batch[0].payload["value"], "120");
     }
 }

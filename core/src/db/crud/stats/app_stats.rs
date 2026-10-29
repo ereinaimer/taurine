@@ -131,6 +131,16 @@ pub fn upsert_app_stat_with_conn(
             now
         ],
     )?;
+
+    let entity_id = format!("{app_key}:{date}");
+    let _ = crate::db::crud::enqueue_outbox(
+        conn,
+        "app_stat",
+        &entity_id,
+        "upsert",
+        serde_json::json!({ "app_key": app_key, "date": date }),
+    );
+
     Ok(())
 }
 
