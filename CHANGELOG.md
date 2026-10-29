@@ -57,6 +57,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Cloud Login Defaults**: Sign in to Taurine Cloud directly without configuring manual environment variables.
 - **Background Service Startup**: Prevent `taurine up` from falsely reporting the service as already running when an interactive terminal or TUI session is active.
 - **Quota Depletion**: Ensure trigger expansions update weekly quota balance and sync accurately with cloud status.
+- **Service Stop Fallback**: `taurine stop` and `taurine restart` now terminate an unresponsive background instance instead of reporting a false failure or starting a duplicate.
+- **Responsive Tray and Voice**: Concurrent settings reloads no longer jam the control channel used by the tray, dictation, and service commands.
 
 ## [1.0.0-alpha.19] - 2026-09-27
 
