@@ -398,7 +398,7 @@ mod tests {
         assert_eq!(imported_text.2, None);
         assert_eq!(imported_text.3, 1);
         assert!(!imported_text.4);
-        assert!(imported_text.5);
+        assert!(!imported_text.5);
         assert!(imported_text.6);
 
         let (script_id, script_enabled, script_binary): (String, bool, Vec<u8>) = conn

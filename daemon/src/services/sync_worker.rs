@@ -228,7 +228,7 @@ impl SyncWorker {
         }
     }
 
-    fn unix_secs_to_rfc3339(ts: i64) -> String {
+    pub(crate) fn unix_secs_to_rfc3339(ts: i64) -> String {
         let mut days = ts / 86400;
         let mut rem_secs = ts % 86400;
         if rem_secs < 0 {
@@ -646,10 +646,11 @@ impl SyncWorker {
                         ));
                     }
                     for p in &payloads {
+                        let target_id = p.local_id.as_deref().unwrap_or(&p.id);
                         if let Err(e) =
-                            taurine_core::db::crud::triggers::mark_trigger_synced(conn, &p.id)
+                            taurine_core::db::crud::triggers::mark_trigger_synced(conn, target_id)
                         {
-                            tracing::warn!("Failed to mark trigger {} synced: {e}", p.id);
+                            tracing::warn!("Failed to mark trigger {} synced: {e}", target_id);
                         } else {
                             pushed_snippets += 1;
                         }

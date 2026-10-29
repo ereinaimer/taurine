@@ -7,9 +7,10 @@
 -- 1. Snippets (Trigger Configurations and Multi-Aliases)
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.snippets (
-    id           TEXT        PRIMARY KEY,
+    id           UUID        PRIMARY KEY,
     user_id      UUID        NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE,
-    workspace_id TEXT        NOT NULL DEFAULT 'default',
+    local_id     TEXT        NOT NULL DEFAULT '',
+    workspace_id UUID        NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000'::uuid,
     name         TEXT        NOT NULL DEFAULT '',
     output       TEXT        NOT NULL DEFAULT '',
     description  TEXT,
@@ -17,14 +18,14 @@ CREATE TABLE IF NOT EXISTS public.snippets (
     target_os    TEXT,
     only_apps    TEXT,
     except_apps  TEXT,
-    tags         TEXT,
+    tags         JSONB       NOT NULL DEFAULT '[]'::jsonb,
     is_enabled   BOOLEAN     NOT NULL DEFAULT true,
     auto_case    BOOLEAN     NOT NULL DEFAULT false,
     version      BIGINT      NOT NULL DEFAULT 1,
     is_deleted   BOOLEAN     NOT NULL DEFAULT false,
     aliases      JSONB       NOT NULL DEFAULT '[]'::jsonb,
     created_at   BIGINT      NOT NULL DEFAULT 0,
-    updated_at   BIGINT      NOT NULL DEFAULT 0
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 ALTER TABLE public.snippets ENABLE ROW LEVEL SECURITY;

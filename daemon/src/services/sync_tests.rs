@@ -67,8 +67,8 @@ fn test_sync_serializes_multi_trigger_aliases() {
 
     let payload = serialize_trigger_to_cloud_snippet(&trigger, &aliases);
 
-    assert_eq!(payload.id, "trig-123");
-    assert_eq!(payload.workspace_id, "default");
+    assert_eq!(payload.local_id.as_deref(), Some("trig-123"));
+    assert_eq!(payload.workspace_id, "00000000-0000-0000-0000-000000000000");
     assert_eq!(payload.name, "Description here");
     assert_eq!(payload.output, "Hello World");
     assert_eq!(payload.description, Some("Description here".to_string()));
@@ -128,6 +128,7 @@ fn test_lww_remote_newer_overwrites_local_and_aliases() {
     let remote_snippet = CloudSnippetPayload {
         user_id: None,
         id: trigger_id.to_string(),
+        local_id: Some(trigger_id.to_string()),
         workspace_id: "default".to_string(),
         name: "Remote Name".to_string(),
         output: "new remote output".to_string(),
@@ -236,6 +237,7 @@ fn test_lww_local_newer_preserved() {
     let remote_snippet = CloudSnippetPayload {
         user_id: None,
         id: trigger_id.to_string(),
+        local_id: Some(trigger_id.to_string()),
         workspace_id: "default".to_string(),
         name: "Remote Stale Name".to_string(),
         output: "stale output".to_string(),
@@ -312,6 +314,7 @@ fn test_sync_reconciles_soft_delete_tombstone() {
     let remote_snippet = CloudSnippetPayload {
         user_id: None,
         id: trigger_id.to_string(),
+        local_id: Some(trigger_id.to_string()),
         workspace_id: "default".to_string(),
         name: "Active Snippet".to_string(),
         output: "content".to_string(),
@@ -508,6 +511,7 @@ async fn test_sync_worker_authenticated_two_way_cycle() {
                 let remote_snippet = CloudSnippetPayload {
                     user_id: None,
                     id: "pulled-from-cloud".to_string(),
+                    local_id: Some("pulled-from-cloud".to_string()),
                     workspace_id: "default".to_string(),
                     name: "Pulled Cloud Trigger".to_string(),
                     output: "cloud output".to_string(),
@@ -1320,6 +1324,7 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
                         let remote_snippet = CloudSnippetPayload {
                             user_id: None,
                             id: "cloud-snippet-1".to_string(),
+                            local_id: Some("cloud-snippet-1".to_string()),
                             workspace_id: "default".to_string(),
                             name: "Cloud Trigger 1".to_string(),
                             output: "Hello from cloud".to_string(),
@@ -1831,6 +1836,7 @@ async fn test_event_driven_sync_worker_wakes_on_notification() {
                             vec![CloudSnippetPayload {
                                 user_id: None,
                                 id: "event-snippet-1".to_string(),
+                                local_id: Some("event-snippet-1".to_string()),
                                 workspace_id: "default".to_string(),
                                 name: "Event Trigger".to_string(),
                                 output: "Event-driven output".to_string(),

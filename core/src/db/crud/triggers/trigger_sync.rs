@@ -6,12 +6,75 @@ use super::aliases::TriggerAliasRow;
 use super::trigger_set::with_transaction;
 use super::{TriggerRow, display_for_aliases, list_aliases};
 
+fn serialize_updated_at<S>(ts: &i64, serializer: S) -> std::result::Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let s = chrono::DateTime::<chrono::Utc>::from_timestamp(*ts, 0)
+        .map(|dt| dt.to_rfc3339())
+        .unwrap_or_else(|| "1970-01-01T00:00:00Z".to_string());
+    serializer.serialize_str(&s)
+}
+
+fn deserialize_updated_at<'de, D>(deserializer: D) -> std::result::Result<i64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    match value {
+        serde_json::Value::Number(n) => Ok(n.as_i64().unwrap_or(0)),
+        serde_json::Value::String(s) => {
+            if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&s) {
+                Ok(dt.timestamp())
+            } else if let Ok(n) = s.parse::<i64>() {
+                Ok(n)
+            } else {
+                Ok(crate::db::now_unix_secs())
+            }
+        }
+        _ => Ok(0),
+    }
+}
+
+fn serialize_tags<S>(tags: &Option<String>, serializer: S) -> std::result::Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    match tags {
+        Some(s) if !s.trim().is_empty() => {
+            let val: serde_json::Value =
+                serde_json::from_str(s).unwrap_or_else(|_| serde_json::json!([s]));
+            val.serialize(serializer)
+        }
+        _ => serde_json::Value::Array(Vec::new()).serialize(serializer),
+    }
+}
+
+fn deserialize_tags<'de, D>(deserializer: D) -> std::result::Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    match value {
+        Some(serde_json::Value::String(s)) => Ok(Some(s)),
+        Some(serde_json::Value::Array(arr)) => Ok(Some(
+            serde_json::to_string(&arr).unwrap_or_else(|_| "[]".to_string()),
+        )),
+        Some(v) => Ok(Some(
+            serde_json::to_string(&v).unwrap_or_else(|_| "[]".to_string()),
+        )),
+        None => Ok(None),
+    }
+}
+
 /// Encapsulates all trigger data and its aliases for bidirectional cloud synchronization.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloudSnippetPayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_id: Option<String>,
     pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_id: Option<String>,
     pub workspace_id: String,
     pub name: String,
     pub output: String,
@@ -20,11 +83,20 @@ pub struct CloudSnippetPayload {
     pub target_os: Option<String>,
     pub only_apps: Option<String>,
     pub except_apps: Option<String>,
+    #[serde(
+        default,
+        serialize_with = "serialize_tags",
+        deserialize_with = "deserialize_tags"
+    )]
     pub tags: Option<String>,
     pub is_enabled: bool,
     pub auto_case: bool,
     pub version: i64,
     pub is_deleted: bool,
+    #[serde(
+        serialize_with = "serialize_updated_at",
+        deserialize_with = "deserialize_updated_at"
+    )]
     pub updated_at: i64,
     pub created_at: i64,
     pub aliases: Vec<TriggerAliasRow>,
@@ -50,10 +122,23 @@ pub fn serialize_trigger_to_cloud_snippet(
         aliases.to_vec()
     };
 
+    let cloud_id = if uuid::Uuid::parse_str(&trigger.id).is_ok() {
+        trigger.id.clone()
+    } else {
+        uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, trigger.id.as_bytes()).to_string()
+    };
+
+    let cloud_workspace_id = if uuid::Uuid::parse_str(&trigger.workspace_id).is_ok() {
+        trigger.workspace_id.clone()
+    } else {
+        "00000000-0000-0000-0000-000000000000".to_string()
+    };
+
     CloudSnippetPayload {
         user_id: None,
-        id: trigger.id.clone(),
-        workspace_id: trigger.workspace_id.clone(),
+        id: cloud_id,
+        local_id: Some(trigger.id.clone()),
+        workspace_id: cloud_workspace_id,
         name: trigger
             .description
             .clone()
@@ -95,10 +180,17 @@ pub fn reconcile_cloud_snippet(
     conn: &Connection,
     snippet: &CloudSnippetPayload,
 ) -> crate::Result<ReconcileOutcome> {
+    let target_id = snippet.local_id.as_deref().unwrap_or(&snippet.id);
+    let target_ws = if snippet.workspace_id == "00000000-0000-0000-0000-000000000000" {
+        "default"
+    } else {
+        &snippet.workspace_id
+    };
+
     let local_row: Option<(i64, i64)> = conn
         .query_row(
             "SELECT version, updated_at FROM triggers WHERE id = ?1",
-            [&snippet.id],
+            [target_id],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()?;
@@ -107,8 +199,12 @@ pub fn reconcile_cloud_snippet(
         None => with_transaction(conn, || {
             conn.execute(
                 "INSERT OR IGNORE INTO workspaces (id, name, is_default, created_at, updated_at, version, is_deleted, is_synced)
-                 VALUES (?1, ?1, 0, ?2, ?2, 1, 0, 1)",
-                rusqlite::params![snippet.workspace_id, snippet.created_at],
+                 VALUES (?1, ?1, ?2, ?3, ?3, 1, 0, 1)",
+                rusqlite::params![
+                    target_ws,
+                    if target_ws == "default" { 1 } else { 0 },
+                    snippet.created_at
+                ],
             )?;
 
             let description = snippet
@@ -127,8 +223,8 @@ pub fn reconcile_cloud_snippet(
                     version, is_deleted, is_synced, created_at, updated_at
                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 1, ?14, ?15)",
                 rusqlite::params![
-                    snippet.id,
-                    snippet.workspace_id,
+                    target_id,
+                    target_ws,
                     description,
                     snippet.output,
                     snippet.action_type,
@@ -152,7 +248,7 @@ pub fn reconcile_cloud_snippet(
                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                     rusqlite::params![
                         alias.id,
-                        snippet.id,
+                        target_id,
                         alias.invocation,
                         alias.invocation_type.as_db_str(),
                         if alias.require_confirmation { 1 } else { 0 },
@@ -171,8 +267,12 @@ pub fn reconcile_cloud_snippet(
                 with_transaction(conn, || {
                     conn.execute(
                         "INSERT OR IGNORE INTO workspaces (id, name, is_default, created_at, updated_at, version, is_deleted, is_synced)
-                         VALUES (?1, ?1, 0, ?2, ?2, 1, 0, 1)",
-                        rusqlite::params![snippet.workspace_id, snippet.created_at],
+                         VALUES (?1, ?1, ?2, ?3, ?3, 1, 0, 1)",
+                        rusqlite::params![
+                            target_ws,
+                            if target_ws == "default" { 1 } else { 0 },
+                            snippet.created_at
+                        ],
                     )?;
 
                     let description =
@@ -203,7 +303,7 @@ pub fn reconcile_cloud_snippet(
                             updated_at = ?13
                          WHERE id = ?14",
                         rusqlite::params![
-                            snippet.workspace_id,
+                            target_ws,
                             description,
                             snippet.output,
                             snippet.action_type,
@@ -216,13 +316,13 @@ pub fn reconcile_cloud_snippet(
                             snippet.version,
                             if snippet.is_deleted { 1 } else { 0 },
                             snippet.updated_at,
-                            snippet.id,
+                            target_id,
                         ],
                     )?;
 
                     conn.execute(
                         "DELETE FROM trigger_aliases WHERE trigger_id = ?1",
-                        [&snippet.id],
+                        [target_id],
                     )?;
 
                     for alias in &snippet.aliases {
@@ -232,7 +332,7 @@ pub fn reconcile_cloud_snippet(
                             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                             rusqlite::params![
                                 alias.id,
-                                snippet.id,
+                                target_id,
                                 alias.invocation,
                                 alias.invocation_type.as_db_str(),
                                 if alias.require_confirmation { 1 } else { 0 },
