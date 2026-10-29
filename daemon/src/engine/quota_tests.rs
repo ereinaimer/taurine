@@ -510,3 +510,44 @@ fn test_voice_trigger_dispatches_when_unlimited_even_at_zero_balance() {
     QuotaGuard::global().set_balance(original_balance);
     QuotaGuard::global().set_unlimited(original_unlimited);
 }
+
+#[test]
+fn test_voice_dictation_depletes_quota_per_word() {
+    let guard = QuotaGuard::new_with_balance(100.0);
+    assert!(guard.deplete_words(50));
+    assert!((guard.balance() - 99.80).abs() < 1e-6);
+    assert!((guard.unflushed_delta() - 0.20).abs() < 1e-6);
+}
+
+#[test]
+fn test_voice_dictation_blocked_when_quota_exhausted() {
+    let guard = QuotaGuard::new_with_balance(0.0);
+    assert!(!guard.deplete_words(50));
+    assert_eq!(guard.balance(), 0.0);
+    assert_eq!(guard.unflushed_delta(), 0.0);
+}
+
+#[test]
+fn test_quota_flush_enqueues_to_sync_outbox() {
+    let conn = create_test_db();
+    let key = [42u8; 32];
+    let guard = QuotaGuard::new_with_balance(100.0);
+
+    assert!(guard.deplete_words(50)); // 0.20 delta
+    assert!((guard.unflushed_delta() - 0.20).abs() < 1e-6);
+
+    guard
+        .flush_to_db(&conn, &key)
+        .expect("flush_to_db should succeed");
+    assert_eq!(guard.unflushed_delta(), 0.0);
+
+    let entries = taurine_core::db::crud::fetch_outbox_batch(&conn, 10)
+        .expect("fetch outbox batch should succeed");
+    assert_eq!(entries.len(), 1);
+    let entry = &entries[0];
+    assert_eq!(entry.entity_type, "quota");
+    assert_eq!(entry.operation, "burn");
+    assert!((entry.payload["delta"].as_f64().unwrap() - 0.20).abs() < 1e-6);
+    assert!(entry.payload["week_epoch"].as_i64().is_some());
+    assert!(!entry.payload["mutation_id"].as_str().unwrap().is_empty());
+}

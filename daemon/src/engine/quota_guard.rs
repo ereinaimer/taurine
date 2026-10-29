@@ -1,5 +1,8 @@
 use std::sync::{Mutex, OnceLock};
 
+/// Quota cost deducted per transcribed word in voice dictation (-0.004%).
+pub const VOICE_COST_PER_WORD: f64 = 0.004;
+
 /// Type of expansion that consumes weekly countdown quota.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExpansionType {
@@ -177,6 +180,30 @@ impl QuotaGuard {
         true
     }
 
+    /// Depletes quota for voice dictation based on spoken word count.
+    ///
+    /// Deducts 0.004% per word from remaining quota balance and tracks
+    /// unflushed delta for database persistence.
+    pub fn deplete_words(&self, word_count: usize) -> bool {
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        if !inner.is_authenticated {
+            return false;
+        }
+
+        if inner.is_unlimited {
+            return true;
+        }
+
+        if inner.balance <= 0.0 {
+            return false;
+        }
+
+        let cost = word_count as f64 * VOICE_COST_PER_WORD;
+        inner.balance = (inner.balance - cost).max(0.0);
+        inner.unflushed_delta += cost;
+        true
+    }
+
     /// Resets or sets the balance from cloud sync or week rollover.
     pub fn set_balance(&self, new_balance: f64) {
         let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
@@ -208,7 +235,23 @@ impl QuotaGuard {
         match taurine_core::db::crud::quota::record_quota_depletion(
             conn, hmac_key, delta, now_epoch,
         ) {
-            Ok(_) => Ok(()),
+            Ok(row) => {
+                let week_epoch = row.week_start_epoch;
+                let mutation_id = uuid::Uuid::new_v4().to_string();
+                let payload = serde_json::json!({
+                    "week_epoch": week_epoch,
+                    "delta": delta,
+                    "mutation_id": mutation_id
+                });
+                let _ = taurine_core::db::crud::enqueue_outbox(
+                    conn,
+                    "quota",
+                    &week_epoch.to_string(),
+                    "burn",
+                    payload,
+                );
+                Ok(())
+            }
             Err(err) => {
                 let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
                 inner.unflushed_delta += delta;

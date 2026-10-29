@@ -1672,6 +1672,11 @@ impl VoiceSessionManager {
     /// Audio-side gating and recognition run in the `--voice-daemon`
     /// worker; this is the unchanged text-side pipeline.
     pub fn inject_transcript(&self, text: &str) -> Result<Option<String>, String> {
+        let word_count = text.split_whitespace().count();
+        if word_count > 0 {
+            crate::engine::quota_guard::QuotaGuard::global().deplete_words(word_count);
+        }
+
         if text.trim().is_empty() {
             debug!("VoiceSessionManager: transcription returned empty text");
             return Ok(None);
