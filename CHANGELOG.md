@@ -52,6 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Trigger Display Names**: Replaced redundant trigger display names with primary trigger invocations and descriptions across the CLI and TUI.
 
 ### Fixed
+- **Cloud State Restoration**: Reliably restore and synchronize quota balances, triggers, settings, and telemetry when signing in and out of Taurine Cloud.
 - **Hotkey Expansion Telemetry**: Shortcuts that inject text now properly record expanded word counts and estimated time saved.
 - **Cloud Login Defaults**: Sign in to Taurine Cloud directly without configuring manual environment variables.
 - **Background Service Startup**: Prevent `taurine up` from falsely reporting the service as already running when an interactive terminal or TUI session is active.

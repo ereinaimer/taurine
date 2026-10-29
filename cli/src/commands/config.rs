@@ -242,6 +242,8 @@ pub fn execute_set(
         }
     }
 
+    taurine_core::rpc::notify_daemon_reload();
+
     if json {
         println!(
             "{}",
@@ -254,6 +256,7 @@ pub fn execute_reset(key: String, json: bool) -> taurine_core::error::Result<()>
     let actual_key = Settings::resolve_key(&key);
     reject_tui_only_key(actual_key)?;
     reset_setting_to_default(actual_key)?;
+    taurine_core::rpc::notify_daemon_reload();
 
     if json {
         println!(
@@ -268,6 +271,7 @@ pub fn execute_reset_all(json: bool) -> taurine_core::error::Result<()> {
     for key in SettingKey::ALL.iter().filter(|key| key.cli_visible()) {
         reset_setting_to_default(key.storage_key())?;
     }
+    taurine_core::rpc::notify_daemon_reload();
 
     if json {
         println!("{}", serde_json::json!({"status": "reset_all"}));

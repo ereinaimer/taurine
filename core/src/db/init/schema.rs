@@ -57,7 +57,7 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
             updated_at   INTEGER NOT NULL,
             version      INTEGER DEFAULT 1,
             is_deleted   BOOLEAN DEFAULT 0,
-            is_synced    BOOLEAN DEFAULT 1,
+            is_synced    BOOLEAN NOT NULL DEFAULT 0,
             workspace_id TEXT    NOT NULL DEFAULT 'default' REFERENCES workspaces(id)
         );
 

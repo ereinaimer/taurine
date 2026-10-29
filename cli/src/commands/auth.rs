@@ -148,6 +148,20 @@ pub fn execute_login(
     let conn = taurine_core::db::init::setup()?;
     taurine_core::db::crud::set_user_tier(&conn, tier)?;
 
+    // Synchronize local database with cloud state immediately upon login
+    let sync_outcome = rt.block_on(taurine_daemon::SyncWorker::run_sync_cycle(
+        &conn,
+        Some(&client),
+    ));
+    taurine_daemon::SyncWorker::log_sync_status(sync_outcome);
+
+    if taurine_core::service::is_service_running() {
+        taurine_core::rpc::notify_daemon_reload();
+    } else {
+        let settings = taurine_core::settings::SettingsManager::new(&conn).load_all();
+        let _ = taurine_core::service::up(settings.start_on_boot);
+    }
+
     if json {
         println!(
             "{}",
@@ -170,6 +184,23 @@ pub fn execute_login(
 /// Logs out the user by stopping the daemon, clearing credentials from the keystore,
 /// and purging the local database.
 pub fn execute_logout(json: bool) -> Result<()> {
+    // Attempt a final sync cycle before purging local state so nothing is lost
+    if let Ok(conn) = taurine_core::db::init::setup() {
+        let client = taurine_core::cloud::CloudClient::default_or_from_env();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build();
+        if let Ok(rt) = rt {
+            let _ = rt.block_on(async {
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    taurine_daemon::SyncWorker::run_sync_cycle(&conn, Some(&client)),
+                )
+                .await
+            });
+        }
+    }
+
     // If the service is running, stop it
     if taurine_core::service::is_service_running() {
         let _ = taurine_core::service::down();

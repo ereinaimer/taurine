@@ -161,7 +161,7 @@ impl SyncWorker {
             .expect("spawn tau-sync thread")
     }
 
-    pub(crate) fn log_sync_status(status: SyncStatus) {
+    pub fn log_sync_status(status: SyncStatus) {
         match status {
             SyncStatus::Success {
                 pulled_snippets,
@@ -303,6 +303,139 @@ impl SyncWorker {
             .timeout(Duration::from_secs(10))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
+
+        // 1. Pull remote quota ledger for the current week
+        let current_week = taurine_core::db::crud::quota::calculate_week_start_epoch(now_epoch);
+        let quota_pull_url = format!(
+            "{}/rest/v1/quota_ledger?week_start_epoch=eq.{}&limit=1",
+            client.config().supabase_url.trim_end_matches('/'),
+            current_week
+        );
+
+        let mut quota_pull_res = http_client
+            .get(&quota_pull_url)
+            .header("apikey", &client.config().anon_key)
+            .header("Authorization", format!("Bearer {}", tokens.access_token))
+            .header("Accept", "application/json")
+            .send()
+            .await;
+
+        if let Ok(ref r) = quota_pull_res
+            && r.status() == reqwest::StatusCode::UNAUTHORIZED
+        {
+            tracing::debug!("Received 401 pulling quota ledger; refreshing session...");
+            if Self::refresh_session_tokens(client, &mut tokens)
+                .await
+                .is_ok()
+            {
+                quota_pull_res = http_client
+                    .get(&quota_pull_url)
+                    .header("apikey", &client.config().anon_key)
+                    .header("Authorization", format!("Bearer {}", tokens.access_token))
+                    .header("Accept", "application/json")
+                    .send()
+                    .await;
+            }
+        }
+
+        if let Ok(res) = quota_pull_res
+            && res.status().is_success()
+        {
+            #[derive(serde::Deserialize)]
+            struct CloudQuotaRow {
+                week_start_epoch: i64,
+                remaining_percentage: f64,
+                #[allow(dead_code)]
+                last_expansion_at: Option<i64>,
+                updated_at: i64,
+            }
+
+            if let Ok(rows) = res.json::<Vec<CloudQuotaRow>>().await
+                && let Some(remote) = rows.first()
+            {
+                let local_quota: Option<(i64, f64, Option<i64>, bool, i64)> = conn
+                    .query_row(
+                        "SELECT week_start_epoch, remaining_percentage, last_expansion_at, is_synced, updated_at
+                         FROM quota_ledger WHERE week_start_epoch = ?1",
+                        [current_week],
+                        |row| {
+                            Ok((
+                                row.get(0)?,
+                                row.get(1)?,
+                                row.get(2)?,
+                                row.get(3)?,
+                                row.get(4)?,
+                            ))
+                        },
+                    )
+                    .optional()
+                    .unwrap_or(None);
+
+                let db_key = taurine_core::db::key::get_or_create_db_key();
+                if let Ok(key) = db_key {
+                    match local_quota {
+                        None => {
+                            if let Ok(row) =
+                                taurine_core::db::crud::quota::set_quota_balance_from_cloud(
+                                    conn,
+                                    &key,
+                                    remote.week_start_epoch,
+                                    remote.remaining_percentage,
+                                    remote.updated_at,
+                                )
+                            {
+                                crate::engine::quota_guard::QuotaGuard::global()
+                                    .set_balance(row.remaining_percentage);
+                            }
+                        }
+                        Some((_, local_pct, local_last_exp, local_is_synced, local_updated_at)) => {
+                            if local_is_synced {
+                                if (remote.updated_at > local_updated_at
+                                    || remote.remaining_percentage < local_pct)
+                                    && let Ok(row) =
+                                        taurine_core::db::crud::quota::set_quota_balance_from_cloud(
+                                            conn,
+                                            &key,
+                                            remote.week_start_epoch,
+                                            remote.remaining_percentage,
+                                            remote.updated_at,
+                                        )
+                                {
+                                    crate::engine::quota_guard::QuotaGuard::global()
+                                        .set_balance(row.remaining_percentage);
+                                }
+                            } else if local_last_exp.is_none() {
+                                if let Ok(row) =
+                                    taurine_core::db::crud::quota::set_quota_balance_from_cloud(
+                                        conn,
+                                        &key,
+                                        remote.week_start_epoch,
+                                        remote.remaining_percentage,
+                                        remote.updated_at,
+                                    )
+                                {
+                                    crate::engine::quota_guard::QuotaGuard::global()
+                                        .set_balance(row.remaining_percentage);
+                                }
+                            } else if remote.remaining_percentage < local_pct {
+                                let merged_pct = remote.remaining_percentage.min(local_pct);
+                                let sig = taurine_core::db::crud::quota::compute_quota_hmac(
+                                    &key,
+                                    current_week,
+                                    merged_pct,
+                                );
+                                let _ = conn.execute(
+                                    "UPDATE quota_ledger SET remaining_percentage = ?1, hmac_signature = ?2, is_synced = 0, updated_at = ?3 WHERE week_start_epoch = ?4",
+                                    rusqlite::params![merged_pct, sig, now_epoch, current_week],
+                                );
+                                crate::engine::quota_guard::QuotaGuard::global()
+                                    .set_balance(merged_pct);
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // Push pending quota ledger deltas if any
         let unsynced_quota: Option<taurine_core::db::crud::quota::QuotaLedgerRow> = conn
@@ -463,10 +596,9 @@ impl SyncWorker {
         if !unsynced.is_empty() {
             let mut payloads = Vec::with_capacity(unsynced.len());
             for trigger in &unsynced {
-                payloads.push(serialize_trigger_to_cloud_snippet(
-                    trigger,
-                    &trigger.invocations,
-                ));
+                let mut snippet = serialize_trigger_to_cloud_snippet(trigger, &trigger.invocations);
+                snippet.user_id = Some(tokens.user_id.clone());
+                payloads.push(snippet);
             }
 
             let push_url = format!(
@@ -617,6 +749,7 @@ impl SyncWorker {
                         .unwrap_or_else(|_| serde_json::Value::String(s.value.clone()));
                     let updated_at = Some(Self::unix_secs_to_rfc3339(s.updated_at));
                     CloudSettingPayload {
+                        user_id: Some(tokens.user_id.clone()),
                         key: s.key.clone(),
                         value,
                         version: s.version,
@@ -949,7 +1082,11 @@ impl SyncWorker {
         if !unsynced_trigger_stats.is_empty() {
             let payloads: Vec<CloudTriggerDailyStatPayload> = unsynced_trigger_stats
                 .iter()
-                .map(CloudTriggerDailyStatPayload::from)
+                .map(|s| {
+                    let mut payload = CloudTriggerDailyStatPayload::from(s);
+                    payload.user_id = Some(tokens.user_id.clone());
+                    payload
+                })
                 .collect();
 
             let trigger_stats_url = format!(
@@ -1025,7 +1162,11 @@ impl SyncWorker {
         if !unsynced_global_stats.is_empty() {
             let payloads: Vec<CloudUserStatPayload> = unsynced_global_stats
                 .iter()
-                .map(CloudUserStatPayload::from)
+                .map(|s| {
+                    let mut payload = CloudUserStatPayload::from(s);
+                    payload.user_id = Some(tokens.user_id.clone());
+                    payload
+                })
                 .collect();
 
             let user_stats_url = format!(
@@ -1097,7 +1238,11 @@ impl SyncWorker {
         if !unsynced_app_stats.is_empty() {
             let payloads: Vec<CloudUserAppStatPayload> = unsynced_app_stats
                 .iter()
-                .map(CloudUserAppStatPayload::from)
+                .map(|s| {
+                    let mut payload = CloudUserAppStatPayload::from(s);
+                    payload.user_id = Some(tokens.user_id.clone());
+                    payload
+                })
                 .collect();
 
             let user_app_stats_url = format!(
@@ -1171,7 +1316,11 @@ impl SyncWorker {
         if !unsynced_events.is_empty() {
             let payloads: Vec<CloudActivityEventPayload> = unsynced_events
                 .iter()
-                .map(CloudActivityEventPayload::from)
+                .map(|s| {
+                    let mut payload = CloudActivityEventPayload::from(s);
+                    payload.user_id = Some(tokens.user_id.clone());
+                    payload
+                })
                 .collect();
 
             let events_url = format!(

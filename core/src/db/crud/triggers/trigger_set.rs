@@ -244,10 +244,10 @@ pub fn upsert_trigger_with_type_and_case(
         conn.execute(
             "INSERT INTO triggers
             (id, description, output, action_type, target_os, tags,
-             usage_count, last_used_at, created_at, updated_at, version, is_deleted, auto_case)
+             usage_count, last_used_at, created_at, updated_at, version, is_deleted, auto_case, is_synced)
          VALUES
             (?1, ?2, ?3, ?4, ?5, ?6, ?7,
-             ?8, ?9, ?9, 1, 0, ?10)
+             ?8, ?9, ?9, 1, 0, ?10, 0)
          ON CONFLICT(id) DO UPDATE SET
             description  = excluded.description,
             output       = excluded.output,
@@ -259,7 +259,8 @@ pub fn upsert_trigger_with_type_and_case(
             is_deleted   = 0,
             auto_case    = excluded.auto_case,
             version      = version + 1,
-            updated_at   = excluded.updated_at",
+            updated_at   = excluded.updated_at,
+            is_synced    = 0",
             (
                 id,
                 description,
@@ -278,7 +279,7 @@ pub fn upsert_trigger_with_type_and_case(
             let processed_output = compile_and_save_assets(conn, id, output)?;
             if processed_output != output {
                 conn.execute(
-                    "UPDATE triggers SET output = ?1, updated_at = ?2 WHERE id = ?3",
+                    "UPDATE triggers SET output = ?1, updated_at = ?2, is_synced = 0 WHERE id = ?3",
                     (&processed_output, now, id),
                 )?;
             }
@@ -626,8 +627,8 @@ fn create_entry_inner(
         conn.execute(
             "INSERT INTO triggers
                 (id, description, output, action_type, target_os, tags,
-                 usage_count, last_used_at, created_at, updated_at, version, is_deleted, auto_case)
-             VALUES (?1, ?2, ?3, 'script', ?4, ?5, 0, NULL, ?6, ?6, 1, 0, ?7)",
+                 usage_count, last_used_at, created_at, updated_at, version, is_deleted, auto_case, is_synced)
+             VALUES (?1, ?2, ?3, 'script', ?4, ?5, 0, NULL, ?6, ?6, 1, 0, ?7, 0)",
             (
                 &id,
                 entry.description.as_deref(),
@@ -649,8 +650,8 @@ fn create_entry_inner(
         conn.execute(
             "INSERT INTO triggers
                 (id, description, output, action_type, target_os, tags,
-                 usage_count, last_used_at, created_at, updated_at, version, is_deleted, auto_case)
-             VALUES (?1, ?2, ?3, 'text', ?4, ?5, 0, NULL, ?6, ?6, 1, 0, ?7)",
+                 usage_count, last_used_at, created_at, updated_at, version, is_deleted, auto_case, is_synced)
+             VALUES (?1, ?2, ?3, 'text', ?4, ?5, 0, NULL, ?6, ?6, 1, 0, ?7, 0)",
             (
                 &id,
                 entry.description.as_deref(),
@@ -664,7 +665,7 @@ fn create_entry_inner(
         let processed_output = compile_and_save_assets(conn, &id, &content_nfc)?;
         if processed_output != content_nfc {
             conn.execute(
-                "UPDATE triggers SET output = ?1, updated_at = ?2 WHERE id = ?3",
+                "UPDATE triggers SET output = ?1, updated_at = ?2, is_synced = 0 WHERE id = ?3",
                 (&processed_output, now, &id),
             )?;
         }
@@ -830,7 +831,7 @@ fn update_entry_inner(
         conn.execute(
             "UPDATE triggers SET description = ?1, output = ?2, action_type = 'script',
                     target_os = ?3, tags = ?4, auto_case = ?5, is_deleted = 0,
-                    version = version + 1, updated_at = ?6 WHERE id = ?7",
+                    version = version + 1, updated_at = ?6, is_synced = 0 WHERE id = ?7",
             (
                 entry.description.as_deref(),
                 &script_output,
@@ -861,7 +862,7 @@ fn update_entry_inner(
         conn.execute(
             "UPDATE triggers SET description = ?1, output = ?2, action_type = 'text',
                     target_os = ?3, tags = ?4, auto_case = ?5, is_deleted = 0,
-                    version = version + 1, updated_at = ?6 WHERE id = ?7",
+                    version = version + 1, updated_at = ?6, is_synced = 0 WHERE id = ?7",
             (
                 entry.description.as_deref(),
                 &content_nfc,
@@ -879,7 +880,7 @@ fn update_entry_inner(
         let processed_output = compile_and_save_assets(conn, parent_id, &content_nfc)?;
         if processed_output != content_nfc {
             conn.execute(
-                "UPDATE triggers SET output = ?1, updated_at = ?2 WHERE id = ?3",
+                "UPDATE triggers SET output = ?1, updated_at = ?2, is_synced = 0 WHERE id = ?3",
                 (&processed_output, now, parent_id),
             )?;
         }
@@ -1056,7 +1057,7 @@ pub fn update_existing_trigger(
             conn.execute(
                 "UPDATE triggers SET description = ?1, output = ?2, action_type = 'script',
                         target_os = ?3, tags = ?4, usage_count = ?5, last_used_at = ?6,
-                        auto_case = ?7, is_deleted = 0, version = version + 1, updated_at = ?8
+                        auto_case = ?7, is_deleted = 0, version = version + 1, updated_at = ?8, is_synced = 0
                   WHERE id = ?9",
                 (
                     update.description,
@@ -1082,7 +1083,7 @@ pub fn update_existing_trigger(
             conn.execute(
                 "UPDATE triggers SET description = ?1, output = ?2, action_type = 'text',
                         target_os = ?3, tags = ?4, usage_count = ?5, last_used_at = ?6,
-                        auto_case = ?7, is_deleted = 0, version = version + 1, updated_at = ?8
+                        auto_case = ?7, is_deleted = 0, version = version + 1, updated_at = ?8, is_synced = 0
                   WHERE id = ?9",
                 (
                     update.description,
@@ -1103,7 +1104,7 @@ pub fn update_existing_trigger(
             let processed_output = compile_and_save_assets(conn, update.id, &content_nfc)?;
             if processed_output != content_nfc {
                 conn.execute(
-                    "UPDATE triggers SET output = ?1, updated_at = ?2 WHERE id = ?3",
+                    "UPDATE triggers SET output = ?1, updated_at = ?2, is_synced = 0 WHERE id = ?3",
                     (&processed_output, now, update.id),
                 )?;
             }
@@ -1266,7 +1267,7 @@ pub fn update_trigger_app_filters(
 
     conn.execute(
         "UPDATE triggers
-         SET only_apps = ?1, except_apps = ?2
+         SET only_apps = ?1, except_apps = ?2, is_synced = 0
          WHERE id = ?3 AND is_deleted = 0",
         rusqlite::params![only_cleaned, except_cleaned, id],
     )?;
@@ -1455,7 +1456,7 @@ pub fn set_trigger_action_type(
             let processed_output = compile_and_save_assets(conn, id, &content)?;
             if processed_output != content {
                 conn.execute(
-                    "UPDATE triggers SET output = ?1, updated_at = ?2 WHERE id = ?3",
+                    "UPDATE triggers SET output = ?1, updated_at = ?2, is_synced = 0 WHERE id = ?3",
                     rusqlite::params![processed_output, now, id],
                 )?;
             }

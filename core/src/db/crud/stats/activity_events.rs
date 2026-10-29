@@ -463,6 +463,7 @@ mod tests {
 
         let remote_events = vec![
             CloudActivityEventPayload {
+                user_id: None,
                 device_id: "dev-laptop".to_string(),
                 id: "remote-evt-1".to_string(),
                 trigger_id: Some("trig-1".to_string()),
@@ -476,6 +477,7 @@ mod tests {
                 version: 1,
             },
             CloudActivityEventPayload {
+                user_id: None,
                 device_id: "dev-desktop".to_string(),
                 id: "remote-evt-2".to_string(),
                 trigger_id: None,

@@ -504,24 +504,33 @@ pub fn delete_alias(
     let Some(stored) = normalize_lookup(invocation_type, invocation) else {
         return Ok(false);
     };
-    let removed = conn.execute(
-        "DELETE FROM trigger_aliases
-          WHERE trigger_id = ?1 AND invocation_type = ?2 AND invocation = ?3",
-        rusqlite::params![trigger_id, invocation_type.as_db_str(), stored],
-    )?;
-    if removed == 0 {
-        return Ok(false);
-    }
-    if count_aliases(conn, trigger_id)? == 0 {
-        tombstone_entry(conn, trigger_id, crate::db::now_unix_secs())?;
-    }
-    Ok(true)
+    with_transaction(conn, || {
+        let removed = conn.execute(
+            "DELETE FROM trigger_aliases
+              WHERE trigger_id = ?1 AND invocation_type = ?2 AND invocation = ?3",
+            rusqlite::params![trigger_id, invocation_type.as_db_str(), stored],
+        )?;
+        if removed == 0 {
+            return Ok(false);
+        }
+        if count_aliases(conn, trigger_id)? == 0 {
+            tombstone_entry(conn, trigger_id, crate::db::now_unix_secs())?;
+        } else {
+            conn.execute(
+                "UPDATE triggers
+                  SET version = version + 1, updated_at = ?1, is_synced = 0
+                  WHERE id = ?2 AND is_deleted = 0",
+                rusqlite::params![crate::db::now_unix_secs(), trigger_id],
+            )?;
+        }
+        Ok(true)
+    })
 }
 
 pub fn tombstone_entry(conn: &Connection, trigger_id: &str, now: i64) -> Result<()> {
     with_transaction(conn, || {
         conn.execute(
-            "UPDATE triggers SET is_deleted = 1, version = version + 1, updated_at = ?1 WHERE id = ?2",
+            "UPDATE triggers SET is_deleted = 1, version = version + 1, updated_at = ?1, is_synced = 0 WHERE id = ?2",
             rusqlite::params![now, trigger_id],
         )?;
         conn.execute(

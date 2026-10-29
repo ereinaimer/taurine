@@ -7,6 +7,8 @@ use super::{AppStatRow, StatRow, TriggerDailyStatRow};
 /// Daily aggregated statistics for a specific trigger, formatted for cloud synchronization.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloudTriggerDailyStatPayload {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
     #[serde(default)]
     pub device_id: String,
     pub trigger_id: String,
@@ -22,6 +24,7 @@ pub struct CloudTriggerDailyStatPayload {
 impl From<TriggerDailyStatRow> for CloudTriggerDailyStatPayload {
     fn from(row: TriggerDailyStatRow) -> Self {
         Self {
+            user_id: None,
             device_id: crate::cloud::get_device_hardware_id(),
             trigger_id: row.trigger_id,
             date: row.date,
@@ -38,6 +41,7 @@ impl From<TriggerDailyStatRow> for CloudTriggerDailyStatPayload {
 impl From<&TriggerDailyStatRow> for CloudTriggerDailyStatPayload {
     fn from(row: &TriggerDailyStatRow) -> Self {
         Self {
+            user_id: None,
             device_id: crate::cloud::get_device_hardware_id(),
             trigger_id: row.trigger_id.clone(),
             date: row.date.clone(),
@@ -54,6 +58,8 @@ impl From<&TriggerDailyStatRow> for CloudTriggerDailyStatPayload {
 /// Global user daily statistics counters formatted for cloud synchronization.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloudUserStatPayload {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
     #[serde(default)]
     pub device_id: String,
     pub date: String,
@@ -69,6 +75,7 @@ pub struct CloudUserStatPayload {
 impl From<StatRow> for CloudUserStatPayload {
     fn from(row: StatRow) -> Self {
         Self {
+            user_id: None,
             device_id: crate::cloud::get_device_hardware_id(),
             date: row.date,
             executions: row.executions,
@@ -85,6 +92,7 @@ impl From<StatRow> for CloudUserStatPayload {
 impl From<&StatRow> for CloudUserStatPayload {
     fn from(row: &StatRow) -> Self {
         Self {
+            user_id: None,
             device_id: crate::cloud::get_device_hardware_id(),
             date: row.date.clone(),
             executions: row.executions,
@@ -101,6 +109,8 @@ impl From<&StatRow> for CloudUserStatPayload {
 /// Daily aggregated application statistics counters formatted for cloud synchronization.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloudUserAppStatPayload {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
     #[serde(default)]
     pub device_id: String,
     pub app_key: String,
@@ -115,6 +125,7 @@ pub struct CloudUserAppStatPayload {
 impl From<AppStatRow> for CloudUserAppStatPayload {
     fn from(row: AppStatRow) -> Self {
         Self {
+            user_id: None,
             device_id: crate::cloud::get_device_hardware_id(),
             app_key: row.app_key,
             date: row.date,
@@ -130,6 +141,7 @@ impl From<AppStatRow> for CloudUserAppStatPayload {
 impl From<&AppStatRow> for CloudUserAppStatPayload {
     fn from(row: &AppStatRow) -> Self {
         Self {
+            user_id: None,
             device_id: crate::cloud::get_device_hardware_id(),
             app_key: row.app_key.clone(),
             date: row.date.clone(),
@@ -145,6 +157,8 @@ impl From<&AppStatRow> for CloudUserAppStatPayload {
 /// Event-level user action formatted for cloud synchronization.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloudActivityEventPayload {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
     #[serde(default)]
     pub device_id: String,
     pub id: String,
@@ -162,6 +176,7 @@ pub struct CloudActivityEventPayload {
 impl From<ActivityEventRow> for CloudActivityEventPayload {
     fn from(row: ActivityEventRow) -> Self {
         Self {
+            user_id: None,
             device_id: crate::cloud::get_device_hardware_id(),
             id: row.id,
             trigger_id: row.trigger_id,
@@ -180,6 +195,7 @@ impl From<ActivityEventRow> for CloudActivityEventPayload {
 impl From<&ActivityEventRow> for CloudActivityEventPayload {
     fn from(row: &ActivityEventRow) -> Self {
         Self {
+            user_id: None,
             device_id: crate::cloud::get_device_hardware_id(),
             id: row.id.clone(),
             trigger_id: row.trigger_id.clone(),
@@ -842,6 +858,7 @@ mod tests {
         // Fresh database: no stats exist
         let remote_stats = vec![
             CloudUserStatPayload {
+                user_id: None,
                 device_id: "laptop-1".to_string(),
                 date: "2026-10-28".to_string(),
                 executions: 10,
@@ -853,6 +870,7 @@ mod tests {
                 version: 1,
             },
             CloudUserStatPayload {
+                user_id: None,
                 device_id: "desktop-1".to_string(),
                 date: "2026-10-28".to_string(),
                 executions: 20,

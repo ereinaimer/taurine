@@ -78,7 +78,7 @@ fn upsert_trigger_inserts_new_row_with_version_1() {
     assert!(row.updated_at > 0);
     assert_eq!(row.version, 1);
     assert!(!row.is_deleted);
-    assert!(row.is_synced); // default configuration should be syncable
+    assert!(!row.is_synced); // freshly created trigger is dirty until pushed to cloud
 }
 
 #[test]
@@ -123,7 +123,7 @@ fn upsert_trigger_increments_version_on_update() {
     assert_eq!(row.usage_count, 7);
     assert_eq!(row.last_used_at, Some(1_700_000_000_i64));
     assert!(!row.is_deleted);
-    assert!(row.is_synced);
+    assert!(!row.is_synced); // local updates mark trigger dirty for cloud sync
 }
 
 #[test]
@@ -150,7 +150,10 @@ fn delete_trigger_tombstones_and_returns_true_once() {
 
     let row = get_trigger(&conn, "uuid-1").unwrap().unwrap();
     assert!(row.is_deleted);
-    assert!(row.is_synced);
+    assert!(
+        !row.is_synced,
+        "deleted tombstone must be marked unsynced to propagate to cloud"
+    );
     let version_after_delete = row.version;
 
     let deleted_again = delete_trigger(&conn, "uuid-1").unwrap();
@@ -1387,19 +1390,19 @@ fn get_syncable_triggers_returns_only_sync_enabled_rows() {
     let (_dir, conn) = open_test_db();
     conn.execute("DELETE FROM triggers", []).unwrap();
 
-    // Standard upserts default to is_synced = 1
+    // Standard upserts default to is_synced = 0 (pending cloud sync)
     upsert_trigger(
         &conn, "uuid-1", None, "t1", "p1", "text", "all", r#"[]"#, 0, None,
     )
     .unwrap();
+    conn.execute("UPDATE triggers SET is_synced = 1 WHERE id = 'uuid-1'", [])
+        .unwrap();
 
-    // Force one to is_synced = 0 manually to test the filter
+    // Leave uuid-2 as is_synced = 0 to test the filter
     upsert_trigger(
         &conn, "uuid-2", None, "t2", "p2", "text", "all", r#"[]"#, 0, None,
     )
     .unwrap();
-    conn.execute("UPDATE triggers SET is_synced = 0 WHERE id = 'uuid-2'", [])
-        .unwrap();
 
     let syncable = get_syncable_triggers(&conn).unwrap();
     let ids: Vec<String> = syncable.into_iter().map(|a| a.id).collect();

@@ -288,7 +288,10 @@ mod tests {
         assert_eq!(output, "Good morning!");
         assert_eq!(action_type, "text");
         assert!(!is_deleted);
-        assert!(is_synced);
+        assert!(
+            !is_synced,
+            "triggers must default to unsynced (0) on creation"
+        );
         assert_eq!(version, 1);
 
         let (invocation, invocation_type): (String, String) = conn

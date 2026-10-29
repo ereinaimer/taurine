@@ -46,6 +46,8 @@ pub fn is_setting_syncable(key: &str) -> bool {
 /// Encapsulates a setting row payload for cloud synchronization.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloudSettingPayload {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
     pub key: String,
     pub value: serde_json::Value,
     pub version: i64,
@@ -205,6 +207,7 @@ mod tests {
 
         // Remote has version 2: should update local
         let remote = CloudSettingPayload {
+            user_id: None,
             key: "wpm".to_string(),
             value: serde_json::json!(85),
             version: 2,
@@ -221,6 +224,7 @@ mod tests {
 
         // Remote with older or equal version should be ignored
         let older_remote = CloudSettingPayload {
+            user_id: None,
             key: "wpm".to_string(),
             value: serde_json::json!(40),
             version: 1,
@@ -231,6 +235,7 @@ mod tests {
 
         // Attempting to reconcile a non-syncable setting from remote MUST be rejected
         let forbidden_remote = CloudSettingPayload {
+            user_id: None,
             key: "scripts_enabled".to_string(),
             value: serde_json::json!(true),
             version: 10,
@@ -252,6 +257,7 @@ mod tests {
 
         // Remote has version 1: must overwrite seeded default version 0
         let remote = CloudSettingPayload {
+            user_id: None,
             key: "wpm".to_string(),
             value: serde_json::json!(110),
             version: 1,

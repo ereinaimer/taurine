@@ -9,6 +9,8 @@ use super::{TriggerRow, display_for_aliases, list_aliases};
 /// Encapsulates all trigger data and its aliases for bidirectional cloud synchronization.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloudSnippetPayload {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
     pub id: String,
     pub workspace_id: String,
     pub name: String,
@@ -49,6 +51,7 @@ pub fn serialize_trigger_to_cloud_snippet(
     };
 
     CloudSnippetPayload {
+        user_id: None,
         id: trigger.id.clone(),
         workspace_id: trigger.workspace_id.clone(),
         name: trigger
