@@ -32,20 +32,22 @@ pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {
         (key, value, now),
     )?;
 
-    crate::db::crud::enqueue_outbox(
-        conn,
-        "setting",
-        key,
-        "upsert",
-        serde_json::json!({
-            "key": key,
-            "value": value,
-        }),
-    )
-    .map_err(|e| match e {
-        crate::Error::Database(inner) => inner,
-        other => rusqlite::Error::ToSqlConversionFailure(Box::new(other)),
-    })?;
+    if crate::db::crud::is_setting_syncable(key) {
+        crate::db::crud::enqueue_outbox(
+            conn,
+            "setting",
+            key,
+            "upsert",
+            serde_json::json!({
+                "key": key,
+                "value": value,
+            }),
+        )
+        .map_err(|e| match e {
+            crate::Error::Database(inner) => inner,
+            other => rusqlite::Error::ToSqlConversionFailure(Box::new(other)),
+        })?;
+    }
 
     Ok(())
 }

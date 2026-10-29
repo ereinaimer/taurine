@@ -2118,3 +2118,559 @@ async fn test_pause_resume_and_reload_signal_sync() {
 
     coordinator_task.abort();
 }
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn test_outbox_push_and_drain_all_entity_types() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    crate::hook::tests::mock_keystore::use_mock_keystore();
+
+    let tokens = taurine_core::cloud::AuthTokens {
+        access_token: "mock-token-xyz".to_string(),
+        refresh_token: "mock-refresh".to_string(),
+        user_id: "user-outbox-1".to_string(),
+        expires_at: Some(2000000000),
+    };
+    taurine_core::cloud::store_tokens(&tokens).unwrap();
+
+    let conn = Connection::open_in_memory().unwrap();
+    ensure_schema(&conn).unwrap();
+
+    // 1. Snippet
+    conn.execute(
+        "INSERT INTO triggers (
+            id, description, output, action_type, target_os, only_apps, except_apps,
+            tags, is_enabled, auto_case, version, is_deleted, created_at, updated_at
+        ) VALUES ('snippet-ob-1', 'Desc', 'Snippet Out', 'text', 'all', NULL, NULL,
+                  '[]', 1, 0, 1, 0, 1000, 1000)",
+        [],
+    )
+    .unwrap();
+    taurine_core::db::crud::enqueue_outbox(
+        &conn,
+        "snippet",
+        "snippet-ob-1",
+        "upsert",
+        serde_json::json!({
+            "id": "snippet-ob-1",
+            "output": "Snippet Out"
+        }),
+    )
+    .unwrap();
+
+    // 2. Setting
+    taurine_core::db::crud::upsert_setting(&conn, "wpm", "130").unwrap();
+
+    // 3. Quota
+    let mutation_id = uuid::Uuid::new_v4().to_string();
+    taurine_core::db::crud::enqueue_outbox(
+        &conn,
+        "quota",
+        "1730000000",
+        "burn",
+        serde_json::json!({
+            "week_epoch": 1730000000i64,
+            "delta": 0.30,
+            "mutation_id": mutation_id
+        }),
+    )
+    .unwrap();
+
+    // 4. Activity Event
+    taurine_core::db::crud::insert_activity_event(
+        &conn,
+        &taurine_core::db::crud::NewActivityEvent {
+            id: Some("evt-ob-1".to_string()),
+            trigger_id: Some("snippet-ob-1".to_string()),
+            timestamp: Some(1730000100000),
+            date: Some("2026-10-28".to_string()),
+            category: taurine_core::db::crud::ActivityCategory::Text,
+            app_key: Some("code.exe".to_string()),
+            word_count: 5,
+            time_saved_ms: 1000,
+            content: Some("Snippet Out".to_string()),
+        },
+    )
+    .unwrap();
+
+    // 5. Trigger Daily Stat
+    taurine_core::db::crud::stats::upsert_trigger_daily_stat_with_conn(
+        &conn,
+        "snippet-ob-1",
+        "2026-10-28",
+        "code.exe",
+        2,
+        0,
+        10,
+        2000,
+    )
+    .unwrap();
+
+    // 6. User Stat
+    taurine_core::db::crud::increment_stat(
+        &conn,
+        "2026-10-28",
+        &taurine_core::db::crud::StatDeltas {
+            executions: 2,
+            words_expanded: 10,
+            time_saved_ms: 2000,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    // 7. App Stat
+    taurine_core::db::crud::upsert_app_stat_with_conn(
+        &conn,
+        "code.exe",
+        "2026-10-28",
+        2,
+        0,
+        10,
+        2000,
+    )
+    .unwrap();
+
+    // Verify outbox has entries before cycle
+    let initial_outbox = taurine_core::db::crud::fetch_outbox_batch(&conn, 50).unwrap();
+    assert_eq!(
+        initial_outbox.len(),
+        7,
+        "Must have 7 outbox entries initially"
+    );
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let server_handle = std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        let start = std::time::Instant::now();
+        let mut handled = 0;
+        while handled < 15 && start.elapsed() < std::time::Duration::from_secs(5) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let _ = stream.set_nonblocking(false);
+                    let mut buf = [0u8; 8192];
+                    let n = match stream.read(&mut buf) {
+                        Ok(n) => n,
+                        Err(_) => continue,
+                    };
+                    let req = String::from_utf8_lossy(&buf[..n]);
+
+                    if req.starts_with("POST /rest/v1/snippets") {
+                        assert!(req.contains("on_conflict=id"));
+                        assert!(req.contains("resolution=merge-duplicates"));
+                        assert!(req.contains("snippet-ob-1"));
+                        assert!(!req.contains("\"local_id\""));
+                        assert!(!req.contains("\"name\""));
+                        let resp = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                        stream.write_all(resp.as_bytes()).unwrap();
+                    } else if req.starts_with("POST /rest/v1/user_settings") {
+                        assert!(req.contains("on_conflict=user_id,key"));
+                        assert!(req.contains("resolution=merge-duplicates"));
+                        assert!(req.contains("\"wpm\""));
+                        let resp = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                        stream.write_all(resp.as_bytes()).unwrap();
+                    } else if req.starts_with("POST /rest/v1/rpc/record_quota_burn") {
+                        assert!(req.contains("p_week_epoch"));
+                        assert!(req.contains("p_delta"));
+                        assert!(req.contains("p_device_id"));
+                        assert!(req.contains("p_mutation_id"));
+                        let body = serde_json::json!({ "new_balance": 98.5 }).to_string();
+                        let resp = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                            body.len(),
+                            body
+                        );
+                        stream.write_all(resp.as_bytes()).unwrap();
+                    } else if req.starts_with("POST /rest/v1/activity_events") {
+                        assert!(req.contains("evt-ob-1"));
+                        let resp = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                        stream.write_all(resp.as_bytes()).unwrap();
+                    } else if req.starts_with("POST /rest/v1/trigger_daily_stats") {
+                        assert!(req.contains("snippet-ob-1"));
+                        let resp = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                        stream.write_all(resp.as_bytes()).unwrap();
+                    } else if req.starts_with("POST /rest/v1/user_stats") {
+                        assert!(req.contains("2026-10-28"));
+                        let resp = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                        stream.write_all(resp.as_bytes()).unwrap();
+                    } else if req.starts_with("POST /rest/v1/user_app_stats") {
+                        assert!(req.contains("code.exe"));
+                        let resp = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                        stream.write_all(resp.as_bytes()).unwrap();
+                    } else if req.starts_with("GET /rest/v1/") {
+                        let resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+                        stream.write_all(resp.as_bytes()).unwrap();
+                    }
+                    handled += 1;
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(15));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let config = CloudConfig {
+        supabase_url: format!("http://127.0.0.1:{port}"),
+        anon_key: "test-anon-key".to_string(),
+    };
+    let client = CloudClient::new(config);
+
+    let status = SyncWorker::run_sync_cycle(&conn, Some(&client)).await;
+    assert!(
+        matches!(status, SyncStatus::Success { .. }),
+        "Sync cycle must succeed: {status:?}"
+    );
+
+    // Verify outbox is drained completely
+    let remaining_outbox = taurine_core::db::crud::fetch_outbox_batch(&conn, 50).unwrap();
+    assert!(
+        remaining_outbox.is_empty(),
+        "All 7 outbox entries must be drained; remaining: {remaining_outbox:?}"
+    );
+
+    // Verify QuotaGuard was updated with the balance returned by record_quota_burn RPC
+    assert_eq!(
+        crate::engine::quota_guard::QuotaGuard::global().balance(),
+        98.5,
+        "Quota balance must be set from RPC return value"
+    );
+
+    let _ = server_handle.join();
+    taurine_core::cloud::clear_tokens().unwrap();
+}
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn test_outbox_push_failure_preserves_outbox() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    crate::hook::tests::mock_keystore::use_mock_keystore();
+
+    let tokens = taurine_core::cloud::AuthTokens {
+        access_token: "mock-token-xyz".to_string(),
+        refresh_token: "mock-refresh".to_string(),
+        user_id: "user-outbox-fail".to_string(),
+        expires_at: Some(2000000000),
+    };
+    taurine_core::cloud::store_tokens(&tokens).unwrap();
+
+    let conn = Connection::open_in_memory().unwrap();
+    ensure_schema(&conn).unwrap();
+
+    taurine_core::db::crud::enqueue_outbox(
+        &conn,
+        "snippet",
+        "snippet-fail-1",
+        "upsert",
+        serde_json::json!({
+            "id": "snippet-fail-1",
+            "output": "Failure Test"
+        }),
+    )
+    .unwrap();
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let server_handle = std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buf = [0u8; 4096];
+        let n = stream.read(&mut buf).unwrap();
+        let req = String::from_utf8_lossy(&buf[..n]);
+
+        if req.starts_with("POST /rest/v1/snippets") {
+            let resp = "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+            stream.write_all(resp.as_bytes()).unwrap();
+        }
+    });
+
+    let config = CloudConfig {
+        supabase_url: format!("http://127.0.0.1:{port}"),
+        anon_key: "test-anon-key".to_string(),
+    };
+    let client = CloudClient::new(config);
+
+    let status = SyncWorker::run_sync_cycle(&conn, Some(&client)).await;
+    assert!(
+        matches!(status, SyncStatus::Error(_)),
+        "Sync cycle must fail on HTTP 500 error"
+    );
+
+    // Verify outbox was preserved
+    let remaining = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    assert_eq!(
+        remaining.len(),
+        1,
+        "Outbox must NOT be drained when push fails"
+    );
+    assert_eq!(remaining[0].entity_id, "snippet-fail-1");
+
+    let _ = server_handle.join();
+    taurine_core::cloud::clear_tokens().unwrap();
+}
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn test_checkpoint_watermark_pull_does_not_create_outbox_entries() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    crate::hook::tests::mock_keystore::use_mock_keystore();
+
+    let tokens = taurine_core::cloud::AuthTokens {
+        access_token: "mock-token-xyz".to_string(),
+        refresh_token: "mock-refresh".to_string(),
+        user_id: "user-pull-cp-1".to_string(),
+        expires_at: Some(2000000000),
+    };
+    taurine_core::cloud::store_tokens(&tokens).unwrap();
+
+    let conn = Connection::open_in_memory().unwrap();
+    ensure_schema(&conn).unwrap();
+
+    // Verify initial checkpoint is 0 and outbox is empty
+    let initial_cp = taurine_core::db::crud::get_sync_checkpoint(&conn, "snippets").unwrap();
+    assert_eq!(initial_cp, 0);
+    assert!(
+        taurine_core::db::crud::fetch_outbox_batch(&conn, 10)
+            .unwrap()
+            .is_empty()
+    );
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let server_handle = std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        let start = std::time::Instant::now();
+        let mut handled = 0;
+        while handled < 14 && start.elapsed() < std::time::Duration::from_secs(5) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let _ = stream.set_nonblocking(false);
+                    let mut buf = [0u8; 8192];
+                    let n = match stream.read(&mut buf) {
+                        Ok(n) => n,
+                        Err(_) => continue,
+                    };
+                    let req = String::from_utf8_lossy(&buf[..n]);
+
+                    if req.starts_with("GET /rest/v1/snippets") {
+                        if handled < 7 {
+                            // Cycle 1: First pull with initial checkpoint
+                            let remote_snippet = CloudSnippetPayload {
+                                user_id: None,
+                                id: "remote-cp-snippet".to_string(),
+                                workspace_id: "default".to_string(),
+                                output: "Watermark Pull Output".to_string(),
+                                description: None,
+                                action_type: "text".to_string(),
+                                target_os: Some("all".to_string()),
+                                only_apps: None,
+                                except_apps: None,
+                                tags: None,
+                                is_enabled: true,
+                                auto_case: false,
+                                version: 1,
+                                is_deleted: false,
+                                updated_at: 1730005000,
+                                created_at: 1730005000,
+                                aliases: vec![TriggerAliasRow {
+                                    id: "alias-cp-1".to_string(),
+                                    trigger_id: "remote-cp-snippet".to_string(),
+                                    invocation: "cp_test".to_string(),
+                                    invocation_type: InvocationType::Word,
+                                    require_confirmation: false,
+                                    strict_threshold: None,
+                                    created_at: 1730005000,
+                                }],
+                            };
+                            let body = serde_json::to_string(&vec![remote_snippet]).unwrap();
+                            let resp = format!(
+                                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                                body.len(),
+                                body
+                            );
+                            stream.write_all(resp.as_bytes()).unwrap();
+                        } else {
+                            // Cycle 2: Watermark checkpoint gt filter applied
+                            assert!(
+                                req.contains("updated_at=gt."),
+                                "Query must contain updated_at=gt. filter: {req}"
+                            );
+                            let resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+                            stream.write_all(resp.as_bytes()).unwrap();
+                        }
+                    } else if req.starts_with("GET /rest/v1/user_settings") {
+                        let remote_setting = taurine_core::db::crud::CloudSettingPayload {
+                            user_id: None,
+                            key: "wpm".to_string(),
+                            value: serde_json::json!(160),
+                            version: 2,
+                            updated_at: Some("2026-10-28T06:00:00Z".to_string()),
+                        };
+                        let body = serde_json::to_string(&vec![remote_setting]).unwrap();
+                        let resp = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                            body.len(),
+                            body
+                        );
+                        stream.write_all(resp.as_bytes()).unwrap();
+                    } else if req.starts_with("GET /rest/v1/") {
+                        let resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+                        stream.write_all(resp.as_bytes()).unwrap();
+                    }
+                    handled += 1;
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(15));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let config = CloudConfig {
+        supabase_url: format!("http://127.0.0.1:{port}"),
+        anon_key: "test-anon-key".to_string(),
+    };
+    let client = CloudClient::new(config);
+
+    // Cycle 1: Pull remote snippet and setting
+    let status1 = SyncWorker::run_sync_cycle(&conn, Some(&client)).await;
+    assert_eq!(
+        status1,
+        SyncStatus::Success {
+            pulled_snippets: 1,
+            pushed_snippets: 0,
+            pulled_settings: 1,
+            pushed_settings: 0,
+            pulled_events: 0,
+            pushed_stats: 0,
+        }
+    );
+
+    // Verify checkpoint was updated to max updated_at (1730005000)
+    let cp = taurine_core::db::crud::get_sync_checkpoint(&conn, "snippets").unwrap();
+    assert_eq!(cp, 1730005000, "Checkpoint must be updated to 1730005000");
+
+    // CRITICAL: Verify pull created ZERO outbox entries (no reflection loops!)
+    let outbox = taurine_core::db::crud::fetch_outbox_batch(&conn, 50).unwrap();
+    assert!(
+        outbox.is_empty(),
+        "Pulling remote entities must NOT enqueue outbox records; found: {outbox:?}"
+    );
+
+    // Cycle 2: Verify next cycle uses checkpoint and still creates zero outbox records
+    let status2 = SyncWorker::run_sync_cycle(&conn, Some(&client)).await;
+    assert_eq!(
+        status2,
+        SyncStatus::Success {
+            pulled_snippets: 0,
+            pushed_snippets: 0,
+            pulled_settings: 0,
+            pushed_settings: 0,
+            pulled_events: 0,
+            pushed_stats: 0,
+        }
+    );
+
+    let outbox2 = taurine_core::db::crud::fetch_outbox_batch(&conn, 50).unwrap();
+    assert!(outbox2.is_empty(), "Outbox must still be empty");
+
+    let _ = server_handle.join();
+    taurine_core::cloud::clear_tokens().unwrap();
+}
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn test_record_quota_burn_rpc_payload_and_balance_update() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    crate::hook::tests::mock_keystore::use_mock_keystore();
+
+    let tokens = taurine_core::cloud::AuthTokens {
+        access_token: "mock-token-xyz".to_string(),
+        refresh_token: "mock-refresh".to_string(),
+        user_id: "user-quota-rpc-1".to_string(),
+        expires_at: Some(2000000000),
+    };
+    taurine_core::cloud::store_tokens(&tokens).unwrap();
+
+    let conn = Connection::open_in_memory().unwrap();
+    ensure_schema(&conn).unwrap();
+
+    let key = [99u8; 32];
+    let now_epoch = 1730000000i64;
+    taurine_core::db::crud::quota::get_or_init_quota_ledger(&conn, &key, now_epoch).unwrap();
+
+    let guard = crate::engine::quota_guard::QuotaGuard::global();
+    guard.set_balance(100.0);
+    assert!(guard.deplete(crate::engine::quota_guard::ExpansionType::Text));
+    guard.flush_to_db(&conn, &key).unwrap();
+
+    let outbox = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    assert_eq!(outbox.len(), 1);
+    assert_eq!(outbox[0].entity_type, "quota");
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let server_handle = std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        for _ in 0..8 {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 4096];
+            let n = stream.read(&mut buf).unwrap();
+            let req = String::from_utf8_lossy(&buf[..n]);
+
+            if req.starts_with("POST /rest/v1/rpc/record_quota_burn") {
+                assert!(req.contains("p_week_epoch"));
+                assert!(req.contains("p_delta"));
+                assert!(req.contains("p_device_id"));
+                assert!(req.contains("p_mutation_id"));
+                assert!(req.contains("0.3"));
+                let body = serde_json::json!({ "new_balance": 99.40 }).to_string();
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                stream.write_all(resp.as_bytes()).unwrap();
+            } else if req.starts_with("GET /rest/v1/") {
+                let resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+                stream.write_all(resp.as_bytes()).unwrap();
+            }
+        }
+    });
+
+    let config = CloudConfig {
+        supabase_url: format!("http://127.0.0.1:{port}"),
+        anon_key: "test-anon-key".to_string(),
+    };
+    let client = CloudClient::new(config);
+
+    let status = SyncWorker::run_sync_cycle(&conn, Some(&client)).await;
+    assert!(matches!(status, SyncStatus::Success { .. }));
+
+    // Verify outbox drained
+    let remaining = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    assert!(remaining.is_empty(), "Quota outbox entry must be drained");
+
+    // Verify QuotaGuard balance updated
+    assert_eq!(guard.balance(), 99.40);
+
+    let _ = server_handle.join();
+    taurine_core::cloud::clear_tokens().unwrap();
+}
