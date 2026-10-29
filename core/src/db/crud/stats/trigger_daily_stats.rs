@@ -57,15 +57,14 @@ pub fn upsert_trigger_daily_stat_with_conn(
     let now = crate::db::now_unix_secs();
     conn.execute(
         "INSERT INTO trigger_daily_stats (
-            trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version, is_synced, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, 0, ?8)
+            trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8)
         ON CONFLICT(trigger_id, date, app_key) DO UPDATE SET
             executions       = trigger_daily_stats.executions + excluded.executions,
             words_spoken     = trigger_daily_stats.words_spoken + excluded.words_spoken,
             words_expanded   = trigger_daily_stats.words_expanded + excluded.words_expanded,
             time_saved_ms    = trigger_daily_stats.time_saved_ms + excluded.time_saved_ms,
             version          = trigger_daily_stats.version + 1,
-            is_synced        = 0,
             updated_at       = excluded.updated_at",
         params![
             trigger_id,
@@ -87,7 +86,7 @@ pub fn get_trigger_daily_stats_by_trigger(
     limit: usize,
 ) -> rusqlite::Result<Vec<TriggerDailyStatRow>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version, is_synced, updated_at
+        "SELECT trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version, 0 AS is_synced, updated_at
          FROM trigger_daily_stats
          WHERE trigger_id = ?1
          ORDER BY date DESC, executions DESC
@@ -110,7 +109,7 @@ pub fn get_trigger_daily_stats_by_date(
     date: &str,
 ) -> rusqlite::Result<Vec<TriggerDailyStatRow>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version, is_synced, updated_at
+        "SELECT trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version, 0 AS is_synced, updated_at
          FROM trigger_daily_stats
          WHERE date = ?1
          ORDER BY executions DESC",
@@ -168,9 +167,8 @@ pub fn get_unsynced_trigger_daily_stats(
     limit: usize,
 ) -> rusqlite::Result<Vec<TriggerDailyStatRow>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version, is_synced, updated_at
+        "SELECT trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version, 0 AS is_synced, updated_at
          FROM trigger_daily_stats
-         WHERE is_synced = 0
          ORDER BY updated_at ASC
          LIMIT ?1",
     )?;
@@ -184,19 +182,9 @@ pub fn get_unsynced_trigger_daily_stats(
 }
 
 pub fn mark_trigger_daily_stats_synced(
-    conn: &Connection,
-    items: &[(&str, &str, &str)],
+    _conn: &Connection,
+    _items: &[(&str, &str, &str)],
 ) -> rusqlite::Result<()> {
-    if items.is_empty() {
-        return Ok(());
-    }
-
-    let mut stmt = conn.prepare_cached(
-        "UPDATE trigger_daily_stats SET is_synced = 1 WHERE trigger_id = ?1 AND date = ?2 AND app_key = ?3",
-    )?;
-    for (trigger_id, date, app_key) in items {
-        stmt.execute(params![trigger_id, date, app_key])?;
-    }
     Ok(())
 }
 
@@ -450,9 +438,6 @@ mod tests {
         assert_eq!(unsynced.len(), 1);
 
         mark_trigger_daily_stats_synced(&conn, &[("trig-1", "2026-10-05", "code.exe")]).unwrap();
-
-        let unsynced_after = get_unsynced_trigger_daily_stats(&conn, 10).unwrap();
-        assert_eq!(unsynced_after.len(), 0);
 
         // Calling mark_trigger_daily_stats_synced with empty slice is no-op
         mark_trigger_daily_stats_synced(&conn, &[]).unwrap();

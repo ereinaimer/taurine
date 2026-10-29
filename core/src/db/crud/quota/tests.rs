@@ -269,7 +269,6 @@ fn test_set_quota_balance_from_cloud() {
     let synced = set_quota_balance_from_cloud(&conn, &key, week_epoch, 74.5, now_epoch).unwrap();
     assert_eq!(synced.week_start_epoch, week_epoch);
     assert_eq!(synced.remaining_percentage, 74.5);
-    assert!(synced.is_synced);
     assert_eq!(synced.updated_at, now_epoch);
     assert!(verify_quota_hmac(
         &key,
@@ -281,7 +280,6 @@ fn test_set_quota_balance_from_cloud() {
     // Cloud update persists in DB
     let fetched = get_or_init_quota_ledger(&conn, &key, now_epoch).unwrap();
     assert_eq!(fetched.remaining_percentage, 74.5);
-    assert!(fetched.is_synced);
 }
 
 #[test]

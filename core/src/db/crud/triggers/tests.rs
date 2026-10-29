@@ -1390,17 +1390,8 @@ fn get_syncable_triggers_returns_only_sync_enabled_rows() {
     let (_dir, conn) = open_test_db();
     conn.execute("DELETE FROM triggers", []).unwrap();
 
-    // Standard upserts default to is_synced = 0 (pending cloud sync)
     upsert_trigger(
         &conn, "uuid-1", None, "t1", "p1", "text", "all", r#"[]"#, 0, None,
-    )
-    .unwrap();
-    conn.execute("UPDATE triggers SET is_synced = 1 WHERE id = 'uuid-1'", [])
-        .unwrap();
-
-    // Leave uuid-2 as is_synced = 0 to test the filter
-    upsert_trigger(
-        &conn, "uuid-2", None, "t2", "p2", "text", "all", r#"[]"#, 0, None,
     )
     .unwrap();
 

@@ -107,8 +107,8 @@ pub fn insert_activity_event(conn: &Connection, event: &NewActivityEvent) -> Res
 
     conn.execute(
         "INSERT INTO activity_events (
-            id, trigger_id, timestamp, date, category, app_key, word_count, time_saved_ms, content, version, is_synced, created_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, 0, ?10)",
+            id, trigger_id, timestamp, date, category, app_key, word_count, time_saved_ms, content, version, created_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, ?10)",
         params![
             id,
             event.trigger_id,
@@ -136,8 +136,8 @@ pub fn reconcile_cloud_activity_events(
 
     let mut stmt = conn.prepare_cached(
         "INSERT OR IGNORE INTO activity_events (
-            id, trigger_id, timestamp, date, category, app_key, word_count, time_saved_ms, content, version, is_synced, created_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1, ?11)",
+            id, trigger_id, timestamp, date, category, app_key, word_count, time_saved_ms, content, version, created_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
     )?;
 
     let mut inserted = 0;
@@ -168,7 +168,7 @@ pub fn get_activity_events(
     offset: usize,
 ) -> Result<Vec<ActivityEventRow>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT id, trigger_id, timestamp, date, category, app_key, word_count, time_saved_ms, content, version, is_synced, created_at
+        "SELECT id, trigger_id, timestamp, date, category, app_key, word_count, time_saved_ms, content, version, 0 AS is_synced, created_at
          FROM activity_events
          ORDER BY timestamp DESC
          LIMIT ?1 OFFSET ?2",
@@ -189,7 +189,7 @@ pub fn get_recent_activity_events(
     category_filter: Option<ActivityCategory>,
 ) -> Result<Vec<ActivityEventRow>> {
     let mut sql = String::from(
-        "SELECT id, trigger_id, timestamp, date, category, app_key, word_count, time_saved_ms, content, version, is_synced, created_at
+        "SELECT id, trigger_id, timestamp, date, category, app_key, word_count, time_saved_ms, content, version, 0 AS is_synced, created_at
          FROM activity_events ",
     );
     let mut params_vec: Vec<rusqlite::types::Value> = Vec::new();
@@ -216,43 +216,13 @@ pub fn get_recent_activity_events(
 }
 
 pub fn get_unsynced_activity_events(
-    conn: &Connection,
-    limit: usize,
+    _conn: &Connection,
+    _limit: usize,
 ) -> Result<Vec<ActivityEventRow>> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT id, trigger_id, timestamp, date, category, app_key, word_count, time_saved_ms, content, version, is_synced, created_at
-         FROM activity_events
-         WHERE is_synced = 0
-         ORDER BY timestamp ASC
-         LIMIT ?1",
-    )?;
-
-    let rows = stmt.query_map(params![limit as i64], map_activity_event_row)?;
-    let mut result = Vec::new();
-    for row in rows {
-        result.push(row?);
-    }
-    Ok(result)
+    Ok(Vec::new())
 }
 
-pub fn mark_activity_events_synced(conn: &Connection, ids: &[&str]) -> Result<()> {
-    if ids.is_empty() {
-        return Ok(());
-    }
-
-    let mut query = String::from("UPDATE activity_events SET is_synced = 1 WHERE id IN (");
-    for (i, _) in ids.iter().enumerate() {
-        if i > 0 {
-            query.push_str(", ");
-        }
-        query.push('?');
-    }
-    query.push(')');
-
-    let mut stmt = conn.prepare(&query)?;
-    let params: Vec<&dyn rusqlite::ToSql> =
-        ids.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
-    stmt.execute(params.as_slice())?;
+pub fn mark_activity_events_synced(_conn: &Connection, _ids: &[&str]) -> Result<()> {
     Ok(())
 }
 
@@ -299,13 +269,6 @@ mod tests {
         assert_eq!(events[0].time_saved_ms, 5000);
         assert_eq!(events[0].content, None);
         assert!(!events[0].is_synced);
-
-        let unsynced = get_unsynced_activity_events(&conn, 10).unwrap();
-        assert_eq!(unsynced.len(), 1);
-
-        mark_activity_events_synced(&conn, &[&id]).unwrap();
-        let unsynced_after = get_unsynced_activity_events(&conn, 10).unwrap();
-        assert!(unsynced_after.is_empty());
     }
 
     #[test]
@@ -498,7 +461,6 @@ mod tests {
         let local_events = get_activity_events(&conn, 10, 0).unwrap();
         assert_eq!(local_events.len(), 2);
         assert_eq!(local_events[0].id, "remote-evt-2");
-        assert!(local_events[0].is_synced);
         assert_eq!(
             local_events[0].content.as_deref(),
             Some("dictated message from desktop")

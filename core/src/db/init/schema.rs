@@ -13,7 +13,6 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
             key        TEXT    PRIMARY KEY,
             value      JSON    NOT NULL,
             version    INTEGER DEFAULT 1,
-            is_synced  BOOLEAN NOT NULL DEFAULT 0,
             updated_at INTEGER NOT NULL
         );
 
@@ -24,19 +23,17 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
             created_at   INTEGER NOT NULL,
             updated_at   INTEGER NOT NULL,
             version      INTEGER NOT NULL DEFAULT 1,
-            is_deleted   BOOLEAN NOT NULL DEFAULT 0,
-            is_synced    BOOLEAN NOT NULL DEFAULT 1
+            is_deleted   BOOLEAN NOT NULL DEFAULT 0
         );
 
-        INSERT OR IGNORE INTO workspaces (id, name, is_default, created_at, updated_at, version, is_deleted, is_synced)
-        VALUES ('default', 'Personal', 1, unixepoch(), unixepoch(), 1, 0, 1);
+        INSERT OR IGNORE INTO workspaces (id, name, is_default, created_at, updated_at, version, is_deleted)
+        VALUES ('default', 'Personal', 1, unixepoch(), unixepoch(), 1, 0);
 
         CREATE TABLE IF NOT EXISTS quota_ledger (
             week_start_epoch     INTEGER PRIMARY KEY,
             remaining_percentage REAL    NOT NULL DEFAULT 100.0,
             last_expansion_at    INTEGER,
             hmac_signature       TEXT    NOT NULL DEFAULT '',
-            is_synced            BOOLEAN NOT NULL DEFAULT 0,
             updated_at           INTEGER NOT NULL
         );
 
@@ -57,7 +54,6 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
             updated_at   INTEGER NOT NULL,
             version      INTEGER DEFAULT 1,
             is_deleted   BOOLEAN DEFAULT 0,
-            is_synced    BOOLEAN NOT NULL DEFAULT 0,
             workspace_id TEXT    NOT NULL DEFAULT 'default' REFERENCES workspaces(id)
         );
 
@@ -70,7 +66,6 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
             words_expanded   INTEGER DEFAULT 0,
             time_saved_ms    INTEGER DEFAULT 0,
             version          INTEGER DEFAULT 1,
-            is_synced        BOOLEAN NOT NULL DEFAULT 0,
             updated_at       INTEGER NOT NULL
         );
 
@@ -113,7 +108,7 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
 
         -- Sync index: version is the LWW arbiter; updated_at breaks clock-drift ties.
         CREATE INDEX IF NOT EXISTS idx_sync_queue
-            ON triggers(version, updated_at, is_synced);
+            ON triggers(version, updated_at);
 
         -- UI index: fuzzy-finder sorts by most-used first.
         CREATE INDEX IF NOT EXISTS idx_triggers_usage_count
@@ -139,7 +134,6 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
             words_expanded   INTEGER NOT NULL DEFAULT 0,
             time_saved_ms    INTEGER NOT NULL DEFAULT 0,
             version          INTEGER NOT NULL DEFAULT 1,
-            is_synced        BOOLEAN NOT NULL DEFAULT 0,
             updated_at       INTEGER NOT NULL DEFAULT (unixepoch()),
             PRIMARY KEY (app_key, date)
         );
@@ -153,13 +147,12 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
             words_expanded   INTEGER NOT NULL DEFAULT 0,
             time_saved_ms    INTEGER NOT NULL DEFAULT 0,
             version          INTEGER NOT NULL DEFAULT 1,
-            is_synced        BOOLEAN NOT NULL DEFAULT 0,
             updated_at       INTEGER NOT NULL DEFAULT (unixepoch()),
             PRIMARY KEY (trigger_id, date, app_key)
         );
 
         CREATE INDEX IF NOT EXISTS idx_trigger_daily_stats_sync
-            ON trigger_daily_stats(version, updated_at, is_synced);
+            ON trigger_daily_stats(version, updated_at);
 
         CREATE TABLE IF NOT EXISTS activity_events (
             id            TEXT    PRIMARY KEY,
@@ -172,7 +165,6 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
             time_saved_ms INTEGER NOT NULL DEFAULT 0,
             content       TEXT,
             version       INTEGER NOT NULL DEFAULT 1,
-            is_synced     BOOLEAN NOT NULL DEFAULT 0,
             created_at    INTEGER NOT NULL DEFAULT (unixepoch())
         );
 
@@ -183,10 +175,27 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
             ON activity_events(timestamp DESC);
 
         CREATE INDEX IF NOT EXISTS idx_activity_events_sync
-            ON activity_events(version, is_synced);
+            ON activity_events(version);
 
         CREATE INDEX IF NOT EXISTS idx_activity_events_trigger
-            ON activity_events(trigger_id);",
+            ON activity_events(trigger_id);
+
+        CREATE TABLE IF NOT EXISTS sync_outbox (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            entity_type TEXT    NOT NULL,
+            entity_id   TEXT    NOT NULL,
+            operation   TEXT    NOT NULL,
+            payload     JSON    NOT NULL,
+            created_at  INTEGER NOT NULL DEFAULT (unixepoch())
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_sync_outbox_order
+            ON sync_outbox(id ASC);
+
+        CREATE TABLE IF NOT EXISTS sync_checkpoints (
+            entity_type    TEXT PRIMARY KEY,
+            last_synced_at INTEGER NOT NULL DEFAULT 0
+        );",
     )
     .map_err(|e| {
         if super::is_rusqlite_corrupt(&e) {
@@ -241,12 +250,12 @@ mod tests {
 
         let count: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('activity_events') WHERE name IN ('id', 'trigger_id', 'timestamp', 'date', 'category', 'app_key', 'word_count', 'time_saved_ms', 'content', 'version', 'is_synced', 'created_at')",
+                "SELECT COUNT(*) FROM pragma_table_info('activity_events') WHERE name IN ('id', 'trigger_id', 'timestamp', 'date', 'category', 'app_key', 'word_count', 'time_saved_ms', 'content', 'version', 'created_at')",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(count, 12, "activity_events must contain all 12 columns");
+        assert_eq!(count, 11, "activity_events must contain all 11 columns");
     }
 
     #[test]
@@ -282,7 +291,7 @@ mod tests {
     }
 
     #[test]
-    fn test_trigger_daily_stats_and_sync_columns_exist() {
+    fn test_sync_outbox_and_pruned_schema() {
         let conn = Connection::open_in_memory().unwrap();
         ensure_schema(&conn).unwrap();
 
@@ -300,48 +309,58 @@ mod tests {
 
         let count: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('trigger_daily_stats') WHERE name IN ('trigger_id', 'date', 'app_key', 'executions', 'words_spoken', 'words_expanded', 'time_saved_ms', 'version', 'is_synced', 'updated_at')",
+                "SELECT COUNT(*) FROM pragma_table_info('trigger_daily_stats') WHERE name IN ('trigger_id', 'date', 'app_key', 'executions', 'words_spoken', 'words_expanded', 'time_saved_ms', 'version', 'updated_at')",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
         assert_eq!(
-            count, 10,
-            "trigger_daily_stats must contain all 10 expected columns"
+            count, 9,
+            "trigger_daily_stats must contain all 9 expected columns"
         );
 
-        let settings_has_sync: bool = conn
+        let outbox_exists: bool = conn
             .query_row(
-                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('settings') WHERE name='is_synced')",
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='sync_outbox')",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
-        assert!(
-            settings_has_sync,
-            "settings table must have is_synced column"
-        );
+        assert!(outbox_exists, "sync_outbox table must exist");
 
-        let stats_has_sync: bool = conn
+        let checkpoints_exists: bool = conn
             .query_row(
-                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('stats') WHERE name='is_synced')",
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='sync_checkpoints')",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
-        assert!(stats_has_sync, "stats table must have is_synced column");
+        assert!(checkpoints_exists, "sync_checkpoints table must exist");
 
-        let app_stats_has_sync: bool = conn
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('app_stats') WHERE name='is_synced')",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert!(
-            app_stats_has_sync,
-            "app_stats table must have is_synced column"
-        );
+        for table in &[
+            "settings",
+            "workspaces",
+            "quota_ledger",
+            "triggers",
+            "stats",
+            "app_stats",
+            "trigger_daily_stats",
+            "activity_events",
+        ] {
+            let has_is_synced: bool = conn
+                .query_row(
+                    &format!(
+                        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('{table}') WHERE name='is_synced')"
+                    ),
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert!(
+                !has_is_synced,
+                "table {table} must NOT have is_synced column"
+            );
+        }
     }
 
     #[test]

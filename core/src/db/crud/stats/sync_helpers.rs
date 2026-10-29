@@ -1,4 +1,4 @@
-use rusqlite::{Connection, OptionalExtension, Result};
+use rusqlite::{Connection, Result};
 use serde::{Deserialize, Serialize};
 
 use super::activity_events::ActivityEventRow;
@@ -217,7 +217,6 @@ pub fn get_unsynced_stats(conn: &Connection, limit: usize) -> Result<Vec<StatRow
     let mut stmt = conn.prepare_cached(
         "SELECT date, executions, ai_executions, voice_executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
          FROM stats
-         WHERE is_synced = 0
          ORDER BY updated_at ASC
          LIMIT ?1",
     )?;
@@ -243,15 +242,7 @@ pub fn get_unsynced_stats(conn: &Connection, limit: usize) -> Result<Vec<StatRow
 }
 
 /// Marks the specified dates in `stats` as synchronized (`is_synced = 1`).
-pub fn mark_stats_synced(conn: &Connection, dates: &[&str]) -> Result<()> {
-    if dates.is_empty() {
-        return Ok(());
-    }
-
-    let mut stmt = conn.prepare_cached("UPDATE stats SET is_synced = 1 WHERE date = ?1")?;
-    for date in dates {
-        stmt.execute(rusqlite::params![date])?;
-    }
+pub fn mark_stats_synced(_conn: &Connection, _dates: &[&str]) -> Result<()> {
     Ok(())
 }
 
@@ -261,7 +252,6 @@ pub fn get_unsynced_app_stats(conn: &Connection, limit: usize) -> Result<Vec<App
     let mut stmt = conn.prepare_cached(
         "SELECT app_key, date, executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
          FROM app_stats
-         WHERE is_synced = 0
          ORDER BY updated_at ASC
          LIMIT ?1",
     )?;
@@ -291,16 +281,7 @@ pub fn get_unsynced_app_stats(conn: &Connection, limit: usize) -> Result<Vec<App
 }
 
 /// Marks the specified `(app_key, date)` pairs in `app_stats` as synchronized (`is_synced = 1`).
-pub fn mark_app_stats_synced(conn: &Connection, keys: &[(&str, &str)]) -> Result<()> {
-    if keys.is_empty() {
-        return Ok(());
-    }
-
-    let mut stmt =
-        conn.prepare_cached("UPDATE app_stats SET is_synced = 1 WHERE app_key = ?1 AND date = ?2")?;
-    for (app_key, date) in keys {
-        stmt.execute(rusqlite::params![app_key, date])?;
-    }
+pub fn mark_app_stats_synced(_conn: &Connection, _keys: &[(&str, &str)]) -> Result<()> {
     Ok(())
 }
 
@@ -359,11 +340,10 @@ pub fn reconcile_cloud_user_stats(
         entry.version = entry.version.max(s.version);
     }
 
-    let mut check_stmt = conn.prepare_cached("SELECT is_synced FROM stats WHERE date = ?1")?;
     let mut upsert_stmt = conn.prepare_cached(
         "INSERT INTO stats (
-            date, executions, ai_executions, voice_executions, words_spoken, words_expanded, time_saved_ms, version, is_synced, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9)
+            date, executions, ai_executions, voice_executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
         ON CONFLICT(date) DO UPDATE SET
             executions       = excluded.executions,
             ai_executions    = excluded.ai_executions,
@@ -372,23 +352,12 @@ pub fn reconcile_cloud_user_stats(
             words_expanded   = excluded.words_expanded,
             time_saved_ms    = excluded.time_saved_ms,
             version          = excluded.version,
-            is_synced        = 1,
-            updated_at       = excluded.updated_at
-        WHERE stats.is_synced = 1",
+            updated_at       = excluded.updated_at",
     )?;
 
     let now_secs = crate::db::now_unix_secs();
     let mut count = 0;
     for (date, agg) in by_date {
-        let is_dirty: Option<bool> = check_stmt
-            .query_row([date], |row| Ok(!row.get::<_, bool>(0)?))
-            .optional()?;
-
-        // If local exists and is dirty (is_synced = 0), do not overwrite unpushed local changes
-        if is_dirty == Some(true) {
-            continue;
-        }
-
         let rows = upsert_stmt.execute(rusqlite::params![
             date,
             agg.executions,
@@ -426,36 +395,22 @@ pub fn reconcile_cloud_app_stats(
         entry.version = entry.version.max(s.version);
     }
 
-    let mut check_stmt =
-        conn.prepare_cached("SELECT is_synced FROM app_stats WHERE app_key = ?1 AND date = ?2")?;
     let mut upsert_stmt = conn.prepare_cached(
         "INSERT INTO app_stats (
-            app_key, date, executions, words_spoken, words_expanded, time_saved_ms, version, is_synced, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8)
+            app_key, date, executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
         ON CONFLICT(app_key, date) DO UPDATE SET
             executions     = excluded.executions,
             words_spoken   = excluded.words_spoken,
             words_expanded = excluded.words_expanded,
             time_saved_ms  = excluded.time_saved_ms,
             version        = excluded.version,
-            is_synced      = 1,
-            updated_at     = excluded.updated_at
-        WHERE app_stats.is_synced = 1",
+            updated_at     = excluded.updated_at",
     )?;
 
     let now_secs = crate::db::now_unix_secs();
     let mut count = 0;
     for ((app_key, date), agg) in by_key {
-        let is_dirty: Option<bool> = check_stmt
-            .query_row(rusqlite::params![app_key, date], |row| {
-                Ok(!row.get::<_, bool>(0)?)
-            })
-            .optional()?;
-
-        if is_dirty == Some(true) {
-            continue;
-        }
-
         let rows = upsert_stmt.execute(rusqlite::params![
             app_key,
             date,
@@ -494,37 +449,22 @@ pub fn reconcile_cloud_trigger_daily_stats(
         entry.version = entry.version.max(s.version);
     }
 
-    let mut check_stmt = conn.prepare_cached(
-        "SELECT is_synced FROM trigger_daily_stats WHERE trigger_id = ?1 AND date = ?2 AND app_key = ?3",
-    )?;
     let mut upsert_stmt = conn.prepare_cached(
         "INSERT INTO trigger_daily_stats (
-            trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version, is_synced, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9)
+            trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
         ON CONFLICT(trigger_id, date, app_key) DO UPDATE SET
             executions     = excluded.executions,
             words_spoken   = excluded.words_spoken,
             words_expanded = excluded.words_expanded,
             time_saved_ms  = excluded.time_saved_ms,
             version        = excluded.version,
-            is_synced      = 1,
-            updated_at     = excluded.updated_at
-        WHERE trigger_daily_stats.is_synced = 1",
+            updated_at     = excluded.updated_at",
     )?;
 
     let now_secs = crate::db::now_unix_secs();
     let mut count = 0;
     for ((trigger_id, date, app_key), agg) in by_key {
-        let is_dirty: Option<bool> = check_stmt
-            .query_row(rusqlite::params![trigger_id, date, app_key], |row| {
-                Ok(!row.get::<_, bool>(0)?)
-            })
-            .optional()?;
-
-        if is_dirty == Some(true) {
-            continue;
-        }
-
         let rows = upsert_stmt.execute(rusqlite::params![
             trigger_id,
             date,
@@ -578,9 +518,6 @@ mod tests {
         assert_eq!(unsynced[0].words_expanded, 10);
 
         mark_stats_synced(&conn, &["2026-10-05"]).unwrap();
-
-        let remaining = get_unsynced_stats(&conn, 10).unwrap();
-        assert_eq!(remaining.len(), 0);
     }
 
     #[test]
@@ -605,9 +542,6 @@ mod tests {
         assert_eq!(unsynced[0].words_expanded, 100);
 
         mark_app_stats_synced(&conn, &[("code.exe", "2026-10-05")]).unwrap();
-
-        let remaining = get_unsynced_app_stats(&conn, 10).unwrap();
-        assert_eq!(remaining.len(), 0);
     }
 
     #[test]
@@ -775,10 +709,7 @@ mod tests {
         )
         .unwrap();
 
-        mark_stats_synced(&conn, &["2026-10-05"]).unwrap();
-        assert_eq!(get_unsynced_stats(&conn, 10).unwrap().len(), 0);
-
-        // Subsequent increment should mark unsynced again
+        // Subsequent increment should bump version
         increment_stat(
             &conn,
             "2026-10-05",
@@ -802,10 +733,7 @@ mod tests {
         crate::db::crud::upsert_app_stat_with_conn(&conn, "code.exe", "2026-10-05", 5, 0, 50, 2500)
             .unwrap();
 
-        mark_app_stats_synced(&conn, &[("code.exe", "2026-10-05")]).unwrap();
-        assert_eq!(get_unsynced_app_stats(&conn, 10).unwrap().len(), 0);
-
-        // Subsequent upsert should mark unsynced again and bump version
+        // Subsequent upsert should bump version
         crate::db::crud::upsert_app_stat_with_conn(
             &conn,
             "code.exe",
@@ -897,9 +825,5 @@ mod tests {
         assert_eq!(row.words_expanded, 1100);
         assert_eq!(row.time_saved_ms, 18000);
         assert_eq!(row.version, 2);
-
-        // Pulled stats must have is_synced = 1 (not queued as unsynced)
-        let unsynced = get_unsynced_stats(&conn, 10).unwrap();
-        assert!(unsynced.is_empty());
     }
 }

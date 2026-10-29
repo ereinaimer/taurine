@@ -1,3 +1,4 @@
+pub mod outbox;
 pub mod quota;
 pub mod settings;
 pub mod stats;
@@ -6,6 +7,7 @@ pub mod tier;
 pub mod triggers;
 pub mod workspaces;
 
+pub use outbox::*;
 pub use tier::{UserTier, get_user_tier, set_user_tier};
 
 pub use quota::{

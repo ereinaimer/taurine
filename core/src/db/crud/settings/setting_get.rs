@@ -7,7 +7,7 @@ use super::SettingRow;
 /// Hits the primary-key index — O(log n).
 pub fn get_setting(conn: &Connection, key: &str) -> Result<Option<SettingRow>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT key, CAST(value AS TEXT), version, updated_at, is_synced
+        "SELECT key, CAST(value AS TEXT), version, updated_at, 0 AS is_synced
          FROM   settings
          WHERE  key = ?1",
     )?;

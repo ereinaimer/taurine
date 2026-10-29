@@ -21,10 +21,9 @@ pub fn increment_stat(conn: &Connection, date: &str, deltas: &StatDeltas) -> Res
              words_expanded,
              time_saved_ms,
              version,
-             is_synced,
              updated_at
          )
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, 0, ?8)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8)
          ON CONFLICT(date) DO UPDATE SET
              executions       = executions + excluded.executions,
              ai_executions    = ai_executions + excluded.ai_executions,
@@ -33,7 +32,6 @@ pub fn increment_stat(conn: &Connection, date: &str, deltas: &StatDeltas) -> Res
              words_expanded   = words_expanded + excluded.words_expanded,
              time_saved_ms    = time_saved_ms + excluded.time_saved_ms,
              version          = version + 1,
-             is_synced        = 0,
              updated_at       = excluded.updated_at",
         (
             date,

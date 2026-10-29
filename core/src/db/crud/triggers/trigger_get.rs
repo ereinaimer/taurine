@@ -96,7 +96,7 @@ pub fn get_trigger(conn: &Connection, id: &str) -> Result<Option<TriggerRow>> {
             a.updated_at,
             a.version,
             a.is_deleted,
-            a.is_synced,
+            0 AS is_synced,
             a.is_enabled,
             a.auto_case,
             s.interpreter,

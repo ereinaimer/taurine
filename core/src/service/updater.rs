@@ -102,7 +102,6 @@ mod tests {
                 key        TEXT    PRIMARY KEY,
                 value      JSON    NOT NULL,
                 version    INTEGER DEFAULT 1,
-                is_synced  BOOLEAN NOT NULL DEFAULT 0,
                 updated_at INTEGER NOT NULL
             );",
         )

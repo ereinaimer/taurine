@@ -230,7 +230,7 @@ pub fn set_alias_invocation_type(
         )?;
         conn.execute(
             "UPDATE triggers
-              SET version = version + 1, updated_at = ?1, is_synced = 0
+              SET version = version + 1, updated_at = ?1
               WHERE id = ?2 AND is_deleted = 0",
             rusqlite::params![crate::db::now_unix_secs(), trigger_id],
         )?;
@@ -323,7 +323,7 @@ pub fn rename_alias_invocation(
         )?;
         conn.execute(
             "UPDATE triggers
-              SET version = version + 1, updated_at = ?1, is_synced = 0
+              SET version = version + 1, updated_at = ?1
               WHERE id = ?2 AND is_deleted = 0",
             rusqlite::params![crate::db::now_unix_secs(), trigger_id],
         )?;
@@ -364,7 +364,7 @@ pub fn set_alias_require_confirmation(
         }
         conn.execute(
             "UPDATE triggers
-              SET version = version + 1, updated_at = ?1, is_synced = 0
+              SET version = version + 1, updated_at = ?1
               WHERE id = ?2 AND is_deleted = 0",
             rusqlite::params![crate::db::now_unix_secs(), trigger_id],
         )?;
@@ -518,7 +518,7 @@ pub fn delete_alias(
         } else {
             conn.execute(
                 "UPDATE triggers
-                  SET version = version + 1, updated_at = ?1, is_synced = 0
+                  SET version = version + 1, updated_at = ?1
                   WHERE id = ?2 AND is_deleted = 0",
                 rusqlite::params![crate::db::now_unix_secs(), trigger_id],
             )?;
@@ -530,7 +530,7 @@ pub fn delete_alias(
 pub fn tombstone_entry(conn: &Connection, trigger_id: &str, now: i64) -> Result<()> {
     with_transaction(conn, || {
         conn.execute(
-            "UPDATE triggers SET is_deleted = 1, version = version + 1, updated_at = ?1, is_synced = 0 WHERE id = ?2",
+            "UPDATE triggers SET is_deleted = 1, version = version + 1, updated_at = ?1 WHERE id = ?2",
             rusqlite::params![now, trigger_id],
         )?;
         conn.execute(

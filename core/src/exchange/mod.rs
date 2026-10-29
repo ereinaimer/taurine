@@ -188,8 +188,7 @@ mod tests {
 
         conn.execute(
             "UPDATE triggers
-              SET is_enabled = 0,
-                  is_synced = 0
+              SET is_enabled = 0
               WHERE id = ?1",
             ["uuid-script"],
         )
@@ -375,7 +374,7 @@ mod tests {
 
         let imported_text = conn
             .query_row(
-                "SELECT t.id, t.usage_count, t.last_used_at, t.version, t.is_deleted, t.is_synced, t.is_enabled
+                "SELECT t.id, t.usage_count, t.last_used_at, t.version, t.is_deleted, t.is_enabled
                  FROM triggers t
                  JOIN trigger_aliases al ON al.trigger_id = t.id
                  WHERE al.invocation_type = 'word' AND al.invocation = ?1",
@@ -388,7 +387,6 @@ mod tests {
                         row.get::<_, i64>(3)?,
                         row.get::<_, bool>(4)?,
                         row.get::<_, bool>(5)?,
-                        row.get::<_, bool>(6)?,
                     ))
                 },
             )
@@ -398,8 +396,7 @@ mod tests {
         assert_eq!(imported_text.2, None);
         assert_eq!(imported_text.3, 1);
         assert!(!imported_text.4);
-        assert!(!imported_text.5);
-        assert!(imported_text.6);
+        assert!(imported_text.5);
 
         let (script_id, script_enabled, script_binary): (String, bool, Vec<u8>) = conn
             .query_row(

@@ -622,7 +622,7 @@ fn test_set_trigger_enabled_flips_flag_without_version_churn_on_missing() {
     assert!(set_trigger_enabled(&conn, &id, false).unwrap());
     let (enabled, synced, version): (bool, bool, i64) = conn
         .query_row(
-            "SELECT is_enabled, is_synced, version FROM triggers WHERE id = ?1",
+            "SELECT is_enabled, 0 AS is_synced, version FROM triggers WHERE id = ?1",
             [&id],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
@@ -1680,7 +1680,7 @@ fn test_set_script_interpreter_rewrites_language_and_bumps() {
     assert_eq!(stored, "\"python\"");
     let (version, synced): (i64, bool) = conn
         .query_row(
-            "SELECT version, is_synced FROM triggers WHERE id = ?1",
+            "SELECT version, 0 AS is_synced FROM triggers WHERE id = ?1",
             [&id],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
@@ -1798,7 +1798,7 @@ fn test_set_alias_invocation_type_retypes_row_and_bumps() {
     assert_eq!(stored, "regex");
     let (version, synced): (i64, bool) = conn
         .query_row(
-            "SELECT version, is_synced FROM triggers WHERE id = ?1",
+            "SELECT version, 0 AS is_synced FROM triggers WHERE id = ?1",
             [&id],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
@@ -1856,7 +1856,7 @@ fn test_set_trigger_tags_normalizes_and_bumps() {
     );
     let (stored, version, synced): (String, i64, bool) = conn
         .query_row(
-            "SELECT tags, version, is_synced FROM triggers WHERE id = ?1",
+            "SELECT tags, version, 0 AS is_synced FROM triggers WHERE id = ?1",
             [&id],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
@@ -1882,7 +1882,7 @@ fn test_set_trigger_app_filters_rewrite_and_bump() {
     assert!(set_trigger_except_apps(&conn, &id, Some("title:Gmail")).unwrap());
     let (only, except, version, synced): (Option<String>, Option<String>, i64, bool) = conn
         .query_row(
-            "SELECT only_apps, except_apps, version, is_synced FROM triggers WHERE id = ?1",
+            "SELECT only_apps, except_apps, version, 0 AS is_synced FROM triggers WHERE id = ?1",
             [&id],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
@@ -1937,7 +1937,7 @@ fn test_set_trigger_target_os_rewrites_platform_and_bumps() {
     assert!(set_trigger_target_os(&conn, &id, "win").unwrap());
     let (stored, version, synced): (String, i64, bool) = conn
         .query_row(
-            "SELECT target_os, version, is_synced FROM triggers WHERE id = ?1",
+            "SELECT target_os, version, 0 AS is_synced FROM triggers WHERE id = ?1",
             [&id],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
@@ -1962,7 +1962,7 @@ fn test_set_trigger_auto_case_flips_flag_and_bumps() {
     assert!(set_trigger_auto_case(&conn, &id, true).unwrap());
     let (flag, version, synced): (bool, i64, bool) = conn
         .query_row(
-            "SELECT auto_case, version, is_synced FROM triggers WHERE id = ?1",
+            "SELECT auto_case, version, 0 AS is_synced FROM triggers WHERE id = ?1",
             [&id],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
@@ -2000,7 +2000,7 @@ fn test_set_alias_require_confirmation_flips_flag_and_bumps() {
     assert!(set_alias_require_confirmation(&conn, &id, "confirm me", true).unwrap());
     let (flag, version, synced): (bool, i64, bool) = conn
         .query_row(
-            "SELECT ta.require_confirmation, t.version, t.is_synced
+            "SELECT ta.require_confirmation, t.version, 0 AS is_synced
                FROM trigger_aliases ta JOIN triggers t ON t.id = ta.trigger_id
               WHERE ta.trigger_id = ?1",
             [&id],

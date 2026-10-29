@@ -10,7 +10,7 @@ use rusqlite::Connection;
 /// Fetches all non-deleted workspaces, with the default workspace first.
 pub fn get_workspaces(conn: &Connection) -> crate::Result<Vec<WorkspaceRow>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT id, name, is_default, created_at, updated_at, version, is_deleted, is_synced
+        "SELECT id, name, is_default, created_at, updated_at, version, is_deleted, 0 AS is_synced
          FROM workspaces
          WHERE is_deleted = 0
          ORDER BY is_default DESC, created_at ASC",
@@ -37,7 +37,7 @@ pub fn get_workspaces(conn: &Connection) -> crate::Result<Vec<WorkspaceRow>> {
 /// Fetches the primary default workspace.
 pub fn get_default_workspace(conn: &Connection) -> crate::Result<WorkspaceRow> {
     let mut stmt = conn.prepare_cached(
-        "SELECT id, name, is_default, created_at, updated_at, version, is_deleted, is_synced
+        "SELECT id, name, is_default, created_at, updated_at, version, is_deleted, 0 AS is_synced
          FROM workspaces
          WHERE is_default = 1 AND is_deleted = 0
          LIMIT 1",
@@ -65,7 +65,7 @@ pub fn get_default_workspace(conn: &Connection) -> crate::Result<WorkspaceRow> {
 /// Retrieves a specific active workspace by its unique identifier.
 pub fn get_workspace_by_id(conn: &Connection, id: &str) -> crate::Result<Option<WorkspaceRow>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT id, name, is_default, created_at, updated_at, version, is_deleted, is_synced
+        "SELECT id, name, is_default, created_at, updated_at, version, is_deleted, 0 AS is_synced
          FROM workspaces
          WHERE id = ?1 AND is_deleted = 0",
     )?;
@@ -99,8 +99,8 @@ pub fn create_workspace(conn: &Connection, name: &str) -> crate::Result<Workspac
     let id = uuid::Uuid::new_v4().to_string();
     let now = crate::db::now_unix_secs();
     conn.execute(
-        "INSERT INTO workspaces (id, name, is_default, created_at, updated_at, version, is_deleted, is_synced)
-         VALUES (?1, ?2, 0, ?3, ?3, 1, 0, 0)",
+        "INSERT INTO workspaces (id, name, is_default, created_at, updated_at, version, is_deleted)
+         VALUES (?1, ?2, 0, ?3, ?3, 1, 0)",
         (&id, trimmed, now),
     )?;
     Ok(WorkspaceRow {
@@ -130,11 +130,11 @@ pub fn delete_workspace(conn: &Connection, id_or_name: &str) -> crate::Result<()
 
     let now = crate::db::now_unix_secs();
     conn.execute(
-        "UPDATE workspaces SET is_deleted = 1, updated_at = ?1, version = version + 1, is_synced = 0 WHERE id = ?2",
+        "UPDATE workspaces SET is_deleted = 1, updated_at = ?1, version = version + 1 WHERE id = ?2",
         rusqlite::params![now, ws.id],
     )?;
     conn.execute(
-        "UPDATE triggers SET is_deleted = 1, updated_at = ?1, version = version + 1, is_synced = 0 WHERE workspace_id = ?2",
+        "UPDATE triggers SET is_deleted = 1, updated_at = ?1, version = version + 1 WHERE workspace_id = ?2",
         rusqlite::params![now, ws.id],
     )?;
     Ok(())

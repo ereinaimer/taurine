@@ -198,8 +198,8 @@ pub fn reconcile_cloud_snippet(
     match local_row {
         None => with_transaction(conn, || {
             conn.execute(
-                "INSERT OR IGNORE INTO workspaces (id, name, is_default, created_at, updated_at, version, is_deleted, is_synced)
-                 VALUES (?1, ?1, ?2, ?3, ?3, 1, 0, 1)",
+                "INSERT OR IGNORE INTO workspaces (id, name, is_default, created_at, updated_at, version, is_deleted)
+                 VALUES (?1, ?1, ?2, ?3, ?3, 1, 0)",
                 rusqlite::params![
                     target_ws,
                     if target_ws == "default" { 1 } else { 0 },
@@ -220,8 +220,8 @@ pub fn reconcile_cloud_snippet(
                 "INSERT INTO triggers (
                     id, workspace_id, description, output, action_type,
                     target_os, only_apps, except_apps, tags, is_enabled, auto_case,
-                    version, is_deleted, is_synced, created_at, updated_at
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 1, ?14, ?15)",
+                    version, is_deleted, created_at, updated_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
                 rusqlite::params![
                     target_id,
                     target_ws,
@@ -266,8 +266,8 @@ pub fn reconcile_cloud_snippet(
             {
                 with_transaction(conn, || {
                     conn.execute(
-                        "INSERT OR IGNORE INTO workspaces (id, name, is_default, created_at, updated_at, version, is_deleted, is_synced)
-                         VALUES (?1, ?1, ?2, ?3, ?3, 1, 0, 1)",
+                        "INSERT OR IGNORE INTO workspaces (id, name, is_default, created_at, updated_at, version, is_deleted)
+                         VALUES (?1, ?1, ?2, ?3, ?3, 1, 0)",
                         rusqlite::params![
                             target_ws,
                             if target_ws == "default" { 1 } else { 0 },
@@ -299,7 +299,6 @@ pub fn reconcile_cloud_snippet(
                             auto_case = ?10,
                             version = ?11,
                             is_deleted = ?12,
-                            is_synced = 1,
                             updated_at = ?13
                          WHERE id = ?14",
                         rusqlite::params![
@@ -356,11 +355,7 @@ pub fn reconcile_cloud_snippet(
 }
 
 /// Marks a local trigger row as synchronized (`is_synced = 1`).
-pub fn mark_trigger_synced(conn: &Connection, trigger_id: &str) -> crate::Result<()> {
-    conn.execute(
-        "UPDATE triggers SET is_synced = 1 WHERE id = ?1",
-        [trigger_id],
-    )?;
+pub fn mark_trigger_synced(_conn: &Connection, _trigger_id: &str) -> crate::Result<()> {
     Ok(())
 }
 
@@ -403,7 +398,7 @@ pub fn get_unsynced_triggers(conn: &Connection) -> Result<Vec<TriggerRow>> {
             a.updated_at,
             a.version,
             a.is_deleted,
-            a.is_synced,
+            0 AS is_synced,
             a.is_enabled,
             a.auto_case,
             s.interpreter,
@@ -412,7 +407,6 @@ pub fn get_unsynced_triggers(conn: &Connection) -> Result<Vec<TriggerRow>> {
             a.workspace_id
          FROM triggers a
          LEFT JOIN scripts s ON a.id = s.trigger_id
-         WHERE a.is_synced = 0
          ORDER BY a.version, a.updated_at",
     )?;
 
@@ -491,7 +485,7 @@ pub fn get_syncable_triggers(conn: &Connection) -> Result<Vec<TriggerRow>> {
             a.updated_at,
             a.version,
             a.is_deleted,
-            a.is_synced,
+            0 AS is_synced,
             a.is_enabled,
             a.auto_case,
             s.interpreter,
@@ -500,7 +494,6 @@ pub fn get_syncable_triggers(conn: &Connection) -> Result<Vec<TriggerRow>> {
             a.workspace_id
          FROM triggers a
          LEFT JOIN scripts s ON a.id = s.trigger_id
-         WHERE a.is_synced = 1
          ORDER BY a.version, a.updated_at",
     )?;
 

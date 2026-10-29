@@ -262,25 +262,18 @@ mod tests {
 
         let mut stmt = conn
             .prepare(
-                "SELECT output, action_type, is_deleted, is_synced, version
+                "SELECT output, action_type, is_deleted, version
                  FROM triggers WHERE id = ?1",
             )
             .unwrap();
 
-        let (output, action_type, is_deleted, is_synced, version): (
-            String,
-            String,
-            bool,
-            bool,
-            i64,
-        ) = stmt
+        let (output, action_type, is_deleted, version): (String, String, bool, i64) = stmt
             .query_row(["uuid-1"], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, bool>(2)?,
-                    row.get::<_, bool>(3)?,
-                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(3)?,
                 ))
             })
             .unwrap();
@@ -288,10 +281,6 @@ mod tests {
         assert_eq!(output, "Good morning!");
         assert_eq!(action_type, "text");
         assert!(!is_deleted);
-        assert!(
-            !is_synced,
-            "triggers must default to unsynced (0) on creation"
-        );
         assert_eq!(version, 1);
 
         let (invocation, invocation_type): (String, String) = conn

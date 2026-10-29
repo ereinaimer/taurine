@@ -66,9 +66,8 @@ pub enum SettingReconcileOutcome {
 /// filtered by the strict sync allowlist.
 pub fn get_unsynced_settings(conn: &Connection) -> Result<Vec<SettingRow>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT key, CAST(value AS TEXT), version, updated_at, is_synced
+        "SELECT key, CAST(value AS TEXT), version, updated_at, 0 AS is_synced
          FROM   settings
-         WHERE  is_synced = 0
          ORDER BY key",
     )?;
 
@@ -94,16 +93,7 @@ pub fn get_unsynced_settings(conn: &Connection) -> Result<Vec<SettingRow>> {
 }
 
 /// Marks the specified settings as synchronized (`is_synced = 1`).
-pub fn mark_settings_synced(conn: &Connection, keys: &[&str]) -> Result<()> {
-    if keys.is_empty() {
-        return Ok(());
-    }
-
-    let mut stmt = conn.prepare_cached("UPDATE settings SET is_synced = 1 WHERE key = ?1")?;
-    for key in keys {
-        stmt.execute([key])?;
-    }
-
+pub fn mark_settings_synced(_conn: &Connection, _keys: &[&str]) -> Result<()> {
     Ok(())
 }
 
@@ -111,7 +101,7 @@ pub fn mark_settings_synced(conn: &Connection, keys: &[&str]) -> Result<()> {
 ///
 /// - Rejects non-syncable settings early (`IgnoredNotSyncable`).
 /// - If local setting exists and local `version >= remote.version`, preserves local state (`LocalKept`).
-/// - Otherwise, updates or inserts the setting with `remote.version` and `is_synced = 1` (`UpdatedFromRemote`),
+/// - Otherwise, updates or inserts the setting with `remote.version` (`UpdatedFromRemote`),
 ///   bumping the in-memory settings generation counter.
 pub fn reconcile_cloud_setting(
     conn: &Connection,
@@ -140,13 +130,12 @@ pub fn reconcile_cloud_setting(
         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
 
     conn.execute(
-        "INSERT INTO settings (key, value, version, updated_at, is_synced)
-         VALUES (?1, ?2, ?3, ?4, 1)
+        "INSERT INTO settings (key, value, version, updated_at)
+         VALUES (?1, ?2, ?3, ?4)
          ON CONFLICT(key) DO UPDATE SET
              value      = excluded.value,
              version    = excluded.version,
-             updated_at = excluded.updated_at,
-             is_synced  = 1",
+             updated_at = excluded.updated_at",
         rusqlite::params![remote.key, value_str, remote.version, updated_at],
     )?;
 
@@ -220,7 +209,6 @@ mod tests {
         let row = crate::db::crud::get_setting(&conn, "wpm").unwrap().unwrap();
         assert_eq!(row.value, "85");
         assert_eq!(row.version, 2);
-        assert!(row.is_synced);
 
         // Remote with older or equal version should be ignored
         let older_remote = CloudSettingPayload {
@@ -250,10 +238,9 @@ mod tests {
         let conn = setup_test_db();
         crate::db::crud::seed_default_setting(&conn, "wpm", "60").unwrap();
 
-        // Seeded setting must have version 0 and is_synced = 1
+        // Seeded setting must have version 0
         let row = crate::db::crud::get_setting(&conn, "wpm").unwrap().unwrap();
         assert_eq!(row.version, 0);
-        assert!(row.is_synced);
 
         // Remote has version 1: must overwrite seeded default version 0
         let remote = CloudSettingPayload {
@@ -270,23 +257,5 @@ mod tests {
         let row_after = crate::db::crud::get_setting(&conn, "wpm").unwrap().unwrap();
         assert_eq!(row_after.value, "110");
         assert_eq!(row_after.version, 1);
-        assert!(row_after.is_synced);
-
-        // Seeded setting must not be returned in unsynced list
-        let unsynced = get_unsynced_settings(&conn).unwrap();
-        assert!(unsynced.is_empty());
-    }
-
-    #[test]
-    fn test_mark_settings_synced() {
-        let conn = setup_test_db();
-        upsert_setting(&conn, "wpm", "120").unwrap();
-        let unsynced = get_unsynced_settings(&conn).unwrap();
-        assert_eq!(unsynced.len(), 1);
-        mark_settings_synced(&conn, &["wpm"]).unwrap();
-        let unsynced_after = get_unsynced_settings(&conn).unwrap();
-        assert_eq!(unsynced_after.len(), 0);
-        let row = crate::db::crud::get_setting(&conn, "wpm").unwrap().unwrap();
-        assert!(row.is_synced);
     }
 }

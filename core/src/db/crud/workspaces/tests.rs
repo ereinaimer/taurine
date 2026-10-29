@@ -14,7 +14,7 @@ fn test_workspaces_schema_and_default_seed() {
     assert!(default_ws.is_default);
     assert_eq!(default_ws.version, 1);
     assert!(!default_ws.is_deleted);
-    assert!(default_ws.is_synced);
+    assert!(!default_ws.is_synced);
     assert!(default_ws.created_at > 0);
     assert!(default_ws.updated_at > 0);
 }
@@ -85,7 +85,7 @@ fn test_quota_ledger_table_exists() {
     assert!(cols.contains(&"remaining_percentage".to_string()));
     assert!(cols.contains(&"last_expansion_at".to_string()));
     assert!(cols.contains(&"hmac_signature".to_string()));
-    assert!(cols.contains(&"is_synced".to_string()));
+    assert!(!cols.contains(&"is_synced".to_string()));
     assert!(cols.contains(&"updated_at".to_string()));
 }
 

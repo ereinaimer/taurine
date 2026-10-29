@@ -72,6 +72,8 @@ pub fn purge_local_database() -> Result<()> {
                  DELETE FROM quota_ledger;
                  DELETE FROM ai_presets;
                  DELETE FROM settings;
+                 DELETE FROM sync_outbox;
+                 DELETE FROM sync_checkpoints;
                  PRAGMA foreign_keys = ON;
                  VACUUM;",
             );

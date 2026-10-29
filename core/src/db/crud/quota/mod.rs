@@ -25,7 +25,7 @@ pub fn calculate_week_start_epoch(epoch_seconds: i64) -> i64 {
 /// Internal helper to retrieve a quota ledger row by its week start epoch.
 fn query_quota_row(conn: &Connection, week_epoch: i64) -> crate::Result<Option<QuotaLedgerRow>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT week_start_epoch, remaining_percentage, last_expansion_at, hmac_signature, is_synced, updated_at
+        "SELECT week_start_epoch, remaining_percentage, last_expansion_at, hmac_signature, 0 AS is_synced, updated_at
          FROM quota_ledger
          WHERE week_start_epoch = ?1",
     )?;
@@ -92,9 +92,8 @@ pub fn get_or_init_quota_ledger(
              remaining_percentage,
              last_expansion_at,
              hmac_signature,
-             is_synced,
              updated_at
-         ) VALUES (?1, ?2, NULL, ?3, 0, ?4)",
+         ) VALUES (?1, ?2, NULL, ?3, ?4)",
         (current_week, initial_pct, &signature, now_epoch),
     )?;
     if rows_affected == 0 {
@@ -140,7 +139,6 @@ pub fn record_quota_depletion(
          SET remaining_percentage = ?1,
              last_expansion_at = ?2,
              hmac_signature = ?3,
-             is_synced = 0,
              updated_at = ?4
          WHERE week_start_epoch = ?5",
         (
@@ -180,13 +178,11 @@ pub fn set_quota_balance_from_cloud(
              remaining_percentage,
              last_expansion_at,
              hmac_signature,
-             is_synced,
              updated_at
-         ) VALUES (?1, ?2, NULL, ?3, 1, ?4)
+         ) VALUES (?1, ?2, NULL, ?3, ?4)
          ON CONFLICT(week_start_epoch) DO UPDATE SET
              remaining_percentage = excluded.remaining_percentage,
              hmac_signature = excluded.hmac_signature,
-             is_synced = 1,
              updated_at = excluded.updated_at",
         (week_start, clamped_pct, &sig, now_epoch),
     )?;
