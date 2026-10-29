@@ -102,7 +102,9 @@ pub fn run() -> taurine_core::Result<()> {
             events.next_with_timeout(frame)?
         } else if app.hotkey_recorder().is_some() {
             events.next_with_timeout(RECORDER_POLL_RATE)?
-        } else if home_visible(&app) && app.home_page().scroll_animating() {
+        } else if (home_visible(&app) && app.home_page().scroll_animating())
+            || (library_visible(&app) && app.library_page().list_scroll_animating())
+        {
             events.next_with_timeout(SCROLL_FRAME_RATE)?
         } else {
             events.next()?
@@ -187,15 +189,10 @@ fn render_page_dividers(
     full: ratatui::layout::Rect,
     app: &App,
     theme: &Theme,
+    content_divider_row: Option<u16>,
 ) {
     if library_visible(app) {
         let page = app.library_page();
-        let content_divider_row = library::detail::content_divider_row(
-            full,
-            page.split_ratio(),
-            page.detail_ratio(),
-            page,
-        );
         for (side, column) in
             library::visible_divider_columns(full, page.split_ratio(), page.detail_ratio())
         {
@@ -228,6 +225,23 @@ fn workspace_full(app: &App, area: ratatui::layout::Rect) -> ratatui::layout::Re
     terminal::mouse::library_full_area(terminal::mouse::frame_layout(area).page)
 }
 
+/// Row where the library center pane draws its content rule.
+fn library_content_divider_row(app: &App, full: ratatui::layout::Rect) -> Option<u16> {
+    if !library_visible(app) {
+        return None;
+    }
+    let page = app.library_page();
+    library::detail::content_divider_row(full, page.split_ratio(), page.detail_ratio(), page)
+}
+
+/// Whether the library list pane is parked at zero width.
+fn library_list_collapsed(app: &App, full: ratatui::layout::Rect) -> bool {
+    let page = app.library_page();
+    library::split_panes(full, page.split_ratio(), page.detail_ratio())
+        .list_divider
+        .is_none()
+}
+
 /// Full frame paint, shared by the main loop and the overlay open sweep
 /// so the transition starts from exactly what is on screen.
 fn render_app(frame: &mut ratatui::Frame, app: &mut App, area: ratatui::layout::Rect) {
@@ -239,19 +253,23 @@ fn render_app(frame: &mut ratatui::Frame, app: &mut App, area: ratatui::layout::
     );
 
     let full = workspace_full(app, area);
+    let content_divider_row = library_content_divider_row(app, full);
 
     render_page_content(frame, full, app, theme);
 
     if area.height > 0 {
-        render_page_dividers(frame, area, full, app, theme);
+        render_page_dividers(frame, area, full, app, theme, content_divider_row);
     }
 
     let any_modal = app.library_page().is_modal_open()
         || app.is_settings_overlay_open()
         || app.palette_open()
         || app.hotkey_recorder().is_some();
+    // honey: a collapsed list pane hands its boundary to the rail, so the
+    // rail divider grows the arm toward the center rule on that row.
+    let nav_junction_row = content_divider_row.filter(|_| library_list_collapsed(app, full));
     let (rail, icons) = app.nav_rail_graphics();
-    nav_rail::render(frame, area, theme, rail, icons, any_modal);
+    nav_rail::render(frame, area, theme, rail, icons, any_modal, nav_junction_row);
 
     if any_modal {
         dim_frame(frame);
@@ -444,15 +462,20 @@ fn render_page_content(
 ) {
     match app.nav_rail().active_page {
         ActivePage::Home => home::render_home_content(frame, full, theme, app.home_page_mut()),
-        ActivePage::Library => library::render_library_content(
-            frame,
-            full,
-            theme,
-            app.library_page(),
-            app.toggle_animations(),
-            app.toggle_hover(),
-            app.props_hover(),
-        ),
+        ActivePage::Library => {
+            let animations = app.toggle_animations().clone();
+            let hovered = app.toggle_hover();
+            let hovered_add = app.props_hover();
+            library::render_library_content(
+                frame,
+                full,
+                theme,
+                app.library_page_mut(),
+                &animations,
+                hovered,
+                hovered_add,
+            );
+        }
     }
 }
 
@@ -980,7 +1003,18 @@ fn handle_tui_mouse_event(
         };
         match side {
             library::DividerSide::List => {
+                let detail = app.library_page().detail_ratio();
                 let ratio = library::split_ratio_for_column(page, column);
+                // honey: a drag that would leave a sliver too narrow to
+                // draw a row parks the pane, so the rail divider becomes
+                // the boundary and the center rule meets its junction.
+                let ratio = if library::split_panes(page, ratio, detail).list.width
+                    < library::MIN_LIST_WIDTH
+                {
+                    library::MIN_SPLIT_RATIO
+                } else {
+                    ratio
+                };
                 app.library_page_mut().set_split_ratio(ratio);
             }
             library::DividerSide::Props => {
@@ -1064,6 +1098,12 @@ fn handle_tui_mouse_event(
                 let max = library::detail::content_scroll_max(content.height, content.width, &item);
                 app.library_page_mut()
                     .scroll_detail(if down { 1 } else { -1 }, max);
+                return;
+            }
+            if library::list::list_contains(full, page, mouse.column, mouse.row) {
+                let down = mouse.kind == MouseEventKind::ScrollDown;
+                app.library_page_mut()
+                    .smooth_scroll_list(if down { 1 } else { -1 });
                 return;
             }
             handle_tui_key_event(app, scroll_key(mouse.kind == MouseEventKind::ScrollDown));
@@ -1487,6 +1527,28 @@ fn handle_tui_mouse_event(
                 }
                 return;
             }
+            // honey: with the list pane parked at zero its divider is
+            // gone and the rail divider is the boundary, so a press
+            // there grabs the list divider instead and drags it open.
+            if library_visible(app)
+                && !app.nav_rail().collapsed
+                && nav_rail::layout(area, false)
+                    .divider
+                    .is_some_and(|rect| terminal::mouse::contains(rect, mouse.column, mouse.row))
+            {
+                let full = workspace_full(app, area);
+                if library_list_collapsed(app, full) {
+                    if app
+                        .library_page_mut()
+                        .divider_double_click(library::DividerSide::List)
+                    {
+                        return;
+                    }
+                    app.library_page_mut()
+                        .set_divider_drag(Some(library::DividerSide::List));
+                    return;
+                }
+            }
             if app
                 .nav_rail_mut()
                 .start_divider_drag(area, mouse.column, mouse.row)
@@ -1516,8 +1578,7 @@ fn handle_tui_mouse_event(
             }
             match library::list::hit_test(full, app.library_page(), mouse.column, mouse.row) {
                 Some(library::list::LibraryHit::Item(position)) => {
-                    let anchor = library::list::window_start(full, app.library_page());
-                    let interaction = app.library_page_mut().click_item(position, anchor);
+                    let interaction = app.library_page_mut().click_item(position);
                     apply_library_interaction(app, interaction);
                 }
                 Some(library::list::LibraryHit::SearchAt(cursor)) => {
@@ -2370,6 +2431,38 @@ mod tests {
             })]);
     }
 
+    /// Enough rows to overflow the list viewport in workspace tests.
+    fn seed_library_items(app: &mut App, count: usize) {
+        app.library_page_mut().replace_items(
+            (0..count)
+                .map(|index| {
+                    let id = format!("test-{index}");
+                    let invocation = format!("alt+{index}");
+                    LibraryTrigger::single(TriggerListItem {
+                        id: id.clone(),
+                        description: None,
+                        invocations: vec![hotkey_alias(&id, &invocation)],
+                        display: invocation,
+                        output: format!("out {index}"),
+                        action_type: "text".to_string(),
+                        target_os: "win".to_string(),
+                        only_apps: None,
+                        except_apps: None,
+                        auto_case: false,
+                        is_enabled: true,
+                        usage_count: 0,
+                        last_used_at: None,
+                        created_at: 0,
+                        tags: "[]".to_string(),
+                        script_content: None,
+                        interpreter: None,
+                        behavior: None,
+                    })
+                })
+                .collect(),
+        );
+    }
+
     #[test]
     fn typing_q_while_library_search_is_active_does_not_quit() {
         let mut app = library_app();
@@ -3136,6 +3229,156 @@ mod tests {
     }
 
     #[test]
+    fn collapsed_list_pane_joins_the_rail_divider_to_the_content_rule() {
+        use ratatui::{Terminal, backend::TestBackend};
+
+        let mut app = library_app();
+        seed_single_library_item(&mut app);
+        let full = workspace_full(&app, TEST_AREA);
+        let page = app.library_page();
+        let row = library::detail::content_divider_row(
+            full,
+            page.split_ratio(),
+            page.detail_ratio(),
+            page,
+        )
+        .expect("the selected item draws a content rule");
+        let rail_divider = full.x.saturating_sub(1);
+
+        let backend = TestBackend::new(TEST_AREA.width, TEST_AREA.height);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal
+            .draw(|frame| render_app(frame, &mut app, TEST_AREA))
+            .expect("test draw");
+        let buffer = terminal.backend().buffer();
+        assert_eq!(
+            buffer[(rail_divider, row)].symbol(),
+            "│",
+            "an open list pane keeps the plain rail divider"
+        );
+
+        app.library_page_mut()
+            .toggle_panel(library::DividerSide::List);
+        terminal
+            .draw(|frame| render_app(frame, &mut app, TEST_AREA))
+            .expect("test draw");
+        let buffer = terminal.backend().buffer();
+        assert_eq!(
+            buffer[(rail_divider, row)].symbol(),
+            "├",
+            "the rail divider meets the center rule"
+        );
+        assert_eq!(
+            buffer[(full.x, row)].symbol(),
+            "─",
+            "the rule starts flush against the junction"
+        );
+    }
+
+    #[test]
+    fn dragging_the_list_divider_to_a_sliver_joins_the_rail_and_rule() {
+        use ratatui::{Terminal, backend::TestBackend};
+
+        let mut app = library_app();
+        seed_single_library_item(&mut app);
+        let full = workspace_full(&app, TEST_AREA);
+        let divider = library::divider_columns(
+            full,
+            app.library_page().split_ratio(),
+            app.library_page().detail_ratio(),
+        )[0];
+        handle_tui_mouse_event(&mut app, left_click(divider, 10), TEST_AREA);
+        // Two cells into the workspace wants a one-cell list pane.
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(full.x + 2, 10, MouseEventKind::Drag(MouseButton::Left)),
+            TEST_AREA,
+        );
+
+        let split = library::split_panes(
+            full,
+            app.library_page().split_ratio(),
+            app.library_page().detail_ratio(),
+        );
+        assert_eq!(split.list.width, 0, "the sliver parks on the rail");
+        assert_eq!(split.center.x, full.x);
+        assert_eq!(app.library_page().split_ratio(), 0.0);
+
+        let row = library::detail::content_divider_row(
+            full,
+            app.library_page().split_ratio(),
+            app.library_page().detail_ratio(),
+            app.library_page(),
+        )
+        .expect("the selected item draws a content rule");
+        let backend = TestBackend::new(TEST_AREA.width, TEST_AREA.height);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal
+            .draw(|frame| render_app(frame, &mut app, TEST_AREA))
+            .expect("test draw");
+        let buffer = terminal.backend().buffer();
+        assert_eq!(
+            buffer[(full.x - 1, row)].symbol(),
+            "├",
+            "the rail divider meets the center rule"
+        );
+        assert_eq!(
+            buffer[(full.x, row)].symbol(),
+            "─",
+            "the rule starts flush against the junction"
+        );
+    }
+
+    #[test]
+    fn dragging_the_rail_divider_reopens_the_collapsed_list_pane() {
+        let mut app = library_app();
+        app.library_page_mut()
+            .toggle_panel(library::DividerSide::List);
+        let divider = nav_rail::layout(TEST_AREA, false)
+            .divider
+            .expect("expanded divider");
+
+        handle_tui_mouse_event(&mut app, left_click(divider.x, 10), TEST_AREA);
+        assert_eq!(
+            app.library_page().divider_drag(),
+            Some(library::DividerSide::List),
+            "the rail boundary grabs the list divider"
+        );
+        assert!(!app.nav_rail().dragging(), "the rail itself stays put");
+
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(1, 10, MouseEventKind::Drag(MouseButton::Left)),
+            TEST_AREA,
+        );
+        let full = workspace_full(&app, TEST_AREA);
+        assert!(
+            library_list_collapsed(&app, full),
+            "dragging to the edge keeps the pane parked"
+        );
+
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(30, 10, MouseEventKind::Drag(MouseButton::Left)),
+            TEST_AREA,
+        );
+        let full = workspace_full(&app, TEST_AREA);
+        assert!(
+            !library_list_collapsed(&app, full),
+            "dragging right brings the search pane back"
+        );
+        assert!(app.library_page().split_ratio() > 0.0);
+        assert!(!app.nav_rail().collapsed, "the rail stays expanded");
+
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(30, 10, MouseEventKind::Up(MouseButton::Left)),
+            TEST_AREA,
+        );
+        assert!(app.library_page().divider_drag().is_none());
+    }
+
+    #[test]
     fn pressing_divider_starts_drag_without_selecting() {
         let mut app = library_app();
         let full = workspace_full(&app, TEST_AREA);
@@ -3842,6 +4085,143 @@ mod tests {
             }
         }
         assert_eq!(app.home_page().scroll(), 0);
+    }
+
+    #[test]
+    fn library_wheel_smooth_scrolls_the_list() {
+        use ratatui::{Terminal, backend::TestBackend};
+
+        let mut app = library_app();
+        seed_library_items(&mut app, 40);
+        let backend = TestBackend::new(TEST_AREA.width, TEST_AREA.height);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal
+            .draw(|frame| render_app(frame, &mut app, TEST_AREA))
+            .expect("test draw");
+
+        let full = workspace_full(&app, TEST_AREA);
+        let page = app.library_page();
+        let content = library::left_content(full, page.split_ratio(), page.detail_ratio());
+        let (list_area, _) =
+            library::content_sections(content, false, page.search_field(), page.is_search_active());
+        assert!(list_area.height > 0, "the seeded list is on screen");
+        let rows = (list_area.height / 4) as usize;
+        assert!(rows > 0, "the list fits at least one whole row");
+        let bottom_at = |scroll: usize| (scroll / 4 + rows - 1).min(39);
+        let (column, row) = (list_area.x + 2, list_area.y + 2);
+        // Startup pins the cursor to the last row above the search bar.
+        app.library_page_mut().select_first_window_bottom(rows);
+
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(column, row, MouseEventKind::ScrollDown),
+            TEST_AREA,
+        );
+        assert!(
+            app.library_page().list_scroll_animating(),
+            "wheel starts a smooth glide"
+        );
+        for _ in 0..10 {
+            terminal
+                .draw(|frame| render_app(frame, &mut app, TEST_AREA))
+                .expect("test draw");
+            if !app.library_page().list_scroll_animating() {
+                break;
+            }
+        }
+        assert_eq!(
+            app.library_page().list_scroll(),
+            4,
+            "one notch moves one whole row"
+        );
+        assert_eq!(
+            app.library_page().selected_index(),
+            Some(bottom_at(4)),
+            "the highlight sits above the search bar"
+        );
+
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(column, row, MouseEventKind::ScrollUp),
+            TEST_AREA,
+        );
+        for _ in 0..10 {
+            terminal
+                .draw(|frame| render_app(frame, &mut app, TEST_AREA))
+                .expect("test draw");
+            if !app.library_page().list_scroll_animating() {
+                break;
+            }
+        }
+        assert_eq!(app.library_page().list_scroll(), 0);
+        assert_eq!(
+            app.library_page().selected_index(),
+            Some(bottom_at(0)),
+            "scrolling back returns the highlight to the first page's bottom row"
+        );
+    }
+
+    #[test]
+    fn clicking_after_a_wheel_scroll_selects_the_row_under_the_pointer() {
+        use ratatui::{Terminal, backend::TestBackend};
+
+        let mut app = library_app();
+        seed_library_items(&mut app, 40);
+        let backend = TestBackend::new(TEST_AREA.width, TEST_AREA.height);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal
+            .draw(|frame| render_app(frame, &mut app, TEST_AREA))
+            .expect("test draw");
+        let full = workspace_full(&app, TEST_AREA);
+        let page = app.library_page();
+        let content = library::left_content(full, page.split_ratio(), page.detail_ratio());
+        let (list_area, _) =
+            library::content_sections(content, false, page.search_field(), page.is_search_active());
+        let rows = (list_area.height / 4) as usize;
+        app.library_page_mut().select_first_window_bottom(rows);
+
+        for _ in 0..2 {
+            handle_tui_mouse_event(
+                &mut app,
+                mouse_at(list_area.x + 2, list_area.y + 2, MouseEventKind::ScrollDown),
+                TEST_AREA,
+            );
+            for _ in 0..20 {
+                terminal
+                    .draw(|frame| render_app(frame, &mut app, TEST_AREA))
+                    .expect("test draw");
+                if !app.library_page().list_scroll_animating() {
+                    break;
+                }
+            }
+        }
+        assert_eq!(app.library_page().list_scroll(), 8, "two rows scrolled");
+
+        // Second visible row: four lines down from the row viewport top.
+        let viewport_top = list_area.bottom() - (rows as u16 * 4);
+        let click_row = viewport_top + 4 + 1;
+        let column = list_area.x + 2;
+        assert_eq!(
+            library::list::hit_test(full, app.library_page(), column, click_row),
+            Some(library::list::LibraryHit::Item(3)),
+            "the hit maps to the drawn row, not the unscrolled list"
+        );
+
+        handle_tui_mouse_event(&mut app, left_click(column, click_row), TEST_AREA);
+        assert_eq!(app.library_page().selected_index(), Some(3));
+        assert!(!app.library_page().list_follows_bottom());
+
+        terminal
+            .draw(|frame| render_app(frame, &mut app, TEST_AREA))
+            .expect("test draw");
+        let buffer = terminal.backend().buffer();
+        for y in viewport_top + 4..viewport_top + 8 {
+            assert_eq!(
+                buffer[(list_area.x + 1, y)].bg,
+                crate::theme::default::DARK_THEME.surface,
+                "the clicked row stays highlighted (line {y})"
+            );
+        }
     }
 
     #[test]

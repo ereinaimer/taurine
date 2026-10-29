@@ -48,6 +48,8 @@ pub struct Theme {
     pub success: Color,
     /// Muted green fill for success states that sit behind text.
     pub success_bg: Color,
+    /// Muted fill for progress tracks and empty gauges.
+    pub track: Color,
     // Syntax scale: Atom One Dark roles shared by script code and
     // Taurine's own `[vars]` / `| transformers` markup. Commands read
     // blue, quoted text green, keywords purple, numbers orange.

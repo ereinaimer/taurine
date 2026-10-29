@@ -22,8 +22,9 @@ use crate::widgets::toggle::{ToggleAnimations, ToggleId};
 
 pub(crate) use crate::widgets::panes::{
     DEFAULT_DETAIL_RATIO, DEFAULT_SPLIT_RATIO, DIVIDER_HOVER_COLOR, DividerPointer, DividerSide,
-    MAX_DETAIL_RATIO, MAX_SPLIT_RATIO, MIN_DETAIL_RATIO, MIN_SPLIT_RATIO, detail_ratio_for_column,
-    divider_glyph, divider_hit, split_panes, split_ratio_for_column, visible_divider_columns,
+    MAX_DETAIL_RATIO, MAX_SPLIT_RATIO, MIN_DETAIL_RATIO, MIN_LIST_WIDTH, MIN_SPLIT_RATIO,
+    detail_ratio_for_column, divider_glyph, divider_hit, split_panes, split_ratio_for_column,
+    visible_divider_columns,
 };
 
 #[cfg(test)]
@@ -90,7 +91,7 @@ pub fn render_library_content(
     frame: &mut Frame,
     area: Rect,
     theme: &Theme,
-    state: &LibraryPageState,
+    state: &mut LibraryPageState,
     animations: &ToggleAnimations,
     hovered: Option<ToggleId>,
     hovered_add: Option<props::PropsHit>,

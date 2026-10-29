@@ -2558,11 +2558,11 @@ fn q_types_into_search() {
 fn click_selects_without_opening() {
     let mut state = sample_state();
 
-    let interaction = state.click_item(1, 0);
+    let interaction = state.click_item(1);
     assert_eq!(state.selected_index(), Some(1));
     assert!(interaction.pending_delete().is_none());
 
-    let interaction = state.click_item(1, 0);
+    let interaction = state.click_item(1);
     assert_eq!(state.selected_index(), Some(1));
     assert!(interaction.pending_delete().is_none());
     assert!(state.modal().is_none());
@@ -2672,7 +2672,7 @@ fn search_bar_renders_wrapped_query_inside_the_left_pane() {
                 frame,
                 frame.area(),
                 &crate::theme::default::DARK_THEME,
-                &state,
+                &mut state,
                 &crate::widgets::toggle::ToggleAnimations::default(),
                 None,
                 None,
@@ -2727,7 +2727,7 @@ fn select_first_window_bottom_pins_cursor_to_first_page() {
     let mut state = sample_state();
     state.select_first_window_bottom(2);
     assert_eq!(state.selected_index(), Some(1));
-    assert_eq!(state.visible_window(2), (0, 2));
+    assert_eq!(state.list_scroll(), 0, "the first page stays at the top");
 }
 
 #[test]
@@ -3278,7 +3278,7 @@ fn hotkey_state(trigger: &str) -> LibraryPageState {
     state
 }
 
-fn draw_list(state: &LibraryPageState, area: ratatui::layout::Rect) -> ratatui::buffer::Buffer {
+fn draw_list(state: &mut LibraryPageState, area: ratatui::layout::Rect) -> ratatui::buffer::Buffer {
     use crate::theme::default::DARK_THEME;
     use ratatui::{Terminal, backend::TestBackend};
 
@@ -3321,11 +3321,14 @@ fn cells(buffer: &ratatui::buffer::Buffer, x: u16, y: u16, width: u16) -> String
 
 /// Top row of the item at filtered position `index` in a list render.
 fn list_row_y(state: &LibraryPageState, area: ratatui::layout::Rect, index: usize) -> u16 {
-    let visible_count = crate::widgets::util::visible_library_item_capacity(area.height);
-    let (start, end) = state.visible_window(visible_count);
-    let origin = list::list_origin(area, end.saturating_sub(start));
+    let total = state.filtered_len();
+    let used = (total as u16).saturating_mul(4);
+    let viewport_height = (area.height / 4).saturating_mul(4);
+    let origin = area.bottom().saturating_sub(used.min(viewport_height));
+    let scroll = (state.list_scroll() % 4) as u16;
     origin
-        .saturating_add((index.saturating_sub(start) as u16) * 4)
+        .saturating_add((index as u16).saturating_mul(4))
+        .saturating_sub(scroll)
         .saturating_add(1)
 }
 
@@ -3333,9 +3336,9 @@ fn list_row_y(state: &LibraryPageState, area: ratatui::layout::Rect, index: usiz
 fn selected_sidebar_hotkey_renders_keycaps_on_the_card() {
     use crate::theme::default::DARK_THEME;
 
-    let state = hotkey_state("alt+f6");
+    let mut state = hotkey_state("alt+f6");
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
-    let buffer = draw_list(&state, area);
+    let buffer = draw_list(&mut state, area);
     let y = list_row_y(&state, area, 0);
     let x = area.x + 2;
 
@@ -3377,7 +3380,7 @@ fn unselected_sidebar_hotkey_renders_keycaps_on_the_pane() {
         )),
     ]);
     let area = ratatui::layout::Rect::new(0, 0, 80, 30);
-    let buffer = draw_list(&state, area);
+    let buffer = draw_list(&mut state, area);
     let word_y = list_row_y(&state, area, 0);
     let hotkey_y = list_row_y(&state, area, 1);
     let x = area.x + 2;
@@ -4706,17 +4709,227 @@ fn six_item_state() -> LibraryPageState {
 }
 
 #[test]
-fn clicked_window_holds_while_default_policy_would_jump() {
+fn click_keeps_the_scroll_position() {
     let mut state = six_item_state();
-    for _ in 0..4 {
+    state.jump_list_scroll(8);
+
+    state.click_item(1);
+    assert_eq!(state.selected_index(), Some(1));
+    assert_eq!(
+        state.list_scroll(),
+        8,
+        "the rows never jump under the pointer"
+    );
+}
+
+#[test]
+fn refresh_keeps_the_scroll_position() {
+    let mut state = six_item_state();
+    state.jump_list_scroll(8);
+    state.click_item(3);
+
+    // Simulate the post-save refresh: identical rows, rebuilt.
+    let fresh: Vec<LibraryTrigger> = (0..state.filtered_len())
+        .filter_map(|index| state.item_at_filtered(index).cloned())
+        .collect();
+    state.replace_items(fresh);
+    assert_eq!(state.selected_index(), Some(3));
+    assert_eq!(state.list_scroll(), 8);
+}
+
+#[test]
+fn keyboard_selection_pulls_its_row_into_view() {
+    use ratatui::{Terminal, backend::TestBackend};
+
+    let mut state = six_item_state();
+    for _ in 0..5 {
         state.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     }
-    assert_eq!(state.selected_index(), Some(4));
-    assert_eq!(state.visible_window(2), (3, 5));
+    assert_eq!(state.selected_index(), Some(5));
+    assert!(state.list_selection_moved());
 
-    state.click_item(3, 3);
+    let area = ratatui::layout::Rect::new(0, 0, 80, 8);
+    let backend = TestBackend::new(area.width, area.height);
+    let mut terminal = Terminal::new(backend).expect("test terminal");
+    terminal
+        .draw(|frame| {
+            list::render_library_list(frame, area, &crate::theme::default::DARK_THEME, &mut state);
+        })
+        .expect("test draw");
+
+    assert_eq!(
+        state.list_scroll(),
+        4 * 6 - 8,
+        "last row sits at the bottom"
+    );
+    assert!(!state.list_selection_moved());
+}
+
+#[test]
+fn scrolled_list_skips_partial_rows() {
+    let mut state = six_item_state();
+    state.jump_list_scroll(2);
+    let area = ratatui::layout::Rect::new(0, 0, 80, 12);
+    let buffer = draw_list(&mut state, area);
+
+    // The first row is two lines above the viewport and the fourth is
+    // two lines below it: both are hidden rather than cut in half.
+    assert_eq!(cells(&buffer, 2, 0, 3), "   ");
+    assert_eq!(cells(&buffer, 2, 1, 3), "   ");
+    assert_eq!(cells(&buffer, 2, 3, 2), "t1");
+    assert_eq!(cells(&buffer, 2, 7, 2), "t2");
+    assert_eq!(cells(&buffer, 2, 10, 3), "   ");
+    assert_eq!(cells(&buffer, 2, 11, 3), "   ");
+    assert_eq!(
+        buffer[(2, 3)].bg,
+        ratatui::style::Color::Reset,
+        "unselected rows keep the page fill"
+    );
+}
+
+#[test]
+fn wheel_highlight_tracks_the_bottom_row() {
+    use crate::theme::default::DARK_THEME;
+
+    let mut state = six_item_state();
+    state.select_first_window_bottom(3);
+    let area = ratatui::layout::Rect::new(0, 0, 80, 12);
+    let _ = draw_list(&mut state, area);
+
+    state.smooth_scroll_list(1);
+    while state.list_scroll_animating() {
+        let _ = draw_list(&mut state, area);
+    }
+    assert_eq!(state.list_scroll(), 4);
+    assert_eq!(
+        state.selected_index(),
+        Some(3),
+        "the highlight sits above the search bar"
+    );
+
+    let buffer = draw_list(&mut state, area);
+    assert_eq!(cells(&buffer, 2, 9, 2), "t3");
+    assert_eq!(cells(&buffer, 2, 10, 3), "out");
+    assert_eq!(
+        buffer[(2, 11)].bg,
+        DARK_THEME.surface,
+        "the highlighted row reaches the bottom edge whole"
+    );
+
+    state.smooth_scroll_list(-1);
+    while state.list_scroll_animating() {
+        let _ = draw_list(&mut state, area);
+    }
+    assert_eq!(state.list_scroll(), 0);
+    assert_eq!(state.selected_index(), Some(2), "back to the first page");
+}
+
+#[test]
+fn wheel_keeps_the_highlight_anchored_above_the_search_bar() {
+    use crate::theme::default::DARK_THEME;
+
+    let mut state = six_item_state();
+    state.select_first_window_bottom(3);
+    let area = ratatui::layout::Rect::new(0, 0, 80, 12);
+    let _ = draw_list(&mut state, area);
+
+    state.smooth_scroll_list(1);
+    let mut frames = 0;
+    while state.list_scroll_animating() {
+        let buffer = draw_list(&mut state, area);
+        for y in 8..12 {
+            assert_eq!(
+                buffer[(2, y)].bg,
+                DARK_THEME.surface,
+                "frame {frames}: the highlight never leaves the bar (line {y})"
+            );
+        }
+        frames += 1;
+    }
+    assert!(frames > 1, "the glide spans several frames");
+
+    // Scrolling back up keeps the bar pinned too.
+    state.smooth_scroll_list(-1);
+    while state.list_scroll_animating() {
+        let buffer = draw_list(&mut state, area);
+        for y in 8..12 {
+            assert_eq!(
+                buffer[(2, y)].bg,
+                DARK_THEME.surface,
+                "the bar stays put while scrolling up (line {y})"
+            );
+        }
+    }
+}
+
+#[test]
+fn wheel_up_at_the_top_reaches_the_first_item() {
+    use crate::theme::default::DARK_THEME;
+
+    let mut state = six_item_state();
+    state.select_first_window_bottom(3);
+    let area = ratatui::layout::Rect::new(0, 0, 80, 12);
+    let _ = draw_list(&mut state, area);
+
+    // Enter wheel mode from the bottom row.
+    state.smooth_scroll_list(1);
+    while state.list_scroll_animating() {
+        let _ = draw_list(&mut state, area);
+    }
     assert_eq!(state.selected_index(), Some(3));
-    assert_eq!(state.visible_window(2), (3, 5));
+
+    // Scroll back to the top: the highlight walks up one row per notch.
+    state.smooth_scroll_list(-1);
+    while state.list_scroll_animating() {
+        let _ = draw_list(&mut state, area);
+    }
+    assert_eq!(state.list_scroll(), 0);
+    assert_eq!(state.selected_index(), Some(2));
+
+    state.smooth_scroll_list(-1);
+    let _ = draw_list(&mut state, area);
+    assert_eq!(state.list_scroll(), 0, "nothing left to scroll");
+    assert_eq!(state.selected_index(), Some(1));
+
+    state.smooth_scroll_list(-1);
+    let _ = draw_list(&mut state, area);
+    assert_eq!(state.selected_index(), Some(0), "the top item is reachable");
+
+    state.smooth_scroll_list(-1);
+    let _ = draw_list(&mut state, area);
+    assert_eq!(
+        state.selected_index(),
+        Some(0),
+        "the top item stays selected"
+    );
+
+    let buffer = draw_list(&mut state, area);
+    assert_eq!(cells(&buffer, 2, 1, 2), "t0");
+    assert_eq!(
+        buffer[(2, 0)].bg,
+        DARK_THEME.surface,
+        "the first row is highlighted whole"
+    );
+}
+
+#[test]
+fn wheel_walks_a_short_list_without_scrolling() {
+    let mut state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 80, 12);
+    let _ = draw_list(&mut state, area);
+
+    state.smooth_scroll_list(1);
+    let _ = draw_list(&mut state, area);
+    assert_eq!(state.list_scroll(), 0);
+    assert_eq!(state.selected_index(), Some(1));
+
+    state.smooth_scroll_list(1);
+    let _ = draw_list(&mut state, area);
+    assert_eq!(state.selected_index(), Some(2));
+
+    state.smooth_scroll_list(-1);
+    let _ = draw_list(&mut state, area);
+    assert_eq!(state.selected_index(), Some(1));
 }
 
 #[test]
@@ -4768,36 +4981,13 @@ fn refresh_drops_session_when_trigger_is_gone() {
 }
 
 #[test]
-fn refresh_after_save_keeps_window_still() {
+fn select_row_keeps_the_scroll_position() {
     let mut state = six_item_state();
-    state.click_item(3, 3);
-    assert_eq!(state.visible_window(2), (3, 5));
-
-    // Simulate the post-save refresh: identical rows, rebuilt.
-    let fresh: Vec<LibraryTrigger> = (0..state.filtered_len())
-        .filter_map(|index| state.item_at_filtered(index).cloned())
-        .collect();
-    state.replace_items(fresh);
-    assert_eq!(state.selected_index(), Some(3));
-    assert_eq!(state.visible_window(2), (3, 5));
-}
-
-#[test]
-fn select_row_keeps_click_anchor() {
-    let mut state = six_item_state();
-    state.click_item(3, 3);
+    state.jump_list_scroll(8);
     let target = state.item_at_filtered(4).expect("fifth row").clone();
     assert!(state.select_row(target.id(), target.trigger()));
     assert_eq!(state.selected_index(), Some(4));
-    assert_eq!(state.visible_window(2), (3, 5));
-}
-
-#[test]
-fn stale_anchor_falls_back_to_default_window() {
-    let mut state = six_item_state();
-    state.click_item(0, 3);
-    assert_eq!(state.selected_index(), Some(0));
-    assert_eq!(state.visible_window(2), (0, 2));
+    assert_eq!(state.list_scroll(), 8);
 }
 
 #[test]
@@ -5010,7 +5200,7 @@ fn trigger_edit_click_other_row_commits() {
     for ch in " Jr".chars() {
         state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
     }
-    let interaction = state.click_item(1, 0);
+    let interaction = state.click_item(1);
     assert!(interaction.pending_edit().is_some());
     assert_eq!(state.selected_index(), Some(1));
 }
@@ -5020,7 +5210,7 @@ fn trigger_edit_click_same_row_keeps_editing() {
     let mut state = sample_state();
     let current = state.selected_index().unwrap();
     state.start_trigger_edit();
-    let interaction = state.click_item(current, 0);
+    let interaction = state.click_item(current);
     assert!(interaction.pending_edit().is_none());
     assert_eq!(state.selected_index(), Some(current));
     assert!(state.trigger_edit().is_some());

@@ -6,6 +6,7 @@ pub mod library;
 pub mod nav_rail;
 pub mod palette;
 pub mod panes;
+pub mod scroll;
 pub mod settings;
 pub mod slider;
 pub mod textarea;

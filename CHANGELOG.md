@@ -14,27 +14,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Activity Event Logging**: Record individual user actions with precise timestamps, application context, word counts, and time saved.
 - **Activity Output History & Retention**: Retain full text content for voice dictations and expansions with a rolling 30-day history window and cross-device synchronization.
 - **Streak Tracking**: Track consecutive daily active execution streaks and all-time records.
-- **Home Dashboard**: A flat activity card feed with a tag row, fully wrapped content, a left-aligned clock and copy meta row beneath it, a sticky title and date headers, a focus highlight, and copy on the active card, plus a draggable account and weekly-quota pane with the reset countdown.
-- **Unified Highlight Fill**: The theme highlight, selected rows, rail pills, and active activity cards now share the same fill, with activity cards dimmed beneath it.
-- **Smooth Activity Scroll**: The home feed eases three lines per wheel notch instead of jumping.
-- **Copy Feedback**: A successful copy flips the activity copy button to a green check mark for a moment.
-- **Voice Activity**: Voice entries in the home feed show what was actually said instead of the inserted snippet output.
-- **TUI Toasts**: Removed the temporary in-TUI toast banners; a dedicated notification overlay will replace them.
-- **Home Divider**: When the activity column is fully collapsed, the account pane sits flush on the navigation rail and the rail divider is the single boundary.
+- **Home Dashboard**: Flat activity card feed with sticky date headers, active card actions, and weekly quota overview.
+- **Voice Activity**: Voice entries in the activity feed display the recognized speech text instead of the inserted snippet output.
 - **Snippet Enable and Disable**: Toggle individual snippets directly with `taurine enable` and `taurine disable`.
 - **Cloud Authentication**: Sign in and out of Taurine Cloud with `taurine login` and `taurine logout`.
 - **Cloud Quota & Tier Status**: View subscription tier, weekly quota balance, and usage limits in `taurine status`.
 - **Workspace Management**: Create, list, and delete snippet workspaces with the new `taurine workspace` command.
 - **Workspace Filtering**: Assign and filter triggers by workspace with the `--workspace` flag.
 - **Unlimited Voice Dictation**: Talk as long as you want with no time cutoffs.
-- **Smarter Custom Words**: Your personal dictionary and voice shortcuts now take priority over everyday speech.
-- **Keep Voice Model Loaded**: Optional setting to keep the dictation model in memory for instant start after long idle periods at the cost of extra RAM.
+- **Smarter Custom Words**: Personal dictionary and voice shortcuts take priority over everyday speech.
+- **Keep Voice Model Loaded**: Optional setting to keep the dictation model in memory for instant start after long idle periods.
 - **Voice Error Sound**: Play a distinct error tone when dictation fails because the microphone or voice engine is unavailable.
-- **Pause Media While Dictating**: Pause music and video while recording and resume afterwards, on by default via a new setting.
-- **Cleaner Trigger List**: Listing shows one line per trigger with just the trigger and result, plus multi-tag filtering.
+- **Pause Media While Dictating**: Automatically pause audio and video playback during active voice recording.
+- **Cleaner Trigger List**: Listing shows one line per trigger with invocation, output preview, and multi-tag filtering.
 - **Trigger Usage History**: Record daily per-trigger expansion stats and active application context in the local database.
 - **Settings & Stats Sync**: Synchronize allowed user preferences and daily trigger statistics across authorized cloud devices.
-- **Redesigned TUI Workspace**: Full-height responsive layout featuring a vector-icon navigation rail, draggable three-pane split view, and remembered divider widths.
+- **Redesigned TUI Workspace**: Full-height responsive layout featuring a vector-icon navigation rail, draggable split views, and smooth mouse scrolling.
 - **Command Palette**: Quick-access command palette (`Ctrl+P`) with real-time search, descriptions, and direct execution shortcuts.
 - **In-TUI Trigger Creator**: Create and configure triggers directly (`Ctrl+N`) with interactive type pickers, tag builder, and running application selectors.
 - **Visual Hotkey Recorder**: Capture shortcuts by pressing physical keys with full keyboard visual layout and distinct modifier detection.
@@ -53,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **Cloud State Restoration**: Reliably restore and synchronize quota balances, triggers, settings, and telemetry when signing in and out of Taurine Cloud.
+- **Weekly Quota Indicator**: Correctly display remaining weekly balance tracks on account summaries and status views.
 - **Hotkey Expansion Telemetry**: Shortcuts that inject text now properly record expanded word counts and estimated time saved.
 - **Cloud Login Defaults**: Sign in to Taurine Cloud directly without configuring manual environment variables.
 - **Background Service Startup**: Prevent `taurine up` from falsely reporting the service as already running when an interactive terminal or TUI session is active.

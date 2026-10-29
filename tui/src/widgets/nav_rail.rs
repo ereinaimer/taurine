@@ -285,6 +285,7 @@ pub(crate) fn render(
     state: &mut NavRailState,
     icons: Option<&RailIcons>,
     dimmed: bool,
+    junction_row: Option<u16>,
 ) {
     let layout = layout(area, state.collapsed);
     state.hitboxes = layout.buttons.clone();
@@ -299,7 +300,17 @@ pub(crate) fn render(
         } else {
             theme.border
         };
-        let glyphs: Vec<Line> = (0..divider.height).map(|_| Line::from("│")).collect();
+        // honey: a collapsed list pane hands its boundary to the rail, so
+        // the rail divider grows the same arm toward the center rule.
+        let glyphs: Vec<Line> = (divider.y..divider.bottom())
+            .map(|row| {
+                Line::from(if junction_row == Some(row) {
+                    "├"
+                } else {
+                    "│"
+                })
+            })
+            .collect();
         frame.render_widget(
             Paragraph::new(glyphs).style(Style::default().fg(color)),
             divider,
@@ -400,7 +411,7 @@ mod tests {
         let mut terminal =
             Terminal::new(TestBackend::new(AREA.width, AREA.height)).expect("test terminal");
         terminal
-            .draw(|frame| render(frame, AREA, &DARK_THEME, state, icons, dimmed))
+            .draw(|frame| render(frame, AREA, &DARK_THEME, state, icons, dimmed, None))
             .expect("test draw");
         terminal
     }
@@ -445,6 +456,20 @@ mod tests {
     fn workspace_width_tracks_the_rail() {
         assert_eq!(workspace(AREA, false), Rect::new(7, 0, 93, 45));
         assert_eq!(workspace(AREA, true), AREA);
+    }
+
+    #[test]
+    fn junction_row_grows_an_arm_toward_the_center_rule() {
+        let mut state = NavRailState::default();
+        let mut terminal =
+            Terminal::new(TestBackend::new(AREA.width, AREA.height)).expect("test terminal");
+        terminal
+            .draw(|frame| render(frame, AREA, &DARK_THEME, &mut state, None, false, Some(8)))
+            .expect("test draw");
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(6, 7)].symbol(), "│");
+        assert_eq!(buffer[(6, 8)].symbol(), "├");
+        assert_eq!(buffer[(6, 9)].symbol(), "│");
     }
 
     #[test]

@@ -39,6 +39,10 @@ pub(crate) const DIVIDER_DOUBLE_CLICK_MS: u64 = 300;
 /// list.
 pub(crate) const MAX_LIST_WIDTH: u16 = 52;
 pub(crate) const MAX_PROPS_WIDTH: u16 = 40;
+/// A list pane narrower than this has no content cells left after the
+/// four cells of page padding, so it is treated as parked and the
+/// navigation rail divider stays the single boundary for the center rule.
+pub(crate) const MIN_LIST_WIDTH: u16 = 5;
 
 /// Which gutter divider a pointer action targets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -176,6 +180,14 @@ pub(crate) fn split_panes(area: Rect, list_ratio: f32, props_ratio: f32) -> Pane
     let right_parked = left_width == 0 && center_width == 0 && right_width > 0;
     if left_parked {
         left_width = area.width.saturating_sub(1);
+    }
+    // honey: a drag can leave a one- or two-cell sliver. It still counts
+    // as open, keeping the rail divider plain and the center rule inset
+    // behind a ghost column, so park anything too narrow to draw a row
+    // on the same boundary as a full collapse.
+    if left_width > 0 && left_width < MIN_LIST_WIDTH && center_width > 0 {
+        center_width = center_width.saturating_add(left_width);
+        left_width = 0;
     }
     // honey: a collapsed left pane has no gutter of its own. The nav
     // rail divider is the single boundary, so the center starts flush
@@ -357,6 +369,24 @@ mod tests {
         );
         assert_eq!(parked.props.x, area.x, "the parked pane sits flush");
         assert_eq!(parked.props.width, area.width);
+    }
+
+    #[test]
+    fn sliver_list_widths_park_on_the_rail_boundary() {
+        let area = Rect::new(0, 0, 100, 30);
+        // The drag column wants a one-cell list, but a pane that narrow
+        // cannot draw a row; it parks so the rail divider is the edge.
+        let ratio = split_ratio_for_column(area, area.x + 2);
+        let split = split_panes(area, ratio, DEFAULT_DETAIL_RATIO);
+
+        assert_eq!(split.list.width, 0);
+        assert_eq!(split.center.x, area.x, "center sits flush on the rail");
+        assert_eq!(split.list_divider, None);
+        assert_eq!(
+            split.center.width + split.props.width + 1,
+            area.width,
+            "the center absorbs the sliver and its gutter"
+        );
     }
 
     #[test]
