@@ -224,24 +224,29 @@ where
         .map_err(|_| "voice worker timed out".to_string())?
 }
 
-/// Drive a future from sync code regardless of caller context.
+/// Drive a future on the client's own runtime.
 ///
-/// Plain threads use the embedded current-thread runtime. Callers already
-/// inside the daemon multi-thread runtime (config reload, pause coordinator)
-/// must not nest `block_on`, which panics, so they yield the executor thread
-/// with `block_in_place` instead.
-fn block_on_client<F: Future>(rt: &tokio::runtime::Runtime, fut: F) -> F::Output {
-    match tokio::runtime::Handle::try_current() {
-        Ok(handle)
-            if matches!(
-                handle.runtime_flavor(),
-                tokio::runtime::RuntimeFlavor::MultiThread
-            ) =>
-        {
-            tokio::task::block_in_place(|| handle.block_on(fut))
-        }
-        _ => rt.block_on(fut),
+/// Voice IPC must never depend on the daemon runtime making progress:
+/// nesting `Handle::block_on` on a runtime worker means the pipe read and
+/// its timeout are only driven by that same two-thread scheduler, which can
+/// wedge both workers and take the control plane with them. Plain and
+/// blocking threads drive the client runtime directly; an async caller,
+/// which must not nest `block_on`, gets a scoped thread so the future still
+/// runs on the client runtime rather than the daemon's.
+fn block_on_client<F>(rt: &tokio::runtime::Runtime, fut: F) -> F::Output
+where
+    F: Future + Send,
+    F::Output: Send,
+{
+    if tokio::runtime::Handle::try_current().is_err() {
+        return rt.block_on(fut);
     }
+
+    debug!("voice client call from async context; running on a scoped thread");
+    std::thread::scope(|scope| match scope.spawn(|| rt.block_on(fut)).join() {
+        Ok(output) => output,
+        Err(payload) => std::panic::resume_unwind(payload),
+    })
 }
 
 /// Recover a poisoned client mutex. A panic mid-call must degrade to one

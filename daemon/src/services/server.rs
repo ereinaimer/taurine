@@ -11,6 +11,7 @@ use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
 use tracing::debug;
 
+#[derive(Clone)]
 pub struct DaemonService {
     shutdown_sender: mpsc::Sender<()>,
     state: Arc<EngineState>,
@@ -24,6 +25,9 @@ pub struct DaemonService {
     hook_health: crate::input::hook_health::HookHealth,
     pause_transition_tx: mpsc::Sender<bool>,
     sync_notify: Option<Arc<tokio::sync::Notify>>,
+    /// Serializes settings reloads. Concurrent reloads otherwise stack on the
+    /// voice session locks and can wedge the runtime workers.
+    reload_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl DaemonService {
@@ -216,10 +220,30 @@ impl DaemonService {
 
         taurine_core::settings::set_cached_audio_theme(settings.audio_theme);
         taurine_core::settings::set_cached_audio_volume(settings.audio_volume);
-        if let Ok(_handle) = tokio::runtime::Handle::try_current() {
-            tokio::spawn(crate::dictionary_manager::check_and_update_dictionary());
-        }
 
+        Ok(())
+    }
+
+    /// Run a reload off the runtime workers, one at a time.
+    ///
+    /// The reload is synchronous (SQLite, settings caches, voice worker IPC).
+    /// Running it directly on a runtime worker nests `block_on` on the same
+    /// two-thread scheduler; under concurrent reloads that starves the I/O
+    /// driver and takes the whole control plane down with it.
+    async fn reload_engine_state_off_runtime(&self) -> Result<(), Status> {
+        let service = self.clone();
+        let guard = self.reload_lock.clone().lock_owned().await;
+        let result = tokio::task::spawn_blocking(move || {
+            let _guard = guard;
+            let conn = taurine_core::db::init::setup()
+                .map_err(|e| Status::internal(format!("Database connection failed: {}", e)))?;
+            service.reload_engine_state(&conn)
+        })
+        .await
+        .map_err(|e| Status::internal(format!("Reload worker thread join error: {}", e)))?;
+        result?;
+
+        tokio::spawn(crate::dictionary_manager::check_and_update_dictionary());
         Ok(())
     }
 }
@@ -355,6 +379,7 @@ impl DaemonServiceBuilder {
                 .pause_transition_tx
                 .ok_or("pause_transition_tx is required")?,
             sync_notify: self.sync_notify,
+            reload_lock: Arc::new(tokio::sync::Mutex::new(())),
         })
     }
 }
@@ -403,10 +428,7 @@ impl DaemonControl for DaemonService {
     ) -> Result<Response<ReloadResponse>, Status> {
         debug!("Received gRPC reload request, refreshing snippets and settings...");
 
-        let conn = taurine_core::db::init::setup()
-            .map_err(|e| Status::internal(format!("Database connection failed: {}", e)))?;
-
-        self.reload_engine_state(&conn)?;
+        self.reload_engine_state_off_runtime().await?;
 
         debug!("Successfully reloaded snippets and settings into service.");
         if !request.into_inner().skip_sync
@@ -473,10 +495,7 @@ impl DaemonControl for DaemonService {
                 pushed_stats,
             } => {
                 if pulled_snippets > 0 || pulled_settings > 0 {
-                    let conn = taurine_core::db::init::setup().map_err(|e| {
-                        Status::internal(format!("Database connection failed: {}", e))
-                    })?;
-                    self.reload_engine_state(&conn)?;
+                    self.reload_engine_state_off_runtime().await?;
                 }
                 Ok(Response::new(SyncResponse {
                     success: true,

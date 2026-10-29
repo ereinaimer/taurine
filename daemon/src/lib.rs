@@ -695,6 +695,12 @@ pub fn start() -> taurine_core::error::Result<()> {
 
         let (mut shutdown_tx, mut shutdown_rx) = mpsc::channel(1);
 
+        // The first instance claims the pipe name so another process cannot
+        // own it. A same-process restart must reuse the name while lingering
+        // connection tasks still hold old instances.
+        #[cfg(target_os = "windows")]
+        let mut claim_pipe_name = true;
+
         loop {
             let shutdown_requested_clone = shutdown_requested.clone();
 
@@ -839,13 +845,15 @@ pub fn start() -> taurine_core::error::Result<()> {
                         }
                     };
 
-                    let first_server = match pipe_security.create_server(pipe_path, true) {
-                        Ok(s) => s,
-                        Err(e) => {
-                            error!("Failed to create first named pipe instance: {}", e);
-                            return Err(taurine_core::error::Error::Io(e));
-                        }
-                    };
+                    let first_server =
+                        match pipe_security.create_server(pipe_path, claim_pipe_name) {
+                            Ok(s) => s,
+                            Err(e) => {
+                                error!("Failed to create first named pipe instance: {}", e);
+                                return Err(taurine_core::error::Error::Io(e));
+                            }
+                        };
+                    claim_pipe_name = false;
 
                     debug!(
                         "Starting gRPC server on Named Pipe UDS equivalent: {}",
@@ -882,6 +890,9 @@ pub fn start() -> taurine_core::error::Result<()> {
                                         .await
                                         .is_err()
                                 {
+                                    warn!(
+                                        "Named pipe accept loop stopped: gRPC connection channel closed"
+                                    );
                                     break;
                                 }
                             }
@@ -917,16 +928,21 @@ pub fn start() -> taurine_core::error::Result<()> {
                 }
             }
 
-            let _ = watcher_task.await;
-
-            if shutdown_requested.load(Ordering::Relaxed) {
-                break;
+            // A control server that stops on its own leaves the daemon alive but
+            // unreachable: no stop/status/restart and no tray RPCs. Restart it
+            // instead of parking on the watcher forever.
+            if !shutdown_requested.load(Ordering::Relaxed) {
+                error!("gRPC control server stopped unexpectedly; restarting it");
+                watcher_task.abort();
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                let (new_shutdown_tx, new_shutdown_rx) = mpsc::channel(1);
+                shutdown_tx = new_shutdown_tx;
+                shutdown_rx = new_shutdown_rx;
+                continue;
             }
 
-            // Re-create shutdown channel for next iteration
-            let (new_shutdown_tx, new_shutdown_rx) = mpsc::channel(1);
-            shutdown_tx = new_shutdown_tx;
-            shutdown_rx = new_shutdown_rx;
+            let _ = watcher_task.await;
+            break;
         }
         // Stop background Tokio tasks before the runtime drops: a timer
         // registration (interval tick, timeout) during shutdown panics with
