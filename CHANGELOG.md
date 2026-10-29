@@ -53,6 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Trigger Display Names**: Replaced redundant trigger display names with primary trigger invocations and descriptions across the CLI and TUI.
 
 ### Fixed
+- **Library Divider Junction**: Dragging the trigger list fully to the rail now parks it cleanly, keeping the center rule joined to the rail divider.
 - **Library Click After Scrolling**: Clicking a trigger after scrolling selects the row under the pointer and keeps its highlight visible.
 - **Weekly Quota Bar**: Show the unfilled quota track so the remaining weekly balance is readable.
 - **Hotkey Expansion Telemetry**: Shortcuts that inject text now properly record expanded word counts and estimated time saved.

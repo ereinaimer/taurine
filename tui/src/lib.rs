@@ -1003,7 +1003,18 @@ fn handle_tui_mouse_event(
         };
         match side {
             library::DividerSide::List => {
+                let detail = app.library_page().detail_ratio();
                 let ratio = library::split_ratio_for_column(page, column);
+                // honey: a drag that would leave a sliver too narrow to
+                // draw a row parks the pane, so the rail divider becomes
+                // the boundary and the center rule meets its junction.
+                let ratio = if library::split_panes(page, ratio, detail).list.width
+                    < library::MIN_LIST_WIDTH
+                {
+                    library::MIN_SPLIT_RATIO
+                } else {
+                    ratio
+                };
                 app.library_page_mut().set_split_ratio(ratio);
             }
             library::DividerSide::Props => {
@@ -3254,6 +3265,60 @@ mod tests {
         let buffer = terminal.backend().buffer();
         assert_eq!(
             buffer[(rail_divider, row)].symbol(),
+            "├",
+            "the rail divider meets the center rule"
+        );
+        assert_eq!(
+            buffer[(full.x, row)].symbol(),
+            "─",
+            "the rule starts flush against the junction"
+        );
+    }
+
+    #[test]
+    fn dragging_the_list_divider_to_a_sliver_joins_the_rail_and_rule() {
+        use ratatui::{Terminal, backend::TestBackend};
+
+        let mut app = library_app();
+        seed_single_library_item(&mut app);
+        let full = workspace_full(&app, TEST_AREA);
+        let divider = library::divider_columns(
+            full,
+            app.library_page().split_ratio(),
+            app.library_page().detail_ratio(),
+        )[0];
+        handle_tui_mouse_event(&mut app, left_click(divider, 10), TEST_AREA);
+        // Two cells into the workspace wants a one-cell list pane.
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(full.x + 2, 10, MouseEventKind::Drag(MouseButton::Left)),
+            TEST_AREA,
+        );
+
+        let split = library::split_panes(
+            full,
+            app.library_page().split_ratio(),
+            app.library_page().detail_ratio(),
+        );
+        assert_eq!(split.list.width, 0, "the sliver parks on the rail");
+        assert_eq!(split.center.x, full.x);
+        assert_eq!(app.library_page().split_ratio(), 0.0);
+
+        let row = library::detail::content_divider_row(
+            full,
+            app.library_page().split_ratio(),
+            app.library_page().detail_ratio(),
+            app.library_page(),
+        )
+        .expect("the selected item draws a content rule");
+        let backend = TestBackend::new(TEST_AREA.width, TEST_AREA.height);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal
+            .draw(|frame| render_app(frame, &mut app, TEST_AREA))
+            .expect("test draw");
+        let buffer = terminal.backend().buffer();
+        assert_eq!(
+            buffer[(full.x - 1, row)].symbol(),
             "├",
             "the rail divider meets the center rule"
         );
