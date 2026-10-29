@@ -30,6 +30,8 @@ use crate::widgets::library::actions::{
 };
 use crate::widgets::scroll::SmoothScroll;
 
+use super::list::LIBRARY_ROW_LINES;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ButtonSelection {
     Cancel,
@@ -121,6 +123,9 @@ pub(crate) struct LibraryPageState {
     search_mode: bool,
     list_scroll: SmoothScroll,
     list_selection_moved: bool,
+    list_follows_bottom: bool,
+    list_rows: usize,
+    follow_row: usize,
     pub(crate) modal: Option<LibraryModal>,
     status_message: Option<String>,
     load_error: Option<String>,
@@ -156,6 +161,9 @@ impl Default for LibraryPageState {
             search_mode: false,
             list_scroll: SmoothScroll::default(),
             list_selection_moved: false,
+            list_follows_bottom: false,
+            list_rows: 0,
+            follow_row: 0,
             modal: None,
             status_message: None,
             load_error: None,
@@ -178,7 +186,9 @@ impl LibraryPageState {
         // honey: a refresh (e.g. after a target switch commit) must not
         // kill a live session; drop it only when its trigger is gone.
         // The scroll position survives for the same reason: stale values
-        // are clamped by the next render.
+        // are clamped by the next render. Finish any glide first so the
+        // restored offset still lands on a whole row.
+        self.list_scroll.settle();
         let scroll = self.list_scroll.scroll();
         let live_edit = self
             .edit
@@ -193,6 +203,7 @@ impl LibraryPageState {
         self.rebuild_filter();
         self.list_scroll.jump(scroll);
         self.list_selection_moved = false;
+        self.list_follows_bottom = false;
     }
 
     pub(crate) fn set_load_error(&mut self, error: String) {
@@ -1333,8 +1344,9 @@ impl LibraryPageState {
         self.list_scroll.animating()
     }
 
-    /// Clamp the wheel target and the current position to the viewport.
-    pub(crate) fn set_list_scroll_max(&mut self, max: usize) {
+    /// Record the full-row viewport and clamp the wheel target to it.
+    pub(crate) fn set_list_viewport(&mut self, rows: usize, max: usize) {
+        self.list_rows = rows;
         self.list_scroll.set_max(max);
     }
 
@@ -1343,14 +1355,72 @@ impl LibraryPageState {
         self.list_scroll.jump(scroll);
     }
 
-    /// Queue a wheel notch over the list.
+    /// Finish an in-flight glide at its aligned target.
+    pub(crate) fn settle_list_scroll(&mut self) {
+        self.list_scroll.settle();
+    }
+
+    /// Queue a wheel notch over the list. The wheel owns a row cursor:
+    /// it normally sits on the bottom row, but at the top of the list it
+    /// walks up through the visible rows instead of stopping at the edge.
     pub(crate) fn smooth_scroll_list(&mut self, notches: isize) {
-        self.list_scroll.queue(notches);
+        let total = self.filtered_indices.len();
+        let rows = self.list_rows;
+        if total == 0 || rows == 0 {
+            self.list_follows_bottom = false;
+            return;
+        }
+        let viewport = rows.saturating_mul(LIBRARY_ROW_LINES);
+        let max_scroll = total
+            .saturating_mul(LIBRARY_ROW_LINES)
+            .saturating_sub(viewport);
+        self.list_scroll.set_max(max_scroll);
+
+        if !self.list_follows_bottom {
+            let bottom = (self.list_scroll.target() / LIBRARY_ROW_LINES + rows - 1).min(total - 1);
+            let selected = self.selected_index().unwrap_or(bottom);
+            self.follow_row = if self.list_scroll.target() == 0 {
+                selected
+            } else {
+                bottom
+            };
+        }
+
+        self.follow_row =
+            (self.follow_row as isize + notches).clamp(0, total as isize - 1) as usize;
+
+        let target = self
+            .follow_row
+            .saturating_add(1)
+            .saturating_mul(LIBRARY_ROW_LINES)
+            .saturating_sub(viewport)
+            .min(max_scroll);
+        self.list_follows_bottom = true;
+        self.list_scroll.animate_to(target);
     }
 
     /// One animation frame: move a fraction of the remaining distance.
     pub(crate) fn advance_list_scroll(&mut self) -> usize {
         self.list_scroll.advance()
+    }
+
+    /// Whether the wheel owns the cursor: the highlight tracks the row
+    /// sitting directly above the search bar while the list glides.
+    pub(crate) fn list_follows_bottom(&self) -> bool {
+        self.list_follows_bottom
+    }
+
+    /// Row the wheel cursor wants highlighted once it is visible.
+    pub(crate) fn follow_row(&self) -> usize {
+        self.follow_row
+    }
+
+    /// Move the highlight without pulling the scroll position.
+    pub(crate) fn follow_list_scroll(&mut self, index: usize) {
+        if self.selected_index() != Some(index) {
+            self.selected = index;
+            self.reset_detail_scroll();
+        }
     }
 
     pub(crate) fn list_selection_moved(&self) -> bool {
@@ -1371,6 +1441,7 @@ impl LibraryPageState {
     pub(crate) fn select_first_window_bottom(&mut self, capacity: usize) {
         self.list_scroll.jump(0);
         self.list_selection_moved = false;
+        self.list_follows_bottom = false;
         let total = self.filtered_indices.len();
         if total == 0 || capacity == 0 {
             self.selected = 0;
@@ -1395,6 +1466,7 @@ impl LibraryPageState {
         };
         self.selected = position;
         self.list_selection_moved = true;
+        self.list_follows_bottom = false;
         self.reset_detail_scroll();
         true
     }
@@ -1420,12 +1492,14 @@ impl LibraryPageState {
         };
         self.selected = position;
         self.list_selection_moved = true;
+        self.list_follows_bottom = false;
         self.reset_detail_scroll();
         true
     }
 
     pub(crate) fn select_after_delete(&mut self, previous_index: usize) {
         self.list_selection_moved = true;
+        self.list_follows_bottom = false;
         if self.filtered_indices.is_empty() {
             self.selected = 0;
         } else {
@@ -2204,6 +2278,7 @@ impl LibraryPageState {
 
     fn move_selection(&mut self, delta: isize) {
         self.list_selection_moved = true;
+        self.list_follows_bottom = false;
         self.reset_detail_scroll();
         let Some(current) = self.selected_index() else {
             self.selected = 0;
@@ -2218,6 +2293,7 @@ impl LibraryPageState {
     fn rebuild_filter(&mut self) {
         self.list_scroll.jump(0);
         self.list_selection_moved = false;
+        self.list_follows_bottom = false;
         self.reset_detail_scroll();
         let previously_selected = self.selected_item().cloned();
         self.filtered_indices = self
@@ -2261,7 +2337,9 @@ impl LibraryPageState {
     /// never jumps. A pending edit commits first when the click lands on
     /// another row; blank text silently no-ops.
     pub(crate) fn click_item(&mut self, filtered_position: usize) -> LibraryInteraction {
+        self.list_scroll.settle();
         self.list_selection_moved = false;
+        self.list_follows_bottom = false;
         if self.edit.is_some() && Some(filtered_position) != self.selected_index() {
             let interaction = self.commit_edit();
             self.selected = filtered_position;

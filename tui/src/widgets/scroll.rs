@@ -19,6 +19,10 @@ impl SmoothScroll {
         self.scroll
     }
 
+    pub(crate) const fn target(&self) -> usize {
+        self.target
+    }
+
     pub(crate) const fn animating(&self) -> bool {
         self.animating
     }
@@ -48,6 +52,18 @@ impl SmoothScroll {
     /// Stop where we are, discarding the pending target.
     pub(crate) fn stop(&mut self) {
         self.jump(self.scroll);
+    }
+
+    /// Finish the glide at its queued target.
+    pub(crate) fn settle(&mut self) {
+        self.scroll = self.target;
+        self.animating = false;
+    }
+
+    /// Retarget the glide without changing the line step.
+    pub(crate) fn animate_to(&mut self, target: usize) {
+        self.target = target.min(self.max);
+        self.animating = self.target != self.scroll;
     }
 
     /// Queue wheel notches; the next frames ease toward the target.

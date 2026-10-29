@@ -17,11 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Home Dashboard**: A flat activity card feed with a tag row, fully wrapped content, a left-aligned clock and copy meta row beneath it, a sticky title and date headers, a focus highlight, and copy on the active card, plus a draggable account and weekly-quota pane with the reset countdown.
 - **Unified Highlight Fill**: The theme highlight, selected rows, rail pills, and active activity cards now share the same fill, with activity cards dimmed beneath it.
 - **Smooth Activity Scroll**: The home feed eases three lines per wheel notch instead of jumping.
-- **Smooth Library Scroll**: The library trigger list eases three lines per wheel notch like the home feed.
+- **Smooth Library Scroll**: The library trigger list eases one whole row per wheel notch under a highlight pinned above the search bar, and walks the highlight up to the first item at the top.
 - **Copy Feedback**: A successful copy flips the activity copy button to a green check mark for a moment.
 - **Voice Activity**: Voice entries in the home feed show what was actually said instead of the inserted snippet output.
 - **TUI Toasts**: Removed the temporary in-TUI toast banners; a dedicated notification overlay will replace them.
 - **Home Divider**: When the activity column is fully collapsed, the account pane sits flush on the navigation rail and the rail divider is the single boundary.
+- **Library Divider**: A collapsed search pane hands its boundary to the navigation rail, whose divider joins the center rule and drags the pane back open.
 - **Snippet Enable and Disable**: Toggle individual snippets directly with `taurine enable` and `taurine disable`.
 - **Cloud Authentication**: Sign in and out of Taurine Cloud with `taurine login` and `taurine logout`.
 - **Cloud Quota & Tier Status**: View subscription tier, weekly quota balance, and usage limits in `taurine status`.

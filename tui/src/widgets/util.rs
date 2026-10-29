@@ -64,10 +64,10 @@ pub(crate) fn visible_library_item_capacity(available_height: u16) -> usize {
     const LIBRARY_ITEM_HEIGHT: u16 = 2;
     const LIBRARY_ITEM_PADDING: u16 = 1;
     const ROW_HEIGHT: u16 = LIBRARY_ITEM_HEIGHT + 2 * LIBRARY_ITEM_PADDING;
-    if available_height < LIBRARY_ITEM_HEIGHT {
+    if available_height < ROW_HEIGHT {
         return 0;
     }
-    usize::from(available_height / ROW_HEIGHT).max(1)
+    usize::from(available_height / ROW_HEIGHT)
 }
 
 /// Percentage of a terminal dimension, rounded down.

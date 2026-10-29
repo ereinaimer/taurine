@@ -3323,11 +3323,8 @@ fn cells(buffer: &ratatui::buffer::Buffer, x: u16, y: u16, width: u16) -> String
 fn list_row_y(state: &LibraryPageState, area: ratatui::layout::Rect, index: usize) -> u16 {
     let total = state.filtered_len();
     let used = (total as u16).saturating_mul(4);
-    let origin = if used <= area.height {
-        area.y.saturating_add(area.height.saturating_sub(used))
-    } else {
-        area.y
-    };
+    let viewport_height = (area.height / 4).saturating_mul(4);
+    let origin = area.bottom().saturating_sub(used.min(viewport_height));
     let scroll = (state.list_scroll() % 4) as u16;
     origin
         .saturating_add((index as u16).saturating_mul(4))
@@ -4769,27 +4766,170 @@ fn keyboard_selection_pulls_its_row_into_view() {
 }
 
 #[test]
-fn scrolled_list_clips_partial_rows() {
-    use crate::theme::default::DARK_THEME;
-
+fn scrolled_list_skips_partial_rows() {
     let mut state = six_item_state();
     state.jump_list_scroll(2);
     let area = ratatui::layout::Rect::new(0, 0, 80, 12);
     let buffer = draw_list(&mut state, area);
 
-    // Row 0 starts two lines above the viewport: its trigger line is
-    // gone and only the preview remains, still on the selected fill.
-    assert_eq!(cells(&buffer, 2, 0, 3), "out");
-    assert_eq!(buffer[(2, 0)].bg, DARK_THEME.surface);
-    // The next rows land on their shifted trigger lines.
+    // The first row is two lines above the viewport and the fourth is
+    // two lines below it: both are hidden rather than cut in half.
+    assert_eq!(cells(&buffer, 2, 0, 3), "   ");
+    assert_eq!(cells(&buffer, 2, 1, 3), "   ");
     assert_eq!(cells(&buffer, 2, 3, 2), "t1");
     assert_eq!(cells(&buffer, 2, 7, 2), "t2");
-    assert_eq!(cells(&buffer, 2, 11, 2), "t3");
+    assert_eq!(cells(&buffer, 2, 10, 3), "   ");
+    assert_eq!(cells(&buffer, 2, 11, 3), "   ");
     assert_eq!(
-        buffer[(2, 11)].bg,
+        buffer[(2, 3)].bg,
         ratatui::style::Color::Reset,
         "unselected rows keep the page fill"
     );
+}
+
+#[test]
+fn wheel_highlight_tracks_the_bottom_row() {
+    use crate::theme::default::DARK_THEME;
+
+    let mut state = six_item_state();
+    state.select_first_window_bottom(3);
+    let area = ratatui::layout::Rect::new(0, 0, 80, 12);
+    let _ = draw_list(&mut state, area);
+
+    state.smooth_scroll_list(1);
+    while state.list_scroll_animating() {
+        let _ = draw_list(&mut state, area);
+    }
+    assert_eq!(state.list_scroll(), 4);
+    assert_eq!(
+        state.selected_index(),
+        Some(3),
+        "the highlight sits above the search bar"
+    );
+
+    let buffer = draw_list(&mut state, area);
+    assert_eq!(cells(&buffer, 2, 9, 2), "t3");
+    assert_eq!(cells(&buffer, 2, 10, 3), "out");
+    assert_eq!(
+        buffer[(2, 11)].bg,
+        DARK_THEME.surface,
+        "the highlighted row reaches the bottom edge whole"
+    );
+
+    state.smooth_scroll_list(-1);
+    while state.list_scroll_animating() {
+        let _ = draw_list(&mut state, area);
+    }
+    assert_eq!(state.list_scroll(), 0);
+    assert_eq!(state.selected_index(), Some(2), "back to the first page");
+}
+
+#[test]
+fn wheel_keeps_the_highlight_anchored_above_the_search_bar() {
+    use crate::theme::default::DARK_THEME;
+
+    let mut state = six_item_state();
+    state.select_first_window_bottom(3);
+    let area = ratatui::layout::Rect::new(0, 0, 80, 12);
+    let _ = draw_list(&mut state, area);
+
+    state.smooth_scroll_list(1);
+    let mut frames = 0;
+    while state.list_scroll_animating() {
+        let buffer = draw_list(&mut state, area);
+        for y in 8..12 {
+            assert_eq!(
+                buffer[(2, y)].bg,
+                DARK_THEME.surface,
+                "frame {frames}: the highlight never leaves the bar (line {y})"
+            );
+        }
+        frames += 1;
+    }
+    assert!(frames > 1, "the glide spans several frames");
+
+    // Scrolling back up keeps the bar pinned too.
+    state.smooth_scroll_list(-1);
+    while state.list_scroll_animating() {
+        let buffer = draw_list(&mut state, area);
+        for y in 8..12 {
+            assert_eq!(
+                buffer[(2, y)].bg,
+                DARK_THEME.surface,
+                "the bar stays put while scrolling up (line {y})"
+            );
+        }
+    }
+}
+
+#[test]
+fn wheel_up_at_the_top_reaches_the_first_item() {
+    use crate::theme::default::DARK_THEME;
+
+    let mut state = six_item_state();
+    state.select_first_window_bottom(3);
+    let area = ratatui::layout::Rect::new(0, 0, 80, 12);
+    let _ = draw_list(&mut state, area);
+
+    // Enter wheel mode from the bottom row.
+    state.smooth_scroll_list(1);
+    while state.list_scroll_animating() {
+        let _ = draw_list(&mut state, area);
+    }
+    assert_eq!(state.selected_index(), Some(3));
+
+    // Scroll back to the top: the highlight walks up one row per notch.
+    state.smooth_scroll_list(-1);
+    while state.list_scroll_animating() {
+        let _ = draw_list(&mut state, area);
+    }
+    assert_eq!(state.list_scroll(), 0);
+    assert_eq!(state.selected_index(), Some(2));
+
+    state.smooth_scroll_list(-1);
+    let _ = draw_list(&mut state, area);
+    assert_eq!(state.list_scroll(), 0, "nothing left to scroll");
+    assert_eq!(state.selected_index(), Some(1));
+
+    state.smooth_scroll_list(-1);
+    let _ = draw_list(&mut state, area);
+    assert_eq!(state.selected_index(), Some(0), "the top item is reachable");
+
+    state.smooth_scroll_list(-1);
+    let _ = draw_list(&mut state, area);
+    assert_eq!(
+        state.selected_index(),
+        Some(0),
+        "the top item stays selected"
+    );
+
+    let buffer = draw_list(&mut state, area);
+    assert_eq!(cells(&buffer, 2, 1, 2), "t0");
+    assert_eq!(
+        buffer[(2, 0)].bg,
+        DARK_THEME.surface,
+        "the first row is highlighted whole"
+    );
+}
+
+#[test]
+fn wheel_walks_a_short_list_without_scrolling() {
+    let mut state = sample_state();
+    let area = ratatui::layout::Rect::new(0, 0, 80, 12);
+    let _ = draw_list(&mut state, area);
+
+    state.smooth_scroll_list(1);
+    let _ = draw_list(&mut state, area);
+    assert_eq!(state.list_scroll(), 0);
+    assert_eq!(state.selected_index(), Some(1));
+
+    state.smooth_scroll_list(1);
+    let _ = draw_list(&mut state, area);
+    assert_eq!(state.selected_index(), Some(2));
+
+    state.smooth_scroll_list(-1);
+    let _ = draw_list(&mut state, area);
+    assert_eq!(state.selected_index(), Some(1));
 }
 
 #[test]

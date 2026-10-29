@@ -19,26 +19,36 @@ const LIBRARY_ITEM_PADDING: u16 = 1;
 const LIBRARY_ITEM_PAD_X: u16 = 2;
 const LIBRARY_ROW_HEIGHT: u16 = LIBRARY_ITEM_HEIGHT + 2 * LIBRARY_ITEM_PADDING;
 /// Row height in lines, used by the free-scroll offset.
-const LIBRARY_ROW_LINES: usize = LIBRARY_ROW_HEIGHT as usize;
+pub(crate) const LIBRARY_ROW_LINES: usize = LIBRARY_ROW_HEIGHT as usize;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LibraryHit {
-    Item(usize),
-    SearchAt(usize),
+/// Full rows only: the list is bottom-aligned so the last row sits
+/// directly above the search bar and no row is ever cut in half.
+fn row_viewport(list_area: Rect) -> Rect {
+    let height = (list_area.height / LIBRARY_ROW_HEIGHT) * LIBRARY_ROW_HEIGHT;
+    Rect {
+        x: list_area.x,
+        y: list_area.bottom().saturating_sub(height),
+        width: list_area.width,
+        height,
+    }
 }
 
 /// Top line and clamped line offset for a list scrolled by `scroll`.
 /// Short lists sit directly above the search bar; overflowing lists
-/// scroll freely from the top edge.
+/// scroll freely inside the full-row viewport.
 fn list_layout(list_area: Rect, total: usize, scroll: usize) -> (i32, usize) {
+    let viewport = row_viewport(list_area);
+    let height = viewport.height as usize;
+    if height == 0 {
+        return (i32::from(viewport.y), 0);
+    }
     let used = total.saturating_mul(LIBRARY_ROW_LINES);
-    let height = list_area.height as usize;
     if used <= height {
-        ((list_area.y as usize + height - used) as i32, 0)
+        ((viewport.y as usize + height - used) as i32, 0)
     } else {
         let scroll = scroll.min(used - height);
         let offset = (scroll % LIBRARY_ROW_LINES) as i32;
-        (list_area.y as i32 - offset, scroll)
+        (viewport.y as i32 - offset, scroll)
     }
 }
 
@@ -49,12 +59,15 @@ pub(crate) fn selection_scroll(
     scroll: usize,
     selected: usize,
 ) -> usize {
+    let viewport = row_viewport(list_area).height as usize;
+    if viewport == 0 {
+        return 0;
+    }
     let max = total
         .saturating_mul(LIBRARY_ROW_LINES)
-        .saturating_sub(list_area.height as usize);
+        .saturating_sub(viewport);
     let top = selected.saturating_mul(LIBRARY_ROW_LINES);
     let bottom = top.saturating_add(LIBRARY_ROW_LINES);
-    let viewport = list_area.height as usize;
     if top < scroll {
         top
     } else if bottom > scroll.saturating_add(viewport) {
@@ -63,6 +76,12 @@ pub(crate) fn selection_scroll(
         scroll
     }
     .min(max)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LibraryHit {
+    Item(usize),
+    SearchAt(usize),
 }
 
 /// Hit-test a click at terminal cell `(column, row)` against the layout
@@ -96,13 +115,25 @@ pub(crate) fn hit_test(
     if !mouse::contains(list_area, column, row) {
         return None;
     }
+    let viewport = row_viewport(list_area);
+    if !mouse::contains(viewport, column, row) {
+        return None;
+    }
     let total = state.filtered_len();
     let (top, _) = list_layout(list_area, total, state.list_scroll());
     if (row as i32) < top {
         return None;
     }
     let index = (row as i32 - top) as usize / LIBRARY_ROW_LINES;
-    (index < total).then_some(LibraryHit::Item(index))
+    if index >= total {
+        return None;
+    }
+    let row_top = top + (index * LIBRARY_ROW_LINES) as i32;
+    let row_bottom = row_top + LIBRARY_ROW_LINES as i32;
+    if row_top < i32::from(viewport.y) || row_bottom > i32::from(viewport.bottom()) {
+        return None;
+    }
+    Some(LibraryHit::Item(index))
 }
 
 /// Whether the pointer is over the searchable list, wheel scrolling
@@ -160,78 +191,172 @@ pub fn render_library_list(
         return;
     }
 
+    let viewport = row_viewport(area);
+    let rows = viewport.height as usize / LIBRARY_ROW_LINES;
+    if rows == 0 {
+        state.set_list_viewport(0, 0);
+        return;
+    }
+
     let total = state.filtered_len();
     let max_scroll = total
         .saturating_mul(LIBRARY_ROW_LINES)
-        .saturating_sub(area.height as usize);
-    state.set_list_scroll_max(max_scroll);
+        .saturating_sub(viewport.height as usize);
+    state.set_list_viewport(rows, max_scroll);
     // Keyboard selection pulls its row into view; wheel and hover never
     // move the cursor.
-    if state.list_selection_moved()
-        && let Some(selected) = state.selected_index()
-    {
-        let scroll = selection_scroll(area, total, state.list_scroll(), selected);
-        state.jump_list_scroll(scroll);
+    if state.list_selection_moved() {
+        state.settle_list_scroll();
+        if let Some(selected) = state.selected_index() {
+            let scroll = selection_scroll(area, total, state.list_scroll(), selected);
+            state.jump_list_scroll(scroll);
+        }
     }
     state.clear_list_selection_moved();
     let scroll = state.advance_list_scroll().min(max_scroll);
+    // While the wheel owns the list, the cursor is pinned to the row
+    // touching the search bar. At the top there is nothing left to
+    // scroll, so the cursor walks up the visible rows instead.
+    let follow = state.list_follows_bottom() && total > 0;
+    if follow {
+        state.follow_list_scroll(state.follow_row().min(total - 1));
+    }
     let (top, scroll) = list_layout(area, total, scroll);
-    let first = scroll / LIBRARY_ROW_LINES;
+    if follow && max_scroll > 0 && scroll > 0 {
+        render_following_list(frame, state, viewport, top, scroll, theme);
+    } else {
+        render_static_list(frame, state, viewport, top, scroll, theme);
+    }
+}
+
+/// Rows gliding under the fixed highlight window above the search bar.
+fn render_following_list(
+    frame: &mut Frame,
+    state: &LibraryPageState,
+    viewport: Rect,
+    top: i32,
+    scroll: usize,
+    theme: &Theme,
+) {
+    let total = state.filtered_len();
+    let bar_top = i32::from(viewport.bottom()) - i32::from(LIBRARY_ROW_HEIGHT);
+    let bar_bottom = bar_top + i32::from(LIBRARY_ROW_HEIGHT);
+    let viewport_top = i32::from(viewport.y);
+    let viewport_bottom = i32::from(viewport.bottom());
 
     let mut y = top;
-    for index in first..total {
-        if y >= i32::from(area.bottom()) {
+    for index in scroll / LIBRARY_ROW_LINES..total {
+        if y >= viewport_bottom {
             break;
         }
-        if let Some(item) = state.item_at_filtered(index) {
+        if y + LIBRARY_ROW_LINES as i32 > viewport_top
+            && let Some(item) = state.item_at_filtered(index)
+        {
+            // Above the window the row keeps its normal styling.
+            if y < bar_top {
+                render_library_item(
+                    frame,
+                    viewport,
+                    y as u16,
+                    item,
+                    theme,
+                    false,
+                    viewport_top..bar_top,
+                );
+            }
+            // Inside the window it is the highlighted entry.
+            if y + LIBRARY_ROW_LINES as i32 > bar_top {
+                render_library_item(
+                    frame,
+                    viewport,
+                    y as u16,
+                    item,
+                    theme,
+                    true,
+                    bar_top..bar_bottom,
+                );
+            }
+        }
+        y += LIBRARY_ROW_LINES as i32;
+    }
+}
+
+/// Rows laid out whole; partial rows wait for the glide to bring them in.
+fn render_static_list(
+    frame: &mut Frame,
+    state: &LibraryPageState,
+    viewport: Rect,
+    top: i32,
+    scroll: usize,
+    theme: &Theme,
+) {
+    let total = state.filtered_len();
+    let viewport_top = i32::from(viewport.y);
+    let viewport_bottom = i32::from(viewport.bottom());
+
+    let mut y = top;
+    for index in scroll / LIBRARY_ROW_LINES..total {
+        if y >= viewport_bottom {
+            break;
+        }
+        // Only whole rows are drawn: a row that would be cut by either
+        // edge waits until the glide brings it fully into view.
+        if y >= viewport_top
+            && y + LIBRARY_ROW_LINES as i32 <= viewport_bottom
+            && let Some(item) = state.item_at_filtered(index)
+        {
             render_library_item(
                 frame,
-                area,
-                y,
+                viewport,
+                y as u16,
                 item,
                 theme,
                 state.selected_index() == Some(index),
+                viewport_top..viewport_bottom,
             );
         }
         y += LIBRARY_ROW_LINES as i32;
     }
 }
 
-/// One list row; `top` may sit above or below the list so partially
-/// scrolled rows clip instead of jumping.
+/// One list row, clipped to `clip` so it never paints outside its slot.
 fn render_library_item(
     frame: &mut Frame,
     list_area: Rect,
-    top: i32,
+    top: u16,
     item: &crate::widgets::library::state::LibraryTrigger,
     theme: &Theme,
     selected: bool,
+    clip: std::ops::Range<i32>,
 ) {
+    let row_top = i32::from(top);
+    let row_bottom = row_top + i32::from(LIBRARY_ROW_HEIGHT);
+    let visible_top = row_top.max(clip.start);
+    let visible_bottom = row_bottom.min(clip.end);
+    if visible_top >= visible_bottom {
+        return;
+    }
     let row_style = if selected {
         Style::default().bg(theme.surface)
     } else {
         Style::default()
     };
-    let clipped_top = top.max(i32::from(list_area.y));
-    let clipped_bottom = (top + LIBRARY_ROW_LINES as i32).min(i32::from(list_area.bottom()));
-    if clipped_bottom > clipped_top {
-        frame.render_widget(
-            Block::default().style(row_style),
-            Rect {
-                x: list_area.x,
-                y: clipped_top as u16,
-                width: list_area.width,
-                height: (clipped_bottom - clipped_top) as u16,
-            },
-        );
-    }
+    frame.render_widget(
+        Block::default().style(row_style),
+        Rect {
+            x: list_area.x,
+            y: visible_top as u16,
+            width: list_area.width,
+            height: (visible_bottom - visible_top) as u16,
+        },
+    );
 
     let content_x = list_area.x.saturating_add(LIBRARY_ITEM_PAD_X);
     let content_width = list_area.width.saturating_sub(2 * LIBRARY_ITEM_PAD_X);
     if content_width == 0 {
         return;
     }
-    let trigger_y = top + i32::from(LIBRARY_ITEM_PADDING);
+    let trigger_y = top + LIBRARY_ITEM_PADDING;
     let preview_y = trigger_y + 1;
 
     let trigger_style = if selected {
@@ -259,40 +384,40 @@ fn render_library_item(
     // honey: hotkey rows split the chord into keycap pills; the pill
     // fill lightens on the selected card so it stays visible against
     // the card surface, and the gap keeps the card background.
-    if trigger_y >= i32::from(list_area.y) && trigger_y < i32::from(list_area.bottom()) {
-        let top_line = if item.is_hotkey() {
-            let (keycap_bg, base_bg) = if selected {
-                (theme.keycap.on_surface, theme.surface)
-            } else {
-                (theme.keycap.bg, theme.background)
-            };
-            Line::from(hotkey::render_hotkey_spans(
-                item.trigger(),
-                content_width as usize,
-                keycap_bg,
-                theme.text,
-                base_bg,
-            ))
+    let top_line = if item.is_hotkey() {
+        let (keycap_bg, base_bg) = if selected {
+            (theme.keycap.on_surface, theme.surface)
         } else {
-            Line::from(util::truncate_to_width(item.trigger(), content_width))
+            (theme.keycap.bg, theme.background)
         };
+        Line::from(hotkey::render_hotkey_spans(
+            item.trigger(),
+            content_width as usize,
+            keycap_bg,
+            theme.text,
+            base_bg,
+        ))
+    } else {
+        Line::from(util::truncate_to_width(item.trigger(), content_width))
+    };
+    if clip.contains(&i32::from(trigger_y)) {
         frame.render_widget(
             Paragraph::new(top_line).style(trigger_style),
             Rect {
                 x: content_x,
-                y: trigger_y as u16,
+                y: trigger_y,
                 width: content_width,
                 height: 1,
             },
         );
     }
-    if preview_y >= i32::from(list_area.y) && preview_y < i32::from(list_area.bottom()) {
+    if clip.contains(&i32::from(preview_y)) {
         frame.render_widget(
             Paragraph::new(util::truncate_to_width(item.preview(), content_width))
                 .style(preview_style),
             Rect {
                 x: content_x,
-                y: preview_y as u16,
+                y: preview_y,
                 width: content_width,
                 height: 1,
             },
