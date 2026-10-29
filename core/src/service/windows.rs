@@ -1,8 +1,9 @@
 use std::env;
 use std::os::windows::process::CommandExt;
 use std::process::Command;
+use std::time::{Duration, Instant};
 
-use sysinfo::System;
+use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 use tokio::runtime::Runtime;
 use tracing::{debug, error, info, warn};
 use windows::Win32::System::Com::{
@@ -282,52 +283,91 @@ fn register_task_scheduler() -> windows::core::Result<()> {
     }
 }
 
+/// Refresh the process list with command lines included.
+///
+/// The default refresh kind leaves `cmd()` empty, so matching `--daemon`
+/// silently found nothing and the kill fallback was a no-op.
+fn refresh_processes(sys: &mut System) {
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::nothing()
+            .with_exe(UpdateKind::OnlyIfNotSet)
+            .with_cmd(UpdateKind::OnlyIfNotSet),
+    );
+}
+
+/// Every live Taurine daemon process, excluding this one.
+fn daemon_pids(sys: &mut System) -> Vec<sysinfo::Pid> {
+    refresh_processes(sys);
+    let current_pid = sysinfo::Pid::from_u32(std::process::id());
+
+    sys.processes()
+        .iter()
+        .filter(|(pid, process)| {
+            **pid != current_pid && {
+                let name = process.name().to_string_lossy().to_lowercase();
+                (name == "taurine.exe" || name == "taurine")
+                    && process
+                        .cmd()
+                        .iter()
+                        .any(|arg| arg.to_string_lossy() == "--daemon")
+            }
+        })
+        .map(|(pid, _)| *pid)
+        .collect()
+}
+
 fn is_daemon_running(sys: &mut System) -> bool {
     if super::is_service_running() {
         return true;
     }
 
-    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-    let current_pid = sysinfo::Pid::from_u32(std::process::id());
-
-    for (pid, process) in sys.processes() {
-        if *pid == current_pid {
-            continue;
-        }
-        let name = process.name().to_string_lossy().to_lowercase();
-        if (name == "taurine.exe" || name == "taurine")
-            && process
-                .cmd()
-                .iter()
-                .any(|arg| arg.to_string_lossy() == "--daemon")
-        {
-            return true;
-        }
-    }
-    false
+    !daemon_pids(sys).is_empty()
 }
 
 fn kill_daemon(sys: &mut System) -> usize {
-    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-    let current_pid = sysinfo::Pid::from_u32(std::process::id());
     let mut killed = 0;
 
-    for (pid, process) in sys.processes() {
-        if *pid == current_pid {
-            continue;
-        }
-        let name = process.name().to_string_lossy().to_lowercase();
-        if (name == "taurine.exe" || name == "taurine")
-            && process
-                .cmd()
-                .iter()
-                .any(|arg| arg.to_string_lossy() == "--daemon")
-            && process.kill()
-        {
-            killed += 1;
+    for pid in daemon_pids(sys) {
+        if let Some(process) = sys.process(pid) {
+            if process.kill() {
+                killed += 1;
+            } else {
+                warn!("Failed to terminate Taurine process {pid}; it may need elevated privileges");
+            }
         }
     }
+
     killed
+}
+
+/// Poll until no daemon remains or the timeout expires.
+fn wait_until_stopped(sys: &mut System, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if !is_daemon_running(sys) {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+fn remove_startup_hooks() {
+    if let Err(e) = unregister_task_scheduler() {
+        debug!(
+            "Could not remove Task Scheduler task (was it installed?): {}",
+            e
+        );
+    }
+    if let Err(e) = remove_autorun() {
+        error!("Could not remove startup hook (was it installed?): {}", e);
+    }
+    remove_startup_exe();
+    cleanup_startup_launcher();
 }
 
 pub fn sync_boot(enabled: bool) -> crate::error::Result<()> {
@@ -419,31 +459,16 @@ pub fn down() -> crate::error::Result<()> {
         });
     }
 
-    if let Err(e) = unregister_task_scheduler() {
-        debug!(
-            "Could not remove Task Scheduler task (was it installed?): {}",
-            e
-        );
-    }
-    if let Err(e) = remove_autorun() {
-        error!("Could not remove startup hook (was it installed?): {}", e);
-    }
-    remove_startup_exe();
-    cleanup_startup_launcher();
-
     let mut sys = System::new();
 
-    if grpc_success {
-        for _ in 0..10 {
-            if !is_daemon_running(&mut sys) {
-                info!("Taurine service has been stopped.");
-                return Ok(());
-            }
-            std::thread::sleep(std::time::Duration::from_millis(500));
-        }
+    if grpc_success && wait_until_stopped(&mut sys, Duration::from_secs(5)) {
+        remove_startup_hooks();
+        info!("Taurine service has been stopped.");
+        return Ok(());
     }
 
     if !is_daemon_running(&mut sys) {
+        remove_startup_hooks();
         info!("Taurine service is already stopped.");
         return Ok(());
     }
@@ -452,12 +477,16 @@ pub fn down() -> crate::error::Result<()> {
         "Graceful shutdown did not terminate the process in time; invoking process killer as fallback."
     );
     let killed = kill_daemon(&mut sys);
-    if killed > 0 {
-        info!("Taurine has been stopped.");
-    } else {
-        error!("Failed to kill Taurine process. It might still be running.");
+    if killed == 0 || !wait_until_stopped(&mut sys, Duration::from_secs(2)) {
+        // Keep the startup hooks registered: the service is still running, and
+        // removing them here would silently disable autostart for a live app.
+        return Err(crate::error::Error::Service(
+            "Failed to kill Taurine process. It might still be running.".to_string(),
+        ));
     }
 
+    remove_startup_hooks();
+    info!("Taurine has been stopped.");
     Ok(())
 }
 
@@ -481,18 +510,21 @@ pub fn restart(start_on_boot: bool) -> crate::error::Result<()> {
         }
 
         if grpc_success {
-            for _ in 0..10 {
-                if !is_daemon_running(&mut sys) {
-                    break;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(500));
-            }
+            wait_until_stopped(&mut sys, Duration::from_secs(5));
         }
 
         if is_daemon_running(&mut sys) {
             debug!("Service did not exit gracefully; force-killing for restart.");
-            kill_daemon(&mut sys);
-            std::thread::sleep(std::time::Duration::from_millis(500));
+            let killed = kill_daemon(&mut sys);
+            if killed == 0 || !wait_until_stopped(&mut sys, Duration::from_secs(2)) {
+                // Never spawn a second instance on top of a live one: it would
+                // exit on the liveness guard while the old process keeps
+                // serving, making the restart a silent no-op.
+                return Err(crate::error::Error::Service(
+                    "Failed to stop the running Taurine process; refusing to start another instance."
+                        .to_string(),
+                ));
+            }
         }
     }
 
@@ -707,6 +739,18 @@ mod tests {
                 .open_subkey(TEST_KEY)
                 .is_err(),
             "test key must be gone after cleanup"
+        );
+    }
+
+    #[test]
+    fn refresh_processes_includes_command_lines() {
+        let mut sys = System::new();
+        refresh_processes(&mut sys);
+        let pid = sysinfo::Pid::from_u32(std::process::id());
+        let process = sys.process(pid).expect("current process must be listed");
+        assert!(
+            !process.cmd().is_empty(),
+            "daemon matching depends on command lines being refreshed"
         );
     }
 
