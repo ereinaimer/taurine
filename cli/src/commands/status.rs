@@ -32,6 +32,9 @@ pub fn execute_status(json: bool) -> Result<()> {
     let tokens_opt = taurine_core::cloud::get_tokens().ok().flatten();
     let is_authenticated = tokens_opt.is_some();
     let user_id = tokens_opt.as_ref().map(|t| t.user_id.clone());
+    let email = tokens_opt
+        .as_ref()
+        .and_then(|t| taurine_core::cloud::extract_jwt_email(&t.access_token));
 
     // 3. Database connection & Tier
     let conn = init::setup()?;
@@ -57,6 +60,8 @@ pub fn execute_status(json: bool) -> Result<()> {
             taurine_core::db::crud::quota::calculate_week_start_epoch(now_epoch) + 7 * 86400,
         ),
     };
+    let remaining_secs = (rollover_epoch - now_epoch).max(0) as u64;
+    let resets_in_str = format_relative_duration(remaining_secs);
 
     // 5. Active Snippets
     let snippet_count: i64 = conn
@@ -82,10 +87,13 @@ pub fn execute_status(json: bool) -> Result<()> {
             "service_status": service_status,
             "authenticated": is_authenticated,
             "user_id": user_id,
+            "email": email,
             "tier": format!("{:?}", tier),
             "weekly_quota": {
                 "remaining_percentage": if tier.is_unlimited() { serde_json::Value::Null } else { serde_json::json!(quota_remaining) },
                 "rollover_epoch": rollover_epoch,
+                "resets_in": if tier.is_unlimited() { serde_json::Value::Null } else { serde_json::json!(resets_in_str) },
+                "resets_in_seconds": if tier.is_unlimited() { serde_json::Value::Null } else { serde_json::json!(remaining_secs) },
             },
             "active_snippets": {
                 "count": snippet_count,
@@ -109,24 +117,60 @@ pub fn execute_status(json: bool) -> Result<()> {
     } else {
         println!("Taurine Status");
         println!("  Service:          {}", service_status);
-        if let Some(ref uid) = user_id {
-            println!("  Account ID:       {}", uid);
+        if let Some(ref em) = email {
+            println!("  Account:          {}", em);
+        } else if let Some(ref uid) = user_id {
+            println!("  Account:          {}", uid);
         } else {
-            println!("  Account ID:       Not logged in (run 'taurine login')");
+            println!("  Account:          Not logged in (run 'taurine login')");
         }
         println!("  Tier:             {:?}", tier);
-        println!("  Active Devices:   1 active ({}, Unlimited)", device_name);
+        println!("  Active Devices:   1 active ({})", device_name);
         if tier.is_unlimited() {
             println!("  Weekly Quota:     Unlimited");
         } else {
             println!(
-                "  Weekly Quota:     {:.1}% remaining (rollover epoch: {})",
-                quota_remaining, rollover_epoch
+                "  Weekly Quota:     {:.1}% remaining (resets in {})",
+                quota_remaining, resets_in_str
             );
         }
-        println!("  Active Snippets:  {} active (Unlimited)", snippet_count);
-        println!("  Workspaces:       {} active (Unlimited)", workspace_count);
+        println!("  Active Snippets:  {} active", snippet_count);
+        println!("  Workspaces:       {} active", workspace_count);
     }
 
     Ok(())
+}
+
+/// Formats a remaining duration in seconds into a compact human-friendly string (e.g. "5d 11h", "2h 15m", "< 1m").
+pub(crate) fn format_relative_duration(total_secs: u64) -> String {
+    let days = total_secs / 86400;
+    let hours = (total_secs % 86400) / 3600;
+    let minutes = (total_secs % 3600) / 60;
+
+    if days > 0 {
+        format!("{days}d {hours}h")
+    } else if hours > 0 {
+        format!("{hours}h {minutes}m")
+    } else if minutes > 0 {
+        format!("{minutes}m")
+    } else {
+        "< 1m".to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_relative_duration() {
+        assert_eq!(format_relative_duration(5 * 86400 + 11 * 3600), "5d 11h");
+        assert_eq!(format_relative_duration(86400), "1d 0h");
+        assert_eq!(format_relative_duration(2 * 3600 + 15 * 60), "2h 15m");
+        assert_eq!(format_relative_duration(3600), "1h 0m");
+        assert_eq!(format_relative_duration(45 * 60), "45m");
+        assert_eq!(format_relative_duration(60), "1m");
+        assert_eq!(format_relative_duration(30), "< 1m");
+        assert_eq!(format_relative_duration(0), "< 1m");
+    }
 }

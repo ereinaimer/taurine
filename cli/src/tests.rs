@@ -935,6 +935,34 @@ fn test_status_command_executes_hermetically() {
 }
 
 #[test]
+fn test_status_command_authenticated_with_email() {
+    let _lock = crate::commands::TEST_LOCK.lock().unwrap();
+    crate::commands::test_keyring::use_shared_test_keyring();
+    let temp = tempfile::tempdir().expect("tempdir");
+    // SAFETY: access to TAURINE_DATA_DIR is serialized by TEST_LOCK
+    unsafe { std::env::set_var("TAURINE_DATA_DIR", temp.path()) };
+
+    let mock_tokens = taurine_core::cloud::AuthTokens {
+        access_token: "e30.eyJzdWIiOiJ1MSIsImVtYWlsIjoidXNlckBleGFtcGxlLmNvbSJ9.sig".to_string(),
+        refresh_token: "mock-refresh-token".to_string(),
+        user_id: "user-uuid-12345".to_string(),
+        expires_at: Some(9999999999),
+    };
+    taurine_core::cloud::store_tokens(&mock_tokens).expect("store tokens succeeds");
+
+    let res_plain = crate::commands::status::execute_status(false);
+    assert!(res_plain.is_ok());
+
+    let res_json = crate::commands::status::execute_status(true);
+    assert!(res_json.is_ok());
+
+    taurine_core::cloud::clear_tokens().expect("clear tokens succeeds");
+
+    // SAFETY: access to TAURINE_DATA_DIR is serialized by TEST_LOCK
+    unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
+}
+
+#[test]
 fn test_workspace_command_parsing() {
     let cli = Cli::try_parse_from(["taurine", "workspace"]).expect("workspace default parses");
     assert!(matches!(
