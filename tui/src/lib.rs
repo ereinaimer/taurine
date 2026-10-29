@@ -4097,6 +4097,69 @@ mod tests {
     }
 
     #[test]
+    fn clicking_after_a_wheel_scroll_selects_the_row_under_the_pointer() {
+        use ratatui::{Terminal, backend::TestBackend};
+
+        let mut app = library_app();
+        seed_library_items(&mut app, 40);
+        let backend = TestBackend::new(TEST_AREA.width, TEST_AREA.height);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal
+            .draw(|frame| render_app(frame, &mut app, TEST_AREA))
+            .expect("test draw");
+        let full = workspace_full(&app, TEST_AREA);
+        let page = app.library_page();
+        let content = library::left_content(full, page.split_ratio(), page.detail_ratio());
+        let (list_area, _) =
+            library::content_sections(content, false, page.search_field(), page.is_search_active());
+        let rows = (list_area.height / 4) as usize;
+        app.library_page_mut().select_first_window_bottom(rows);
+
+        for _ in 0..2 {
+            handle_tui_mouse_event(
+                &mut app,
+                mouse_at(list_area.x + 2, list_area.y + 2, MouseEventKind::ScrollDown),
+                TEST_AREA,
+            );
+            for _ in 0..20 {
+                terminal
+                    .draw(|frame| render_app(frame, &mut app, TEST_AREA))
+                    .expect("test draw");
+                if !app.library_page().list_scroll_animating() {
+                    break;
+                }
+            }
+        }
+        assert_eq!(app.library_page().list_scroll(), 8, "two rows scrolled");
+
+        // Second visible row: four lines down from the row viewport top.
+        let viewport_top = list_area.bottom() - (rows as u16 * 4);
+        let click_row = viewport_top + 4 + 1;
+        let column = list_area.x + 2;
+        assert_eq!(
+            library::list::hit_test(full, app.library_page(), column, click_row),
+            Some(library::list::LibraryHit::Item(3)),
+            "the hit maps to the drawn row, not the unscrolled list"
+        );
+
+        handle_tui_mouse_event(&mut app, left_click(column, click_row), TEST_AREA);
+        assert_eq!(app.library_page().selected_index(), Some(3));
+        assert!(!app.library_page().list_follows_bottom());
+
+        terminal
+            .draw(|frame| render_app(frame, &mut app, TEST_AREA))
+            .expect("test draw");
+        let buffer = terminal.backend().buffer();
+        for y in viewport_top + 4..viewport_top + 8 {
+            assert_eq!(
+                buffer[(list_area.x + 1, y)].bg,
+                crate::theme::default::DARK_THEME.surface,
+                "the clicked row stays highlighted (line {y})"
+            );
+        }
+    }
+
+    #[test]
     fn home_copy_button_writes_the_event() {
         use ratatui::{Terminal, backend::TestBackend};
 

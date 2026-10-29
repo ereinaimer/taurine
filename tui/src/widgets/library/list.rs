@@ -120,15 +120,19 @@ pub(crate) fn hit_test(
         return None;
     }
     let total = state.filtered_len();
-    let (top, _) = list_layout(list_area, total, state.list_scroll());
+    let (top, scroll) = list_layout(list_area, total, state.list_scroll());
     if (row as i32) < top {
         return None;
     }
-    let index = (row as i32 - top) as usize / LIBRARY_ROW_LINES;
+    // The row under the pointer is offset by the rows scrolled past the
+    // top edge, so clicks map to the item actually drawn there.
+    let first = scroll / LIBRARY_ROW_LINES;
+    let offset = (row as i32 - top) as usize / LIBRARY_ROW_LINES;
+    let index = first.saturating_add(offset);
     if index >= total {
         return None;
     }
-    let row_top = top + (index * LIBRARY_ROW_LINES) as i32;
+    let row_top = top + (offset * LIBRARY_ROW_LINES) as i32;
     let row_bottom = row_top + LIBRARY_ROW_LINES as i32;
     if row_top < i32::from(viewport.y) || row_bottom > i32::from(viewport.bottom()) {
         return None;
