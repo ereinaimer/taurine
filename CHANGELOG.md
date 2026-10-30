@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Trigger Display Names**: Replaced redundant trigger display names with primary trigger invocations and descriptions across the CLI and TUI.
 
 ### Fixed
+- **Safe Database Purge on Logout**: Drain pending sync changes before purging local database files on logout.
 - **Trigger Sync Backfill**: Automatically enqueue existing and imported triggers into sync outbox to guarantee complete cloud synchronization.
 - **Windows Browser Launch**: Prevent OAuth login URLs with multiple query parameters from being truncated on Windows.
 - **Cloud State Restoration**: Reliably restore and synchronize quota balances, triggers, settings, and telemetry when signing in and out of Taurine.
