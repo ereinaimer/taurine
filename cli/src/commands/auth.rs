@@ -232,12 +232,28 @@ fn extract_code_from_request_line(line: &str) -> Option<String> {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn to_wide_null(s: &str) -> Vec<u16> {
+    s.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
 fn open_browser(url: &str) {
     #[cfg(target_os = "windows")]
     {
-        let _ = std::process::Command::new("cmd")
-            .args(["/c", "start", "", url])
-            .spawn();
+        use std::ptr;
+        let wide_verb = to_wide_null("open");
+        let wide_url = to_wide_null(url);
+        // SAFETY: ShellExecuteW invokes the default system handler for the URL protocol with valid null-terminated wide strings
+        unsafe {
+            windows_sys::Win32::UI::Shell::ShellExecuteW(
+                ptr::null_mut(),
+                wide_verb.as_ptr(),
+                wide_url.as_ptr(),
+                ptr::null(),
+                ptr::null(),
+                windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL,
+            );
+        }
     }
     #[cfg(target_os = "macos")]
     {
@@ -246,5 +262,53 @@ fn open_browser(url: &str) {
     #[cfg(target_os = "linux")]
     {
         let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn test_to_wide_null_preserves_query_parameters() {
+        let url = "https://example.supabase.co/auth/v1/authorize?provider=google&code_challenge=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk&code_challenge_method=s256&redirect_to=http%3A%2F%2F127.0.0.1%3A54321%2Fcallback";
+        let wide = to_wide_null(url);
+        assert_eq!(*wide.last().unwrap(), 0);
+
+        let decoded = String::from_utf16(&wide[..wide.len() - 1]).expect("valid utf-16");
+        assert_eq!(decoded, url);
+        assert_eq!(decoded.matches('&').count(), 3);
+        assert!(decoded.contains("provider=google"));
+        assert!(decoded.contains("code_challenge="));
+        assert!(decoded.contains("code_challenge_method="));
+        assert!(decoded.contains("redirect_to="));
+    }
+
+    #[test]
+    fn test_extract_code_from_request_line() {
+        assert_eq!(
+            extract_code_from_request_line("GET /callback?code=abc123xyz HTTP/1.1"),
+            Some("abc123xyz".to_string())
+        );
+        assert_eq!(
+            extract_code_from_request_line("GET /callback?code=abc123xyz&state=state1 HTTP/1.1"),
+            Some("abc123xyz".to_string())
+        );
+        assert_eq!(
+            extract_code_from_request_line("GET /callback HTTP/1.1"),
+            None
+        );
+    }
+
+    #[test]
+    #[ignore = "touches host browser (native_shell_open); opt-in with TAURINE_ALLOW_HOST_INPUT=1"]
+    fn test_open_browser_live_url_invocation() {
+        if !taurine_daemon::platform::host_tests_allowed() {
+            return;
+        }
+        open_browser(
+            "https://example.supabase.co/auth/v1/authorize?provider=google&code_challenge=test&redirect_to=http://127.0.0.1:8080",
+        );
     }
 }
