@@ -984,6 +984,7 @@ async fn test_sync_trigger_daily_stats_and_global_stats_upload() {
         [],
     )
     .unwrap();
+    taurine_core::db::crud::set_sync_checkpoint(&conn, "snippets_backfilled", 1).unwrap();
 
     // Insert unsynced trigger_daily_stats
     taurine_core::db::crud::stats::upsert_trigger_daily_stat_with_conn(
@@ -2670,6 +2671,94 @@ async fn test_record_quota_burn_rpc_payload_and_balance_update() {
 
     // Verify QuotaGuard balance updated
     assert_eq!(guard.balance(), 99.40);
+
+    let _ = server_handle.join();
+    taurine_core::cloud::clear_tokens().unwrap();
+}
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn test_sync_worker_backfills_untracked_triggers_and_pushes() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    crate::hook::tests::mock_keystore::use_mock_keystore();
+
+    let tokens = taurine_core::cloud::AuthTokens {
+        access_token: "mock-token-xyz".to_string(),
+        refresh_token: "mock-refresh".to_string(),
+        user_id: "user-backfill-1".to_string(),
+        expires_at: Some(2000000000),
+    };
+    taurine_core::cloud::store_tokens(&tokens).unwrap();
+
+    let conn = Connection::open_in_memory().unwrap();
+    ensure_schema(&conn).unwrap();
+
+    conn.execute(
+        "INSERT INTO triggers (id, output, action_type, target_os, is_deleted, is_enabled, version, created_at, updated_at)
+         VALUES ('trig-backfill-1', 'backfill output', 'text', 'all', 0, 1, 1, 1000, 1000)",
+        [],
+    ).unwrap();
+    conn.execute(
+        "INSERT INTO trigger_aliases (id, trigger_id, invocation, invocation_type, require_confirmation, created_at)
+         VALUES ('alias-backfill-1', 'trig-backfill-1', 'bf', 'word', 0, 1000)",
+        [],
+    ).unwrap();
+
+    let outbox_before = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    assert_eq!(outbox_before.len(), 0);
+
+    let pushed_snippets_counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let pushed_counter_clone = pushed_snippets_counter.clone();
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let server_handle = std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        for _ in 0..8 {
+            let (mut stream, _) = match listener.accept() {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            let mut buf = [0u8; 4096];
+            let n = match stream.read(&mut buf) {
+                Ok(n) => n,
+                Err(_) => break,
+            };
+            let req = String::from_utf8_lossy(&buf[..n]);
+
+            if req.starts_with("POST /rest/v1/snippets") {
+                pushed_counter_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let resp = "HTTP/1.1 201 Created\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+                stream.write_all(resp.as_bytes()).unwrap();
+            } else if req.starts_with("GET /rest/v1/") {
+                let resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+                stream.write_all(resp.as_bytes()).unwrap();
+            }
+        }
+    });
+
+    let config = CloudConfig {
+        supabase_url: format!("http://127.0.0.1:{port}"),
+        anon_key: "test-anon-key".to_string(),
+    };
+    let client = CloudClient::new(config);
+
+    let status = SyncWorker::run_sync_cycle(&conn, Some(&client)).await;
+    assert!(matches!(status, SyncStatus::Success { .. }));
+
+    let remaining = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    assert!(
+        remaining.is_empty(),
+        "Backfilled outbox entries must be drained"
+    );
+
+    assert_eq!(
+        pushed_snippets_counter.load(std::sync::atomic::Ordering::SeqCst),
+        1
+    );
 
     let _ = server_handle.join();
     taurine_core::cloud::clear_tokens().unwrap();

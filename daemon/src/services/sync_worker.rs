@@ -264,6 +264,13 @@ impl SyncWorker {
             let _ = crate::engine::quota_guard::QuotaGuard::global().flush_to_db(conn, &key);
         }
 
+        if taurine_core::db::crud::get_sync_checkpoint(conn, "snippets_backfilled").unwrap_or(0)
+            == 0
+        {
+            let _ = taurine_core::db::crud::triggers::backfill_untracked_triggers_to_outbox(conn);
+            let _ = taurine_core::db::crud::set_sync_checkpoint(conn, "snippets_backfilled", 1);
+        }
+
         let client = match client {
             Some(c) => c,
             None => return SyncStatus::NotAuthenticated,

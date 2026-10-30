@@ -52,9 +52,9 @@ pub use trigger_set::{
     upsert_trigger_with_type, upsert_trigger_with_type_and_case,
 };
 pub use trigger_sync::{
-    CloudSnippetPayload, ReconcileOutcome, get_syncable_triggers, get_unsynced_triggers,
-    mark_trigger_synced, purge_deleted_tombstones, reconcile_cloud_snippet,
-    serialize_trigger_to_cloud_snippet,
+    CloudSnippetPayload, ReconcileOutcome, backfill_untracked_triggers_to_outbox,
+    get_syncable_triggers, get_unsynced_triggers, mark_trigger_synced, purge_deleted_tombstones,
+    reconcile_cloud_snippet, serialize_trigger_to_cloud_snippet,
 };
 pub use trigger_types::{
     ActionType, TriggerAction, TriggerConflict, TriggerLimits, TriggerListItem, TriggerRow,

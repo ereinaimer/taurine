@@ -2048,3 +2048,28 @@ fn test_update_and_delete_trigger_entry_enqueue_outbox() {
     assert_eq!(batch[0].operation, "delete");
     assert_eq!(batch[0].payload["is_deleted"], true);
 }
+
+#[test]
+fn test_backfill_untracked_triggers_to_outbox() {
+    init_tracing_for_tests();
+    let (_dir, conn) = open_test_db();
+
+    insert_raw_trigger(&conn, "raw-1", "word", "hello", "all").unwrap();
+    insert_raw_trigger(&conn, "raw-2", "word", "world", "all").unwrap();
+
+    let batch_before = crate::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    assert_eq!(batch_before.len(), 0);
+
+    let backfilled = backfill_untracked_triggers_to_outbox(&conn).unwrap();
+    assert_eq!(backfilled, 2);
+
+    let batch_after = crate::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    assert_eq!(batch_after.len(), 2);
+    assert_eq!(batch_after[0].entity_type, "snippet");
+    assert_eq!(batch_after[0].operation, "upsert");
+    assert_eq!(batch_after[1].entity_type, "snippet");
+    assert_eq!(batch_after[1].operation, "upsert");
+
+    let backfilled_again = backfill_untracked_triggers_to_outbox(&conn).unwrap();
+    assert_eq!(backfilled_again, 0);
+}

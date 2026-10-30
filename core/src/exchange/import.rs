@@ -98,6 +98,8 @@ where
         imported += 1;
     }
 
+    crate::db::crud::triggers::backfill_untracked_triggers_to_outbox(tx)?;
+
     Ok(imported)
 }
 
