@@ -226,6 +226,7 @@ pub fn execute_login(
 pub fn execute_logout(json: bool) -> Result<()> {
     // Attempt a final sync cycle before purging local state so nothing is lost
     if let Ok(conn) = taurine_core::db::init::setup() {
+        let _ = taurine_core::db::crud::triggers::backfill_untracked_triggers_to_outbox(&conn);
         let client = taurine_core::cloud::CloudClient::default_or_from_env();
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -238,6 +239,14 @@ pub fn execute_logout(json: bool) -> Result<()> {
                 )
                 .await
             });
+        }
+        if let Ok(pending) = taurine_core::db::crud::fetch_outbox_batch(&conn, 1)
+            && !pending.is_empty()
+            && !json
+        {
+            eprintln!(
+                "Warning: Some unsaved changes could not be synced to the cloud before logout."
+            );
         }
     }
 
@@ -442,5 +451,41 @@ mod tests {
         );
 
         let _ = taurine_core::cloud::clear_tokens();
+    }
+
+    #[test]
+    fn test_execute_logout_clears_tokens_and_succeeds() {
+        let _guard = crate::commands::TEST_LOCK.lock().unwrap();
+        crate::commands::test_keyring::use_shared_test_keyring();
+        let _ = taurine_core::cloud::clear_tokens();
+
+        let temp = tempfile::tempdir().unwrap();
+        // SAFETY: environment variable manipulation is serialized by TEST_LOCK
+        unsafe {
+            std::env::set_var("TAURINE_DATA_DIR", temp.path());
+            std::env::set_var("TAURINE_SUPABASE_URL", "http://127.0.0.1:1");
+        }
+
+        let mock_tokens = taurine_core::cloud::AuthTokens {
+            access_token: "mock-token-logout".to_string(),
+            refresh_token: "mock-refresh".to_string(),
+            user_id: "user-logout-test".to_string(),
+            expires_at: Some(9999999999),
+        };
+        taurine_core::cloud::store_tokens(&mock_tokens).expect("store tokens succeeds");
+
+        let res = execute_logout(true);
+        assert!(res.is_ok(), "execute_logout must succeed");
+
+        assert!(
+            taurine_core::cloud::get_tokens().unwrap().is_none(),
+            "Tokens must be cleared after logout"
+        );
+
+        // SAFETY: environment variable manipulation is serialized by TEST_LOCK
+        unsafe {
+            std::env::remove_var("TAURINE_DATA_DIR");
+            std::env::remove_var("TAURINE_SUPABASE_URL");
+        }
     }
 }
