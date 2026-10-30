@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Modern Settings Overlay**: Quick-access settings modal (`Ctrl+,`) with inline field editing, graphical animated toggles, volume sliders, and connected microphone pickers.
 
 ### Changed
+- **Login Terminal Experience**: Prevent redundant authentication flows when already signed in and format messages with account email.
 - **Status Command Streamlining**: Displays account email instead of raw ID, shows relative countdown for weekly quota reset, and removes redundant unlimited labels.
 - **Google Authentication**: Replaced GitHub OAuth with Google OAuth as the default cloud authentication provider alongside email login.
 - **Word-Based Telemetry**: Replaced keystroke metrics with separate counts for words spoken and words expanded across daily statistics and cloud synchronization.

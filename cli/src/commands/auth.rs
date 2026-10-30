@@ -15,6 +15,38 @@ pub fn ensure_authenticated() -> Result<taurine_core::cloud::AuthTokens> {
     }
 }
 
+/// Formats the success message string displayed on successful login.
+pub(crate) fn format_login_success_text(email: &str) -> String {
+    format!("Successfully logged in as {email}")
+}
+
+/// Formats the success JSON payload emitted on successful login.
+pub(crate) fn format_login_success_json(email: &str, user_id: &str) -> serde_json::Value {
+    serde_json::json!({
+        "status": "logged_in",
+        "email": email,
+        "user_id": user_id,
+    })
+}
+
+/// Formats the terminal message strings displayed when the user is already authenticated.
+pub(crate) fn format_already_logged_in_text(email: &str) -> (String, String) {
+    (
+        format!("You are already logged into: {email}"),
+        "Run 'taurine logout' first if you want to switch accounts.".to_string(),
+    )
+}
+
+/// Formats the JSON payload emitted when the user is already authenticated.
+pub(crate) fn format_already_logged_in_json(email: &str, user_id: &str) -> serde_json::Value {
+    serde_json::json!({
+        "authenticated": true,
+        "email": email,
+        "user_id": user_id,
+        "message": "Already logged in"
+    })
+}
+
 /// Executes the cloud login sequence via GoTrue OAuth PKCE or Email/Password.
 pub fn execute_login(
     no_browser: bool,
@@ -22,6 +54,22 @@ pub fn execute_login(
     email: Option<&str>,
     json: bool,
 ) -> Result<()> {
+    if let Ok(Some(tokens)) = taurine_core::cloud::get_tokens() {
+        let current_email = taurine_core::cloud::extract_jwt_email(&tokens.access_token)
+            .unwrap_or_else(|| tokens.user_id.clone());
+        if json {
+            println!(
+                "{}",
+                format_already_logged_in_json(&current_email, &tokens.user_id)
+            );
+        } else {
+            let (line1, line2) = format_already_logged_in_text(&current_email);
+            println!("{line1}");
+            println!("{line2}");
+        }
+        return Ok(());
+    }
+
     let (verifier, challenge) = taurine_core::cloud::generate_pkce_challenge();
     let config = taurine_core::cloud::CloudConfig::default_or_from_env();
     let client = taurine_core::cloud::CloudClient::new(config);
@@ -149,11 +197,10 @@ pub fn execute_login(
     taurine_core::db::crud::set_user_tier(&conn, tier)?;
 
     // Synchronize local database with cloud state immediately upon login
-    let sync_outcome = rt.block_on(taurine_daemon::SyncWorker::run_sync_cycle(
+    let _ = rt.block_on(taurine_daemon::SyncWorker::run_sync_cycle(
         &conn,
         Some(&client),
     ));
-    taurine_daemon::SyncWorker::log_sync_status(sync_outcome);
 
     if taurine_core::service::is_service_running() {
         taurine_core::rpc::notify_daemon_reload();
@@ -162,20 +209,13 @@ pub fn execute_login(
         let _ = taurine_core::service::up(settings.start_on_boot);
     }
 
+    let email = taurine_core::cloud::extract_jwt_email(&tokens.access_token)
+        .unwrap_or_else(|| tokens.user_id.clone());
+
     if json {
-        println!(
-            "{}",
-            serde_json::json!({
-                "status": "logged_in",
-                "user_id": tokens.user_id,
-                "tier": format!("{:?}", tier).to_lowercase(),
-            })
-        );
+        println!("{}", format_login_success_json(&email, &tokens.user_id));
     } else {
-        println!(
-            "Successfully logged in as {} (Tier: {:?})",
-            tokens.user_id, tier
-        );
+        println!("{}", format_login_success_text(&email));
     }
 
     Ok(())
@@ -310,5 +350,97 @@ mod tests {
         open_browser(
             "https://example.supabase.co/auth/v1/authorize?provider=google&code_challenge=test&redirect_to=http://127.0.0.1:8080",
         );
+    }
+
+    #[test]
+    fn test_login_success_formatting_excludes_tier_and_uses_email() {
+        let email = "engineer@taurine.ai";
+        let user_id = "00000000-0000-0000-0000-000000000000";
+
+        let text_output = format_login_success_text(email);
+        assert_eq!(text_output, "Successfully logged in as engineer@taurine.ai");
+        assert!(!text_output.contains("Tier"));
+        assert!(!text_output.contains("tier"));
+        assert!(!text_output.contains(user_id));
+
+        let json_val = format_login_success_json(email, user_id);
+        assert_eq!(json_val["status"], "logged_in");
+        assert_eq!(json_val["email"], email);
+        assert_eq!(json_val["user_id"], user_id);
+        assert!(json_val.get("tier").is_none());
+    }
+
+    #[test]
+    fn test_already_logged_in_formatting() {
+        let email = "engineer@taurine.ai";
+        let user_id = "00000000-0000-0000-0000-000000000000";
+
+        let (line1, line2) = format_already_logged_in_text(email);
+        assert_eq!(line1, "You are already logged into: engineer@taurine.ai");
+        assert_eq!(
+            line2,
+            "Run 'taurine logout' first if you want to switch accounts."
+        );
+
+        let json_val = format_already_logged_in_json(email, user_id);
+        assert_eq!(json_val["authenticated"], true);
+        assert_eq!(json_val["email"], email);
+        assert_eq!(json_val["user_id"], user_id);
+        assert_eq!(json_val["message"], "Already logged in");
+    }
+
+    #[test]
+    fn test_login_session_guard_when_already_authenticated_with_email() {
+        let _guard = crate::commands::TEST_LOCK.lock().unwrap();
+        crate::commands::test_keyring::use_shared_test_keyring();
+        let _ = taurine_core::cloud::clear_tokens();
+
+        let mock_tokens = taurine_core::cloud::AuthTokens {
+            access_token: "e30.eyJzdWIiOiJ1MSIsImVtYWlsIjoidXNlckBleGFtcGxlLmNvbSJ9.sig"
+                .to_string(),
+            refresh_token: "mock-refresh".to_string(),
+            user_id: "user-uuid-12345".to_string(),
+            expires_at: Some(9999999999),
+        };
+        taurine_core::cloud::store_tokens(&mock_tokens).expect("store tokens succeeds");
+
+        // Plain text execution should hit session guard and return Ok(()) without network or browser
+        let res_plain = execute_login(false, None, None, false);
+        assert!(
+            res_plain.is_ok(),
+            "execute_login must return Ok when already logged in"
+        );
+
+        // JSON execution should also return Ok(())
+        let res_json = execute_login(true, None, None, true);
+        assert!(
+            res_json.is_ok(),
+            "execute_login json must return Ok when already logged in"
+        );
+
+        let _ = taurine_core::cloud::clear_tokens();
+    }
+
+    #[test]
+    fn test_login_session_guard_fallback_when_token_has_no_email() {
+        let _guard = crate::commands::TEST_LOCK.lock().unwrap();
+        crate::commands::test_keyring::use_shared_test_keyring();
+        let _ = taurine_core::cloud::clear_tokens();
+
+        let mock_tokens = taurine_core::cloud::AuthTokens {
+            access_token: "opaque-or-no-email-token".to_string(),
+            refresh_token: "mock-refresh".to_string(),
+            user_id: "user-fallback-uuid".to_string(),
+            expires_at: Some(9999999999),
+        };
+        taurine_core::cloud::store_tokens(&mock_tokens).expect("store tokens succeeds");
+
+        let res = execute_login(true, None, None, false);
+        assert!(
+            res.is_ok(),
+            "execute_login fallback to user_id must succeed"
+        );
+
+        let _ = taurine_core::cloud::clear_tokens();
     }
 }

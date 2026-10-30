@@ -668,6 +668,10 @@ fn test_login_args_parsing() {
 
 #[test]
 fn test_login_rejects_unsupported_provider() {
+    let _lock = crate::commands::TEST_LOCK.lock().unwrap();
+    crate::commands::test_keyring::use_shared_test_keyring();
+    let _ = taurine_core::cloud::clear_tokens();
+
     let result = crate::commands::auth::execute_login(true, Some("github"), None, false);
     match result {
         Err(taurine_core::Error::Config(msg)) => {
