@@ -54,6 +54,10 @@ impl HookHealthSnapshot {
         }
     }
 
+    pub fn capture_state(&self) -> KeyboardCaptureState {
+        self.keyboard_capture_state()
+    }
+
     pub fn recovery_suggestion(&self) -> Option<String> {
         let now = now_unix_ms();
         let stale = self.last_keyboard_event_at_unix_ms > 0
@@ -274,14 +278,28 @@ impl HookHealth {
     pub fn log_periodic_health(&self) {
         let snapshot = self.snapshot();
         let now = now_unix_ms();
-        tracing::info!(target: "taurine::hook",
-            listener_running = snapshot.listener_running,
-            ms_since_thread_start = now.saturating_sub(snapshot.hook_thread_started_at_unix_ms),
-            ms_since_grab = now.saturating_sub(snapshot.hook_entered_grab_at_unix_ms),
-            ms_since_last_event = now.saturating_sub(snapshot.last_keyboard_event_at_unix_ms),
-            total_restarts = self.restart_count(),
-            "health"
-        );
+        let capture_state = snapshot.keyboard_capture_state();
+        if capture_state != KeyboardCaptureState::Healthy {
+            tracing::warn!(target: "taurine::hook",
+                capture_state = capture_state.as_str(),
+                listener_running = snapshot.listener_running,
+                ms_since_thread_start = now.saturating_sub(snapshot.hook_thread_started_at_unix_ms),
+                ms_since_grab = now.saturating_sub(snapshot.hook_entered_grab_at_unix_ms),
+                ms_since_last_event = now.saturating_sub(snapshot.last_keyboard_event_at_unix_ms),
+                total_restarts = self.restart_count(),
+                "health"
+            );
+        } else {
+            tracing::trace!(target: "taurine::hook",
+                capture_state = capture_state.as_str(),
+                listener_running = snapshot.listener_running,
+                ms_since_thread_start = now.saturating_sub(snapshot.hook_thread_started_at_unix_ms),
+                ms_since_grab = now.saturating_sub(snapshot.hook_entered_grab_at_unix_ms),
+                ms_since_last_event = now.saturating_sub(snapshot.last_keyboard_event_at_unix_ms),
+                total_restarts = self.restart_count(),
+                "health"
+            );
+        }
     }
 
     pub fn log_recovery(&self, reason: &str) {

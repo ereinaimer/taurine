@@ -362,10 +362,6 @@ where
         match tokio::time::timeout(SWEEP_INTERVAL, stream.read_buf(&mut buf)).await {
             Err(_) => {
                 state.sweep();
-                debug!(
-                    idle_secs = state.last_frame.elapsed().as_secs(),
-                    "voice-daemon: pipe sweep"
-                );
                 continue;
             }
             Ok(Err(e)) => return Err(Error::Io(e)),

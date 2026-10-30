@@ -536,9 +536,14 @@ pub fn process_keyboard_event(
                 // Voice hotkeys stay silent on fullscreen when ignore-fullscreen is on:
                 // no cue, no capture, and the key passes through like an unmatched hotkey.
                 if state.fullscreen_suppressed() {
-                    debug!("voice hotkey press skipped while fullscreen app focused");
-                }
-                if !state.fullscreen_suppressed() {
+                    let matches_voice = cached_voice_ptt_spec()
+                        .is_some_and(|spec| spec.matches_press(&event, modifiers))
+                        || cached_voice_handsfree_spec()
+                            .is_some_and(|spec| spec.matches_press(&event, modifiers));
+                    if matches_voice {
+                        trace!("voice hotkey press skipped while fullscreen app focused");
+                    }
+                } else {
                     // PTT press — start recording if the PTT hotkey matches.
                     if let Some(spec) = cached_voice_ptt_spec()
                         && spec.matches_press(&event, modifiers)
