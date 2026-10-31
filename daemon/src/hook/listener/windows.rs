@@ -742,12 +742,6 @@ pub(crate) fn spawn_windows_hook_listener(
                 Err(_) => (Some("Windows hook listener panicked".to_string()), None),
             };
 
-            if let Some(ref error) = exit_error {
-                error!(error = %error, "Windows hook listener is exiting");
-            } else {
-                warn!("Windows hook listener returned unexpectedly without an error");
-            }
-
             let current_epoch = LISTENER_EPOCH.load(Ordering::SeqCst);
             let is_evicted = exit_epoch.is_some_and(|epoch| epoch != current_epoch);
             if is_evicted {
@@ -757,6 +751,12 @@ pub(crate) fn spawn_windows_hook_listener(
                     "Listener was evicted by recovery; suppressing stale exit notification"
                 );
                 return;
+            }
+
+            if let Some(ref error) = exit_error {
+                error!(error = %error, "Windows hook listener is exiting");
+            } else {
+                warn!("Windows hook listener returned unexpectedly without an error");
             }
 
             if let Err(error) = supervisor_tx.send(
