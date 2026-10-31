@@ -8,6 +8,8 @@ use tracing::error;
 /// cheap no-op. Schema changes during alpha mean deleting the local
 /// database file and letting it recreate from scratch.
 pub fn ensure_schema(conn: &Connection) -> Result<()> {
+    migrate_legacy_columns(conn)?;
+
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS settings (
             key        TEXT    PRIMARY KEY,
@@ -204,7 +206,53 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
             error!(error=%e, "Schema setup failed");
         }
         e
-    })
+    })?;
+
+    migrate_legacy_columns(conn)?;
+
+    Ok(())
+}
+
+fn column_exists(conn: &Connection, table: &str, column: &str) -> Result<bool> {
+    conn.query_row(
+        &format!("SELECT EXISTS(SELECT 1 FROM pragma_table_info('{table}') WHERE name = ?1)"),
+        [column],
+        |row| row.get(0),
+    )
+}
+
+fn table_exists(conn: &Connection, table: &str) -> Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
+        [table],
+        |row| row.get(0),
+    )
+}
+
+/// Inspects existing tables for newly introduced columns and adds them if absent.
+pub fn migrate_legacy_columns(conn: &Connection) -> Result<()> {
+    if table_exists(conn, "activity_events")? && !column_exists(conn, "activity_events", "content")?
+    {
+        conn.execute("ALTER TABLE activity_events ADD COLUMN content TEXT;", [])?;
+    }
+
+    if table_exists(conn, "trigger_daily_stats")?
+        && !column_exists(conn, "trigger_daily_stats", "words_spoken")?
+    {
+        conn.execute(
+            "ALTER TABLE trigger_daily_stats ADD COLUMN words_spoken INTEGER NOT NULL DEFAULT 0;",
+            [],
+        )?;
+    }
+
+    if table_exists(conn, "triggers")? && !column_exists(conn, "triggers", "workspace_id")? {
+        conn.execute(
+            "ALTER TABLE triggers ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'default';",
+            [],
+        )?;
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -367,6 +415,160 @@ mod tests {
     fn test_schema_setup_is_idempotent() {
         let conn = Connection::open_in_memory().unwrap();
         ensure_schema(&conn).unwrap();
+        ensure_schema(&conn).unwrap();
+    }
+
+    #[test]
+    fn test_schema_auto_migrates_missing_columns() {
+        let conn = Connection::open_in_memory().unwrap();
+
+        // Create tables without the newly introduced columns:
+        // - activity_events without content
+        // - trigger_daily_stats without words_spoken
+        // - triggers without workspace_id
+        conn.execute_batch(
+            "CREATE TABLE activity_events (
+                id            TEXT    PRIMARY KEY,
+                trigger_id    TEXT,
+                timestamp     INTEGER NOT NULL,
+                date          TEXT    NOT NULL,
+                category      TEXT    NOT NULL,
+                app_key       TEXT    NOT NULL DEFAULT '',
+                word_count    INTEGER NOT NULL DEFAULT 0,
+                time_saved_ms INTEGER NOT NULL DEFAULT 0,
+                version       INTEGER NOT NULL DEFAULT 1,
+                created_at    INTEGER NOT NULL DEFAULT (unixepoch())
+            );
+
+            CREATE TABLE trigger_daily_stats (
+                trigger_id       TEXT    NOT NULL,
+                date             TEXT    NOT NULL,
+                app_key          TEXT    NOT NULL DEFAULT '',
+                executions       INTEGER NOT NULL DEFAULT 0,
+                words_expanded   INTEGER NOT NULL DEFAULT 0,
+                time_saved_ms    INTEGER NOT NULL DEFAULT 0,
+                version          INTEGER NOT NULL DEFAULT 1,
+                updated_at       INTEGER NOT NULL DEFAULT (unixepoch()),
+                PRIMARY KEY (trigger_id, date, app_key)
+            );
+
+            CREATE TABLE triggers (
+                id           TEXT    PRIMARY KEY,
+                description  TEXT,
+                output       TEXT    NOT NULL,
+                action_type  TEXT    DEFAULT 'text',
+                is_enabled   BOOLEAN DEFAULT 1,
+                auto_case    BOOLEAN DEFAULT 0,
+                target_os    TEXT    DEFAULT 'all',
+                only_apps    TEXT,
+                except_apps  TEXT,
+                tags         JSON    DEFAULT '[]',
+                usage_count  INTEGER DEFAULT 0,
+                last_used_at INTEGER,
+                created_at   INTEGER NOT NULL,
+                updated_at   INTEGER NOT NULL,
+                version      INTEGER DEFAULT 1,
+                is_deleted   BOOLEAN DEFAULT 0
+            );",
+        )
+        .unwrap();
+
+        let has_content_before: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('activity_events') WHERE name='content')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!has_content_before);
+
+        let has_words_spoken_before: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('trigger_daily_stats') WHERE name='words_spoken')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!has_words_spoken_before);
+
+        let has_workspace_id_before: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('triggers') WHERE name='workspace_id')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!has_workspace_id_before);
+
+        // Run ensure_schema to heal and auto-migrate missing columns
+        ensure_schema(&conn).unwrap();
+
+        let has_content_after: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('activity_events') WHERE name='content')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(
+            has_content_after,
+            "content column should be migrated onto activity_events"
+        );
+
+        let has_words_spoken_after: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('trigger_daily_stats') WHERE name='words_spoken')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(
+            has_words_spoken_after,
+            "words_spoken column should be migrated onto trigger_daily_stats"
+        );
+
+        let has_workspace_id_after: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('triggers') WHERE name='workspace_id')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(
+            has_workspace_id_after,
+            "workspace_id column should be migrated onto triggers"
+        );
+
+        // Verify default values and subsequent operations work correctly
+        conn.execute(
+            "INSERT INTO triggers (id, output, created_at, updated_at) VALUES ('t1', 'out', 0, 0)",
+            [],
+        )
+        .unwrap();
+        let ws: String = conn
+            .query_row(
+                "SELECT workspace_id FROM triggers WHERE id = 't1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(ws, "default");
+
+        conn.execute(
+            "INSERT INTO trigger_daily_stats (trigger_id, date) VALUES ('t1', '2026-10-31')",
+            [],
+        )
+        .unwrap();
+        let spoken: i64 = conn
+            .query_row(
+                "SELECT words_spoken FROM trigger_daily_stats WHERE trigger_id = 't1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(spoken, 0);
+
+        // Verify idempotence
         ensure_schema(&conn).unwrap();
     }
 }
