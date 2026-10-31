@@ -2763,3 +2763,200 @@ async fn test_sync_worker_backfills_untracked_triggers_and_pushes() {
     let _ = server_handle.join();
     taurine_core::cloud::clear_tokens().unwrap();
 }
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn test_outbox_drops_poisoned_entry_on_fatal_400_and_proceeds() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    crate::hook::tests::mock_keystore::use_mock_keystore();
+
+    let tokens = taurine_core::cloud::AuthTokens {
+        access_token: "mock-token-xyz".to_string(),
+        refresh_token: "mock-refresh".to_string(),
+        user_id: "user-1".to_string(),
+        expires_at: Some(2000000000),
+    };
+    taurine_core::cloud::store_tokens(&tokens).unwrap();
+
+    let conn = Connection::open_in_memory().unwrap();
+    ensure_schema(&conn).unwrap();
+    taurine_core::db::crud::set_sync_checkpoint(&conn, "snippets_backfilled", 1).unwrap();
+
+    // 1. Enqueue corrupted outbox entry
+    taurine_core::db::crud::enqueue_outbox(
+        &conn,
+        "snippet",
+        "snippet-poisoned",
+        "upsert",
+        serde_json::json!({
+            "id": "snippet-poisoned",
+            "malformed_field": true
+        }),
+    )
+    .unwrap();
+
+    // 2. Enqueue valid outbox entry behind it
+    taurine_core::db::crud::enqueue_outbox(
+        &conn,
+        "snippet",
+        "snippet-valid-2",
+        "upsert",
+        serde_json::json!({
+            "id": "snippet-valid-2",
+            "output": "valid text",
+        }),
+    )
+    .unwrap();
+
+    let poisoned_dropped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let valid_pushed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let poisoned_dropped_clone = poisoned_dropped.clone();
+    let valid_pushed_clone = valid_pushed.clone();
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let server_handle = std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        let start = std::time::Instant::now();
+        let mut handled = 0;
+        while handled < 15 && start.elapsed() < std::time::Duration::from_secs(5) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let _ = stream.set_nonblocking(false);
+                    let mut buf = [0u8; 4096];
+                    let n = match stream.read(&mut buf) {
+                        Ok(n) if n > 0 => n,
+                        _ => continue,
+                    };
+                    handled += 1;
+                    let req = String::from_utf8_lossy(&buf[..n]);
+
+                    if req.starts_with("POST /rest/v1/snippets") {
+                        if req.contains("snippet-poisoned") {
+                            poisoned_dropped_clone.store(true, std::sync::atomic::Ordering::SeqCst);
+                            let resp = "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: 29\r\nConnection: close\r\n\r\n{\"message\":\"Invalid schema\"}";
+                            let _ = stream.write_all(resp.as_bytes());
+                        } else if req.contains("snippet-valid-2") {
+                            valid_pushed_clone.store(true, std::sync::atomic::Ordering::SeqCst);
+                            let resp = "HTTP/1.1 201 Created\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+                            let _ = stream.write_all(resp.as_bytes());
+                        } else {
+                            let resp = "HTTP/1.1 201 Created\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+                            let _ = stream.write_all(resp.as_bytes());
+                        }
+                    } else if req.starts_with("GET /rest/v1/") {
+                        let resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+                        let _ = stream.write_all(resp.as_bytes());
+                    }
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let config = CloudConfig {
+        supabase_url: format!("http://127.0.0.1:{port}"),
+        anon_key: "test-anon-key".to_string(),
+    };
+    let client = CloudClient::new(config);
+
+    let status = SyncWorker::run_sync_cycle(&conn, Some(&client)).await;
+    assert!(
+        matches!(status, SyncStatus::Success { pushed_snippets, .. } if pushed_snippets == 1),
+        "Expected sync cycle success with 1 pushed snippet, got {status:?}"
+    );
+
+    assert!(poisoned_dropped.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(valid_pushed.load(std::sync::atomic::Ordering::SeqCst));
+
+    let remaining = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    assert!(
+        remaining.is_empty(),
+        "Both poisoned entry and valid entry must be removed from outbox"
+    );
+
+    let _ = server_handle.join();
+    taurine_core::cloud::clear_tokens().unwrap();
+}
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn test_outbox_preserves_entry_on_server_error_500() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    crate::hook::tests::mock_keystore::use_mock_keystore();
+
+    let tokens = taurine_core::cloud::AuthTokens {
+        access_token: "mock-token-xyz".to_string(),
+        refresh_token: "mock-refresh".to_string(),
+        user_id: "user-1".to_string(),
+        expires_at: Some(2000000000),
+    };
+    taurine_core::cloud::store_tokens(&tokens).unwrap();
+
+    let conn = Connection::open_in_memory().unwrap();
+    ensure_schema(&conn).unwrap();
+    taurine_core::db::crud::set_sync_checkpoint(&conn, "snippets_backfilled", 1).unwrap();
+
+    let entry_id = taurine_core::db::crud::enqueue_outbox(
+        &conn,
+        "snippet",
+        "snippet-retry-500",
+        "upsert",
+        serde_json::json!({
+            "id": "snippet-retry-500",
+            "output": "will retry",
+        }),
+    )
+    .unwrap();
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let server_handle = std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        let (mut stream, _) = match listener.accept() {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+        let mut buf = [0u8; 4096];
+        let n = match stream.read(&mut buf) {
+            Ok(n) => n,
+            Err(_) => return,
+        };
+        let req = String::from_utf8_lossy(&buf[..n]);
+
+        if req.starts_with("POST /rest/v1/snippets") {
+            let resp = "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: 26\r\nConnection: close\r\n\r\n{\"message\":\"Server error\"}";
+            let _ = stream.write_all(resp.as_bytes());
+        }
+    });
+
+    let config = CloudConfig {
+        supabase_url: format!("http://127.0.0.1:{port}"),
+        anon_key: "test-anon-key".to_string(),
+    };
+    let client = CloudClient::new(config);
+
+    let status = SyncWorker::run_sync_cycle(&conn, Some(&client)).await;
+    assert!(
+        matches!(status, SyncStatus::Error(ref err) if err.contains("500")),
+        "Expected SyncStatus::Error with 500, got: {status:?}"
+    );
+
+    let remaining = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].id, entry_id);
+    assert_eq!(remaining[0].entity_id, "snippet-retry-500");
+
+    let _ = server_handle.join();
+    taurine_core::cloud::clear_tokens().unwrap();
+}

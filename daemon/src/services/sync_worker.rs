@@ -32,6 +32,13 @@ pub struct SyncWorker {
     interval: Duration,
 }
 
+pub(crate) fn is_fatal_client_error(status: reqwest::StatusCode) -> bool {
+    status.is_client_error()
+        && status != reqwest::StatusCode::UNAUTHORIZED
+        && status != reqwest::StatusCode::TOO_MANY_REQUESTS
+        && status != reqwest::StatusCode::REQUEST_TIMEOUT
+}
+
 impl SyncWorker {
     /// Creates a new `SyncWorker` with the specified execution interval.
     pub fn new(interval: Duration) -> Self {
@@ -388,6 +395,19 @@ impl SyncWorker {
                                 if !res.status().is_success() {
                                     let status = res.status();
                                     let text = res.text().await.unwrap_or_default();
+                                    if is_fatal_client_error(status) {
+                                        tracing::error!(
+                                            "Dropping unrecoverable outbox entry {} ({}): HTTP {} - {}",
+                                            entry.id,
+                                            entry.entity_type,
+                                            status,
+                                            text
+                                        );
+                                        let _ = taurine_core::db::crud::delete_outbox_entry(
+                                            conn, entry.id,
+                                        );
+                                        continue;
+                                    }
                                     return SyncStatus::Error(format!(
                                         "Failed to push snippet ({status}): {text}"
                                     ));
@@ -459,6 +479,19 @@ impl SyncWorker {
                                 if !res.status().is_success() {
                                     let status = res.status();
                                     let text = res.text().await.unwrap_or_default();
+                                    if is_fatal_client_error(status) {
+                                        tracing::error!(
+                                            "Dropping unrecoverable outbox entry {} ({}): HTTP {} - {}",
+                                            entry.id,
+                                            entry.entity_type,
+                                            status,
+                                            text
+                                        );
+                                        let _ = taurine_core::db::crud::delete_outbox_entry(
+                                            conn, entry.id,
+                                        );
+                                        continue;
+                                    }
                                     return SyncStatus::Error(format!(
                                         "Failed to push setting ({status}): {text}"
                                     ));
@@ -524,6 +557,19 @@ impl SyncWorker {
                                 if !res.status().is_success() {
                                     let status = res.status();
                                     let text = res.text().await.unwrap_or_default();
+                                    if is_fatal_client_error(status) {
+                                        tracing::error!(
+                                            "Dropping unrecoverable outbox entry {} ({}): HTTP {} - {}",
+                                            entry.id,
+                                            entry.entity_type,
+                                            status,
+                                            text
+                                        );
+                                        let _ = taurine_core::db::crud::delete_outbox_entry(
+                                            conn, entry.id,
+                                        );
+                                        continue;
+                                    }
                                     return SyncStatus::Error(format!(
                                         "Failed to record quota burn ({status}): {text}"
                                     ));
@@ -646,6 +692,19 @@ impl SyncWorker {
                                 if !res.status().is_success() {
                                     let status = res.status();
                                     let text = res.text().await.unwrap_or_default();
+                                    if is_fatal_client_error(status) {
+                                        tracing::error!(
+                                            "Dropping unrecoverable outbox entry {} ({}): HTTP {} - {}",
+                                            entry.id,
+                                            entry.entity_type,
+                                            status,
+                                            text
+                                        );
+                                        let _ = taurine_core::db::crud::delete_outbox_entry(
+                                            conn, entry.id,
+                                        );
+                                        continue;
+                                    }
                                     return SyncStatus::Error(format!(
                                         "Failed to push activity event ({status}): {text}"
                                     ));
@@ -760,6 +819,19 @@ impl SyncWorker {
                                 if !res.status().is_success() {
                                     let status = res.status();
                                     let text = res.text().await.unwrap_or_default();
+                                    if is_fatal_client_error(status) {
+                                        tracing::error!(
+                                            "Dropping unrecoverable outbox entry {} ({}): HTTP {} - {}",
+                                            entry.id,
+                                            entry.entity_type,
+                                            status,
+                                            text
+                                        );
+                                        let _ = taurine_core::db::crud::delete_outbox_entry(
+                                            conn, entry.id,
+                                        );
+                                        continue;
+                                    }
                                     return SyncStatus::Error(format!(
                                         "Failed to push trigger daily stat ({status}): {text}"
                                     ));
@@ -865,6 +937,19 @@ impl SyncWorker {
                                 if !res.status().is_success() {
                                     let status = res.status();
                                     let text = res.text().await.unwrap_or_default();
+                                    if is_fatal_client_error(status) {
+                                        tracing::error!(
+                                            "Dropping unrecoverable outbox entry {} ({}): HTTP {} - {}",
+                                            entry.id,
+                                            entry.entity_type,
+                                            status,
+                                            text
+                                        );
+                                        let _ = taurine_core::db::crud::delete_outbox_entry(
+                                            conn, entry.id,
+                                        );
+                                        continue;
+                                    }
                                     return SyncStatus::Error(format!(
                                         "Failed to push user stats ({status}): {text}"
                                     ));
@@ -978,6 +1063,19 @@ impl SyncWorker {
                                 if !res.status().is_success() {
                                     let status = res.status();
                                     let text = res.text().await.unwrap_or_default();
+                                    if is_fatal_client_error(status) {
+                                        tracing::error!(
+                                            "Dropping unrecoverable outbox entry {} ({}): HTTP {} - {}",
+                                            entry.id,
+                                            entry.entity_type,
+                                            status,
+                                            text
+                                        );
+                                        let _ = taurine_core::db::crud::delete_outbox_entry(
+                                            conn, entry.id,
+                                        );
+                                        continue;
+                                    }
                                     return SyncStatus::Error(format!(
                                         "Failed to push app stats ({status}): {text}"
                                     ));

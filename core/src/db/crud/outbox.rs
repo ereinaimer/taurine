@@ -57,6 +57,11 @@ pub fn delete_outbox_batch(conn: &Connection, max_id: i64) -> Result<usize> {
     Ok(stmt.execute([max_id])?)
 }
 
+pub fn delete_outbox_entry(conn: &Connection, id: i64) -> Result<bool> {
+    let mut stmt = conn.prepare_cached("DELETE FROM sync_outbox WHERE id = ?1")?;
+    Ok(stmt.execute([id])? > 0)
+}
+
 pub fn get_sync_checkpoint(conn: &Connection, entity_type: &str) -> Result<i64> {
     let mut stmt =
         conn.prepare_cached("SELECT last_synced_at FROM sync_checkpoints WHERE entity_type = ?1")?;
@@ -146,6 +151,36 @@ mod tests {
         assert_eq!(batch2[0].entity_id, "id-3");
         assert_eq!(batch2[1].entity_id, "id-4");
         assert_eq!(batch2[2].entity_id, "id-5");
+    }
+
+    #[test]
+    fn test_outbox_delete_single_entry() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::init::ensure_schema(&conn).unwrap();
+
+        let id1 = enqueue_outbox(
+            &conn,
+            "snippet",
+            "trig-1",
+            "upsert",
+            serde_json::json!({"output": "hello"}),
+        )
+        .unwrap();
+        let id2 = enqueue_outbox(
+            &conn,
+            "snippet",
+            "trig-2",
+            "upsert",
+            serde_json::json!({"output": "world"}),
+        )
+        .unwrap();
+
+        assert!(delete_outbox_entry(&conn, id1).unwrap());
+        assert!(!delete_outbox_entry(&conn, id1).unwrap());
+
+        let remaining = fetch_outbox_batch(&conn, 10).unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].id, id2);
     }
 
     #[test]

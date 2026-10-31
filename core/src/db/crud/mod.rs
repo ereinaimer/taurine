@@ -7,7 +7,10 @@ pub mod tier;
 pub mod triggers;
 pub mod workspaces;
 
-pub use outbox::*;
+pub use outbox::{
+    OutboxEntry, delete_outbox_batch, delete_outbox_entry, enqueue_outbox, fetch_outbox_batch,
+    get_sync_checkpoint, set_sync_checkpoint,
+};
 pub use tier::{UserTier, get_user_tier, set_user_tier};
 
 pub use quota::{
