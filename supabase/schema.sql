@@ -59,13 +59,17 @@ CREATE TABLE IF NOT EXISTS public.quota_ledger (
 ALTER TABLE public.quota_ledger ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Users can manage their own quota ledger" ON public.quota_ledger;
-CREATE POLICY "Users can manage their own quota ledger"
+DROP POLICY IF EXISTS "Users can view their own quota ledger" ON public.quota_ledger;
+CREATE POLICY "Users can view their own quota ledger"
     ON public.quota_ledger
-    FOR ALL
-    USING (auth.uid() = user_id)
-    WITH CHECK (auth.uid() = user_id);
+    FOR SELECT
+    USING (auth.uid() = user_id);
 
-GRANT ALL ON TABLE public.quota_ledger TO authenticated;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_quota_ledger_conflict
+    ON public.quota_ledger (user_id, week_start_epoch);
+
+REVOKE ALL ON TABLE public.quota_ledger FROM authenticated;
+GRANT SELECT ON TABLE public.quota_ledger TO authenticated;
 GRANT ALL ON TABLE public.quota_ledger TO service_role;
 
 -- ----------------------------------------------------------------------------
@@ -88,6 +92,15 @@ CREATE POLICY "Users can manage their own quota burn events"
     FOR ALL
     USING (auth.uid() = user_id)
     WITH CHECK (auth.uid() = user_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_quota_burn_events_conflict
+    ON public.quota_burn_events (id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_quota_burn_events_user_id
+    ON public.quota_burn_events (user_id, id);
+
+CREATE INDEX IF NOT EXISTS idx_quota_burn_events_user_week
+    ON public.quota_burn_events (user_id, week_epoch);
 
 GRANT ALL ON TABLE public.quota_burn_events TO authenticated;
 GRANT ALL ON TABLE public.quota_burn_events TO service_role;
@@ -188,6 +201,9 @@ CREATE POLICY "Users can manage their own settings"
     USING (auth.uid() = user_id)
     WITH CHECK (auth.uid() = user_id);
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_settings_conflict
+    ON public.user_settings (user_id, key);
+
 GRANT ALL ON TABLE public.user_settings TO authenticated;
 GRANT ALL ON TABLE public.user_settings TO service_role;
 
@@ -217,6 +233,9 @@ CREATE POLICY "Users can manage their own trigger daily stats"
     FOR ALL
     USING (auth.uid() = user_id)
     WITH CHECK (auth.uid() = user_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_trigger_daily_stats_conflict
+    ON public.trigger_daily_stats (user_id, device_id, trigger_id, date, app_key);
 
 CREATE INDEX IF NOT EXISTS idx_trigger_daily_stats_user_date
     ON public.trigger_daily_stats (user_id, date DESC);
@@ -254,6 +273,9 @@ CREATE POLICY "Users can manage their own daily stats"
     USING (auth.uid() = user_id)
     WITH CHECK (auth.uid() = user_id);
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_stats_conflict
+    ON public.user_stats (user_id, device_id, date);
+
 GRANT ALL ON TABLE public.user_stats TO authenticated;
 GRANT ALL ON TABLE public.user_stats TO service_role;
 
@@ -282,6 +304,9 @@ CREATE POLICY "Users can manage their own app stats"
     FOR ALL
     USING (auth.uid() = user_id)
     WITH CHECK (auth.uid() = user_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_app_stats_conflict
+    ON public.user_app_stats (user_id, device_id, app_key, date);
 
 CREATE INDEX IF NOT EXISTS idx_user_app_stats_lookup
     ON public.user_app_stats (user_id, date DESC);
@@ -324,7 +349,33 @@ GRANT ALL ON TABLE public.activity_events TO authenticated;
 GRANT ALL ON TABLE public.activity_events TO service_role;
 
 -- ----------------------------------------------------------------------------
--- 8. Concurrency Guards: Enforce Monotonic Last-Write-Wins on Cloud Updates
+-- 8. User Vaults (Zero-Knowledge Envelope Key Storage)
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.user_vaults (
+    user_id       UUID        PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    wrapped_dek   TEXT        NOT NULL,
+    auth_provider TEXT        NOT NULL,
+    version       BIGINT      NOT NULL DEFAULT 1,
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.user_vaults ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can manage their own vault" ON public.user_vaults;
+CREATE POLICY "Users can manage their own vault"
+    ON public.user_vaults
+    FOR ALL
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_vaults_user_id
+    ON public.user_vaults (user_id);
+
+GRANT ALL ON TABLE public.user_vaults TO authenticated;
+GRANT ALL ON TABLE public.user_vaults TO service_role;
+
+-- ----------------------------------------------------------------------------
+-- 9. Concurrency Guards: Enforce Monotonic Last-Write-Wins on Cloud Updates
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.reconcile_snippet_upsert()
 RETURNS trigger AS $$
