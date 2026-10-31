@@ -2,8 +2,8 @@ use std::sync::Arc;
 use std::sync::Mutex;
 #[cfg(test)]
 use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::{AtomicBool, Ordering};
-use tracing::{debug, error, info, warn};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use tracing::{debug, error, info, trace, warn};
 
 /// Thread-safe audio frame buffer storing 16kHz mono f32 samples.
 #[derive(Debug, Default)]
@@ -698,6 +698,13 @@ unsafe impl Send for AudioCapture {}
 // making concurrent shared references safe across threads.
 unsafe impl Sync for AudioCapture {}
 
+static LAST_GLITCH_WARN_SECS: AtomicU64 = AtomicU64::new(0);
+
+fn is_transient_buffer_glitch(err: &cpal::Error) -> bool {
+    let msg = err.to_string().to_lowercase();
+    msg.contains("underrun") || msg.contains("overrun")
+}
+
 impl AudioCapture {
     /// Create a new AudioCapture instance backed by the given frame buffer.
     pub fn new(buffer: Arc<AudioFrameBuffer>) -> Self {
@@ -744,16 +751,29 @@ impl AudioCapture {
         self.device_disconnected.load(Ordering::Relaxed)
     }
 
-    /// Classify a cpal stream failure. cpal 0.18 reports every failure as
-    /// `cpal::Error` (kind + message); WASAPI mid-stream errors never
-    /// self-heal, so every variant flags disconnection and clears the
-    /// running flag. The next start() then reopens clean instead of
-    /// recording dead air from a zombie stream.
+    /// Classify a cpal stream failure. Differentiates between transient buffer
+    /// underruns/overruns (which are rate-limited and kept alive) and genuine
+    /// hardware disconnections (which flag disconnection and clear the running flag).
     pub(crate) fn handle_stream_error(
         is_running: &AtomicBool,
         device_disconnected: &AtomicBool,
         err: &cpal::Error,
     ) {
+        if is_transient_buffer_glitch(err) {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or_default();
+            let last = LAST_GLITCH_WARN_SECS.load(Ordering::Relaxed);
+            if now.saturating_sub(last) >= 30 {
+                LAST_GLITCH_WARN_SECS.store(now, Ordering::Relaxed);
+                warn!("Transient audio buffer glitch: {err}");
+            } else {
+                trace!("Transient audio buffer glitch suppressed: {err}");
+            }
+            return;
+        }
+
         error!("Audio stream error: {err}");
         warn!("Audio input device error; flagging disconnection");
         device_disconnected.store(true, Ordering::SeqCst);
@@ -1612,6 +1632,43 @@ mod tests {
         assert!(
             disconnected.load(Ordering::SeqCst),
             "backend-specific errors must also flag disconnection"
+        );
+    }
+
+    #[test]
+    fn test_buffer_glitch_does_not_flag_disconnection() {
+        let running = AtomicBool::new(true);
+        let disconnected = AtomicBool::new(false);
+        AudioCapture::handle_stream_error(
+            &running,
+            &disconnected,
+            &cpal::Error::with_message(
+                cpal::ErrorKind::BackendError,
+                "A buffer underrun or overrun occurred.",
+            ),
+        );
+        assert!(
+            running.load(Ordering::SeqCst),
+            "buffer glitch must leave running == true"
+        );
+        assert!(
+            !disconnected.load(Ordering::SeqCst),
+            "buffer glitch must leave disconnected == false"
+        );
+
+        // Subsequent glitch is rate-limited and still leaves stream running
+        AudioCapture::handle_stream_error(
+            &running,
+            &disconnected,
+            &cpal::Error::new(cpal::ErrorKind::Xrun),
+        );
+        assert!(
+            running.load(Ordering::SeqCst),
+            "Xrun must leave running == true"
+        );
+        assert!(
+            !disconnected.load(Ordering::SeqCst),
+            "Xrun must leave disconnected == false"
         );
     }
 }
