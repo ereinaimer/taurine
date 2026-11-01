@@ -50,6 +50,63 @@ impl SyncWorker {
         self.interval
     }
 
+    fn handle_outbox_failure(
+        conn: &rusqlite::Connection,
+        entry: &taurine_core::db::crud::OutboxEntry,
+        status: reqwest::StatusCode,
+        text: &str,
+    ) -> Option<SyncStatus> {
+        let error_msg = format!("{status}: {text}");
+        if is_fatal_client_error(status) || entry.retry_count >= 5 {
+            tracing::error!(
+                "Quarantining outbox entry {} ({}): {error_msg}",
+                entry.id,
+                entry.entity_type
+            );
+            let _ = taurine_core::db::crud::quarantine_outbox_entry(conn, entry.id, &error_msg);
+            None
+        } else {
+            tracing::warn!(
+                "Recording failure for outbox entry {} ({}): {error_msg}",
+                entry.id,
+                entry.entity_type
+            );
+            let _ = taurine_core::db::crud::record_outbox_failure(conn, entry.id, &error_msg);
+            Some(SyncStatus::Error(format!(
+                "Failed to push {} ({status}): {text}",
+                entry.entity_type
+            )))
+        }
+    }
+
+    fn handle_outbox_network_error(
+        conn: &rusqlite::Connection,
+        entry: &taurine_core::db::crud::OutboxEntry,
+        e: &reqwest::Error,
+    ) -> Option<SyncStatus> {
+        let error_msg = format!("Network error: {e}");
+        if entry.retry_count >= 5 {
+            tracing::error!(
+                "Quarantining outbox entry {} ({}) after network errors: {error_msg}",
+                entry.id,
+                entry.entity_type
+            );
+            let _ = taurine_core::db::crud::quarantine_outbox_entry(conn, entry.id, &error_msg);
+            None
+        } else {
+            tracing::warn!(
+                "Recording failure for outbox entry {} ({}): {error_msg}",
+                entry.id,
+                entry.entity_type
+            );
+            let _ = taurine_core::db::crud::record_outbox_failure(conn, entry.id, &error_msg);
+            Some(SyncStatus::Error(format!(
+                "Network error pushing {}: {e}",
+                entry.entity_type
+            )))
+        }
+    }
+
     /// Spawns a background thread running periodic sync cycles.
     pub fn spawn<F, E>(conn_provider: F, interval: Duration) -> std::thread::JoinHandle<()>
     where
@@ -321,22 +378,24 @@ impl SyncWorker {
         let mut pulled_settings = 0;
 
         // 1. Push Phase (Outbox Drain)
+        let mut attempted_ids = std::collections::HashSet::new();
         loop {
             let batch = match taurine_core::db::crud::fetch_outbox_batch(conn, 50) {
                 Ok(b) => b,
                 Err(e) => return SyncStatus::Error(format!("Failed to fetch outbox batch: {e}")),
             };
 
-            if batch.is_empty() {
+            let unattempted: Vec<_> = batch
+                .into_iter()
+                .filter(|e| !attempted_ids.contains(&e.id))
+                .collect();
+
+            if unattempted.is_empty() {
                 break;
             }
 
-            let mut max_batch_id = 0i64;
-
-            for entry in &batch {
-                if entry.id > max_batch_id {
-                    max_batch_id = entry.id;
-                }
+            for entry in &unattempted {
+                attempted_ids.insert(entry.id);
 
                 match entry.entity_type.as_str() {
                     "snippet" => {
@@ -395,34 +454,29 @@ impl SyncWorker {
                                 if !res.status().is_success() {
                                     let status = res.status();
                                     let text = res.text().await.unwrap_or_default();
-                                    if is_fatal_client_error(status) {
-                                        tracing::error!(
-                                            "Dropping unrecoverable outbox entry {} ({}): HTTP {} - {}",
-                                            entry.id,
-                                            entry.entity_type,
-                                            status,
-                                            text
-                                        );
-                                        let _ = taurine_core::db::crud::delete_outbox_entry(
-                                            conn, entry.id,
-                                        );
-                                        continue;
+                                    if let Some(err_status) =
+                                        Self::handle_outbox_failure(conn, entry, status, &text)
+                                    {
+                                        return err_status;
                                     }
-                                    return SyncStatus::Error(format!(
-                                        "Failed to push snippet ({status}): {text}"
-                                    ));
+                                    continue;
                                 }
+                                let _ = taurine_core::db::crud::delete_outbox_entry(conn, entry.id);
                                 pushed_snippets += 1;
                             }
                             Err(e) => {
-                                return SyncStatus::Error(format!(
-                                    "Network error pushing snippet: {e}"
-                                ));
+                                if let Some(err_status) =
+                                    Self::handle_outbox_network_error(conn, entry, &e)
+                                {
+                                    return err_status;
+                                }
+                                continue;
                             }
                         }
                     }
                     "setting" => {
                         if !taurine_core::db::crud::is_setting_syncable(&entry.entity_id) {
+                            let _ = taurine_core::db::crud::delete_outbox_entry(conn, entry.id);
                             continue;
                         }
 
@@ -479,29 +533,23 @@ impl SyncWorker {
                                 if !res.status().is_success() {
                                     let status = res.status();
                                     let text = res.text().await.unwrap_or_default();
-                                    if is_fatal_client_error(status) {
-                                        tracing::error!(
-                                            "Dropping unrecoverable outbox entry {} ({}): HTTP {} - {}",
-                                            entry.id,
-                                            entry.entity_type,
-                                            status,
-                                            text
-                                        );
-                                        let _ = taurine_core::db::crud::delete_outbox_entry(
-                                            conn, entry.id,
-                                        );
-                                        continue;
+                                    if let Some(err_status) =
+                                        Self::handle_outbox_failure(conn, entry, status, &text)
+                                    {
+                                        return err_status;
                                     }
-                                    return SyncStatus::Error(format!(
-                                        "Failed to push setting ({status}): {text}"
-                                    ));
+                                    continue;
                                 }
+                                let _ = taurine_core::db::crud::delete_outbox_entry(conn, entry.id);
                                 pushed_settings += 1;
                             }
                             Err(e) => {
-                                return SyncStatus::Error(format!(
-                                    "Network error pushing setting: {e}"
-                                ));
+                                if let Some(err_status) =
+                                    Self::handle_outbox_network_error(conn, entry, &e)
+                                {
+                                    return err_status;
+                                }
+                                continue;
                             }
                         }
                     }
@@ -557,23 +605,15 @@ impl SyncWorker {
                                 if !res.status().is_success() {
                                     let status = res.status();
                                     let text = res.text().await.unwrap_or_default();
-                                    if is_fatal_client_error(status) {
-                                        tracing::error!(
-                                            "Dropping unrecoverable outbox entry {} ({}): HTTP {} - {}",
-                                            entry.id,
-                                            entry.entity_type,
-                                            status,
-                                            text
-                                        );
-                                        let _ = taurine_core::db::crud::delete_outbox_entry(
-                                            conn, entry.id,
-                                        );
-                                        continue;
+                                    if let Some(err_status) =
+                                        Self::handle_outbox_failure(conn, entry, status, &text)
+                                    {
+                                        return err_status;
                                     }
-                                    return SyncStatus::Error(format!(
-                                        "Failed to record quota burn ({status}): {text}"
-                                    ));
+                                    continue;
                                 }
+
+                                let _ = taurine_core::db::crud::delete_outbox_entry(conn, entry.id);
 
                                 if let Ok(val) = res.json::<serde_json::Value>().await {
                                     let new_balance = val
@@ -588,9 +628,12 @@ impl SyncWorker {
                                 }
                             }
                             Err(e) => {
-                                return SyncStatus::Error(format!(
-                                    "Network error recording quota burn: {e}"
-                                ));
+                                if let Some(err_status) =
+                                    Self::handle_outbox_network_error(conn, entry, &e)
+                                {
+                                    return err_status;
+                                }
+                                continue;
                             }
                         }
                     }
@@ -623,6 +666,7 @@ impl SyncWorker {
                                         time_saved_ms: time_saved_ms as u64,
                                         content: row.get(8)?,
                                         version: version as u64,
+                                        updated_at: None,
                                     })
                                 },
                             )
@@ -692,29 +736,23 @@ impl SyncWorker {
                                 if !res.status().is_success() {
                                     let status = res.status();
                                     let text = res.text().await.unwrap_or_default();
-                                    if is_fatal_client_error(status) {
-                                        tracing::error!(
-                                            "Dropping unrecoverable outbox entry {} ({}): HTTP {} - {}",
-                                            entry.id,
-                                            entry.entity_type,
-                                            status,
-                                            text
-                                        );
-                                        let _ = taurine_core::db::crud::delete_outbox_entry(
-                                            conn, entry.id,
-                                        );
-                                        continue;
+                                    if let Some(err_status) =
+                                        Self::handle_outbox_failure(conn, entry, status, &text)
+                                    {
+                                        return err_status;
                                     }
-                                    return SyncStatus::Error(format!(
-                                        "Failed to push activity event ({status}): {text}"
-                                    ));
+                                    continue;
                                 }
+                                let _ = taurine_core::db::crud::delete_outbox_entry(conn, entry.id);
                                 pushed_stats += 1;
                             }
                             Err(e) => {
-                                return SyncStatus::Error(format!(
-                                    "Network error pushing activity event: {e}"
-                                ));
+                                if let Some(err_status) =
+                                    Self::handle_outbox_network_error(conn, entry, &e)
+                                {
+                                    return err_status;
+                                }
+                                continue;
                             }
                         }
                     }
@@ -748,6 +786,7 @@ impl SyncWorker {
                                         words_expanded: words_expanded as u64,
                                         time_saved_ms: time_saved_ms as u64,
                                         version: version as u64,
+                                        updated_at: None,
                                     })
                                 },
                             )
@@ -820,29 +859,23 @@ impl SyncWorker {
                                 if !res.status().is_success() {
                                     let status = res.status();
                                     let text = res.text().await.unwrap_or_default();
-                                    if is_fatal_client_error(status) {
-                                        tracing::error!(
-                                            "Dropping unrecoverable outbox entry {} ({}): HTTP {} - {}",
-                                            entry.id,
-                                            entry.entity_type,
-                                            status,
-                                            text
-                                        );
-                                        let _ = taurine_core::db::crud::delete_outbox_entry(
-                                            conn, entry.id,
-                                        );
-                                        continue;
+                                    if let Some(err_status) =
+                                        Self::handle_outbox_failure(conn, entry, status, &text)
+                                    {
+                                        return err_status;
                                     }
-                                    return SyncStatus::Error(format!(
-                                        "Failed to push trigger daily stat ({status}): {text}"
-                                    ));
+                                    continue;
                                 }
+                                let _ = taurine_core::db::crud::delete_outbox_entry(conn, entry.id);
                                 pushed_stats += 1;
                             }
                             Err(e) => {
-                                return SyncStatus::Error(format!(
-                                    "Network error pushing trigger daily stat: {e}"
-                                ));
+                                if let Some(err_status) =
+                                    Self::handle_outbox_network_error(conn, entry, &e)
+                                {
+                                    return err_status;
+                                }
+                                continue;
                             }
                         }
                     }
@@ -870,6 +903,7 @@ impl SyncWorker {
                                         words_expanded: row.get(5)?,
                                         time_saved_ms: row.get(6)?,
                                         version: row.get(7)?,
+                                        updated_at: None,
                                     })
                                 },
                             )
@@ -939,29 +973,23 @@ impl SyncWorker {
                                 if !res.status().is_success() {
                                     let status = res.status();
                                     let text = res.text().await.unwrap_or_default();
-                                    if is_fatal_client_error(status) {
-                                        tracing::error!(
-                                            "Dropping unrecoverable outbox entry {} ({}): HTTP {} - {}",
-                                            entry.id,
-                                            entry.entity_type,
-                                            status,
-                                            text
-                                        );
-                                        let _ = taurine_core::db::crud::delete_outbox_entry(
-                                            conn, entry.id,
-                                        );
-                                        continue;
+                                    if let Some(err_status) =
+                                        Self::handle_outbox_failure(conn, entry, status, &text)
+                                    {
+                                        return err_status;
                                     }
-                                    return SyncStatus::Error(format!(
-                                        "Failed to push user stats ({status}): {text}"
-                                    ));
+                                    continue;
                                 }
+                                let _ = taurine_core::db::crud::delete_outbox_entry(conn, entry.id);
                                 pushed_stats += 1;
                             }
                             Err(e) => {
-                                return SyncStatus::Error(format!(
-                                    "Network error pushing user stats: {e}"
-                                ));
+                                if let Some(err_status) =
+                                    Self::handle_outbox_network_error(conn, entry, &e)
+                                {
+                                    return err_status;
+                                }
+                                continue;
                             }
                         }
                     }
@@ -994,6 +1022,7 @@ impl SyncWorker {
                                         words_expanded: words_expanded as u64,
                                         time_saved_ms: time_saved_ms as u64,
                                         version: version as u64,
+                                        updated_at: None,
                                     })
                                 },
                             )
@@ -1066,42 +1095,31 @@ impl SyncWorker {
                                 if !res.status().is_success() {
                                     let status = res.status();
                                     let text = res.text().await.unwrap_or_default();
-                                    if is_fatal_client_error(status) {
-                                        tracing::error!(
-                                            "Dropping unrecoverable outbox entry {} ({}): HTTP {} - {}",
-                                            entry.id,
-                                            entry.entity_type,
-                                            status,
-                                            text
-                                        );
-                                        let _ = taurine_core::db::crud::delete_outbox_entry(
-                                            conn, entry.id,
-                                        );
-                                        continue;
+                                    if let Some(err_status) =
+                                        Self::handle_outbox_failure(conn, entry, status, &text)
+                                    {
+                                        return err_status;
                                     }
-                                    return SyncStatus::Error(format!(
-                                        "Failed to push app stats ({status}): {text}"
-                                    ));
+                                    continue;
                                 }
+                                let _ = taurine_core::db::crud::delete_outbox_entry(conn, entry.id);
                                 pushed_stats += 1;
                             }
                             Err(e) => {
-                                return SyncStatus::Error(format!(
-                                    "Network error pushing app stats: {e}"
-                                ));
+                                if let Some(err_status) =
+                                    Self::handle_outbox_network_error(conn, entry, &e)
+                                {
+                                    return err_status;
+                                }
+                                continue;
                             }
                         }
                     }
                     unknown => {
                         tracing::warn!("Unknown outbox entity_type: {unknown}");
+                        let _ = taurine_core::db::crud::delete_outbox_entry(conn, entry.id);
                     }
                 }
-            }
-
-            if let Err(e) = taurine_core::db::crud::delete_outbox_batch(conn, max_batch_id) {
-                return SyncStatus::Error(format!(
-                    "Failed to delete outbox batch up to id {max_batch_id}: {e}"
-                ));
             }
         }
 
@@ -1195,9 +1213,13 @@ impl SyncWorker {
         }
 
         // Pull remote settings
+        let last_settings_cp =
+            taurine_core::db::crud::get_sync_checkpoint(conn, "user_settings").unwrap_or(0);
+        let rfc3339_settings_cp = Self::unix_secs_to_rfc3339(last_settings_cp);
         let settings_url = format!(
-            "{}/rest/v1/user_settings?order=version.asc,updated_at.asc",
-            client.config().supabase_url.trim_end_matches('/')
+            "{}/rest/v1/user_settings?updated_at=gt.{}&order=updated_at.asc",
+            client.config().supabase_url.trim_end_matches('/'),
+            rfc3339_settings_cp
         );
 
         let mut settings_pull_res = http_client
@@ -1237,7 +1259,19 @@ impl SyncWorker {
                 }
                 match res.json::<Vec<CloudSettingPayload>>().await {
                     Ok(remote_settings) => {
+                        let mut max_ts = last_settings_cp;
                         for setting in &remote_settings {
+                            let ts = setting
+                                .updated_at
+                                .as_deref()
+                                .and_then(|s| {
+                                    taurine_core::chrono::DateTime::parse_from_rfc3339(s).ok()
+                                })
+                                .map(|dt| dt.timestamp())
+                                .unwrap_or(0);
+                            if ts > max_ts {
+                                max_ts = ts;
+                            }
                             match reconcile_cloud_setting(conn, setting) {
                                 Ok(outcome) => {
                                     if matches!(outcome, SettingReconcileOutcome::UpdatedFromRemote)
@@ -1252,6 +1286,15 @@ impl SyncWorker {
                                     );
                                 }
                             }
+                        }
+                        if max_ts > last_settings_cp
+                            && let Err(e) = taurine_core::db::crud::set_sync_checkpoint(
+                                conn,
+                                "user_settings",
+                                max_ts,
+                            )
+                        {
+                            tracing::warn!("Failed to set user_settings sync checkpoint: {e}");
                         }
                     }
                     Err(e) => {
@@ -1370,15 +1413,14 @@ impl SyncWorker {
             }
         }
 
-        // Pull remote activity events (last 30 days)
-        let thirty_days_ago_secs = now_epoch.saturating_sub(30 * 86400);
-        let thirty_days_ago_date =
-            Self::unix_secs_to_rfc3339(thirty_days_ago_secs)[..10].to_string();
-
+        // Pull remote activity events
+        let last_events_cp =
+            taurine_core::db::crud::get_sync_checkpoint(conn, "activity_events").unwrap_or(0);
+        let rfc3339_events_cp = Self::unix_secs_to_rfc3339(last_events_cp);
         let events_pull_url = format!(
-            "{}/rest/v1/activity_events?date=gte.{}&order=timestamp.asc",
+            "{}/rest/v1/activity_events?updated_at=gt.{}&order=updated_at.asc",
             client.config().supabase_url.trim_end_matches('/'),
-            thirty_days_ago_date
+            rfc3339_events_cp
         );
 
         let mut events_pull_res = http_client
@@ -1419,6 +1461,24 @@ impl SyncWorker {
                 }
                 match res.json::<Vec<CloudActivityEventPayload>>().await {
                     Ok(remote_events) => {
+                        let mut max_ts = last_events_cp;
+                        for event in &remote_events {
+                            let ts = event
+                                .updated_at
+                                .as_deref()
+                                .and_then(|s| {
+                                    taurine_core::chrono::DateTime::parse_from_rfc3339(s).ok()
+                                })
+                                .map(|dt| dt.timestamp())
+                                .unwrap_or(if event.timestamp > 1_000_000_000_000 {
+                                    event.timestamp / 1000
+                                } else {
+                                    event.timestamp
+                                });
+                            if ts > max_ts {
+                                max_ts = ts;
+                            }
+                        }
                         match reconcile_cloud_activity_events(conn, &remote_events) {
                             Ok(count) => {
                                 pulled_events += count;
@@ -1426,6 +1486,15 @@ impl SyncWorker {
                             Err(e) => {
                                 tracing::warn!("Failed to reconcile activity events: {e}");
                             }
+                        }
+                        if max_ts > last_events_cp
+                            && let Err(e) = taurine_core::db::crud::set_sync_checkpoint(
+                                conn,
+                                "activity_events",
+                                max_ts,
+                            )
+                        {
+                            tracing::warn!("Failed to set activity_events sync checkpoint: {e}");
                         }
                     }
                     Err(e) => {
@@ -1440,11 +1509,14 @@ impl SyncWorker {
             }
         }
 
-        // Pull remote trigger daily stats (last 30 days)
+        // Pull remote trigger daily stats
+        let last_trigger_stats_cp =
+            taurine_core::db::crud::get_sync_checkpoint(conn, "trigger_daily_stats").unwrap_or(0);
+        let rfc3339_trigger_stats_cp = Self::unix_secs_to_rfc3339(last_trigger_stats_cp);
         let trigger_stats_pull_url = format!(
-            "{}/rest/v1/trigger_daily_stats?date=gte.{}&order=date.asc",
+            "{}/rest/v1/trigger_daily_stats?updated_at=gt.{}&order=updated_at.asc",
             client.config().supabase_url.trim_end_matches('/'),
-            thirty_days_ago_date
+            rfc3339_trigger_stats_cp
         );
 
         let mut trigger_stats_pull_res = http_client
@@ -1484,8 +1556,33 @@ impl SyncWorker {
                 }
                 match res.json::<Vec<CloudTriggerDailyStatPayload>>().await {
                     Ok(remote_stats) => {
+                        let mut max_ts = last_trigger_stats_cp;
+                        for stat in &remote_stats {
+                            let ts = stat
+                                .updated_at
+                                .as_deref()
+                                .and_then(|s| {
+                                    taurine_core::chrono::DateTime::parse_from_rfc3339(s).ok()
+                                })
+                                .map(|dt| dt.timestamp())
+                                .unwrap_or(0);
+                            if ts > max_ts {
+                                max_ts = ts;
+                            }
+                        }
                         if let Err(e) = reconcile_cloud_trigger_daily_stats(conn, &remote_stats) {
                             tracing::warn!("Failed to reconcile trigger daily stats: {e}");
+                        }
+                        if max_ts > last_trigger_stats_cp
+                            && let Err(e) = taurine_core::db::crud::set_sync_checkpoint(
+                                conn,
+                                "trigger_daily_stats",
+                                max_ts,
+                            )
+                        {
+                            tracing::warn!(
+                                "Failed to set trigger_daily_stats sync checkpoint: {e}"
+                            );
                         }
                     }
                     Err(e) => {
@@ -1502,11 +1599,14 @@ impl SyncWorker {
             }
         }
 
-        // Pull remote global user stats (last 30 days)
+        // Pull remote global user stats
+        let last_user_stats_cp =
+            taurine_core::db::crud::get_sync_checkpoint(conn, "user_stats").unwrap_or(0);
+        let rfc3339_user_stats_cp = Self::unix_secs_to_rfc3339(last_user_stats_cp);
         let user_stats_pull_url = format!(
-            "{}/rest/v1/user_stats?date=gte.{}&order=date.asc",
+            "{}/rest/v1/user_stats?updated_at=gt.{}&order=updated_at.asc",
             client.config().supabase_url.trim_end_matches('/'),
-            thirty_days_ago_date
+            rfc3339_user_stats_cp
         );
 
         let mut user_stats_pull_res = http_client
@@ -1546,8 +1646,31 @@ impl SyncWorker {
                 }
                 match res.json::<Vec<CloudUserStatPayload>>().await {
                     Ok(remote_stats) => {
+                        let mut max_ts = last_user_stats_cp;
+                        for stat in &remote_stats {
+                            let ts = stat
+                                .updated_at
+                                .as_deref()
+                                .and_then(|s| {
+                                    taurine_core::chrono::DateTime::parse_from_rfc3339(s).ok()
+                                })
+                                .map(|dt| dt.timestamp())
+                                .unwrap_or(0);
+                            if ts > max_ts {
+                                max_ts = ts;
+                            }
+                        }
                         if let Err(e) = reconcile_cloud_user_stats(conn, &remote_stats) {
                             tracing::warn!("Failed to reconcile user stats: {e}");
+                        }
+                        if max_ts > last_user_stats_cp
+                            && let Err(e) = taurine_core::db::crud::set_sync_checkpoint(
+                                conn,
+                                "user_stats",
+                                max_ts,
+                            )
+                        {
+                            tracing::warn!("Failed to set user_stats sync checkpoint: {e}");
                         }
                     }
                     Err(e) => {
@@ -1562,11 +1685,14 @@ impl SyncWorker {
             }
         }
 
-        // Pull remote user app stats (last 30 days)
+        // Pull remote user app stats
+        let last_user_app_stats_cp =
+            taurine_core::db::crud::get_sync_checkpoint(conn, "user_app_stats").unwrap_or(0);
+        let rfc3339_user_app_stats_cp = Self::unix_secs_to_rfc3339(last_user_app_stats_cp);
         let app_stats_pull_url = format!(
-            "{}/rest/v1/user_app_stats?date=gte.{}&order=date.asc",
+            "{}/rest/v1/user_app_stats?updated_at=gt.{}&order=updated_at.asc",
             client.config().supabase_url.trim_end_matches('/'),
-            thirty_days_ago_date
+            rfc3339_user_app_stats_cp
         );
 
         let mut app_stats_pull_res = http_client
@@ -1606,8 +1732,31 @@ impl SyncWorker {
                 }
                 match res.json::<Vec<CloudUserAppStatPayload>>().await {
                     Ok(remote_stats) => {
+                        let mut max_ts = last_user_app_stats_cp;
+                        for stat in &remote_stats {
+                            let ts = stat
+                                .updated_at
+                                .as_deref()
+                                .and_then(|s| {
+                                    taurine_core::chrono::DateTime::parse_from_rfc3339(s).ok()
+                                })
+                                .map(|dt| dt.timestamp())
+                                .unwrap_or(0);
+                            if ts > max_ts {
+                                max_ts = ts;
+                            }
+                        }
                         if let Err(e) = reconcile_cloud_app_stats(conn, &remote_stats) {
                             tracing::warn!("Failed to reconcile app stats: {e}");
+                        }
+                        if max_ts > last_user_app_stats_cp
+                            && let Err(e) = taurine_core::db::crud::set_sync_checkpoint(
+                                conn,
+                                "user_app_stats",
+                                max_ts,
+                            )
+                        {
+                            tracing::warn!("Failed to set user_app_stats sync checkpoint: {e}");
                         }
                     }
                     Err(e) => {

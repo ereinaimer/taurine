@@ -19,6 +19,8 @@ pub struct CloudTriggerDailyStatPayload {
     pub words_expanded: u64,
     pub time_saved_ms: u64,
     pub version: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
 }
 
 impl From<TriggerDailyStatRow> for CloudTriggerDailyStatPayload {
@@ -34,6 +36,7 @@ impl From<TriggerDailyStatRow> for CloudTriggerDailyStatPayload {
             words_expanded: row.words_expanded,
             time_saved_ms: row.time_saved_ms,
             version: row.version,
+            updated_at: None,
         }
     }
 }
@@ -51,6 +54,7 @@ impl From<&TriggerDailyStatRow> for CloudTriggerDailyStatPayload {
             words_expanded: row.words_expanded,
             time_saved_ms: row.time_saved_ms,
             version: row.version,
+            updated_at: None,
         }
     }
 }
@@ -70,6 +74,8 @@ pub struct CloudUserStatPayload {
     pub words_expanded: i64,
     pub time_saved_ms: i64,
     pub version: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
 }
 
 impl From<StatRow> for CloudUserStatPayload {
@@ -85,6 +91,7 @@ impl From<StatRow> for CloudUserStatPayload {
             words_expanded: row.words_expanded,
             time_saved_ms: row.time_saved_ms,
             version: row.version,
+            updated_at: None,
         }
     }
 }
@@ -102,6 +109,7 @@ impl From<&StatRow> for CloudUserStatPayload {
             words_expanded: row.words_expanded,
             time_saved_ms: row.time_saved_ms,
             version: row.version,
+            updated_at: None,
         }
     }
 }
@@ -120,6 +128,8 @@ pub struct CloudUserAppStatPayload {
     pub words_expanded: u64,
     pub time_saved_ms: u64,
     pub version: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
 }
 
 impl From<AppStatRow> for CloudUserAppStatPayload {
@@ -134,6 +144,7 @@ impl From<AppStatRow> for CloudUserAppStatPayload {
             words_expanded: row.words_expanded,
             time_saved_ms: row.time_saved_ms,
             version: row.version,
+            updated_at: None,
         }
     }
 }
@@ -150,6 +161,7 @@ impl From<&AppStatRow> for CloudUserAppStatPayload {
             words_expanded: row.words_expanded,
             time_saved_ms: row.time_saved_ms,
             version: row.version,
+            updated_at: None,
         }
     }
 }
@@ -171,6 +183,8 @@ pub struct CloudActivityEventPayload {
     pub time_saved_ms: u64,
     pub content: Option<String>,
     pub version: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
 }
 
 impl From<ActivityEventRow> for CloudActivityEventPayload {
@@ -188,6 +202,7 @@ impl From<ActivityEventRow> for CloudActivityEventPayload {
             time_saved_ms: row.time_saved_ms,
             content: row.content,
             version: row.version,
+            updated_at: None,
         }
     }
 }
@@ -207,6 +222,7 @@ impl From<&ActivityEventRow> for CloudActivityEventPayload {
             time_saved_ms: row.time_saved_ms,
             content: row.content.clone(),
             version: row.version,
+            updated_at: None,
         }
     }
 }
@@ -878,6 +894,7 @@ mod tests {
                 words_expanded: 300,
                 time_saved_ms: 6000,
                 version: 1,
+                updated_at: None,
             },
             CloudUserStatPayload {
                 user_id: None,
@@ -890,6 +907,7 @@ mod tests {
                 words_expanded: 800,
                 time_saved_ms: 12000,
                 version: 2,
+                updated_at: None,
             },
         ];
 

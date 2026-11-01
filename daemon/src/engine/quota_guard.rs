@@ -207,8 +207,7 @@ impl QuotaGuard {
     /// Resets or sets the balance from cloud sync or week rollover.
     pub fn set_balance(&self, new_balance: f64) {
         let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        inner.balance = new_balance.clamp(0.0, 100.0);
-        inner.unflushed_delta = 0.0;
+        inner.balance = (new_balance - inner.unflushed_delta).clamp(0.0, 100.0);
     }
 
     /// Flushes unpersisted accumulated delta to local SQLite database.

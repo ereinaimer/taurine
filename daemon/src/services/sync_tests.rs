@@ -1569,6 +1569,7 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
                             time_saved_ms: 1000,
                             content: Some("Hello from cloud".to_string()),
                             version: 1,
+                            updated_at: None,
                         };
                         let body = serde_json::to_string(&vec![remote_event]).unwrap();
                         let resp = format!(
@@ -1595,6 +1596,7 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
                             words_expanded: 15,
                             time_saved_ms: 3000,
                             version: 1,
+                            updated_at: None,
                         };
                         let body = serde_json::to_string(&vec![remote_trigger_stat]).unwrap();
                         let resp = format!(
@@ -1621,6 +1623,7 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
                             words_expanded: 60,
                             time_saved_ms: 12000,
                             version: 1,
+                            updated_at: None,
                         };
                         let body = serde_json::to_string(&vec![remote_user_stat]).unwrap();
                         let resp = format!(
@@ -1646,6 +1649,7 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
                             words_expanded: 40,
                             time_saved_ms: 8000,
                             version: 1,
+                            updated_at: None,
                         };
                         let body = serde_json::to_string(&vec![remote_app_stat]).unwrap();
                         let resp = format!(
@@ -3357,6 +3361,7 @@ fn test_sync_multi_device_stats_isolation() {
         words_expanded: 0,
         time_saved_ms: 0,
         version: 1,
+        updated_at: None,
     }];
     let reconciled =
         taurine_core::db::crud::reconcile_cloud_user_stats(&conn, &remote_payload).unwrap();
@@ -3390,4 +3395,383 @@ fn test_sync_multi_device_stats_isolation() {
         .unwrap()
         .expect("Aggregated stat must exist");
     assert_eq!(total_stat_after.executions, 16);
+}
+
+#[test]
+fn test_sync_incremental_checkpoints_and_outbox_resilience() {
+    // 1. Test QuotaGuard::set_balance preserves unflushed_delta and deducts it from new balance
+    let guard = crate::engine::quota_guard::QuotaGuard::new_with_balance(100.0);
+    assert!(guard.deplete(crate::engine::quota_guard::ExpansionType::Text));
+    assert_eq!(guard.unflushed_delta(), 0.30);
+    assert!((guard.balance() - 99.70).abs() < f64::EPSILON);
+
+    guard.set_balance(90.0);
+    assert_eq!(
+        guard.unflushed_delta(),
+        0.30,
+        "set_balance must preserve in-flight unflushed_delta"
+    );
+    assert!(
+        (guard.balance() - 89.70).abs() < f64::EPSILON,
+        "set_balance must deduct in-flight unflushed_delta from new balance"
+    );
+
+    // 2. Test outbox retry tracking and retry_count ASC ordering
+    let conn = Connection::open_in_memory().unwrap();
+    ensure_schema(&conn).unwrap();
+
+    let id1 = taurine_core::db::crud::enqueue_outbox(
+        &conn,
+        "snippet",
+        "trig-fail",
+        "upsert",
+        serde_json::json!({"output": "fail"}),
+    )
+    .unwrap();
+
+    let id2 = taurine_core::db::crud::enqueue_outbox(
+        &conn,
+        "snippet",
+        "trig-fresh",
+        "upsert",
+        serde_json::json!({"output": "fresh"}),
+    )
+    .unwrap();
+
+    // Failing item records failure and increments retry_count
+    taurine_core::db::crud::record_outbox_failure(&conn, id1, "500: Internal Server Error")
+        .unwrap();
+
+    // Verify retry_count ASC ordering: fresh item id2 (retry_count=0) is returned ahead of failing id1 (retry_count=1)
+    let batch_top1 = taurine_core::db::crud::fetch_outbox_batch(&conn, 1).unwrap();
+    assert_eq!(batch_top1.len(), 1);
+    assert_eq!(
+        batch_top1[0].id, id2,
+        "Fresh item (retry_count=0) must be fetched before failing item (retry_count=1)"
+    );
+    assert_eq!(batch_top1[0].retry_count, 0);
+
+    let batch_all = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    assert_eq!(batch_all.len(), 2);
+    assert_eq!(batch_all[0].id, id2);
+    assert_eq!(batch_all[0].retry_count, 0);
+    assert_eq!(batch_all[1].id, id1);
+    assert_eq!(batch_all[1].retry_count, 1);
+    assert_eq!(
+        batch_all[1].last_error.as_deref(),
+        Some("500: Internal Server Error")
+    );
+
+    // 3. Test quarantine of poisoned outbox item into sync_outbox_quarantine table
+    taurine_core::db::crud::quarantine_outbox_entry(&conn, id1, "Fatal 400 Bad Request").unwrap();
+
+    // Verify item 1 is removed from sync_outbox
+    let remaining = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].id, id2);
+
+    // Verify item 1 is stored in sync_outbox_quarantine
+    let quarantined: (i64, String, String, String, i64, Option<String>) = conn
+        .query_row(
+            "SELECT id, entity_type, entity_id, operation, retry_count, last_error FROM sync_outbox_quarantine WHERE id = ?1",
+            [id1],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+        )
+        .unwrap();
+
+    assert_eq!(quarantined.0, id1);
+    assert_eq!(quarantined.1, "snippet");
+    assert_eq!(quarantined.2, "trig-fail");
+    assert_eq!(quarantined.3, "upsert");
+    assert_eq!(quarantined.4, 1);
+    assert_eq!(quarantined.5.as_deref(), Some("Fatal 400 Bad Request"));
+}
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn test_sync_incremental_checkpoints_worker_and_quarantine_e2e() {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    crate::hook::tests::mock_keystore::use_mock_keystore();
+
+    let conn = Connection::open_in_memory().unwrap();
+    ensure_schema(&conn).unwrap();
+
+    let tokens = taurine_core::cloud::AuthTokens {
+        access_token: "test-token".to_string(),
+        refresh_token: "test-refresh".to_string(),
+        user_id: "user-test-uuid".to_string(),
+        expires_at: Some(i64::MAX),
+    };
+    taurine_core::cloud::store_cloud_tokens(&tokens).unwrap();
+
+    // 1. Enqueue fatal 400 entry
+    let id_fatal = taurine_core::db::crud::enqueue_outbox(
+        &conn,
+        "snippet",
+        "trig-fatal-400",
+        "upsert",
+        serde_json::json!({"id": "trig-fatal-400"}),
+    )
+    .unwrap();
+
+    // 2. Enqueue retry >= 5 entry (already attempted 5 times)
+    let id_retry5 = taurine_core::db::crud::enqueue_outbox(
+        &conn,
+        "snippet",
+        "trig-retry-5",
+        "upsert",
+        serde_json::json!({"id": "trig-retry-5"}),
+    )
+    .unwrap();
+    conn.execute(
+        "UPDATE sync_outbox SET retry_count = 5 WHERE id = ?1",
+        [id_retry5],
+    )
+    .unwrap();
+
+    // 3. Enqueue healthy entry
+    let _id_healthy = taurine_core::db::crud::enqueue_outbox(
+        &conn,
+        "snippet",
+        "trig-healthy",
+        "upsert",
+        serde_json::json!({"id": "trig-healthy"}),
+    )
+    .unwrap();
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    listener.set_nonblocking(true).unwrap();
+
+    let server_handle = std::thread::spawn(move || {
+        let mut handled = 0;
+        let start = std::time::Instant::now();
+        while handled < 10 && start.elapsed() < std::time::Duration::from_secs(5) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let mut buf = [0u8; 4096];
+                    let n = match stream.read(&mut buf) {
+                        Ok(n) if n > 0 => n,
+                        _ => continue,
+                    };
+                    let req = String::from_utf8_lossy(&buf[..n]);
+
+                    if req.starts_with("POST /rest/v1/snippets") {
+                        if req.contains("trig-fatal-400") {
+                            let resp = "HTTP/1.1 400 Bad Request\r\nContent-Length: 17\r\nConnection: close\r\n\r\nInvalid JSON body";
+                            stream.write_all(resp.as_bytes()).unwrap();
+                        } else if req.contains("trig-retry-5") {
+                            let resp = "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 12\r\nConnection: close\r\n\r\nServer Error";
+                            stream.write_all(resp.as_bytes()).unwrap();
+                        } else {
+                            let resp = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                            stream.write_all(resp.as_bytes()).unwrap();
+                        }
+                    } else if req.starts_with("GET /rest/v1/user_settings") {
+                        let remote_setting = taurine_core::db::crud::CloudSettingPayload {
+                            user_id: None,
+                            key: "audio_volume".to_string(),
+                            value: serde_json::json!(80),
+                            version: 5,
+                            updated_at: Some("2026-10-28T08:00:00Z".to_string()),
+                        };
+                        let body = serde_json::to_string(&vec![remote_setting]).unwrap();
+                        let resp = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                            body.len(),
+                            body
+                        );
+                        stream.write_all(resp.as_bytes()).unwrap();
+                    } else if req.starts_with("GET /rest/v1/activity_events") {
+                        let remote_event = CloudActivityEventPayload {
+                            user_id: None,
+                            device_id: "dev-remote".to_string(),
+                            id: "evt-inc-1".to_string(),
+                            trigger_id: None,
+                            timestamp: 1730106000,
+                            date: "2026-10-28".to_string(),
+                            category: "text".to_string(),
+                            app_key: "code.exe".to_string(),
+                            word_count: 10,
+                            time_saved_ms: 500,
+                            content: None,
+                            version: 1,
+                            updated_at: Some("2026-10-28T09:00:00Z".to_string()),
+                        };
+                        let body = serde_json::to_string(&vec![remote_event]).unwrap();
+                        let resp = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                            body.len(),
+                            body
+                        );
+                        stream.write_all(resp.as_bytes()).unwrap();
+                    } else if req.starts_with("GET /rest/v1/trigger_daily_stats") {
+                        let remote_stat = CloudTriggerDailyStatPayload {
+                            user_id: None,
+                            device_id: "dev-remote".to_string(),
+                            trigger_id: "trig-1".to_string(),
+                            date: "2026-10-28".to_string(),
+                            app_key: "code.exe".to_string(),
+                            executions: 5,
+                            words_spoken: 0,
+                            words_expanded: 25,
+                            time_saved_ms: 1000,
+                            version: 1,
+                            updated_at: Some("2026-10-28T10:00:00Z".to_string()),
+                        };
+                        let body = serde_json::to_string(&vec![remote_stat]).unwrap();
+                        let resp = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                            body.len(),
+                            body
+                        );
+                        stream.write_all(resp.as_bytes()).unwrap();
+                    } else if req.starts_with("GET /rest/v1/user_stats") {
+                        let remote_stat = CloudUserStatPayload {
+                            user_id: None,
+                            device_id: "dev-remote".to_string(),
+                            date: "2026-10-28".to_string(),
+                            executions: 10,
+                            ai_executions: 0,
+                            voice_executions: 0,
+                            words_spoken: 0,
+                            words_expanded: 50,
+                            time_saved_ms: 2000,
+                            version: 1,
+                            updated_at: Some("2026-10-28T11:00:00Z".to_string()),
+                        };
+                        let body = serde_json::to_string(&vec![remote_stat]).unwrap();
+                        let resp = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                            body.len(),
+                            body
+                        );
+                        stream.write_all(resp.as_bytes()).unwrap();
+                    } else if req.starts_with("GET /rest/v1/user_app_stats") {
+                        let remote_stat = CloudUserAppStatPayload {
+                            user_id: None,
+                            device_id: "dev-remote".to_string(),
+                            app_key: "code.exe".to_string(),
+                            date: "2026-10-28".to_string(),
+                            executions: 5,
+                            words_spoken: 0,
+                            words_expanded: 25,
+                            time_saved_ms: 1000,
+                            version: 1,
+                            updated_at: Some("2026-10-28T12:00:00Z".to_string()),
+                        };
+                        let body = serde_json::to_string(&vec![remote_stat]).unwrap();
+                        let resp = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                            body.len(),
+                            body
+                        );
+                        stream.write_all(resp.as_bytes()).unwrap();
+                    } else if req.starts_with("GET /rest/v1/") {
+                        let resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+                        stream.write_all(resp.as_bytes()).unwrap();
+                    }
+                    handled += 1;
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(15));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let config = CloudConfig {
+        supabase_url: format!("http://127.0.0.1:{port}"),
+        anon_key: "test-anon-key".to_string(),
+    };
+    let client = CloudClient::new(config);
+
+    let status = SyncWorker::run_sync_cycle(&conn, Some(&client)).await;
+    assert!(
+        matches!(status, SyncStatus::Success { .. }),
+        "Sync cycle must succeed: {status:?}"
+    );
+
+    // Verify outbox: healthy item was drained, fatal & poison were quarantined
+    let outbox_remaining = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    assert!(
+        outbox_remaining.is_empty(),
+        "All items must be drained from outbox; found: {outbox_remaining:?}"
+    );
+
+    // Verify quarantine table has the 2 quarantined items
+    let q_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM sync_outbox_quarantine", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(
+        q_count, 2,
+        "Both fatal and poison pills must be quarantined"
+    );
+
+    let fatal_in_q: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sync_outbox_quarantine WHERE id = ?1)",
+            [id_fatal],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(fatal_in_q, "Fatal 400 entry must be in quarantine table");
+
+    let retry5_in_q: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sync_outbox_quarantine WHERE id = ?1)",
+            [id_retry5],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(retry5_in_q, "Retry >= 5 entry must be in quarantine table");
+
+    // Verify incremental checkpoints were set for all 5 entities
+    let cp_settings = taurine_core::db::crud::get_sync_checkpoint(&conn, "user_settings").unwrap();
+    let expected_settings_ts =
+        taurine_core::chrono::DateTime::parse_from_rfc3339("2026-10-28T08:00:00Z")
+            .unwrap()
+            .timestamp();
+    assert_eq!(cp_settings, expected_settings_ts);
+
+    let cp_events = taurine_core::db::crud::get_sync_checkpoint(&conn, "activity_events").unwrap();
+    let expected_events_ts =
+        taurine_core::chrono::DateTime::parse_from_rfc3339("2026-10-28T09:00:00Z")
+            .unwrap()
+            .timestamp();
+    assert_eq!(cp_events, expected_events_ts);
+
+    let cp_trigger_stats =
+        taurine_core::db::crud::get_sync_checkpoint(&conn, "trigger_daily_stats").unwrap();
+    let expected_trigger_stats_ts =
+        taurine_core::chrono::DateTime::parse_from_rfc3339("2026-10-28T10:00:00Z")
+            .unwrap()
+            .timestamp();
+    assert_eq!(cp_trigger_stats, expected_trigger_stats_ts);
+
+    let cp_user_stats = taurine_core::db::crud::get_sync_checkpoint(&conn, "user_stats").unwrap();
+    let expected_user_stats_ts =
+        taurine_core::chrono::DateTime::parse_from_rfc3339("2026-10-28T11:00:00Z")
+            .unwrap()
+            .timestamp();
+    assert_eq!(cp_user_stats, expected_user_stats_ts);
+
+    let cp_app_stats =
+        taurine_core::db::crud::get_sync_checkpoint(&conn, "user_app_stats").unwrap();
+    let expected_app_stats_ts =
+        taurine_core::chrono::DateTime::parse_from_rfc3339("2026-10-28T12:00:00Z")
+            .unwrap()
+            .timestamp();
+    assert_eq!(cp_app_stats, expected_app_stats_ts);
+
+    server_handle.join().unwrap();
+    taurine_core::cloud::clear_tokens().unwrap();
 }

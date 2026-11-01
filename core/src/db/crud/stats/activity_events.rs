@@ -469,6 +469,7 @@ mod tests {
                 time_saved_ms: 2500,
                 content: Some("expanded code snippet".to_string()),
                 version: 1,
+                updated_at: None,
             },
             CloudActivityEventPayload {
                 user_id: None,
@@ -483,6 +484,7 @@ mod tests {
                 time_saved_ms: 5000,
                 content: Some("dictated message from desktop".to_string()),
                 version: 1,
+                updated_at: None,
             },
         ];
 

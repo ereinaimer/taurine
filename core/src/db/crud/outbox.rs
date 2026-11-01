@@ -10,6 +10,10 @@ pub struct OutboxEntry {
     pub operation: String,
     pub payload: serde_json::Value,
     pub created_at: i64,
+    #[serde(default)]
+    pub retry_count: i64,
+    #[serde(default)]
+    pub last_error: Option<String>,
 }
 
 pub fn enqueue_outbox(
@@ -30,8 +34,8 @@ pub fn enqueue_outbox(
 
 pub fn fetch_outbox_batch(conn: &Connection, limit: usize) -> Result<Vec<OutboxEntry>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT id, entity_type, entity_id, operation, payload, created_at
-         FROM sync_outbox ORDER BY id ASC LIMIT ?1",
+        "SELECT id, entity_type, entity_id, operation, payload, created_at, retry_count, last_error
+         FROM sync_outbox ORDER BY retry_count ASC, id ASC LIMIT ?1",
     )?;
     let rows = stmt.query_map([limit as i64], |row| {
         let payload_str: String = row.get(4)?;
@@ -43,6 +47,8 @@ pub fn fetch_outbox_batch(conn: &Connection, limit: usize) -> Result<Vec<OutboxE
             operation: row.get(3)?,
             payload,
             created_at: row.get(5)?,
+            retry_count: row.get(6)?,
+            last_error: row.get(7)?,
         })
     })?;
     let mut entries = Vec::new();
@@ -80,6 +86,29 @@ pub fn set_sync_checkpoint(conn: &Connection, entity_type: &str, ts: i64) -> Res
          ON CONFLICT(entity_type) DO UPDATE SET last_synced_at = excluded.last_synced_at",
     )?;
     stmt.execute(params![entity_type, ts])?;
+    Ok(())
+}
+
+pub fn record_outbox_failure(conn: &Connection, id: i64, error_msg: &str) -> Result<()> {
+    let mut stmt = conn.prepare_cached(
+        "UPDATE sync_outbox
+         SET retry_count = retry_count + 1,
+             last_error = ?2
+         WHERE id = ?1",
+    )?;
+    stmt.execute(params![id, error_msg])?;
+    Ok(())
+}
+
+pub fn quarantine_outbox_entry(conn: &Connection, id: i64, reason: &str) -> Result<()> {
+    let mut stmt = conn.prepare_cached(
+        "INSERT OR REPLACE INTO sync_outbox_quarantine (id, entity_type, entity_id, operation, payload, retry_count, last_error)
+         SELECT id, entity_type, entity_id, operation, payload, retry_count, ?2
+         FROM sync_outbox
+         WHERE id = ?1",
+    )?;
+    stmt.execute(params![id, reason])?;
+    delete_outbox_entry(conn, id)?;
     Ok(())
 }
 

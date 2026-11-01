@@ -192,11 +192,24 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
             entity_id   TEXT    NOT NULL,
             operation   TEXT    NOT NULL,
             payload     JSON    NOT NULL,
-            created_at  INTEGER NOT NULL DEFAULT (unixepoch())
+            created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
+            retry_count INTEGER NOT NULL DEFAULT 0,
+            last_error  TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS sync_outbox_quarantine (
+            id             INTEGER PRIMARY KEY,
+            entity_type    TEXT    NOT NULL,
+            entity_id      TEXT    NOT NULL,
+            operation      TEXT    NOT NULL,
+            payload        JSON    NOT NULL,
+            retry_count    INTEGER NOT NULL,
+            last_error     TEXT,
+            quarantined_at INTEGER NOT NULL DEFAULT (unixepoch())
         );
 
         CREATE INDEX IF NOT EXISTS idx_sync_outbox_order
-            ON sync_outbox(id ASC);
+            ON sync_outbox(retry_count ASC, id ASC);
 
         CREATE TABLE IF NOT EXISTS sync_checkpoints (
             entity_type    TEXT PRIMARY KEY,
@@ -350,6 +363,17 @@ pub fn migrate_legacy_columns(conn: &Connection) -> Result<()> {
              ALTER TABLE trigger_daily_stats_migrating RENAME TO trigger_daily_stats;
              CREATE INDEX IF NOT EXISTS idx_trigger_daily_stats_sync ON trigger_daily_stats(version, updated_at);",
         )?;
+    }
+
+    if table_exists(conn, "sync_outbox")? && !column_exists(conn, "sync_outbox", "retry_count")? {
+        conn.execute(
+            "ALTER TABLE sync_outbox ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0;",
+            [],
+        )?;
+    }
+
+    if table_exists(conn, "sync_outbox")? && !column_exists(conn, "sync_outbox", "last_error")? {
+        conn.execute("ALTER TABLE sync_outbox ADD COLUMN last_error TEXT;", [])?;
     }
 
     Ok(())
