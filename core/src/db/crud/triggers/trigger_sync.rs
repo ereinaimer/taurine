@@ -97,6 +97,26 @@ pub struct CloudSnippetPayload {
     pub updated_at: i64,
     pub created_at: i64,
     pub aliases: Vec<TriggerAliasRow>,
+    #[serde(default)]
+    pub script: Option<ScriptSyncPayload>,
+    #[serde(default)]
+    pub assets: Vec<AssetSyncPayload>,
+}
+
+/// Script metadata and compressed content payload for cloud sync.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScriptSyncPayload {
+    pub interpreter: ScriptInterpreter,
+    pub behavior: ScriptBehavior,
+    pub compressed_content_hex: String,
+}
+
+/// Asset metadata and compressed content payload for cloud sync.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssetSyncPayload {
+    pub id: String,
+    pub mime_type: String,
+    pub compressed_content_hex: String,
 }
 
 /// The outcome of reconciling a remote cloud snippet payload with local SQLite state.
@@ -108,10 +128,36 @@ pub enum ReconcileOutcome {
     InSync,
 }
 
-/// Packages a local `TriggerRow` and its associated `TriggerAliasRow`s into a `CloudSnippetPayload`.
+/// Loads all assets attached to a trigger as sync payloads.
+pub fn load_trigger_assets(
+    conn: &Connection,
+    trigger_id: &str,
+) -> crate::Result<Vec<AssetSyncPayload>> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT id, mime_type, compressed_content FROM assets WHERE trigger_id = ?1 ORDER BY id",
+    )?;
+    let rows = stmt.query_map([trigger_id], |row| {
+        let id: String = row.get(0)?;
+        let mime_type: String = row.get(1)?;
+        let compressed_content: Vec<u8> = row.get(2)?;
+        Ok(AssetSyncPayload {
+            id,
+            mime_type,
+            compressed_content_hex: hex::encode(compressed_content),
+        })
+    })?;
+    let mut assets = Vec::new();
+    for row in rows {
+        assets.push(row?);
+    }
+    Ok(assets)
+}
+
+/// Packages a local `TriggerRow` and its associated `TriggerAliasRow`s and assets into a `CloudSnippetPayload`.
 pub fn serialize_trigger_to_cloud_snippet(
     trigger: &TriggerRow,
     aliases: &[TriggerAliasRow],
+    assets: &[AssetSyncPayload],
 ) -> CloudSnippetPayload {
     let resolved_aliases = if aliases.is_empty() && !trigger.invocations.is_empty() {
         trigger.invocations.clone()
@@ -125,6 +171,15 @@ pub fn serialize_trigger_to_cloud_snippet(
         "00000000-0000-0000-0000-000000000000".to_string()
     } else {
         trigger.workspace_id.clone()
+    };
+
+    let script = match (trigger.interpreter, &trigger.script_binary) {
+        (Some(interpreter), Some(binary)) => Some(ScriptSyncPayload {
+            interpreter,
+            behavior: trigger.behavior.unwrap_or(ScriptBehavior::Inline),
+            compressed_content_hex: hex::encode(binary),
+        }),
+        _ => None,
     };
 
     CloudSnippetPayload {
@@ -153,6 +208,8 @@ pub fn serialize_trigger_to_cloud_snippet(
         updated_at: trigger.updated_at,
         created_at: trigger.created_at,
         aliases: resolved_aliases,
+        script,
+        assets: assets.to_vec(),
     }
 }
 
@@ -239,6 +296,8 @@ pub fn reconcile_cloud_snippet(
                 )?;
             }
 
+            reconcile_script_and_assets(conn, target_id, snippet)?;
+
             Ok(ReconcileOutcome::InsertedRemote)
         }),
         Some((local_version, local_updated_at)) => {
@@ -314,6 +373,8 @@ pub fn reconcile_cloud_snippet(
                         )?;
                     }
 
+                    reconcile_script_and_assets(conn, target_id, snippet)?;
+
                     Ok(ReconcileOutcome::UpdatedFromRemote)
                 })
             } else if local_version > snippet.version
@@ -325,6 +386,60 @@ pub fn reconcile_cloud_snippet(
             }
         }
     }
+}
+
+fn reconcile_script_and_assets(
+    conn: &Connection,
+    target_id: &str,
+    snippet: &CloudSnippetPayload,
+) -> crate::Result<()> {
+    if let Some(script_payload) = &snippet.script {
+        let compressed_content = hex::decode(&script_payload.compressed_content_hex)
+            .map_err(|e| crate::Error::Config(format!("Invalid script hex: {e}")))?;
+        conn.execute(
+            "INSERT INTO scripts (trigger_id, interpreter, behavior, compressed_content, version, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(trigger_id) DO UPDATE SET
+                interpreter        = excluded.interpreter,
+                behavior           = excluded.behavior,
+                compressed_content = excluded.compressed_content,
+                version            = excluded.version,
+                updated_at         = excluded.updated_at",
+            rusqlite::params![
+                target_id,
+                serde_json::to_string(&script_payload.interpreter)?,
+                serde_json::to_string(&script_payload.behavior)?,
+                compressed_content,
+                snippet.version,
+                snippet.updated_at,
+            ],
+        )?;
+    } else {
+        conn.execute("DELETE FROM scripts WHERE trigger_id = ?1", [target_id])?;
+    }
+
+    conn.execute("DELETE FROM assets WHERE trigger_id = ?1", [target_id])?;
+    for asset in &snippet.assets {
+        let compressed_content = hex::decode(&asset.compressed_content_hex)
+            .map_err(|e| crate::Error::Config(format!("Invalid asset hex: {e}")))?;
+        conn.execute(
+            "INSERT INTO assets (id, trigger_id, mime_type, compressed_content, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(id) DO UPDATE SET
+                trigger_id         = excluded.trigger_id,
+                mime_type          = excluded.mime_type,
+                compressed_content = excluded.compressed_content,
+                updated_at         = excluded.updated_at",
+            rusqlite::params![
+                asset.id,
+                target_id,
+                asset.mime_type,
+                compressed_content,
+                snippet.updated_at,
+            ],
+        )?;
+    }
+    Ok(())
 }
 
 /// Marks a local trigger row as synchronized (`is_synced = 1`).
@@ -416,7 +531,8 @@ pub fn backfill_untracked_triggers_to_outbox(conn: &Connection) -> crate::Result
         let mut backfilled = 0;
         for trigger in triggers {
             let aliases = super::aliases::list_aliases(conn, &trigger.id)?;
-            let payload = serialize_trigger_to_cloud_snippet(&trigger, &aliases);
+            let assets = load_trigger_assets(conn, &trigger.id)?;
+            let payload = serialize_trigger_to_cloud_snippet(&trigger, &aliases, &assets);
             let payload_val =
                 serde_json::to_value(&payload).map_err(|e| crate::Error::Config(e.to_string()))?;
             crate::db::crud::enqueue_outbox(conn, "snippet", &trigger.id, "upsert", payload_val)?;
@@ -436,6 +552,14 @@ pub fn purge_deleted_tombstones(conn: &Connection, max_age_seconds: i64) -> crat
     let cutoff = now.saturating_sub(max_age_seconds);
 
     with_transaction(conn, || {
+        conn.execute(
+            "DELETE FROM scripts WHERE trigger_id IN (SELECT id FROM triggers WHERE is_deleted = 1 AND updated_at <= ?1)",
+            [cutoff],
+        )?;
+        conn.execute(
+            "DELETE FROM assets WHERE trigger_id IN (SELECT id FROM triggers WHERE is_deleted = 1 AND updated_at <= ?1)",
+            [cutoff],
+        )?;
         conn.execute(
             "DELETE FROM trigger_aliases WHERE trigger_id IN (SELECT id FROM triggers WHERE is_deleted = 1 AND updated_at <= ?1)",
             [cutoff],

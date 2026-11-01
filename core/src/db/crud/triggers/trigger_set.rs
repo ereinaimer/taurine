@@ -698,7 +698,9 @@ pub(crate) fn enqueue_trigger_outbox(
 ) -> Result<()> {
     if let Some(trigger) = super::trigger_get::get_trigger(conn, trigger_id)? {
         let aliases = super::aliases::list_aliases(conn, trigger_id)?;
-        let payload = super::trigger_sync::serialize_trigger_to_cloud_snippet(&trigger, &aliases);
+        let assets = super::trigger_sync::load_trigger_assets(conn, trigger_id)?;
+        let payload =
+            super::trigger_sync::serialize_trigger_to_cloud_snippet(&trigger, &aliases, &assets);
         let payload_val =
             serde_json::to_value(&payload).map_err(|e| crate::Error::Config(e.to_string()))?;
         crate::db::crud::enqueue_outbox(conn, "snippet", trigger_id, operation, payload_val)?;

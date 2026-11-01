@@ -2,15 +2,16 @@ use rusqlite::Connection;
 use taurine_core::cloud::CloudClient;
 use taurine_core::cloud::types::CloudConfig;
 use taurine_core::db::crud::triggers::{
-    CloudSnippetPayload, InvocationType, ReconcileOutcome, TriggerAliasRow, TriggerRow,
-    list_aliases, purge_deleted_tombstones, reconcile_cloud_snippet,
-    serialize_trigger_to_cloud_snippet,
+    AssetSyncPayload, CloudSnippetPayload, InvocationType, ReconcileOutcome, ScriptSyncPayload,
+    TriggerAliasRow, TriggerRow, hex, list_aliases, load_trigger_assets, purge_deleted_tombstones,
+    reconcile_cloud_snippet, serialize_trigger_to_cloud_snippet,
 };
 use taurine_core::db::crud::{
     CloudActivityEventPayload, CloudTriggerDailyStatPayload, CloudUserAppStatPayload,
     CloudUserStatPayload,
 };
 use taurine_core::db::init::ensure_schema;
+use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter, compress, decompress};
 
 use super::sync_worker::{SyncStatus, SyncWorker};
 
@@ -65,7 +66,7 @@ fn test_sync_serializes_multi_trigger_aliases() {
         },
     ];
 
-    let payload = serialize_trigger_to_cloud_snippet(&trigger, &aliases);
+    let payload = serialize_trigger_to_cloud_snippet(&trigger, &aliases, &[]);
 
     assert_eq!(payload.id, "trig-123");
     assert_eq!(payload.workspace_id, "00000000-0000-0000-0000-000000000000");
@@ -95,6 +96,174 @@ fn test_sync_serializes_multi_trigger_aliases() {
     let json = serde_json::to_string(&payload).unwrap();
     let deserialized: CloudSnippetPayload = serde_json::from_str(&json).unwrap();
     assert_eq!(payload, deserialized);
+}
+
+#[test]
+fn test_sync_script_and_asset_serialization_and_reconciliation() {
+    let script_code = "echo 'hello from sync script'";
+    let compressed_code = compress(script_code).unwrap();
+    let trigger = TriggerRow {
+        id: "trig-script-1".to_string(),
+        workspace_id: "default".to_string(),
+        output: "[Script: bash]".to_string(),
+        description: Some("Script trigger".to_string()),
+        action_type: "script".to_string(),
+        target_os: "all".to_string(),
+        only_apps: None,
+        except_apps: None,
+        tags: "[]".to_string(),
+        is_enabled: true,
+        auto_case: false,
+        version: 1,
+        is_deleted: false,
+        updated_at: 1730002000,
+        created_at: 1730001000,
+        interpreter: Some(ScriptInterpreter::Bash),
+        behavior: Some(ScriptBehavior::Inline),
+        script_binary: Some(compressed_code.clone()),
+        ..Default::default()
+    };
+
+    let aliases = vec![TriggerAliasRow {
+        id: "alias-script-1".to_string(),
+        trigger_id: "trig-script-1".to_string(),
+        invocation: "run_sh".to_string(),
+        invocation_type: InvocationType::Word,
+        require_confirmation: false,
+        strict_threshold: None,
+        created_at: 1730001000,
+    }];
+
+    let dummy_image_bytes = b"fake-png-binary-data";
+    let compressed_asset = zstd::bulk::compress(dummy_image_bytes, 3).unwrap();
+    let asset_payload = AssetSyncPayload {
+        id: "asset-hash-123".to_string(),
+        mime_type: "image/png".to_string(),
+        compressed_content_hex: hex::encode(&compressed_asset),
+    };
+    let assets = vec![asset_payload.clone()];
+
+    let payload = serialize_trigger_to_cloud_snippet(&trigger, &aliases, &assets);
+
+    assert_eq!(payload.id, "trig-script-1");
+    assert!(payload.script.is_some());
+    let script_payload = payload.script.as_ref().unwrap();
+    assert_eq!(script_payload.interpreter, ScriptInterpreter::Bash);
+    assert_eq!(script_payload.behavior, ScriptBehavior::Inline);
+    assert_eq!(
+        script_payload.compressed_content_hex,
+        hex::encode(&compressed_code)
+    );
+    assert_eq!(payload.assets.len(), 1);
+    assert_eq!(payload.assets[0].id, "asset-hash-123");
+    assert_eq!(payload.assets[0].mime_type, "image/png");
+    assert_eq!(
+        payload.assets[0].compressed_content_hex,
+        hex::encode(&compressed_asset)
+    );
+
+    // Verify JSON serialization round-trip
+    let json = serde_json::to_string(&payload).unwrap();
+    let deserialized: CloudSnippetPayload = serde_json::from_str(&json).unwrap();
+    assert_eq!(payload, deserialized);
+
+    // Reconcile on clean connection
+    let clean_conn = Connection::open_in_memory().unwrap();
+    ensure_schema(&clean_conn).unwrap();
+
+    let outcome = reconcile_cloud_snippet(&clean_conn, &deserialized).unwrap();
+    assert_eq!(outcome, ReconcileOutcome::InsertedRemote);
+
+    // Verify scripts row exists and matches
+    let (interpreter_str, behavior_str, stored_compressed): (String, String, Vec<u8>) = clean_conn
+        .query_row(
+            "SELECT interpreter, behavior, compressed_content FROM scripts WHERE trigger_id = ?1",
+            ["trig-script-1"],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(interpreter_str.trim_matches('"'), "bash");
+    assert_eq!(behavior_str.trim_matches('"'), "inline");
+    assert_eq!(stored_compressed, compressed_code);
+    assert_eq!(decompress(&stored_compressed).unwrap(), script_code);
+
+    // Verify assets row exists and matches
+    let (asset_id, mime_type, stored_asset_blob): (String, String, Vec<u8>) = clean_conn
+        .query_row(
+            "SELECT id, mime_type, compressed_content FROM assets WHERE trigger_id = ?1",
+            ["trig-script-1"],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(asset_id, "asset-hash-123");
+    assert_eq!(mime_type, "image/png");
+    assert_eq!(stored_asset_blob, compressed_asset);
+
+    // Verify load_trigger_assets
+    let loaded_assets = load_trigger_assets(&clean_conn, "trig-script-1").unwrap();
+    assert_eq!(loaded_assets.len(), 1);
+    assert_eq!(loaded_assets[0], asset_payload);
+
+    // Verify remote update overwrites scripts and assets
+    let mut updated_payload = deserialized.clone();
+    updated_payload.version = 2;
+    updated_payload.updated_at = 1730003000;
+    let new_script_code = "echo 'updated script'";
+    let new_compressed_code = compress(new_script_code).unwrap();
+    updated_payload.script = Some(ScriptSyncPayload {
+        interpreter: ScriptInterpreter::Python,
+        behavior: ScriptBehavior::Silent,
+        compressed_content_hex: hex::encode(&new_compressed_code),
+    });
+    let new_asset = AssetSyncPayload {
+        id: "asset-hash-456".to_string(),
+        mime_type: "image/jpeg".to_string(),
+        compressed_content_hex: hex::encode(&compressed_asset),
+    };
+    updated_payload.assets = vec![new_asset.clone()];
+
+    let update_outcome = reconcile_cloud_snippet(&clean_conn, &updated_payload).unwrap();
+    assert_eq!(update_outcome, ReconcileOutcome::UpdatedFromRemote);
+
+    let (interp, behav, stored_bytes): (String, String, Vec<u8>) = clean_conn
+        .query_row(
+            "SELECT interpreter, behavior, compressed_content FROM scripts WHERE trigger_id = ?1",
+            ["trig-script-1"],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(interp.trim_matches('"'), "python");
+    assert_eq!(behav.trim_matches('"'), "silent");
+    assert_eq!(decompress(&stored_bytes).unwrap(), new_script_code);
+
+    let assets_after_update = load_trigger_assets(&clean_conn, "trig-script-1").unwrap();
+    assert_eq!(assets_after_update.len(), 1);
+    assert_eq!(assets_after_update[0], new_asset);
+
+    // Verify tombstone purge cascades to scripts and assets
+    clean_conn
+        .execute(
+            "UPDATE triggers SET is_deleted = 1, updated_at = 100 WHERE id = 'trig-script-1'",
+            [],
+        )
+        .unwrap();
+    purge_deleted_tombstones(&clean_conn, 0).unwrap();
+    let script_count: i64 = clean_conn
+        .query_row(
+            "SELECT COUNT(*) FROM scripts WHERE trigger_id = 'trig-script-1'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(script_count, 0);
+    let asset_count: i64 = clean_conn
+        .query_row(
+            "SELECT COUNT(*) FROM assets WHERE trigger_id = 'trig-script-1'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(asset_count, 0);
 }
 
 #[test]
@@ -161,6 +330,8 @@ fn test_lww_remote_newer_overwrites_local_and_aliases() {
                 created_at: 2000,
             },
         ],
+        script: None,
+        assets: Vec::new(),
     };
 
     let outcome = reconcile_cloud_snippet(&conn, &remote_snippet).unwrap();
@@ -257,6 +428,8 @@ fn test_lww_local_newer_preserved() {
             strict_threshold: None,
             created_at: 2000,
         }],
+        script: None,
+        assets: Vec::new(),
     };
 
     let outcome = reconcile_cloud_snippet(&conn, &remote_snippet).unwrap();
@@ -324,6 +497,8 @@ fn test_sync_reconciles_soft_delete_tombstone() {
         updated_at: 2500,
         created_at: 1000,
         aliases: vec![],
+        script: None,
+        assets: Vec::new(),
     };
 
     let outcome = reconcile_cloud_snippet(&conn, &remote_snippet).unwrap();
@@ -539,6 +714,8 @@ async fn test_sync_worker_authenticated_two_way_cycle() {
                         strict_threshold: None,
                         created_at: 1500,
                     }],
+                    script: None,
+                    assets: Vec::new(),
                 };
                 let body = serde_json::to_string(&vec![remote_snippet]).unwrap();
                 let resp = format!(
@@ -1343,6 +1520,8 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
                                 strict_threshold: None,
                                 created_at: 1730000000,
                             }],
+                            script: None,
+                            assets: Vec::new(),
                         };
                         let body = serde_json::to_string(&vec![remote_snippet]).unwrap();
                         let resp = format!(
@@ -1844,6 +2023,8 @@ async fn test_event_driven_sync_worker_wakes_on_notification() {
                                 updated_at: 1730000000,
                                 created_at: 1730000000,
                                 aliases: vec![],
+                                script: None,
+                                assets: Vec::new(),
                             }]
                         };
                         let body = serde_json::to_string(&snippets).unwrap();
@@ -2495,6 +2676,8 @@ async fn test_checkpoint_watermark_pull_does_not_create_outbox_entries() {
                                     strict_threshold: None,
                                     created_at: 1730005000,
                                 }],
+                                script: None,
+                                assets: Vec::new(),
                             };
                             let body = serde_json::to_string(&vec![remote_snippet]).unwrap();
                             let resp = format!(

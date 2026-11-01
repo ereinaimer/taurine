@@ -40,6 +40,7 @@ pub use overlap::{
 
 pub use usage::{increment_usage_count_by_trigger, record_expansion_usage};
 
+pub use hex;
 pub use trigger_set::{
     AddOutcome, ExistingTriggerUpdate, MAX_TRIGGER_LENGTH, NewEntry, NewTrigger, PreparedTrigger,
     add_trigger, add_trigger_by_type, add_trigger_by_type_with_case, add_trigger_with_case,
@@ -52,9 +53,10 @@ pub use trigger_set::{
     upsert_trigger_with_type, upsert_trigger_with_type_and_case,
 };
 pub use trigger_sync::{
-    CloudSnippetPayload, ReconcileOutcome, backfill_untracked_triggers_to_outbox,
-    get_syncable_triggers, get_unsynced_triggers, mark_trigger_synced, purge_deleted_tombstones,
-    reconcile_cloud_snippet, serialize_trigger_to_cloud_snippet,
+    AssetSyncPayload, CloudSnippetPayload, ReconcileOutcome, ScriptSyncPayload,
+    backfill_untracked_triggers_to_outbox, get_syncable_triggers, get_unsynced_triggers,
+    load_trigger_assets, mark_trigger_synced, purge_deleted_tombstones, reconcile_cloud_snippet,
+    serialize_trigger_to_cloud_snippet,
 };
 pub use trigger_types::{
     ActionType, TriggerAction, TriggerConflict, TriggerLimits, TriggerListItem, TriggerRow,

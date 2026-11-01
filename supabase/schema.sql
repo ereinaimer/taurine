@@ -22,12 +22,16 @@ CREATE TABLE IF NOT EXISTS public.snippets (
     version      BIGINT      NOT NULL DEFAULT 1,
     is_deleted   BOOLEAN     NOT NULL DEFAULT false,
     aliases      JSONB       NOT NULL DEFAULT '[]'::jsonb,
+    script       JSONB,
+    assets       JSONB       NOT NULL DEFAULT '[]'::jsonb,
     created_at   BIGINT      NOT NULL DEFAULT 0,
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 ALTER TABLE public.snippets DROP COLUMN IF EXISTS local_id;
 ALTER TABLE public.snippets DROP COLUMN IF EXISTS name;
+ALTER TABLE public.snippets ADD COLUMN IF NOT EXISTS script JSONB;
+ALTER TABLE public.snippets ADD COLUMN IF NOT EXISTS assets JSONB NOT NULL DEFAULT '[]'::jsonb;
 
 ALTER TABLE public.snippets ENABLE ROW LEVEL SECURITY;
 
