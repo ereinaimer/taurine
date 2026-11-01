@@ -26,7 +26,7 @@ pub use recorder::{
     resolve_trigger_id,
 };
 pub use stat_delete::delete_stat;
-pub use stat_get::{get_stat, get_stat_counters};
+pub use stat_get::{get_stat, get_stat_counters, get_stat_for_device};
 pub use stat_set::increment_stat;
 pub use stat_types::{StatDeltas, StatRow};
 pub use streak::{StreakInfo, calculate_streaks};

@@ -110,11 +110,12 @@ pub fn upsert_app_stat_with_conn(
     time_saved_ms: u64,
 ) -> Result<()> {
     let now = crate::db::now_unix_secs();
+    let device_id = crate::cloud::get_device_hardware_id();
     conn.execute(
         "INSERT INTO app_stats (
-            app_key, date, executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, 1, ?)
-        ON CONFLICT(app_key, date) DO UPDATE SET
+            device_id, app_key, date, executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+        ON CONFLICT(device_id, app_key, date) DO UPDATE SET
             executions       = app_stats.executions + excluded.executions,
             words_spoken     = app_stats.words_spoken + excluded.words_spoken,
             words_expanded   = app_stats.words_expanded + excluded.words_expanded,
@@ -122,6 +123,7 @@ pub fn upsert_app_stat_with_conn(
             version          = app_stats.version + 1,
             updated_at       = excluded.updated_at",
         params![
+            device_id,
             app_key,
             date,
             executions as i64,
@@ -138,7 +140,7 @@ pub fn upsert_app_stat_with_conn(
         "app_stat",
         &entity_id,
         "upsert",
-        serde_json::json!({ "app_key": app_key, "date": date }),
+        serde_json::json!({ "device_id": device_id, "app_key": app_key, "date": date }),
     );
 
     Ok(())

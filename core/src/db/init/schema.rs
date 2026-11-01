@@ -60,7 +60,8 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
         );
 
         CREATE TABLE IF NOT EXISTS stats (
-            date             TEXT    PRIMARY KEY,
+            device_id        TEXT    NOT NULL DEFAULT '',
+            date             TEXT    NOT NULL,
             executions       INTEGER DEFAULT 0,
             ai_executions    INTEGER DEFAULT 0,
             voice_executions INTEGER DEFAULT 0,
@@ -68,7 +69,8 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
             words_expanded   INTEGER DEFAULT 0,
             time_saved_ms    INTEGER DEFAULT 0,
             version          INTEGER DEFAULT 1,
-            updated_at       INTEGER NOT NULL
+            updated_at       INTEGER NOT NULL,
+            PRIMARY KEY (device_id, date)
         );
 
         CREATE TABLE IF NOT EXISTS scripts (
@@ -129,6 +131,7 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
         );
 
         CREATE TABLE IF NOT EXISTS app_stats (
+            device_id        TEXT    NOT NULL DEFAULT '',
             app_key          TEXT    NOT NULL,
             date             TEXT    NOT NULL,
             executions       INTEGER NOT NULL DEFAULT 0,
@@ -137,10 +140,11 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
             time_saved_ms    INTEGER NOT NULL DEFAULT 0,
             version          INTEGER NOT NULL DEFAULT 1,
             updated_at       INTEGER NOT NULL DEFAULT (unixepoch()),
-            PRIMARY KEY (app_key, date)
+            PRIMARY KEY (device_id, app_key, date)
         );
 
         CREATE TABLE IF NOT EXISTS trigger_daily_stats (
+            device_id        TEXT    NOT NULL DEFAULT '',
             trigger_id       TEXT    NOT NULL,
             date             TEXT    NOT NULL,
             app_key          TEXT    NOT NULL DEFAULT '',
@@ -150,7 +154,7 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
             time_saved_ms    INTEGER NOT NULL DEFAULT 0,
             version          INTEGER NOT NULL DEFAULT 1,
             updated_at       INTEGER NOT NULL DEFAULT (unixepoch()),
-            PRIMARY KEY (trigger_id, date, app_key)
+            PRIMARY KEY (device_id, trigger_id, date, app_key)
         );
 
         CREATE INDEX IF NOT EXISTS idx_trigger_daily_stats_sync
@@ -249,6 +253,102 @@ pub fn migrate_legacy_columns(conn: &Connection) -> Result<()> {
         conn.execute(
             "ALTER TABLE triggers ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'default';",
             [],
+        )?;
+    }
+
+    if table_exists(conn, "stats")? && !column_exists(conn, "stats", "device_id")? {
+        let device_id = crate::cloud::get_device_hardware_id();
+        conn.execute_batch(
+            "CREATE TABLE stats_migrating (
+                device_id        TEXT    NOT NULL DEFAULT '',
+                date             TEXT    NOT NULL,
+                executions       INTEGER DEFAULT 0,
+                ai_executions    INTEGER DEFAULT 0,
+                voice_executions INTEGER DEFAULT 0,
+                words_spoken     INTEGER DEFAULT 0,
+                words_expanded   INTEGER DEFAULT 0,
+                time_saved_ms    INTEGER DEFAULT 0,
+                version          INTEGER DEFAULT 1,
+                updated_at       INTEGER NOT NULL,
+                PRIMARY KEY (device_id, date)
+            );",
+        )?;
+        conn.execute(
+            "INSERT OR IGNORE INTO stats_migrating (
+                device_id, date, executions, ai_executions, voice_executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
+            )
+            SELECT ?1 AS device_id, date, executions, ai_executions, voice_executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
+            FROM stats;",
+            rusqlite::params![device_id],
+        )?;
+        conn.execute_batch(
+            "DROP TABLE stats;
+             ALTER TABLE stats_migrating RENAME TO stats;
+             CREATE INDEX IF NOT EXISTS idx_stats_sync ON stats(version, updated_at);",
+        )?;
+    }
+
+    if table_exists(conn, "app_stats")? && !column_exists(conn, "app_stats", "device_id")? {
+        let device_id = crate::cloud::get_device_hardware_id();
+        conn.execute_batch(
+            "CREATE TABLE app_stats_migrating (
+                device_id        TEXT    NOT NULL DEFAULT '',
+                app_key          TEXT    NOT NULL,
+                date             TEXT    NOT NULL,
+                executions       INTEGER NOT NULL DEFAULT 0,
+                words_spoken     INTEGER NOT NULL DEFAULT 0,
+                words_expanded   INTEGER NOT NULL DEFAULT 0,
+                time_saved_ms    INTEGER NOT NULL DEFAULT 0,
+                version          INTEGER NOT NULL DEFAULT 1,
+                updated_at       INTEGER NOT NULL DEFAULT (unixepoch()),
+                PRIMARY KEY (device_id, app_key, date)
+            );",
+        )?;
+        conn.execute(
+            "INSERT OR IGNORE INTO app_stats_migrating (
+                device_id, app_key, date, executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
+            )
+            SELECT ?1 AS device_id, app_key, date, executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
+            FROM app_stats;",
+            rusqlite::params![device_id],
+        )?;
+        conn.execute_batch(
+            "DROP TABLE app_stats;
+             ALTER TABLE app_stats_migrating RENAME TO app_stats;",
+        )?;
+    }
+
+    if table_exists(conn, "trigger_daily_stats")?
+        && !column_exists(conn, "trigger_daily_stats", "device_id")?
+    {
+        let device_id = crate::cloud::get_device_hardware_id();
+        conn.execute_batch(
+            "CREATE TABLE trigger_daily_stats_migrating (
+                device_id        TEXT    NOT NULL DEFAULT '',
+                trigger_id       TEXT    NOT NULL,
+                date             TEXT    NOT NULL,
+                app_key          TEXT    NOT NULL DEFAULT '',
+                executions       INTEGER NOT NULL DEFAULT 0,
+                words_spoken     INTEGER NOT NULL DEFAULT 0,
+                words_expanded   INTEGER NOT NULL DEFAULT 0,
+                time_saved_ms    INTEGER NOT NULL DEFAULT 0,
+                version          INTEGER NOT NULL DEFAULT 1,
+                updated_at       INTEGER NOT NULL DEFAULT (unixepoch()),
+                PRIMARY KEY (device_id, trigger_id, date, app_key)
+            );",
+        )?;
+        conn.execute(
+            "INSERT OR IGNORE INTO trigger_daily_stats_migrating (
+                device_id, trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
+            )
+            SELECT ?1 AS device_id, trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
+            FROM trigger_daily_stats;",
+            rusqlite::params![device_id],
+        )?;
+        conn.execute_batch(
+            "DROP TABLE trigger_daily_stats;
+             ALTER TABLE trigger_daily_stats_migrating RENAME TO trigger_daily_stats;
+             CREATE INDEX IF NOT EXISTS idx_trigger_daily_stats_sync ON trigger_daily_stats(version, updated_at);",
         )?;
     }
 
@@ -357,14 +457,14 @@ mod tests {
 
         let count: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('trigger_daily_stats') WHERE name IN ('trigger_id', 'date', 'app_key', 'executions', 'words_spoken', 'words_expanded', 'time_saved_ms', 'version', 'updated_at')",
+                "SELECT COUNT(*) FROM pragma_table_info('trigger_daily_stats') WHERE name IN ('device_id', 'trigger_id', 'date', 'app_key', 'executions', 'words_spoken', 'words_expanded', 'time_saved_ms', 'version', 'updated_at')",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
         assert_eq!(
-            count, 9,
-            "trigger_daily_stats must contain all 9 expected columns"
+            count, 10,
+            "trigger_daily_stats must contain all 10 expected columns"
         );
 
         let outbox_exists: bool = conn
@@ -424,10 +524,36 @@ mod tests {
 
         // Create tables without the newly introduced columns:
         // - activity_events without content
-        // - trigger_daily_stats without words_spoken
+        // - trigger_daily_stats without words_spoken and without device_id
+        // - stats without device_id
+        // - app_stats without device_id
         // - triggers without workspace_id
         conn.execute_batch(
-            "CREATE TABLE activity_events (
+            "CREATE TABLE stats (
+                date             TEXT    PRIMARY KEY,
+                executions       INTEGER DEFAULT 0,
+                ai_executions    INTEGER DEFAULT 0,
+                voice_executions INTEGER DEFAULT 0,
+                words_spoken     INTEGER DEFAULT 0,
+                words_expanded   INTEGER DEFAULT 0,
+                time_saved_ms    INTEGER DEFAULT 0,
+                version          INTEGER DEFAULT 1,
+                updated_at       INTEGER NOT NULL
+            );
+
+            CREATE TABLE app_stats (
+                app_key          TEXT    NOT NULL,
+                date             TEXT    NOT NULL,
+                executions       INTEGER NOT NULL DEFAULT 0,
+                words_spoken     INTEGER NOT NULL DEFAULT 0,
+                words_expanded   INTEGER NOT NULL DEFAULT 0,
+                time_saved_ms    INTEGER NOT NULL DEFAULT 0,
+                version          INTEGER NOT NULL DEFAULT 1,
+                updated_at       INTEGER NOT NULL DEFAULT (unixepoch()),
+                PRIMARY KEY (app_key, date)
+            );
+
+            CREATE TABLE activity_events (
                 id            TEXT    PRIMARY KEY,
                 trigger_id    TEXT,
                 timestamp     INTEGER NOT NULL,
@@ -537,6 +663,19 @@ mod tests {
         assert!(
             has_workspace_id_after,
             "workspace_id column should be migrated onto triggers"
+        );
+
+        assert!(
+            column_exists(&conn, "stats", "device_id").unwrap(),
+            "device_id column should be migrated onto stats"
+        );
+        assert!(
+            column_exists(&conn, "app_stats", "device_id").unwrap(),
+            "device_id column should be migrated onto app_stats"
+        );
+        assert!(
+            column_exists(&conn, "trigger_daily_stats", "device_id").unwrap(),
+            "device_id column should be migrated onto trigger_daily_stats"
         );
 
         // Verify default values and subsequent operations work correctly

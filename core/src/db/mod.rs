@@ -7,7 +7,7 @@ pub use key::{get_or_create_db_key, open_keyed_connection};
 pub use crud::{
     ActionType, AppFilterPrefix, StatRow, TargetOs, TriggerLimits, TriggerRow, TriggerType,
     delete_stat, delete_trigger, get_current_os_db_string, get_stat, get_stat_counters,
-    get_trigger, increment_stat, normalize_os, upsert_trigger,
+    get_stat_for_device, get_trigger, increment_stat, normalize_os, upsert_trigger,
 };
 pub use crud::{
     SettingRow, delete_setting, get_setting, get_setting_value, set_setting, upsert_setting,

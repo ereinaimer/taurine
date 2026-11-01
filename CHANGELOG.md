@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Trigger Display Names**: Replaced redundant trigger display names with primary trigger invocations and descriptions across the CLI and TUI.
 
 ### Fixed
+- **Multi-Device Stats Sync**: Prevent runaway expansion count inflation across multiple synchronized devices.
 - **Logging Performance**: Eliminated high-frequency log pollution during fullscreen applications and idle timers.
 - **Cloud Sync Recovery**: Automatically recover from rejected cloud sync payloads to prevent synchronization lockups.
 - **Database Self-Healing**: Automatically migrate legacy database schemas on startup to prevent dashboard and statistics errors.

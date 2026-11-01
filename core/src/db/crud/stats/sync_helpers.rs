@@ -214,17 +214,19 @@ impl From<&ActivityEventRow> for CloudActivityEventPayload {
 /// Retrieves dirty global stats rows that have not yet been synchronized (`is_synced = 0`),
 /// ordered chronologically by `updated_at` ascending.
 pub fn get_unsynced_stats(conn: &Connection, limit: usize) -> Result<Vec<StatRow>> {
+    let device_id = crate::cloud::get_device_hardware_id();
     let mut stmt = conn.prepare_cached(
         "SELECT date, executions, ai_executions, voice_executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
          FROM stats
-         WHERE EXISTS (
+         WHERE device_id = ?1
+           AND EXISTS (
              SELECT 1 FROM sync_outbox
              WHERE entity_type = 'stat' AND entity_id = stats.date
          )
          ORDER BY updated_at ASC
-         LIMIT ?1",
+         LIMIT ?2",
     )?;
-    let rows = stmt.query_map(rusqlite::params![limit as i64], |row| {
+    let rows = stmt.query_map(rusqlite::params![device_id, limit as i64], |row| {
         Ok(StatRow {
             date: row.get(0)?,
             executions: row.get(1)?,
@@ -259,18 +261,20 @@ pub fn mark_stats_synced(conn: &Connection, dates: &[&str]) -> Result<()> {
 /// Retrieves dirty app stats rows that have not yet been synchronized,
 /// ordered chronologically by `updated_at` ascending.
 pub fn get_unsynced_app_stats(conn: &Connection, limit: usize) -> Result<Vec<AppStatRow>> {
+    let device_id = crate::cloud::get_device_hardware_id();
     let mut stmt = conn.prepare_cached(
         "SELECT app_key, date, executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
          FROM app_stats
-         WHERE EXISTS (
+         WHERE device_id = ?1
+           AND EXISTS (
              SELECT 1 FROM sync_outbox
              WHERE entity_type = 'app_stat'
                AND entity_id = (app_stats.app_key || ':' || app_stats.date)
          )
          ORDER BY updated_at ASC
-         LIMIT ?1",
+         LIMIT ?2",
     )?;
-    let rows = stmt.query_map(rusqlite::params![limit as i64], |row| {
+    let rows = stmt.query_map(rusqlite::params![device_id, limit as i64], |row| {
         let executions: i64 = row.get(2)?;
         let words_spoken: i64 = row.get(3)?;
         let words_expanded: i64 = row.get(4)?;
@@ -338,9 +342,8 @@ struct TriggerStatAgg {
 
 /// Reconciles remote cloud user stats into the local SQLite database.
 ///
-/// Multi-device payloads are grouped by date. If the local date row doesn't exist
-/// or has `is_synced = 1` (no dirty local modifications pending push), it is inserted or
-/// updated with the cloud totals and marked `is_synced = 1`.
+/// Multi-device payloads are grouped per (device_id, date). Each device record is
+/// inserted or updated independently without summing across devices into local rows.
 pub fn reconcile_cloud_user_stats(
     conn: &Connection,
     stats: &[CloudUserStatPayload],
@@ -350,23 +353,42 @@ pub fn reconcile_cloud_user_stats(
     }
 
     use std::collections::BTreeMap;
-    let mut by_date: BTreeMap<&str, UserStatAgg> = BTreeMap::new();
+    let mut by_device_and_date: BTreeMap<(&str, &str), UserStatAgg> = BTreeMap::new();
     for s in stats {
-        let entry = by_date.entry(&s.date).or_default();
-        entry.executions += s.executions;
-        entry.ai_executions += s.ai_executions;
-        entry.voice_executions += s.voice_executions;
-        entry.words_spoken += s.words_spoken;
-        entry.words_expanded += s.words_expanded;
-        entry.time_saved_ms += s.time_saved_ms;
-        entry.version = entry.version.max(s.version);
+        let entry = by_device_and_date.entry((&s.device_id, &s.date));
+        match entry {
+            std::collections::btree_map::Entry::Vacant(v) => {
+                v.insert(UserStatAgg {
+                    executions: s.executions,
+                    ai_executions: s.ai_executions,
+                    voice_executions: s.voice_executions,
+                    words_spoken: s.words_spoken,
+                    words_expanded: s.words_expanded,
+                    time_saved_ms: s.time_saved_ms,
+                    version: s.version,
+                });
+            }
+            std::collections::btree_map::Entry::Occupied(mut o) => {
+                if s.version >= o.get().version {
+                    o.insert(UserStatAgg {
+                        executions: s.executions,
+                        ai_executions: s.ai_executions,
+                        voice_executions: s.voice_executions,
+                        words_spoken: s.words_spoken,
+                        words_expanded: s.words_expanded,
+                        time_saved_ms: s.time_saved_ms,
+                        version: s.version,
+                    });
+                }
+            }
+        }
     }
 
     let mut upsert_stmt = conn.prepare_cached(
         "INSERT INTO stats (
-            date, executions, ai_executions, voice_executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-        ON CONFLICT(date) DO UPDATE SET
+            device_id, date, executions, ai_executions, voice_executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+        ON CONFLICT(device_id, date) DO UPDATE SET
             executions       = excluded.executions,
             ai_executions    = excluded.ai_executions,
             voice_executions = excluded.voice_executions,
@@ -374,13 +396,15 @@ pub fn reconcile_cloud_user_stats(
             words_expanded   = excluded.words_expanded,
             time_saved_ms    = excluded.time_saved_ms,
             version          = excluded.version,
-            updated_at       = excluded.updated_at",
+            updated_at       = excluded.updated_at
+        WHERE excluded.version >= stats.version",
     )?;
 
     let now_secs = crate::db::now_unix_secs();
     let mut count = 0;
-    for (date, agg) in by_date {
+    for ((device_id, date), agg) in by_device_and_date {
         let rows = upsert_stmt.execute(rusqlite::params![
+            device_id,
             date,
             agg.executions,
             agg.ai_executions,
@@ -407,33 +431,52 @@ pub fn reconcile_cloud_app_stats(
     }
 
     use std::collections::BTreeMap;
-    let mut by_key: BTreeMap<(&str, &str), AppStatAgg> = BTreeMap::new();
+    let mut by_key: BTreeMap<(&str, &str, &str), AppStatAgg> = BTreeMap::new();
     for s in stats {
-        let entry = by_key.entry((&s.app_key, &s.date)).or_default();
-        entry.executions += s.executions;
-        entry.words_spoken += s.words_spoken;
-        entry.words_expanded += s.words_expanded;
-        entry.time_saved_ms += s.time_saved_ms;
-        entry.version = entry.version.max(s.version);
+        let entry = by_key.entry((&s.device_id, &s.app_key, &s.date));
+        match entry {
+            std::collections::btree_map::Entry::Vacant(v) => {
+                v.insert(AppStatAgg {
+                    executions: s.executions,
+                    words_spoken: s.words_spoken,
+                    words_expanded: s.words_expanded,
+                    time_saved_ms: s.time_saved_ms,
+                    version: s.version,
+                });
+            }
+            std::collections::btree_map::Entry::Occupied(mut o) => {
+                if s.version >= o.get().version {
+                    o.insert(AppStatAgg {
+                        executions: s.executions,
+                        words_spoken: s.words_spoken,
+                        words_expanded: s.words_expanded,
+                        time_saved_ms: s.time_saved_ms,
+                        version: s.version,
+                    });
+                }
+            }
+        }
     }
 
     let mut upsert_stmt = conn.prepare_cached(
         "INSERT INTO app_stats (
-            app_key, date, executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-        ON CONFLICT(app_key, date) DO UPDATE SET
+            device_id, app_key, date, executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+        ON CONFLICT(device_id, app_key, date) DO UPDATE SET
             executions     = excluded.executions,
             words_spoken   = excluded.words_spoken,
             words_expanded = excluded.words_expanded,
             time_saved_ms  = excluded.time_saved_ms,
             version        = excluded.version,
-            updated_at     = excluded.updated_at",
+            updated_at     = excluded.updated_at
+        WHERE excluded.version >= app_stats.version",
     )?;
 
     let now_secs = crate::db::now_unix_secs();
     let mut count = 0;
-    for ((app_key, date), agg) in by_key {
+    for ((device_id, app_key, date), agg) in by_key {
         let rows = upsert_stmt.execute(rusqlite::params![
+            device_id,
             app_key,
             date,
             agg.executions as i64,
@@ -459,35 +502,52 @@ pub fn reconcile_cloud_trigger_daily_stats(
     }
 
     use std::collections::BTreeMap;
-    let mut by_key: BTreeMap<(&str, &str, &str), TriggerStatAgg> = BTreeMap::new();
+    let mut by_key: BTreeMap<(&str, &str, &str, &str), TriggerStatAgg> = BTreeMap::new();
     for s in stats {
-        let entry = by_key
-            .entry((&s.trigger_id, &s.date, &s.app_key))
-            .or_default();
-        entry.executions += s.executions;
-        entry.words_spoken += s.words_spoken;
-        entry.words_expanded += s.words_expanded;
-        entry.time_saved_ms += s.time_saved_ms;
-        entry.version = entry.version.max(s.version);
+        let entry = by_key.entry((&s.device_id, &s.trigger_id, &s.date, &s.app_key));
+        match entry {
+            std::collections::btree_map::Entry::Vacant(v) => {
+                v.insert(TriggerStatAgg {
+                    executions: s.executions,
+                    words_spoken: s.words_spoken,
+                    words_expanded: s.words_expanded,
+                    time_saved_ms: s.time_saved_ms,
+                    version: s.version,
+                });
+            }
+            std::collections::btree_map::Entry::Occupied(mut o) => {
+                if s.version >= o.get().version {
+                    o.insert(TriggerStatAgg {
+                        executions: s.executions,
+                        words_spoken: s.words_spoken,
+                        words_expanded: s.words_expanded,
+                        time_saved_ms: s.time_saved_ms,
+                        version: s.version,
+                    });
+                }
+            }
+        }
     }
 
     let mut upsert_stmt = conn.prepare_cached(
         "INSERT INTO trigger_daily_stats (
-            trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-        ON CONFLICT(trigger_id, date, app_key) DO UPDATE SET
+            device_id, trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+        ON CONFLICT(device_id, trigger_id, date, app_key) DO UPDATE SET
             executions     = excluded.executions,
             words_spoken   = excluded.words_spoken,
             words_expanded = excluded.words_expanded,
             time_saved_ms  = excluded.time_saved_ms,
             version        = excluded.version,
-            updated_at     = excluded.updated_at",
+            updated_at     = excluded.updated_at
+        WHERE excluded.version >= trigger_daily_stats.version",
     )?;
 
     let now_secs = crate::db::now_unix_secs();
     let mut count = 0;
-    for ((trigger_id, date, app_key), agg) in by_key {
+    for ((device_id, trigger_id, date, app_key), agg) in by_key {
         let rows = upsert_stmt.execute(rusqlite::params![
+            device_id,
             trigger_id,
             date,
             app_key,
@@ -834,7 +894,17 @@ mod tests {
         ];
 
         let reconciled = reconcile_cloud_user_stats(&conn, &remote_stats).unwrap();
-        assert_eq!(reconciled, 1);
+        assert_eq!(reconciled, 2);
+
+        let laptop = crate::db::crud::get_stat_for_device(&conn, "laptop-1", "2026-10-28")
+            .unwrap()
+            .unwrap();
+        assert_eq!(laptop.executions, 10);
+
+        let desktop = crate::db::crud::get_stat_for_device(&conn, "desktop-1", "2026-10-28")
+            .unwrap()
+            .unwrap();
+        assert_eq!(desktop.executions, 20);
 
         let row = crate::db::crud::get_stat(&conn, "2026-10-28")
             .unwrap()

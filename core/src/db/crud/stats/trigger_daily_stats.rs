@@ -55,11 +55,12 @@ pub fn upsert_trigger_daily_stat_with_conn(
     time_saved_ms: u64,
 ) -> rusqlite::Result<()> {
     let now = crate::db::now_unix_secs();
+    let device_id = crate::cloud::get_device_hardware_id();
     conn.execute(
         "INSERT INTO trigger_daily_stats (
-            trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8)
-        ON CONFLICT(trigger_id, date, app_key) DO UPDATE SET
+            device_id, trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9)
+        ON CONFLICT(device_id, trigger_id, date, app_key) DO UPDATE SET
             executions       = trigger_daily_stats.executions + excluded.executions,
             words_spoken     = trigger_daily_stats.words_spoken + excluded.words_spoken,
             words_expanded   = trigger_daily_stats.words_expanded + excluded.words_expanded,
@@ -67,6 +68,7 @@ pub fn upsert_trigger_daily_stat_with_conn(
             version          = trigger_daily_stats.version + 1,
             updated_at       = excluded.updated_at",
         params![
+            device_id,
             trigger_id,
             date,
             app_key,
@@ -85,6 +87,7 @@ pub fn upsert_trigger_daily_stat_with_conn(
         &entity_id,
         "upsert",
         serde_json::json!({
+            "device_id": device_id,
             "trigger_id": trigger_id,
             "date": date,
             "app_key": app_key,
@@ -100,9 +103,17 @@ pub fn get_trigger_daily_stats_by_trigger(
     limit: usize,
 ) -> rusqlite::Result<Vec<TriggerDailyStatRow>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version, 0 AS is_synced, updated_at
+        "SELECT trigger_id, date, app_key,
+                SUM(executions) AS executions,
+                SUM(words_spoken) AS words_spoken,
+                SUM(words_expanded) AS words_expanded,
+                SUM(time_saved_ms) AS time_saved_ms,
+                MAX(version) AS version,
+                0 AS is_synced,
+                MAX(updated_at) AS updated_at
          FROM trigger_daily_stats
          WHERE trigger_id = ?1
+         GROUP BY trigger_id, date, app_key
          ORDER BY date DESC, executions DESC
          LIMIT ?2",
     )?;
@@ -123,9 +134,17 @@ pub fn get_trigger_daily_stats_by_date(
     date: &str,
 ) -> rusqlite::Result<Vec<TriggerDailyStatRow>> {
     let mut stmt = conn.prepare_cached(
-        "SELECT trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version, 0 AS is_synced, updated_at
+        "SELECT trigger_id, date, app_key,
+                SUM(executions) AS executions,
+                SUM(words_spoken) AS words_spoken,
+                SUM(words_expanded) AS words_expanded,
+                SUM(time_saved_ms) AS time_saved_ms,
+                MAX(version) AS version,
+                0 AS is_synced,
+                MAX(updated_at) AS updated_at
          FROM trigger_daily_stats
          WHERE date = ?1
+         GROUP BY trigger_id, date, app_key
          ORDER BY executions DESC",
     )?;
     let rows = stmt.query_map(params![date], map_trigger_daily_stat_row)?;
@@ -180,18 +199,20 @@ pub fn get_unsynced_trigger_daily_stats(
     conn: &Connection,
     limit: usize,
 ) -> rusqlite::Result<Vec<TriggerDailyStatRow>> {
+    let device_id = crate::cloud::get_device_hardware_id();
     let mut stmt = conn.prepare_cached(
         "SELECT trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version, 0 AS is_synced, updated_at
          FROM trigger_daily_stats
-         WHERE EXISTS (
+         WHERE device_id = ?1
+           AND EXISTS (
              SELECT 1 FROM sync_outbox
              WHERE entity_type = 'trigger_daily_stat'
                AND entity_id = (trigger_daily_stats.trigger_id || ':' || trigger_daily_stats.date || ':' || trigger_daily_stats.app_key)
          )
          ORDER BY updated_at ASC
-         LIMIT ?1",
+         LIMIT ?2",
     )?;
-    let rows = stmt.query_map(params![limit as i64], map_trigger_daily_stat_row)?;
+    let rows = stmt.query_map(params![device_id, limit as i64], map_trigger_daily_stat_row)?;
 
     let mut result = Vec::new();
     for row in rows {

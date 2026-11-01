@@ -10,9 +10,11 @@ use crate::db::now_unix_secs;
 /// - `updated_at` is always set to the current Unix timestamp.
 pub fn increment_stat(conn: &Connection, date: &str, deltas: &StatDeltas) -> Result<()> {
     let now = now_unix_secs();
+    let device_id = crate::cloud::get_device_hardware_id();
 
     conn.execute(
         "INSERT INTO stats (
+             device_id,
              date,
              executions,
              ai_executions,
@@ -23,8 +25,8 @@ pub fn increment_stat(conn: &Connection, date: &str, deltas: &StatDeltas) -> Res
              version,
              updated_at
          )
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8)
-         ON CONFLICT(date) DO UPDATE SET
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9)
+         ON CONFLICT(device_id, date) DO UPDATE SET
              executions       = executions + excluded.executions,
              ai_executions    = ai_executions + excluded.ai_executions,
              voice_executions = voice_executions + excluded.voice_executions,
@@ -33,7 +35,8 @@ pub fn increment_stat(conn: &Connection, date: &str, deltas: &StatDeltas) -> Res
              time_saved_ms    = time_saved_ms + excluded.time_saved_ms,
              version          = version + 1,
              updated_at       = excluded.updated_at",
-        (
+        rusqlite::params![
+            device_id,
             date,
             deltas.executions,
             deltas.ai_executions,
@@ -42,7 +45,7 @@ pub fn increment_stat(conn: &Connection, date: &str, deltas: &StatDeltas) -> Res
             deltas.words_expanded,
             deltas.time_saved_ms,
             now,
-        ),
+        ],
     )?;
 
     let _ = crate::db::crud::enqueue_outbox(
@@ -50,7 +53,7 @@ pub fn increment_stat(conn: &Connection, date: &str, deltas: &StatDeltas) -> Res
         "stat",
         date,
         "upsert",
-        serde_json::json!({ "date": date }),
+        serde_json::json!({ "date": date, "device_id": device_id }),
     );
 
     Ok(())

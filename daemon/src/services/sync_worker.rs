@@ -726,10 +726,11 @@ impl SyncWorker {
 
                         let parts: Vec<&str> = entry.entity_id.splitn(3, ':').collect();
                         let db_stat = if parts.len() == 3 {
+                            let device_id = taurine_core::cloud::get_device_hardware_id();
                             conn.query_row(
                                 "SELECT trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version
-                                 FROM trigger_daily_stats WHERE trigger_id = ?1 AND date = ?2 AND app_key = ?3",
-                                rusqlite::params![parts[0], parts[1], parts[2]],
+                                 FROM trigger_daily_stats WHERE device_id = ?1 AND trigger_id = ?2 AND date = ?3 AND app_key = ?4",
+                                rusqlite::params![device_id, parts[0], parts[1], parts[2]],
                                 |row| {
                                     let executions: i64 = row.get(3)?;
                                     let words_spoken: i64 = row.get(4)?;
@@ -851,11 +852,12 @@ impl SyncWorker {
                             client.config().supabase_url.trim_end_matches('/')
                         );
 
+                        let device_id = taurine_core::cloud::get_device_hardware_id();
                         let db_stat = conn
                             .query_row(
                                 "SELECT date, executions, ai_executions, voice_executions, words_spoken, words_expanded, time_saved_ms, version
-                                 FROM stats WHERE date = ?1",
-                                [&entry.entity_id],
+                                 FROM stats WHERE device_id = ?1 AND date = ?2",
+                                rusqlite::params![device_id, &entry.entity_id],
                                 |row| {
                                     Ok(CloudUserStatPayload {
                                         user_id: Some(tokens.user_id.clone()),
@@ -971,10 +973,11 @@ impl SyncWorker {
 
                         let parts: Vec<&str> = entry.entity_id.splitn(2, ':').collect();
                         let db_app_stat = if parts.len() == 2 {
+                            let device_id = taurine_core::cloud::get_device_hardware_id();
                             conn.query_row(
                                 "SELECT app_key, date, executions, words_spoken, words_expanded, time_saved_ms, version
-                                 FROM app_stats WHERE app_key = ?1 AND date = ?2",
-                                rusqlite::params![parts[0], parts[1]],
+                                 FROM app_stats WHERE device_id = ?1 AND app_key = ?2 AND date = ?3",
+                                rusqlite::params![device_id, parts[0], parts[1]],
                                 |row| {
                                     let executions: i64 = row.get(2)?;
                                     let words_spoken: i64 = row.get(3)?;

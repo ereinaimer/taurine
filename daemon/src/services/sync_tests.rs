@@ -3319,3 +3319,75 @@ fn test_sync_setting_versioning_and_clean_json_roundtrip() {
         .unwrap();
     assert_eq!(row5.value, "60");
 }
+
+#[test]
+fn test_sync_multi_device_stats_isolation() {
+    let conn = rusqlite::Connection::open_in_memory().unwrap();
+    taurine_core::db::init::ensure_schema(&conn).unwrap();
+
+    let local_device_id = taurine_core::cloud::get_device_hardware_id();
+    let remote_device_id = "device-b-remote";
+    let test_date = "2026-11-01";
+
+    // 1. Device A records 10 executions.
+    taurine_core::db::crud::increment_stat(
+        &conn,
+        test_date,
+        &taurine_core::db::crud::StatDeltas {
+            executions: 10,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    let stat_a = taurine_core::db::crud::get_stat_for_device(&conn, &local_device_id, test_date)
+        .unwrap()
+        .expect("Device A row must exist");
+    assert_eq!(stat_a.executions, 10);
+
+    // 2. Device A reconciles stats from Device B (5 executions).
+    let remote_payload = vec![taurine_core::db::crud::CloudUserStatPayload {
+        user_id: Some("user-123".to_string()),
+        device_id: remote_device_id.to_string(),
+        date: test_date.to_string(),
+        executions: 5,
+        ai_executions: 0,
+        voice_executions: 0,
+        words_spoken: 0,
+        words_expanded: 0,
+        time_saved_ms: 0,
+        version: 1,
+    }];
+    let reconciled =
+        taurine_core::db::crud::reconcile_cloud_user_stats(&conn, &remote_payload).unwrap();
+    assert_eq!(reconciled, 1);
+
+    // 3. Query get_stat aggregates total to 15 for presentation.
+    let total_stat = taurine_core::db::crud::get_stat(&conn, test_date)
+        .unwrap()
+        .expect("Aggregated stat must exist");
+    assert_eq!(total_stat.executions, 15);
+
+    // 4. Device A recording another execution increments Device A's own hardware row to 11 (NOT 16!), preventing runaway stats inflation.
+    taurine_core::db::crud::increment_stat(
+        &conn,
+        test_date,
+        &taurine_core::db::crud::StatDeltas {
+            executions: 1,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    let stat_a_after =
+        taurine_core::db::crud::get_stat_for_device(&conn, &local_device_id, test_date)
+            .unwrap()
+            .expect("Device A row must exist");
+    assert_eq!(stat_a_after.executions, 11);
+
+    // 5. Query get_stat reflects 16.
+    let total_stat_after = taurine_core::db::crud::get_stat(&conn, test_date)
+        .unwrap()
+        .expect("Aggregated stat must exist");
+    assert_eq!(total_stat_after.executions, 16);
+}
