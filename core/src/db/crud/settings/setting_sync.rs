@@ -110,7 +110,7 @@ pub fn mark_settings_synced(conn: &Connection, keys: &[&str]) -> Result<()> {
 /// Reconciles a remote cloud setting payload into local SQLite storage using Last-Write-Wins.
 ///
 /// - Rejects non-syncable settings early (`IgnoredNotSyncable`).
-/// - If local setting exists and local `version >= remote.version`, preserves local state (`LocalKept`).
+/// - If local setting exists and local `version > remote.version` (or versions are equal and local `updated_at >= remote.updated_at`), preserves local state (`LocalKept`).
 /// - Otherwise, updates or inserts the setting with `remote.version` (`UpdatedFromRemote`),
 ///   bumping the in-memory settings generation counter.
 pub fn reconcile_cloud_setting(
@@ -121,14 +121,6 @@ pub fn reconcile_cloud_setting(
         return Ok(SettingReconcileOutcome::IgnoredNotSyncable);
     }
 
-    let local = get_setting(conn, &remote.key)?;
-    if let Some(local_row) = local
-        && local_row.version > 0
-        && remote.version <= local_row.version
-    {
-        return Ok(SettingReconcileOutcome::LocalKept);
-    }
-
     let updated_at = remote
         .updated_at
         .as_deref()
@@ -136,8 +128,28 @@ pub fn reconcile_cloud_setting(
         .map(|dt| dt.timestamp())
         .unwrap_or_else(crate::db::now_unix_secs);
 
-    let value_str = serde_json::to_string(&remote.value)
-        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+    let local = get_setting(conn, &remote.key)?;
+    if let Some(local_row) = local
+        && local_row.version > 0
+        && (local_row.version > remote.version
+            || (local_row.version == remote.version && local_row.updated_at >= updated_at))
+    {
+        return Ok(SettingReconcileOutcome::LocalKept);
+    }
+
+    let value_str = match &remote.value {
+        serde_json::Value::String(s) => {
+            if let Ok(nested) = serde_json::from_str::<serde_json::Value>(s) {
+                serde_json::to_string(&nested)
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?
+            } else {
+                serde_json::to_string(&remote.value)
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?
+            }
+        }
+        other => serde_json::to_string(other)
+            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
+    };
 
     conn.execute(
         "INSERT INTO settings (key, value, version, updated_at)
@@ -281,6 +293,9 @@ mod tests {
         assert_eq!(batch[0].entity_id, "wpm");
         assert_eq!(batch[0].operation, "upsert");
         assert_eq!(batch[0].payload["key"], "wpm");
-        assert_eq!(batch[0].payload["value"], "120");
+        assert_eq!(batch[0].payload["value"], 120);
+        assert_eq!(batch[0].payload["version"], 1);
+        let updated_at = batch[0].payload["updated_at"].as_str().unwrap();
+        assert!(chrono::DateTime::parse_from_rfc3339(updated_at).is_ok());
     }
 }

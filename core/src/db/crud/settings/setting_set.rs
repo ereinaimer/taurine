@@ -33,6 +33,19 @@ pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {
     )?;
 
     if crate::db::crud::is_setting_syncable(key) {
+        let (version, updated_at): (i64, i64) = conn.query_row(
+            "SELECT version, updated_at FROM settings WHERE key = ?1",
+            [key],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+
+        let parsed_value = serde_json::from_str::<serde_json::Value>(value)
+            .unwrap_or_else(|_| serde_json::Value::String(value.to_string()));
+
+        let rfc3339_time = chrono::DateTime::<chrono::Utc>::from_timestamp(updated_at, 0)
+            .map(|dt| dt.to_rfc3339())
+            .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+
         crate::db::crud::enqueue_outbox(
             conn,
             "setting",
@@ -40,7 +53,9 @@ pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {
             "upsert",
             serde_json::json!({
                 "key": key,
-                "value": value,
+                "value": parsed_value,
+                "version": version,
+                "updated_at": rfc3339_time,
             }),
         )
         .map_err(|e| match e {

@@ -3143,3 +3143,179 @@ async fn test_outbox_preserves_entry_on_server_error_500() {
     let _ = server_handle.join();
     taurine_core::cloud::clear_tokens().unwrap();
 }
+
+#[test]
+fn test_sync_setting_versioning_and_clean_json_roundtrip() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+
+    let conn = Connection::open_in_memory().unwrap();
+    ensure_schema(&conn).unwrap();
+
+    // 1. Initial set of syncable numeric setting: version starts at 1
+    taurine_core::db::crud::set_setting(&conn, "wpm", "120").unwrap();
+
+    let batch = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    assert_eq!(batch.len(), 1);
+    assert_eq!(batch[0].entity_type, "setting");
+    assert_eq!(batch[0].entity_id, "wpm");
+    assert_eq!(batch[0].payload["key"], "wpm");
+    assert_eq!(batch[0].payload["value"], 120);
+    assert_eq!(batch[0].payload["version"], 1);
+    let updated_at_str = batch[0].payload["updated_at"]
+        .as_str()
+        .expect("updated_at must be an RFC3339 string");
+    assert!(
+        taurine_core::chrono::DateTime::parse_from_rfc3339(updated_at_str).is_ok(),
+        "updated_at must be valid RFC3339"
+    );
+
+    // 2. Subsequent update of same setting increments version to 2
+    taurine_core::db::crud::set_setting(&conn, "wpm", "140").unwrap();
+
+    let batch2 = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    assert_eq!(batch2.len(), 2);
+    assert_eq!(batch2[1].payload["key"], "wpm");
+    assert_eq!(batch2[1].payload["value"], 140);
+    assert_eq!(batch2[1].payload["version"], 2);
+
+    // 3. Set a string-typed setting: outbox payload must contain clean parsed string, not double-quoted string
+    taurine_core::db::crud::set_setting(&conn, "audio_theme", "\"mechanical\"").unwrap();
+    let batch3 = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    assert_eq!(batch3.len(), 3);
+    assert_eq!(batch3[2].payload["key"], "audio_theme");
+    assert_eq!(batch3[2].payload["value"], "mechanical");
+    assert_eq!(batch3[2].payload["version"], 1);
+
+    // 4. Remote reconciliation with clean string ("arcade")
+    let remote_clean_str = taurine_core::db::crud::CloudSettingPayload {
+        user_id: None,
+        key: "audio_theme".to_string(),
+        value: serde_json::json!("arcade"),
+        version: 5,
+        updated_at: Some("2026-10-06T12:00:00Z".to_string()),
+    };
+    let outcome =
+        taurine_core::db::crud::reconcile_cloud_setting(&conn, &remote_clean_str).unwrap();
+    assert_eq!(
+        outcome,
+        taurine_core::db::crud::SettingReconcileOutcome::UpdatedFromRemote
+    );
+
+    let row = taurine_core::db::crud::get_setting(&conn, "audio_theme")
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.value, "\"arcade\"");
+    assert_eq!(row.version, 5);
+
+    let mgr = taurine_core::settings::SettingsManager::new(&conn);
+    let loaded = mgr.load_all();
+    assert_eq!(
+        loaded.audio_theme,
+        taurine_core::settings::AudioTheme::Arcade
+    );
+
+    // 5. Remote reconciliation with legacy escaped string ("\"zen\"") -> must not store runaway quotes
+    let remote_escaped_str = taurine_core::db::crud::CloudSettingPayload {
+        user_id: None,
+        key: "audio_theme".to_string(),
+        value: serde_json::json!("\"zen\""),
+        version: 6,
+        updated_at: Some("2026-10-06T13:00:00Z".to_string()),
+    };
+    let outcome2 =
+        taurine_core::db::crud::reconcile_cloud_setting(&conn, &remote_escaped_str).unwrap();
+    assert_eq!(
+        outcome2,
+        taurine_core::db::crud::SettingReconcileOutcome::UpdatedFromRemote
+    );
+
+    let row2 = taurine_core::db::crud::get_setting(&conn, "audio_theme")
+        .unwrap()
+        .unwrap();
+    assert_eq!(row2.value, "\"zen\"");
+    assert_eq!(row2.version, 6);
+
+    let loaded2 = mgr.load_all();
+    assert_eq!(loaded2.audio_theme, taurine_core::settings::AudioTheme::Zen);
+
+    // 6. Remote reconciliation with number (130 for wpm)
+    let remote_num = taurine_core::db::crud::CloudSettingPayload {
+        user_id: None,
+        key: "wpm".to_string(),
+        value: serde_json::json!(130),
+        version: 10,
+        updated_at: Some("2026-10-06T14:00:00Z".to_string()),
+    };
+    let outcome3 = taurine_core::db::crud::reconcile_cloud_setting(&conn, &remote_num).unwrap();
+    assert_eq!(
+        outcome3,
+        taurine_core::db::crud::SettingReconcileOutcome::UpdatedFromRemote
+    );
+
+    let row3 = taurine_core::db::crud::get_setting(&conn, "wpm")
+        .unwrap()
+        .unwrap();
+    assert_eq!(row3.value, "130");
+    assert_eq!(row3.version, 10);
+
+    let loaded3 = mgr.load_all();
+    assert_eq!(loaded3.wpm, 130);
+
+    // 7. Remote reconciliation with stringified number ("95" for audio_volume)
+    let remote_str_num = taurine_core::db::crud::CloudSettingPayload {
+        user_id: None,
+        key: "audio_volume".to_string(),
+        value: serde_json::json!("95"),
+        version: 15,
+        updated_at: Some("2026-10-06T15:00:00Z".to_string()),
+    };
+    let outcome4 = taurine_core::db::crud::reconcile_cloud_setting(&conn, &remote_str_num).unwrap();
+    assert_eq!(
+        outcome4,
+        taurine_core::db::crud::SettingReconcileOutcome::UpdatedFromRemote
+    );
+
+    let row4 = taurine_core::db::crud::get_setting(&conn, "audio_volume")
+        .unwrap()
+        .unwrap();
+    assert_eq!(row4.value, "95");
+    let loaded4 = mgr.load_all();
+    assert_eq!(loaded4.audio_volume, 95);
+
+    // 8. Timestamp-based LWW reconciliation when version is equal:
+    // If remote has the same version (15) but an older timestamp, local is kept.
+    let older_remote_same_ver = taurine_core::db::crud::CloudSettingPayload {
+        user_id: None,
+        key: "audio_volume".to_string(),
+        value: serde_json::json!(50),
+        version: 15,
+        updated_at: Some("2026-10-06T14:00:00Z".to_string()),
+    };
+    let outcome5 =
+        taurine_core::db::crud::reconcile_cloud_setting(&conn, &older_remote_same_ver).unwrap();
+    assert_eq!(
+        outcome5,
+        taurine_core::db::crud::SettingReconcileOutcome::LocalKept
+    );
+
+    // If remote has the same version (15) and a newer timestamp, remote wins.
+    let newer_remote_same_ver = taurine_core::db::crud::CloudSettingPayload {
+        user_id: None,
+        key: "audio_volume".to_string(),
+        value: serde_json::json!(60),
+        version: 15,
+        updated_at: Some("2026-10-06T16:00:00Z".to_string()),
+    };
+    let outcome6 =
+        taurine_core::db::crud::reconcile_cloud_setting(&conn, &newer_remote_same_ver).unwrap();
+    assert_eq!(
+        outcome6,
+        taurine_core::db::crud::SettingReconcileOutcome::UpdatedFromRemote
+    );
+    let row5 = taurine_core::db::crud::get_setting(&conn, "audio_volume")
+        .unwrap()
+        .unwrap();
+    assert_eq!(row5.value, "60");
+}
