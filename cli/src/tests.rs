@@ -663,7 +663,23 @@ fn test_login_args_parsing() {
     }
 
     let cli = Cli::try_parse_from(["taurine", "logout"]).expect("logout parses");
-    assert!(matches!(cli.command, Some(Commands::Logout)));
+    assert!(matches!(
+        cli.command,
+        Some(Commands::Logout { force: false })
+    ));
+
+    let cli_force =
+        Cli::try_parse_from(["taurine", "logout", "--force"]).expect("logout --force parses");
+    assert!(matches!(
+        cli_force.command,
+        Some(Commands::Logout { force: true })
+    ));
+
+    let cli_f = Cli::try_parse_from(["taurine", "logout", "-f"]).expect("logout -f parses");
+    assert!(matches!(
+        cli_f.command,
+        Some(Commands::Logout { force: true })
+    ));
 }
 
 #[test]
@@ -851,9 +867,10 @@ fn test_logout_purges_local_database_and_stops_daemon() {
     .expect("insert trigger succeeds");
     drop(conn);
 
-    crate::commands::auth::execute_logout(false).expect("logout succeeds");
+    crate::commands::auth::execute_logout(true, false).expect("logout succeeds");
 
     assert!(taurine_core::cloud::get_tokens().unwrap().is_none());
+    assert!(taurine_core::cloud::get_vault_dek().unwrap().is_none());
 
     // SAFETY: access to TAURINE_DATA_DIR is serialized by TEST_LOCK
     unsafe { std::env::remove_var("TAURINE_DATA_DIR") };

@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 use taurine_core::db::crud::UserTier;
 use taurine_core::error::Result;
 
@@ -223,7 +223,7 @@ pub fn execute_login(
 
 /// Logs out the user by stopping the daemon, clearing credentials from the keystore,
 /// and purging the local database.
-pub fn execute_logout(json: bool) -> Result<()> {
+pub fn execute_logout(force: bool, json: bool) -> Result<()> {
     // Attempt a final sync cycle before purging local state so nothing is lost
     if let Ok(conn) = taurine_core::db::init::setup() {
         let _ = taurine_core::db::crud::triggers::backfill_untracked_triggers_to_outbox(&conn);
@@ -242,11 +242,29 @@ pub fn execute_logout(json: bool) -> Result<()> {
         }
         if let Ok(pending) = taurine_core::db::crud::fetch_outbox_batch(&conn, 1)
             && !pending.is_empty()
-            && !json
+            && !force
         {
-            eprintln!(
-                "Warning: Some unsaved changes could not be synced to the cloud before logout."
-            );
+            if !json && std::io::stdin().is_terminal() {
+                print!(
+                    "You have unsynced changes that will be permanently lost upon logout. Proceed anyway? [y/N]: "
+                );
+                let _ = std::io::stdout().flush();
+                let mut input = String::new();
+                std::io::stdin()
+                    .read_line(&mut input)
+                    .map_err(taurine_core::Error::Io)?;
+                let trimmed = input.trim().to_lowercase();
+                if trimmed != "y" && trimmed != "yes" {
+                    return Err(taurine_core::Error::Config(
+                        "Logout aborted to prevent data loss. Re-run with --force to discard unsynced data.".into(),
+                    ));
+                }
+            } else {
+                return Err(taurine_core::Error::Config(
+                    "Logout aborted: unsynced mutations remain in outbox. Pass --force to discard."
+                        .into(),
+                ));
+            }
         }
     }
 
@@ -255,6 +273,7 @@ pub fn execute_logout(json: bool) -> Result<()> {
         let _ = taurine_core::service::down();
     }
 
+    let _ = taurine_core::cloud::clear_vault_dek();
     taurine_core::cloud::clear_tokens()?;
     taurine_core::db::init::purge_local_database()?;
 
@@ -474,12 +493,170 @@ mod tests {
         };
         taurine_core::cloud::store_tokens(&mock_tokens).expect("store tokens succeeds");
 
-        let res = execute_logout(true);
+        let res = execute_logout(true, true);
         assert!(res.is_ok(), "execute_logout must succeed");
 
         assert!(
             taurine_core::cloud::get_tokens().unwrap().is_none(),
             "Tokens must be cleared after logout"
+        );
+
+        // SAFETY: environment variable manipulation is serialized by TEST_LOCK
+        unsafe {
+            std::env::remove_var("TAURINE_DATA_DIR");
+            std::env::remove_var("TAURINE_SUPABASE_URL");
+        }
+    }
+
+    #[test]
+    fn test_execute_logout_aborts_when_unsynced_mutations_remain() {
+        let _guard = crate::commands::TEST_LOCK.lock().unwrap();
+        crate::commands::test_keyring::use_shared_test_keyring();
+        let _ = taurine_core::cloud::clear_tokens();
+
+        let temp = tempfile::tempdir().unwrap();
+        // SAFETY: environment variable manipulation is serialized by TEST_LOCK
+        unsafe {
+            std::env::set_var("TAURINE_DATA_DIR", temp.path());
+            std::env::set_var("TAURINE_SUPABASE_URL", "http://127.0.0.1:1");
+        }
+
+        let mock_tokens = taurine_core::cloud::AuthTokens {
+            access_token: "mock-token-unsynced".to_string(),
+            refresh_token: "mock-refresh".to_string(),
+            user_id: "user-unsynced-test".to_string(),
+            expires_at: Some(9999999999),
+        };
+        taurine_core::cloud::store_tokens(&mock_tokens).expect("store tokens succeeds");
+
+        let conn = taurine_core::db::init::setup().expect("setup succeeds");
+        taurine_core::db::crud::enqueue_outbox(
+            &conn,
+            "snippet",
+            "test_unsynced_id",
+            "upsert",
+            serde_json::json!({ "id": "test_unsynced_id", "body": "test" }),
+        )
+        .expect("enqueue outbox succeeds");
+        drop(conn);
+
+        // force = false, json = true (non-interactive / JSON mode)
+        let res = execute_logout(false, true);
+        assert!(
+            res.is_err(),
+            "execute_logout must abort when unsynced mutations remain"
+        );
+        if let Err(taurine_core::Error::Config(msg)) = res {
+            assert!(msg.contains("Logout aborted: unsynced mutations remain in outbox"));
+        } else {
+            panic!("Expected Config error on aborted logout, got: {res:?}");
+        }
+
+        // Verify tokens are still intact
+        assert!(
+            taurine_core::cloud::get_tokens().unwrap().is_some(),
+            "Tokens must not be wiped when logout aborts"
+        );
+
+        let _ = taurine_core::cloud::clear_tokens();
+        // SAFETY: environment variable manipulation is serialized by TEST_LOCK
+        unsafe {
+            std::env::remove_var("TAURINE_DATA_DIR");
+            std::env::remove_var("TAURINE_SUPABASE_URL");
+        }
+    }
+
+    #[test]
+    fn test_execute_logout_force_proceeds_with_unsynced_mutations() {
+        let _guard = crate::commands::TEST_LOCK.lock().unwrap();
+        crate::commands::test_keyring::use_shared_test_keyring();
+        let _ = taurine_core::cloud::clear_tokens();
+        let _ = taurine_core::cloud::clear_vault_dek();
+
+        let temp = tempfile::tempdir().unwrap();
+        // SAFETY: environment variable manipulation is serialized by TEST_LOCK
+        unsafe {
+            std::env::set_var("TAURINE_DATA_DIR", temp.path());
+            std::env::set_var("TAURINE_SUPABASE_URL", "http://127.0.0.1:1");
+        }
+
+        let mock_tokens = taurine_core::cloud::AuthTokens {
+            access_token: "mock-token-force".to_string(),
+            refresh_token: "mock-refresh".to_string(),
+            user_id: "user-force-test".to_string(),
+            expires_at: Some(9999999999),
+        };
+        taurine_core::cloud::store_tokens(&mock_tokens).expect("store tokens succeeds");
+        taurine_core::cloud::store_vault_dek(&[0x77u8; 32]).expect("store vault dek succeeds");
+
+        let conn = taurine_core::db::init::setup().expect("setup succeeds");
+        taurine_core::db::crud::enqueue_outbox(
+            &conn,
+            "snippet",
+            "test_force_id",
+            "upsert",
+            serde_json::json!({ "id": "test_force_id", "body": "test" }),
+        )
+        .expect("enqueue outbox succeeds");
+        drop(conn);
+
+        // force = true, json = true
+        let res = execute_logout(true, true);
+        assert!(res.is_ok(), "execute_logout with force=true must succeed");
+
+        assert!(
+            taurine_core::cloud::get_tokens().unwrap().is_none(),
+            "Tokens must be wiped after force logout"
+        );
+        assert!(
+            taurine_core::cloud::get_vault_dek().unwrap().is_none(),
+            "Vault DEK must be wiped after force logout"
+        );
+
+        // SAFETY: environment variable manipulation is serialized by TEST_LOCK
+        unsafe {
+            std::env::remove_var("TAURINE_DATA_DIR");
+            std::env::remove_var("TAURINE_SUPABASE_URL");
+        }
+    }
+
+    #[test]
+    fn test_execute_logout_succeeds_when_outbox_is_clean() {
+        let _guard = crate::commands::TEST_LOCK.lock().unwrap();
+        crate::commands::test_keyring::use_shared_test_keyring();
+        let _ = taurine_core::cloud::clear_tokens();
+        let _ = taurine_core::cloud::clear_vault_dek();
+
+        let temp = tempfile::tempdir().unwrap();
+        // SAFETY: environment variable manipulation is serialized by TEST_LOCK
+        unsafe {
+            std::env::set_var("TAURINE_DATA_DIR", temp.path());
+            std::env::set_var("TAURINE_SUPABASE_URL", "http://127.0.0.1:1");
+        }
+
+        let mock_tokens = taurine_core::cloud::AuthTokens {
+            access_token: "mock-token-clean".to_string(),
+            refresh_token: "mock-refresh".to_string(),
+            user_id: "user-clean-test".to_string(),
+            expires_at: Some(9999999999),
+        };
+        taurine_core::cloud::store_tokens(&mock_tokens).expect("store tokens succeeds");
+        taurine_core::cloud::store_vault_dek(&[0x88u8; 32]).expect("store vault dek succeeds");
+
+        let _conn = taurine_core::db::init::setup().expect("setup succeeds");
+        drop(_conn);
+
+        // force = false, json = true
+        let res = execute_logout(false, true);
+        assert!(res.is_ok(), "execute_logout with clean outbox must succeed");
+
+        assert!(
+            taurine_core::cloud::get_tokens().unwrap().is_none(),
+            "Tokens must be wiped after logout"
+        );
+        assert!(
+            taurine_core::cloud::get_vault_dek().unwrap().is_none(),
+            "Vault DEK must be wiped after logout"
         );
 
         // SAFETY: environment variable manipulation is serialized by TEST_LOCK

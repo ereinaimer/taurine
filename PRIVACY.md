@@ -1,37 +1,49 @@
 # Privacy Policy
 
-**Taurine is a local-first application.** We believe your keystrokes, clipboard contents, and triggers are strictly your business.
+**Taurine is built on a local-first, privacy-by-design architecture.** We believe your keystrokes, clipboard contents, snippet triggers, and voice dictations are strictly your business.
 
-This document outlines how Taurine handles your data to guarantee your privacy.
+This document outlines how Taurine handles your data across local execution, end-to-end encrypted synchronization, and account lifecycle management to guarantee your privacy.
 
-## 1. Local Data Storage
-All of your data is stored locally on your device. Taurine does not have a central server, nor does it sync your data to the cloud.
-- **Triggers & Scripts**: Stored in a local SQLite database (`taurine.db`), SQLCipher-encrypted at rest so the file cannot be read without this computer.
-- **Database Key**: The encryption key is a random secret created on this computer and kept in your operating system's credential manager (macOS Keychain, Windows Credential Manager, or Linux Secret Service). Copies of the database file do not work on other computers; move your data with encrypted exports instead.
-- **Settings**: Stored locally.
-- **Metrics**: Your usage statistics (how many times a snippet was expanded, time saved) are calculated and stored locally.
+## 1. Local Data Storage & Encryption at Rest
+Taurine stores all user data locally on your device within an encrypted SQLite database (`taurine.db`).
+- **SQLCipher 256-bit AES Encryption**: All snippet bodies, trigger definitions, script contents, activity history, and settings are encrypted at rest using SQLCipher.
+- **Hardware Keystore Integration**: The local database encryption key is a cryptographically strong random secret generated on your device and stored securely in your operating system's native credential store (macOS Keychain, Windows Credential Manager, or Linux Secret Service via FreeDesktop Secret Service API). Copies of the database file cannot be read without access to the host keystore.
 
-## 2. Keystroke Monitoring & Clipboard
-As a text expander, the Taurine background service requires system-level permissions to monitor your keystrokes and read your clipboard.
-- **Keystrokes**: The service actively listens to keystrokes to detect your configured trigger sequences. However, **no keystrokes are ever logged, saved, or transmitted.** The engine only keeps a tiny, rolling, in-memory buffer of your most recent keystrokes, which is immediately discarded.
-- **Clipboard**: The service only reads your clipboard at the exact moment a script trigger needs to inject its output, or when a snippet specifically uses the `[clipboard]` variable. It does not monitor or store clipboard history.
+## 2. Zero-Knowledge End-to-End Encrypted (E2EE) Cloud Sync
+Taurine provides multi-device cloud synchronization powered by a Zero-Knowledge End-to-End Encryption architecture:
+- **Client-Side Encryption**: All sensitive user data—including snippet templates, script source code, and voice dictations—is encrypted on your local device before transmission to the cloud using AES-256-GCM Authenticated Encryption with Associated Data (AEAD).
+- **Argon2id Key Derivation**: Encryption keys are derived client-side from your user credentials using Argon2id with cryptographic salt.
+- **Zero-Knowledge Guarantee**: The cloud backend, database servers, and Taurine developers never have access to your encryption keys or plaintext data. Cloud servers store only encrypted ciphertexts and metadata required for conflict resolution. If our cloud infrastructure were compromised, your snippets, scripts, and personal data would remain cryptographically unreadable.
 
-## 3. Telemetry & Analytics
-**Taurine collects absolutely zero telemetry.**
-- No crash reports are sent anywhere.
-- No usage analytics are collected by the developers.
-- No "phone home" mechanisms exist in the codebase.
+## 3. Keystroke Monitoring & Clipboard Access
+To deliver low-latency text expansion, the Taurine background service requires operating system accessibility permissions:
+- **Transient In-Memory Buffer**: Keystroke monitoring operates strictly in volatile memory using a small, rolling buffer to match trigger prefixes. Keystrokes are never logged to disk, never stored persistently, and never transmitted over any network interface.
+- **Clipboard Isolation**: The clipboard is accessed only on-demand when an expansion explicitly contains the `[clipboard]` dynamic variable or when inserting script execution output. Taurine never monitors or stores clipboard history.
 
-## 4. Internet Connectivity
-Taurine functions completely offline, with two strict exceptions:
+## 4. Activity History & Voice Dictations
+Taurine offers optional activity logging to help you review recent expansions and dictate text:
+- **Local Speech Recognition**: Voice dictation runs entirely on-device using local machine learning inference models (Sherpa-ONNX / Whisper). Raw microphone audio is processed in memory and never leaves your computer; audio recordings are never saved to disk or transmitted to the cloud.
+- **Encrypted Activity History**: Voice transcripts and snippet expansion events are retained in your local database with a 30-day retention window. When cloud sync is active, transcripts are synchronized solely as end-to-end encrypted ciphertexts.
 
-1. **Inline AI Copilot (Opt-in)**: If you explicitly configure an AI provider (like OpenAI, Gemini, or Claude) and provide your own API key, Taurine will connect to that provider's API.
-   - Taurine **only** sends the specific text prompt you type between the delimiters (e.g., `` `your prompt here` ``).
-   - It does not send your screen context, clipboard, or keystroke history to the AI provider.
-   - Your API keys are stored securely in your operating system's native credential manager (macOS Keychain, Windows Credential Manager, or Linux Secret Service).
-2. **Self-Updates (Opt-in)**: If you run `taurine update`, the CLI will ping the official GitHub Releases page to check for new versions and download the binaries.
+## 5. Usage & Quota Telemetry
+Taurine calculates aggregated usage metrics to support weekly quota tracking and personal productivity statistics:
+- **Aggregated Metrics**: Telemetry is strictly limited to aggregated metrics: words expanded, words spoken, time saved, and weekly quota balance countdowns.
+- **Device-Isolated Counters**: Aggregated counters are tracked per device to ensure accurate quota tracking without tracking specific typing habits or snippet contents.
+- **No Keystroke Telemetry**: Taurine does not collect or transmit keystroke counts, typed content, application telemetry, or crash telemetry.
 
-## 5. Security & Auditing
-Taurine's code is publically available. Anyone is free to audit the source code, inspect the network traffic, and verify that the application behaves exactly as described above.
+## 6. Privacy & Data Purge on Logout
+Signing out of Taurine securely and irreversibly clears sensitive state from the current device:
+- **Complete Local Purge**: Running `taurine logout` shuts down background services, deletes the local SQLCipher database file, and wipes cached session state.
+- **Keystore Key Wiping**: Data Encryption Keys (DEK), vault credentials, and authentication session tokens are permanently removed from the operating system credential manager.
+- **Unsynced Mutation Safeguard**: To prevent accidental data loss, `taurine logout` verifies that all pending changes in the synchronization outbox are flushed to the cloud. If uncommitted mutations remain, logout safely aborts unless explicitly overridden with `--force`.
 
-If you have any security or privacy concerns, please open an issue on our [GitHub repository](https://github.com/ereinaimer/taurine).
+## 7. Third-Party AI Integrations (Opt-in)
+Taurine includes an optional inline AI Copilot:
+- **Direct Provider Connection**: If you configure an AI provider (e.g., OpenAI, Anthropic Claude, Google Gemini, Groq, or local endpoints), Taurine connects directly to that provider's API.
+- **Minimal Context**: Only the specific prompt delimited by your expansion trigger is transmitted. Screen contents, window titles, clipboard contents, and broader typing history are never included.
+- **Keystore Stored API Keys**: Provider API keys are stored in your operating system's native credential store and are never sent to Taurine cloud servers.
+
+## 8. Security & Open Source Auditing
+Taurine's client code is publicly available. Anyone is welcome to inspect the source code, verify network traffic boundaries, and audit cryptographic implementations.
+
+If you discover any security or privacy vulnerabilities, please open an issue or reach out through our [GitHub repository](https://github.com/ereinaimer/taurine).

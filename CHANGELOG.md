@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Safe Logout Safeguard**: Prompt for confirmation before purging data on logout if pending mutations remain unsynced, or bypass via `--force`.
 - **Mandatory Authentication Gate**: Require an active Taurine account to launch Taurine or trigger expansions, and purge local data on logout.
 - **Bidirectional Cloud Sync**: Synchronize and restore snippets, settings, activity history, and multi-device statistics across devices with conflict-free aggregation.
 - **Activity Event Logging**: Record individual user actions with timestamps, application context, word counts, and time saved.
