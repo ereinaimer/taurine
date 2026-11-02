@@ -49,7 +49,7 @@ impl SmoothScroll {
         self.animating = false;
     }
 
-    /// Stop where we are, discarding the pending target.
+    /// Stop at current offset, discarding the pending target.
     pub(crate) fn stop(&mut self) {
         self.jump(self.scroll);
     }

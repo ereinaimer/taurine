@@ -262,7 +262,7 @@ fn test_interpolate_flattened_system() {
     let args = ArgMap::default();
     // chrono(time) | case(upper) should resolve to the current time in uppercase
     let res = interpolate("[chrono(time) | case(upper)]", &args);
-    // We check if it resolved to SOMETHING that isn't the literal string or empty
+    // Verify it resolved to a non-empty string that is not the literal template.
     assert!(!res.is_empty());
     assert!(!res.contains("chrono"));
     // Check if it's uppercase
@@ -640,10 +640,7 @@ mod compatibility_interpolation_tests {
     fn test_mockreq_manual_case() {
         let mut args = ArgMap::default();
         args.positional.push("password_reset".to_string());
-        // Mock the env var and uuid in system resolve via a mock or just test the structure
-        // Since we can't easily mock UUID without a lock, we can use a known value.
-        // Wait, UUID changes. We'll skip [uuid] and [date.iso] for exact match and just test env
-        // actually we can test the interpolation of `[env(TAURINE_TEST_USER, admin)]`.
+        // Test environment variable interpolation with fallback value.
         let tpl = r#"{"user": "[env(TAURINE_TEST_USER, admin) | case(lower)]", "action": "[0=login | case(upper)]"}"#;
         assert_eq!(
             interpolate(tpl, &args),
@@ -657,14 +654,11 @@ mod compatibility_interpolation_tests {
         let tpl = "### SUMMARY OF COPIED TEXT ([chrono(date)]):[key(enter)][clip | ai(summarize this in 3 concise bullet points) | strip(whitespace)]";
         system::clipboard::set_mock_clip(Some("Long article text".to_string()));
         let result = interpolate(tpl, &args);
-        // date.short will be the actual date, so we just check the AI marker structure
+        // Verify date header prefix and generated AI marker structure.
         assert!(result.starts_with("### SUMMARY OF COPIED TEXT ("));
         assert!(result.contains(
             "):[key(enter)]\x03Long article text\x1Fsummarize this in 3 concise bullet points\x04"
         ));
-        // trim is applied to the AI marker?
-        // the pipeline handles `clipboard | ai(...) | strip(whitespace)` by adding \x03 and \x04.
-        // Wait, the test checks if it generates correct markers.
         system::clipboard::set_mock_clip(None);
     }
 

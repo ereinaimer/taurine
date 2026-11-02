@@ -88,7 +88,7 @@ fn inject_text_segment_with_gen(
     let delay_ms = taurine_core::settings::get_cached_clipboard_restore_delay();
     let post_paste_wait = Duration::from_millis(delay_ms as u64);
 
-    // On Linux, check if we must use direct typing (no display)
+    // On Linux, check if direct typing must be used (no display)
     #[cfg(target_os = "linux")]
     {
         let has_display =
@@ -692,7 +692,7 @@ fn inject_expansion_inner(
         }
     }
 
-    // 3. Restore the user's original clipboard (if we touched it).
+    // 3. Restore the user's original clipboard (if modified).
     if let Some(ref original) = original_clipboard {
         restore_clipboard_guarded(last_clipboard_payload.as_deref(), original, captured_gen);
     }

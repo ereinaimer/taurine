@@ -8,8 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Safe Logout Safeguard**: Prompt for confirmation before purging data on logout if pending mutations remain unsynced, or bypass via `--force`.
-- **Mandatory Authentication Gate**: Require an active Taurine account to launch Taurine or trigger expansions, and purge local data on logout.
+- **Safe Logout Flow**: Synchronize pending changes and clear session credentials on logout while preserving local data.
+- **Mandatory Authentication Gate**: Require an active Taurine account to launch the background service and connect to cloud sync.
 - **Bidirectional Cloud Sync**: Synchronize and restore snippets, settings, activity history, and multi-device statistics across devices with conflict-free aggregation.
 - **Activity Event Logging**: Record individual user actions with timestamps, application context, word counts, and time saved.
 - **Activity Output History & Retention**: Retain full text content for voice dictations and expansions with a rolling 30-day history window and cross-device synchronization.
@@ -44,7 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Cloud Sync Recovery**: Automatically recover from rejected cloud sync payloads to prevent synchronization lockups.
 - **Database Self-Healing**: Automatically migrate legacy database schemas on startup to prevent dashboard and statistics errors.
 - **Audio Capture Stability**: Prevent transient audio buffer hiccups from disconnecting the voice input stream.
-- **Safe Database Purge on Logout**: Drain pending sync changes before purging local database files on logout.
+- **Logout Session Handling**: Drain pending sync changes, stop background service, and reset sync checkpoints on logout without deleting local database records.
 - **Trigger Sync Backfill**: Automatically enqueue existing and imported triggers into sync outbox to guarantee complete cloud synchronization.
 - **Windows Browser Launch**: Prevent OAuth login URLs with multiple query parameters from being truncated on Windows.
 - **Cloud State Restoration**: Reliably restore and synchronize quota balances, triggers, settings, and telemetry when signing in and out of Taurine.

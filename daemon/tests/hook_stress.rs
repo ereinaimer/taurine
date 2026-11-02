@@ -54,8 +54,8 @@ async fn hook_stress_24h_compressed() {
     // Set a unique pipe path for the test run to avoid conflicting with
     // any existing instance running on the system.
     let test_pipe_path = r"\\.\pipe\taurine_stress_test";
-    // SAFETY: set_var is safe here because we are at the very beginning of the test
-    // main thread, and no other threads are concurrently running or reading the environment.
+    // SAFETY: set_var is safe here because this runs at the start of the
+    // test thread before any concurrent threads are spawned or reading the environment.
     unsafe {
         std::env::set_var("TAURINE_PIPE_PATH", test_pipe_path);
     }

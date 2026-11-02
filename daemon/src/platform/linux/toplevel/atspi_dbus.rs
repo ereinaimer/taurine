@@ -147,9 +147,8 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
                                                     .ok();
                                             }
 
-                                            // We don't have a reliable way to get AT-SPI2 fullscreen state
-                                            // without importing the entire atspi state table, so we gracefully
-                                            // default to false to allow macros to run.
+                                            // AT-SPI2 fullscreen state requires the full atspi state table,
+                                            // so default to false to allow macros to run.
                                             state_clone
                                                 .is_os_fullscreen
                                                 .store(false, Ordering::Relaxed);

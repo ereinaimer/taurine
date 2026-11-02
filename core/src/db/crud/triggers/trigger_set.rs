@@ -1067,7 +1067,7 @@ pub fn update_existing_trigger(
             audit_payload_tags_with_trigger_type(&content_nfc, update.trigger_type)?;
         }
 
-        // We only enforce limits for text snippets, as nested limits apply to the `use` variable
+        // Enforce limits for text snippets; nested limits apply to the `use` variable
         validate_trigger_limits(conn, &trigger_nfc, &content_nfc, update.action_type)?;
 
         if let Some(desc) = update.description

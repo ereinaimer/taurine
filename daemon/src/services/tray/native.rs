@@ -52,7 +52,7 @@ const SNOOZE_TIMER_ID: usize = 0x534E5A; // "SNZ"
 
 // SAFETY: WM_DEVICECHANGE (0x0219) arrives on the tray GUI thread when devices
 // come or go; DBT_DEVICEARRIVAL (0x8000) / DBT_DEVICEREMOVECOMPLETE (0x8004).
-// We only fast-path the submenu repaint here; selection changes go through the
+// Only fast-path the submenu repaint here; selection changes go through the
 // debounced poll loop so transient events never wipe a saved pick.
 #[cfg(target_os = "windows")]
 const WM_DEVICECHANGE: u32 = 0x0219;
@@ -385,7 +385,7 @@ fn run_tray_loop_once(paused: &Arc<AtomicBool>, system_tray_enabled: &Arc<Atomic
 
         let mut tray_hwnd = find_current_thread_window();
         if !tray_hwnd.is_null() {
-            // SAFETY: SetWindowSubclass attaches our tray_menu_subclass_proc to the tray window.
+            // SAFETY: SetWindowSubclass attaches tray_menu_subclass_proc to the tray window.
             // live_state lives on this thread's stack until the thread terminates.
             unsafe {
                 SetWindowSubclass(
@@ -422,7 +422,7 @@ fn run_tray_loop_once(paused: &Arc<AtomicBool>, system_tray_enabled: &Arc<Atomic
                 while PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_REMOVE) > 0 {
                     if tray_hwnd.is_null() && !msg.hwnd.is_null() {
                         tray_hwnd = msg.hwnd;
-                        // SAFETY: SetWindowSubclass attaches our tray_menu_subclass_proc to the tray window.
+                        // SAFETY: SetWindowSubclass attaches tray_menu_subclass_proc to the tray window.
                         SetWindowSubclass(
                             tray_hwnd,
                             Some(tray_menu_subclass_proc),

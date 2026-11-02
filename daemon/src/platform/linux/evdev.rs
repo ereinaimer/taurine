@@ -223,7 +223,7 @@ pub(crate) fn spawn_device_listener(
 
             // Only grab keyboard devices. An exclusive grab on a mouse device swallows all
             // click events before the compositor sees them, which breaks left/right click
-            // entirely. Mouse devices are observed passively: we only need them to clear the
+            // entirely. Mouse devices are observed passively to clear the
             // undo state on click, which does not require exclusive ownership of the device.
             let grab_enabled = if kind == DeviceKind::Mouse {
                 debug!(
@@ -711,7 +711,7 @@ fn process_frame(
                 } else if let Some((trigger_string, output_length)) = take_active_undo_state(state)
                 {
                     // Windows/macOS can swallow inside the hook callback itself. Linux needs
-                    // EVIOCGRAB plus a uinput proxy, so we drop the grabbed frame instead.
+                    // EVIOCGRAB plus a uinput proxy, dropping the grabbed frame instead.
                     spawn_undo_dispatch(trigger_string, output_length);
                     swallow_frame = true;
                     *swallow_next_backspace_release = true;

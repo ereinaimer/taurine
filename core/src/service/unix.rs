@@ -30,7 +30,7 @@ fn get_manager() -> crate::error::Result<Box<dyn ServiceManager>> {
 
 #[cfg(target_os = "linux")]
 fn is_current_user_in_group(group_name: &str) -> bool {
-    // SAFETY: We use standard Unix APIs to get the current user's groups
+    // SAFETY: Standard Unix APIs get the current user's groups safely into an allocated buffer.
     unsafe {
         let egid = libc::getegid();
         let ngroups = libc::getgroups(0, std::ptr::null_mut());
@@ -160,7 +160,7 @@ fn ensure_linux_permissions() -> crate::error::Result<()> {
             ));
         }
 
-        // Detect if we are in a GUI session (X11 or Wayland) and run from an interactive terminal (non-headless)
+        // Detect whether running in an interactive GUI session (X11 or Wayland, non-headless)
         let is_gui = (std::env::var("DISPLAY").is_ok() || std::env::var("WAYLAND_DISPLAY").is_ok())
             && std::io::stdin().is_terminal();
 
@@ -241,7 +241,7 @@ fn systemd_daemon_reload() {
         .output();
 }
 
-/// Fire-and-forget stop of our systemd unit. Used by the in-daemon tray Quit
+/// Fire-and-forget stop of the systemd unit. Used by the in-daemon tray Quit
 /// handler, which cannot use the blocking service-manager API from its event
 /// loop and must register a stop job *before* the process self-exits —
 /// otherwise `Restart=` resurrects it. Never fails the caller; falls back to

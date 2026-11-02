@@ -186,12 +186,12 @@ where
                 if resp.req_id.as_deref() != Some(id.as_str()) {
                     // Stale reply from an earlier timed-out call (e.g. a
                     // pause-time unload racing a long decode): skip it and
-                    // keep waiting for our own response within budget, so
+                    // continue waiting for the matching response within budget, so
                     // one timeout cannot cascade into the next call.
                     debug!(
                         expected = id.as_str(),
                         got = resp.req_id.as_deref().unwrap_or("<none>"),
-                        "voice worker answered a stale request; waiting for ours"
+                        "voice worker answered a stale request; waiting for matching response"
                     );
                     continue;
                 }
@@ -973,7 +973,7 @@ mod tests {
     #[cfg(unix)]
     fn child_is_alive(pid: u32) -> bool {
         let mut status = 0;
-        // SAFETY: waitpid targets only our own spawned child pid; WNOHANG
+        // SAFETY: waitpid targets only the spawned child pid; WNOHANG
         // never blocks and reaps at most that pid, never an unrelated child.
         let r = unsafe { libc::waitpid(pid as libc::pid_t, &mut status, libc::WNOHANG) };
         r == 0

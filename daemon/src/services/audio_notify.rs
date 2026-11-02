@@ -4,7 +4,7 @@
 //! ambiguously (same name, virtual re-route), and enumeration stalls for
 //! seconds mid-flux. This subscribes to endpoint notifications so
 //! add/remove/state/default changes invalidate caches immediately.
-//! Callback discipline: the OS calls us on its own thread, so handlers
+//! Callback discipline: the OS invokes the callback on its own thread, so handlers
 //! only drop the cue cache (own mutex, no OS calls) and stamp an atomic.
 //! All heavy work stays on existing threads.
 

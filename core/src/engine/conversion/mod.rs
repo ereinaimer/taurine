@@ -306,6 +306,10 @@ fn get_cache_path() -> PathBuf {
 }
 
 fn fetch_rates_sync() -> Option<ExchangeRatesResponse> {
+    if cfg!(test) {
+        return None;
+    }
+
     info!("Fetching exchange rates from API");
     let response = ureq::get("https://open.er-api.com/v6/latest/USD")
         .timeout(std::time::Duration::from_secs(2))
@@ -326,6 +330,10 @@ fn fetch_rates_sync() -> Option<ExchangeRatesResponse> {
 }
 
 fn trigger_async_fetch() {
+    if cfg!(test) {
+        return;
+    }
+
     std::thread::spawn(|| {
         if let Some(response) = ureq::get("https://open.er-api.com/v6/latest/USD")
             .timeout(std::time::Duration::from_secs(5))
@@ -541,7 +549,7 @@ fn preprocess_question_patterns(s: &str) -> Option<String> {
         current = format!("1 {} to {}", source, target);
     }
 
-    // Only return Some if we actually transformed the input
+    // Return Some only if the input was transformed
     if current != trimmed {
         Some(current)
     } else {
@@ -598,7 +606,7 @@ pub fn convert_natural(s: &str, state: &crate::engine::state::EngineState) -> Op
 
     // 4. Scan right-to-left to find the rightmost separator token
     //    If a separator word appears at the last position, it's likely the target unit
-    //    (e.g. "5cm to in" where "in" = inches), so we skip it and look left.
+    //    (e.g. "5cm to in" where "in" = inches); skip it and scan left.
     let mut sep_index = None;
     let last = words.len().saturating_sub(1);
     for (i, &word) in words.iter().enumerate().rev() {

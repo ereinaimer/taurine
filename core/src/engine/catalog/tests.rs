@@ -584,6 +584,11 @@ fn test_regex_catalog_compilation_and_match() {
 
 #[test]
 fn nl_fallback_matches_fresh_dummy_state_results() {
+    let mut mock = std::collections::HashMap::new();
+    mock.insert("USD".to_string(), 1.0);
+    mock.insert("EUR".to_string(), 0.85);
+    crate::engine::conversion::MOCK_RATES.with(|m| *m.borrow_mut() = Some(mock));
+
     let catalog = ExpansionCatalog::new();
     for kw in [
         "10 km in miles",
@@ -599,6 +604,8 @@ fn nl_fallback_matches_fresh_dummy_state_results() {
         });
         assert_eq!(a.map(|e| e.steps), b.map(|e| e.steps), "mismatch for {kw}");
     }
+
+    crate::engine::conversion::MOCK_RATES.with(|m| *m.borrow_mut() = None);
 }
 
 #[test]

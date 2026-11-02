@@ -104,7 +104,7 @@ pub fn detect_shell_profiles() -> Vec<PathBuf> {
     let home_path = PathBuf::from(&home);
     let mut profiles = Vec::new();
 
-    // 1. Detect active shell to ensure we cover its profile
+    // 1. Detect active shell to cover its profile
     let shell = std::env::var("SHELL").unwrap_or_default();
     if shell.contains("zsh") {
         profiles.push(home_path.join(".zshrc"));
@@ -199,7 +199,7 @@ mod tests {
 
         // Exact line match
         assert!(line_exists_in_rc_file(&path, "alias tau='taurine'"));
-        // Substring alone should not match (we match whole lines)
+        // Substring alone should not match (matches whole lines)
         assert!(!line_exists_in_rc_file(&path, "alias tau="));
     }
 

@@ -31,15 +31,15 @@ unsafe extern "system" fn vectored_exception_handler(info: *mut EXCEPTION_POINTE
         return EXCEPTION_CONTINUE_SEARCH;
     }
 
-    // SAFETY: Dereferencing info is safe because we checked for null above.
+    // SAFETY: Dereferencing info is safe because null was checked above.
     let record = unsafe { (*info).ExceptionRecord };
     if record.is_null() {
         return EXCEPTION_CONTINUE_SEARCH;
     }
 
-    // SAFETY: Dereferencing record is safe because we checked for null above.
+    // SAFETY: Dereferencing record is safe because null was checked above.
     let code = unsafe { (*record).ExceptionCode } as u32;
-    // SAFETY: Dereferencing record is safe because we checked for null above.
+    // SAFETY: Dereferencing record is safe because null was checked above.
     let address = unsafe { (*record).ExceptionAddress } as usize;
 
     match code {
@@ -114,7 +114,7 @@ pub fn init_veh_handler() {
         return;
     }
 
-    // SAFETY: AddVectoredExceptionHandler registers our first-chance exception handler callback
+    // SAFETY: AddVectoredExceptionHandler registers the first-chance exception handler callback
     // with the Windows kernel. The handler conforms to the system ABI.
     unsafe {
         let handle = AddVectoredExceptionHandler(1, Some(vectored_exception_handler));

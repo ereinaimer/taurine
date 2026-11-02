@@ -89,6 +89,12 @@ pub fn set_sync_checkpoint(conn: &Connection, entity_type: &str, ts: i64) -> Res
     Ok(())
 }
 
+/// Clears all stored synchronization watermarks from SQLite.
+pub fn reset_sync_checkpoints(conn: &Connection) -> Result<()> {
+    conn.execute("DELETE FROM sync_checkpoints", [])?;
+    Ok(())
+}
+
 pub fn record_outbox_failure(conn: &Connection, id: i64, error_msg: &str) -> Result<()> {
     let mut stmt = conn.prepare_cached(
         "UPDATE sync_outbox

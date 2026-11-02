@@ -189,7 +189,7 @@ fn version_flag_prints_expected_format() {
     let cli = Cli::try_parse_from(["taurine", "--version"]).expect("--version should parse");
     assert!(cli.version, "version flag should be true");
     // The actual output is printed in main() before launch_target is called,
-    // so we verify the flag routing here and the constant exists.
+    // so flag routing and constant existence are verified here.
     assert!(
         VERSION.contains('.'),
         "VERSION constant should be a semver string, got: {VERSION}"
@@ -663,23 +663,7 @@ fn test_login_args_parsing() {
     }
 
     let cli = Cli::try_parse_from(["taurine", "logout"]).expect("logout parses");
-    assert!(matches!(
-        cli.command,
-        Some(Commands::Logout { force: false })
-    ));
-
-    let cli_force =
-        Cli::try_parse_from(["taurine", "logout", "--force"]).expect("logout --force parses");
-    assert!(matches!(
-        cli_force.command,
-        Some(Commands::Logout { force: true })
-    ));
-
-    let cli_f = Cli::try_parse_from(["taurine", "logout", "-f"]).expect("logout -f parses");
-    assert!(matches!(
-        cli_f.command,
-        Some(Commands::Logout { force: true })
-    ));
+    assert!(matches!(cli.command, Some(Commands::Logout)));
 }
 
 #[test]
@@ -844,7 +828,7 @@ fn test_unauthenticated_list_rejected_with_login_message() {
 }
 
 #[test]
-fn test_logout_purges_local_database_and_stops_daemon() {
+fn test_logout_preserves_local_database_and_stops_daemon() {
     let _lock = crate::commands::TEST_LOCK.lock().unwrap();
     crate::commands::test_keyring::use_shared_test_keyring();
     let temp = tempfile::tempdir().expect("tempdir");
@@ -867,10 +851,24 @@ fn test_logout_purges_local_database_and_stops_daemon() {
     .expect("insert trigger succeeds");
     drop(conn);
 
-    crate::commands::auth::execute_logout(true, false).expect("logout succeeds");
+    crate::commands::auth::execute_logout(false).expect("logout succeeds");
 
     assert!(taurine_core::cloud::get_tokens().unwrap().is_none());
     assert!(taurine_core::cloud::get_vault_dek().unwrap().is_none());
+
+    let conn = taurine_core::db::init::setup().expect("setup succeeds");
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM triggers WHERE id = 'logout_trig'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("query succeeds");
+    assert_eq!(
+        count, 1,
+        "local database triggers must be preserved on logout"
+    );
+    drop(conn);
 
     // SAFETY: access to TAURINE_DATA_DIR is serialized by TEST_LOCK
     unsafe { std::env::remove_var("TAURINE_DATA_DIR") };

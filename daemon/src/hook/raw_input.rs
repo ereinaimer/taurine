@@ -59,7 +59,7 @@ pub fn stop_raw_input_listener() {
     let tid = RAW_INPUT_THREAD_ID.load(std::sync::atomic::Ordering::Relaxed);
     if tid != 0 {
         // SAFETY: PostThreadMessageW posts a thread message to the raw input thread.
-        // We post WM_QUIT to break the message loop.
+        // WM_QUIT is posted to break the message loop.
         unsafe {
             windows_sys::Win32::UI::WindowsAndMessaging::PostThreadMessageW(
                 tid,

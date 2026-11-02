@@ -186,7 +186,7 @@ fn check_fullscreen_state() {
 fn check_borderless_fullscreen() -> bool {
     // SAFETY: All Win32 calls here operate on the foreground window retrieved
     // by GetForegroundWindow. GetClassNameW writes into a stack buffer (256
-    // u16) — we pass the buffer size to prevent overflow. GetWindowLongW reads
+    // u16) — the buffer size is passed to prevent overflow. GetWindowLongW reads
     // window styles (safe read-only). GetWindowRect, GetClientRect, and
     // ClientToScreen write to stack-local RECT/POINT structs initialized with
     // zeroed(). MonitorFromWindow and GetMonitorInfoW retrieve monitor info.

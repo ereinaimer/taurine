@@ -416,7 +416,7 @@ fn test_finalize_standalone_modifier_directives() {
 
 #[test]
 fn test_validate_output_logic_paths() {
-    // These calls shouldn't panic. We are primarily testing the path coverage.
+    // Verify path coverage without panicking.
     validate_output("valid", None).unwrap();
     validate_output("[cursor] [cursor]", Some("multi")).unwrap();
     validate_output("[key(tab)] [cursor]", Some("conflict")).unwrap();

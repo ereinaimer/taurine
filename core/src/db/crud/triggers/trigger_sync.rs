@@ -2,7 +2,7 @@ use crate::engine::shell::{ScriptBehavior, ScriptInterpreter};
 use rusqlite::{Connection, OptionalExtension, Result};
 use serde::{Deserialize, Serialize};
 
-use super::aliases::TriggerAliasRow;
+use super::aliases::{InvocationType, TriggerAliasRow};
 use super::trigger_set::with_transaction;
 use super::{TriggerRow, display_for_aliases, list_aliases};
 
@@ -67,18 +67,105 @@ where
     }
 }
 
+fn default_workspace_id() -> String {
+    "00000000-0000-0000-0000-000000000000".to_string()
+}
+
+fn default_action_type() -> String {
+    "text".to_string()
+}
+
+const fn default_true() -> bool {
+    true
+}
+
+const fn default_one() -> i64 {
+    1
+}
+
+fn deserialize_aliases<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Vec<TriggerAliasRow>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let opt = Option::<serde_json::Value>::deserialize(deserializer)?;
+    let mut list = Vec::new();
+    if let Some(serde_json::Value::Array(arr)) = opt {
+        for v in arr {
+            if let Ok(row) = serde_json::from_value::<TriggerAliasRow>(v.clone()) {
+                list.push(row);
+            } else if let serde_json::Value::String(s) = v {
+                list.push(TriggerAliasRow {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    trigger_id: String::new(),
+                    invocation: s,
+                    invocation_type: InvocationType::Word,
+                    require_confirmation: false,
+                    strict_threshold: None,
+                    created_at: 0,
+                });
+            } else if let serde_json::Value::Object(map) = v
+                && let Some(serde_json::Value::String(inv)) = map.get("invocation")
+            {
+                let id = map
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+                let trigger_id = map
+                    .get("trigger_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                let invocation_type = map
+                    .get("invocation_type")
+                    .and_then(|v| v.as_str())
+                    .and_then(InvocationType::parse_str)
+                    .unwrap_or(InvocationType::Word);
+                let require_confirmation = map
+                    .get("require_confirmation")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let strict_threshold = map
+                    .get("strict_threshold")
+                    .and_then(|v| v.as_f64())
+                    .map(|f| f as f32);
+                let created_at = map.get("created_at").and_then(|v| v.as_i64()).unwrap_or(0);
+                list.push(TriggerAliasRow {
+                    id,
+                    trigger_id,
+                    invocation: inv.clone(),
+                    invocation_type,
+                    require_confirmation,
+                    strict_threshold,
+                    created_at,
+                });
+            }
+        }
+    }
+    Ok(list)
+}
+
 /// Encapsulates all trigger data and its aliases for bidirectional cloud synchronization.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloudSnippetPayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_id: Option<String>,
     pub id: String,
+    #[serde(default = "default_workspace_id")]
     pub workspace_id: String,
+    #[serde(default)]
     pub output: String,
+    #[serde(default)]
     pub description: Option<String>,
+    #[serde(default = "default_action_type")]
     pub action_type: String,
+    #[serde(default)]
     pub target_os: Option<String>,
+    #[serde(default)]
     pub only_apps: Option<String>,
+    #[serde(default)]
     pub except_apps: Option<String>,
     #[serde(
         default,
@@ -86,20 +173,26 @@ pub struct CloudSnippetPayload {
         deserialize_with = "deserialize_tags"
     )]
     pub tags: Option<String>,
+    #[serde(default = "default_true")]
     pub is_enabled: bool,
+    #[serde(default)]
     pub auto_case: bool,
+    #[serde(default = "default_one")]
     pub version: i64,
+    #[serde(default)]
     pub is_deleted: bool,
     #[serde(
         serialize_with = "serialize_updated_at",
         deserialize_with = "deserialize_updated_at"
     )]
     pub updated_at: i64,
+    #[serde(default)]
     pub created_at: i64,
+    #[serde(default, deserialize_with = "deserialize_aliases")]
     pub aliases: Vec<TriggerAliasRow>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub script: Option<ScriptSyncPayload>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub assets: Vec<AssetSyncPayload>,
 }
 
@@ -189,11 +282,11 @@ pub fn serialize_trigger_to_cloud_snippet(
         output: trigger.output.clone(),
         description: trigger.description.clone(),
         action_type: trigger.action_type.clone(),
-        target_os: if trigger.target_os.is_empty() {
-            None
+        target_os: Some(if trigger.target_os.is_empty() {
+            "all".to_string()
         } else {
-            Some(trigger.target_os.clone())
-        },
+            trigger.target_os.clone()
+        }),
         only_apps: trigger.only_apps.clone(),
         except_apps: trigger.except_apps.clone(),
         tags: if trigger.tags.is_empty() {
@@ -375,6 +468,11 @@ pub fn reconcile_cloud_snippet(
 
                     reconcile_script_and_assets(conn, target_id, snippet)?;
 
+                    let _ = conn.execute(
+                        "DELETE FROM sync_outbox WHERE entity_type = 'snippet' AND entity_id = ?1",
+                        [target_id],
+                    );
+
                     Ok(ReconcileOutcome::UpdatedFromRemote)
                 })
             } else if local_version > snippet.version
@@ -382,6 +480,10 @@ pub fn reconcile_cloud_snippet(
             {
                 Ok(ReconcileOutcome::LocalNewer)
             } else {
+                let _ = conn.execute(
+                    "DELETE FROM sync_outbox WHERE entity_type = 'snippet' AND entity_id = ?1",
+                    [target_id],
+                );
                 Ok(ReconcileOutcome::InSync)
             }
         }
@@ -536,6 +638,10 @@ pub fn backfill_untracked_triggers_to_outbox(conn: &Connection) -> crate::Result
             let payload_val =
                 serde_json::to_value(&payload).map_err(|e| crate::Error::Config(e.to_string()))?;
             crate::db::crud::enqueue_outbox(conn, "snippet", &trigger.id, "upsert", payload_val)?;
+            let _ = conn.execute(
+                "DELETE FROM sync_outbox_quarantine WHERE entity_type = 'snippet' AND entity_id = ?1",
+                [&trigger.id],
+            );
             backfilled += 1;
         }
 

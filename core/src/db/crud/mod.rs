@@ -9,7 +9,8 @@ pub mod workspaces;
 
 pub use outbox::{
     OutboxEntry, delete_outbox_batch, delete_outbox_entry, enqueue_outbox, fetch_outbox_batch,
-    get_sync_checkpoint, quarantine_outbox_entry, record_outbox_failure, set_sync_checkpoint,
+    get_sync_checkpoint, quarantine_outbox_entry, record_outbox_failure, reset_sync_checkpoints,
+    set_sync_checkpoint,
 };
 pub use tier::{UserTier, get_user_tier, set_user_tier};
 

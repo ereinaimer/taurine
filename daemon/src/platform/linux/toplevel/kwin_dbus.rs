@@ -50,8 +50,7 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
                     }
                 };
 
-                // Request a name so the script can send signals to us, or we just listen to signals globally
-                // Actually, the script broadcasts via callDBus. We can just listen to the signal.
+                // The script broadcasts via callDBus, allowing signals to be listened to globally.
 
                 let temp_dir = taurine_core::system::paths::ensure_temp_dir()
                     .join(format!("kwin_script_{}", uuid::Uuid::new_v4()));

@@ -404,9 +404,9 @@ mod listener_pipeline_tests {
         let h = Harness::new().with_trigger("gm", "Good morning!");
         h.type_str("gm");
 
-        // Clear any leftover entries, then enqueue our specific event.
-        // We do this AFTER Harness construction and typing to avoid the simulated event
-        // expiring (TTL of 250ms) before the pipeline process is called.
+        // Clear any leftover entries, then enqueue the simulated event.
+        // Executed after Harness construction and typing to avoid the simulated event
+        // expiring (TTL of 250ms) before pipeline processing is called.
         crate::injector::clear_simulated_events_for_test();
         crate::injector::enqueue_simulated_event_for_test(EventType::KeyPress(Key::Return));
 
@@ -502,8 +502,8 @@ mod listener_pipeline_tests {
 
     /// Two consecutive expansions must be independent with no state leakage.
     ///
-    /// In the real daemon the dispatcher calls `evaluator.reset()` after dispatching
-    /// the expansion. We replicate that here so the second expansion starts clean.
+    /// In the daemon the dispatcher calls `evaluator.reset()` after dispatching
+    /// the expansion. This test replicates that behavior so the second expansion starts clean.
     #[test]
     fn consecutive_expansions_are_independent() {
         let _guard = TestGuard::acquire();

@@ -88,8 +88,7 @@ pub fn tokenize(expr: &str) -> Option<Vec<(Token, bool)>> {
                         chars.next();
                     } else if ch == 'e' || ch == 'E' {
                         // Check if it's scientific notation: e[+-]?digit
-                        // We need to look ahead. Since we only have one peek,
-                        // we'll just consume it and if parsing fails, we fail the token.
+                        // Look ahead and consume; fails token on parse error.
                         num_str.push(ch);
                         chars.next();
                         if let Some(&next) = chars.peek()
@@ -98,7 +97,7 @@ pub fn tokenize(expr: &str) -> Option<Vec<(Token, bool)>> {
                             num_str.push(next);
                             chars.next();
                         }
-                        // We expect at least one digit here
+                        // Expect at least one digit here
                         while let Some(&next_digit) = chars.peek() {
                             if next_digit.is_ascii_digit() {
                                 num_str.push(next_digit);

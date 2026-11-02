@@ -335,7 +335,7 @@ fn run_listener_once() {
     // `window_class` is a fully initialized WNDCLASSW on the stack with valid
     // `lpfnWndProc` and `lpszClassName` pointers. The pointer to `window_class`
     // must remain valid for the call duration (it is a stack-local). Returns 0
-    // on failure, which we check below.
+    // on failure, checked below.
     let atom = unsafe { RegisterClassW(&window_class) };
     if atom == 0 {
         let err = unsafe { windows_sys::Win32::Foundation::GetLastError() };
@@ -375,7 +375,7 @@ fn run_listener_once() {
 
     // SAFETY: AddClipboardFormatListener registers `hwnd` to receive
     // WM_CLIPBOARDUPDATE messages. `hwnd` is a valid message-only window created
-    // above. Returns 0 on failure, which we check.
+    // above. Returns 0 on failure, checked below.
     if unsafe { AddClipboardFormatListener(hwnd) } == 0 {
         tracing::error!("Failed to register clipboard format listener");
         return;
@@ -505,10 +505,10 @@ fn try_read_clipboard_text_bounded() -> Result<Option<String>, String> {
 
     // SAFETY: This entire block operates on the Win32 clipboard API. OpenClipboard
     // with a null HWND opens the clipboard for the current process. GetClipboardData
-    // returns a handle to clipboard data owned by the system — we must not free it.
+    // returns a handle to clipboard data owned by the system that must not be freed.
     // GlobalLock/GlobalUnlock provide read-only access to the HGLOBAL memory. The
     // pointer from GlobalLock is valid while the clipboard is open and the handle
-    // is not freed. We bound reads by GlobalSize and cap at MAX_PAYLOAD_BYTES to
+    // is not freed. Reads are bounded by GlobalSize and capped at MAX_PAYLOAD_BYTES to
     // prevent unbounded allocation.
     unsafe {
         if OpenClipboard(ptr::null_mut()) == 0 {
@@ -521,13 +521,13 @@ fn try_read_clipboard_text_bounded() -> Result<Option<String>, String> {
                 .get_or_init(|| register_optional_format("Clipboard Viewer Ignore"));
 
             // Password managers mark transient/sensitive clipboard payloads with this format.
-            // Drop those events before we even look at the text payload.
+            // Drop those events before inspecting the text payload.
             if password_hint_format != 0 && IsClipboardFormatAvailable(password_hint_format) != 0 {
                 return Ok(None);
             }
 
             // Missing CF_UNICODETEXT means the clipboard currently holds non-text payloads such as
-            // images or file lists, so we ignore the event without allocating anything.
+            // images or file lists, ignoring the event without allocating memory.
             if IsClipboardFormatAvailable(CF_UNICODETEXT) == 0 {
                 return Ok(None);
             }

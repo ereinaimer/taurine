@@ -41,7 +41,7 @@ fn read_title() -> Option<String> {
     const CAPACITY: u32 = 1024;
     let mut buffer = vec![0u16; CAPACITY as usize];
     // SAFETY: GetConsoleTitleW writes at most CAPACITY UTF-16 units into
-    // our exclusively owned buffer and returns the length without the
+    // the exclusively owned buffer and returns the length without the
     // trailing nul; the buffer outlives the call and nothing else
     // aliases it while the call runs.
     let length = unsafe { GetConsoleTitleW(buffer.as_mut_ptr(), CAPACITY) };

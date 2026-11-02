@@ -293,7 +293,7 @@ fn get_all_active_triggers_filters_by_target_os() {
     )
     .unwrap();
 
-    // 3. The exact match for current platform. We evaluate it ourselves to insert an exact match.
+    // 3. Exact match for current platform evaluated directly.
     let current_os = match std::env::consts::OS {
         "windows" => "win",
         "macos" => "mac",

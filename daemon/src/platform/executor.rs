@@ -736,7 +736,7 @@ pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<S
         }
     };
 
-    // We take the pipes from the child so we can read them concurrently with wait()
+    // Take pipes from the child to read them concurrently with wait()
     let stdout_pipe = child
         .stdout
         .take()

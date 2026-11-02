@@ -1868,7 +1868,7 @@ fn test_snippet_precedence_when_triggers_match() {
 
     // Typing ":rocket" — the ":" starts emoji completion mode.
     // The snippet "rocket" would match if typed without ":",
-    // but here we type ":rocket" so emoji completion takes over and fires first.
+    // but typing ":rocket" activates emoji completion to fire first.
     // The expected result: emoji wins because ":" activates emoji mode.
     for c in ":rocket".chars() {
         eval.process(EngineEvent::Char(c));

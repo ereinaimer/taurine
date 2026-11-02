@@ -444,7 +444,7 @@ pub fn process_keyboard_event(
         return None;
     }
 
-    // If we are currently paused and this is not the pause chord, immediately bypass
+    // If currently paused and not the pause chord, immediately bypass
     if paused.load(Ordering::Relaxed) {
         return Some(event);
     }

@@ -191,7 +191,7 @@ impl XkbMapper {
             );
         }
 
-        // PONYTAIL: If both default and US keymap compilations fail, we fail layout initialization.
+        // PONYTAIL: If both default and US keymap compilations fail, layout initialization fails.
         // Ceiling: Headless systems without any XKB rules database files installed cannot run the daemon.
         // Upgrade path: Support a stateless mock layout fallback.
         let keymap = keymap.ok_or_else(|| {

@@ -264,55 +264,6 @@ impl SyncWorker {
         }
     }
 
-    async fn refresh_session_tokens(
-        client: &CloudClient,
-        tokens: &mut taurine_core::cloud::AuthTokens,
-    ) -> Result<(), String> {
-        let prev_user_id = tokens.user_id.clone();
-        match client.refresh_session(&tokens.refresh_token).await {
-            Ok(mut new_tokens) => {
-                if new_tokens.user_id.is_empty() {
-                    new_tokens.user_id = prev_user_id;
-                }
-                if let Err(e) = taurine_core::cloud::store_cloud_tokens(&new_tokens) {
-                    tracing::warn!("Failed to store refreshed cloud tokens in keyring: {e}");
-                }
-                *tokens = new_tokens;
-                tracing::debug!("Successfully refreshed cloud auth tokens");
-                Ok(())
-            }
-            Err(e) => {
-                tracing::warn!("Failed to refresh cloud auth tokens: {e}");
-                Err(format!("Session refresh failed: {e}"))
-            }
-        }
-    }
-
-    pub(crate) fn unix_secs_to_rfc3339(ts: i64) -> String {
-        let mut days = ts / 86400;
-        let mut rem_secs = ts % 86400;
-        if rem_secs < 0 {
-            rem_secs += 86400;
-            days -= 1;
-        }
-        let hours = rem_secs / 3600;
-        let mins = (rem_secs % 3600) / 60;
-        let secs = rem_secs % 60;
-
-        let z = days + 719468;
-        let era = (if z >= 0 { z } else { z - 146096 }) / 146097;
-        let doe = (z - era * 146097) as u32;
-        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-        let y = yoe as i64 + era * 400;
-        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-        let mp = (5 * doy + 2) / 153;
-        let d = doy - (153 * mp + 2) / 5 + 1;
-        let m = if mp < 10 { mp + 3 } else { mp - 9 };
-        let y = if m <= 2 { y + 1 } else { y };
-
-        format!("{y:04}-{m:02}-{d:02}T{hours:02}:{mins:02}:{secs:02}Z")
-    }
-
     /// Executes a single bidirectional sync cycle:
     /// 1. Checks user authentication via stored tokens.
     /// 2. Performs 30-day tombstone garbage collection.
@@ -356,7 +307,7 @@ impl SyncWorker {
             tracing::debug!(
                 "Auth token is expired or expiring within 60s; proactively refreshing..."
             );
-            if let Err(e) = Self::refresh_session_tokens(client, &mut tokens).await {
+            if let Err(e) = client.refresh_session_and_store(&mut tokens).await {
                 return SyncStatus::Error(e);
             }
         }
@@ -366,16 +317,14 @@ impl SyncWorker {
             tracing::warn!("Tombstone GC error: {e}");
         }
 
-        let http_client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(10))
-            .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
-
         let mut pushed_snippets = 0;
         let mut pushed_settings = 0;
         let mut pushed_stats = 0;
         let mut pulled_snippets = 0;
         let mut pulled_settings = 0;
+
+        // Backfill any untracked local triggers into outbox before draining
+        let _ = taurine_core::db::crud::triggers::backfill_untracked_triggers_to_outbox(conn);
 
         // 1. Push Phase (Outbox Drain)
         let mut attempted_ids = std::collections::HashSet::new();
@@ -399,12 +348,31 @@ impl SyncWorker {
 
                 match entry.entity_type.as_str() {
                     "snippet" => {
-                        let push_url = format!(
-                            "{}/rest/v1/snippets?on_conflict=id",
-                            client.config().supabase_url.trim_end_matches('/')
-                        );
+                        let mut payload = if entry.operation == "upsert"
+                            && let Ok(Some(trigger)) = taurine_core::db::crud::triggers::get_trigger(
+                                conn,
+                                &entry.entity_id,
+                            ) {
+                            let aliases = taurine_core::db::crud::triggers::list_aliases(
+                                conn,
+                                &entry.entity_id,
+                            )
+                            .unwrap_or_default();
+                            let assets = taurine_core::db::crud::triggers::load_trigger_assets(
+                                conn,
+                                &entry.entity_id,
+                            )
+                            .unwrap_or_default();
+                            let snippet_obj =
+                                taurine_core::db::crud::triggers::serialize_trigger_to_cloud_snippet(
+                                    &trigger, &aliases, &assets,
+                                );
+                            serde_json::to_value(&snippet_obj)
+                                .unwrap_or_else(|_| entry.payload.clone())
+                        } else {
+                            entry.payload.clone()
+                        };
 
-                        let mut payload = entry.payload.clone();
                         if let serde_json::Value::Object(ref mut map) = payload {
                             map.remove("local_id");
                             map.remove("name");
@@ -414,40 +382,50 @@ impl SyncWorker {
                                     serde_json::Value::String(tokens.user_id.clone()),
                                 );
                             }
-                        }
-
-                        let mut push_res = http_client
-                            .post(&push_url)
-                            .header("apikey", &client.config().anon_key)
-                            .header("Authorization", format!("Bearer {}", tokens.access_token))
-                            .header("Content-Type", "application/json")
-                            .header("Prefer", "resolution=merge-duplicates")
-                            .json(&payload)
-                            .send()
-                            .await;
-
-                        if let Ok(ref r) = push_res
-                            && r.status() == reqwest::StatusCode::UNAUTHORIZED
-                        {
-                            tracing::debug!("Received 401 pushing snippet; refreshing session...");
-                            if Self::refresh_session_tokens(client, &mut tokens)
-                                .await
-                                .is_ok()
+                            if let Some(target_os_val) = map.get("target_os")
+                                && target_os_val.is_null()
                             {
-                                push_res = http_client
-                                    .post(&push_url)
-                                    .header("apikey", &client.config().anon_key)
-                                    .header(
-                                        "Authorization",
-                                        format!("Bearer {}", tokens.access_token),
-                                    )
-                                    .header("Content-Type", "application/json")
-                                    .header("Prefer", "resolution=merge-duplicates")
-                                    .json(&payload)
-                                    .send()
-                                    .await;
+                                map.insert(
+                                    "target_os".to_string(),
+                                    serde_json::Value::String("all".to_string()),
+                                );
+                            } else if !map.contains_key("target_os") {
+                                map.insert(
+                                    "target_os".to_string(),
+                                    serde_json::Value::String("all".to_string()),
+                                );
+                            }
+                        } else if let serde_json::Value::Array(ref mut arr) = payload {
+                            for item in arr.iter_mut() {
+                                if let serde_json::Value::Object(map) = item {
+                                    map.remove("local_id");
+                                    map.remove("name");
+                                    if !map.contains_key("user_id") {
+                                        map.insert(
+                                            "user_id".to_string(),
+                                            serde_json::Value::String(tokens.user_id.clone()),
+                                        );
+                                    }
+                                    if let Some(target_os_val) = map.get("target_os")
+                                        && target_os_val.is_null()
+                                    {
+                                        map.insert(
+                                            "target_os".to_string(),
+                                            serde_json::Value::String("all".to_string()),
+                                        );
+                                    } else if !map.contains_key("target_os") {
+                                        map.insert(
+                                            "target_os".to_string(),
+                                            serde_json::Value::String("all".to_string()),
+                                        );
+                                    }
+                                }
                             }
                         }
+
+                        let push_res = client
+                            .postgrest_post("snippets?on_conflict=id", &payload, true, &mut tokens)
+                            .await;
 
                         match push_res {
                             Ok(res) => {
@@ -480,11 +458,6 @@ impl SyncWorker {
                             continue;
                         }
 
-                        let settings_url = format!(
-                            "{}/rest/v1/user_settings?on_conflict=user_id,key",
-                            client.config().supabase_url.trim_end_matches('/')
-                        );
-
                         let mut payload = entry.payload.clone();
                         if let serde_json::Value::Object(ref mut map) = payload
                             && !map.contains_key("user_id")
@@ -495,38 +468,14 @@ impl SyncWorker {
                             );
                         }
 
-                        let mut setting_res = http_client
-                            .post(&settings_url)
-                            .header("apikey", &client.config().anon_key)
-                            .header("Authorization", format!("Bearer {}", tokens.access_token))
-                            .header("Content-Type", "application/json")
-                            .header("Prefer", "resolution=merge-duplicates")
-                            .json(&payload)
-                            .send()
+                        let setting_res = client
+                            .postgrest_post(
+                                "user_settings?on_conflict=user_id,key",
+                                &payload,
+                                true,
+                                &mut tokens,
+                            )
                             .await;
-
-                        if let Ok(ref r) = setting_res
-                            && r.status() == reqwest::StatusCode::UNAUTHORIZED
-                        {
-                            tracing::debug!("Received 401 pushing setting; refreshing session...");
-                            if Self::refresh_session_tokens(client, &mut tokens)
-                                .await
-                                .is_ok()
-                            {
-                                setting_res = http_client
-                                    .post(&settings_url)
-                                    .header("apikey", &client.config().anon_key)
-                                    .header(
-                                        "Authorization",
-                                        format!("Bearer {}", tokens.access_token),
-                                    )
-                                    .header("Content-Type", "application/json")
-                                    .header("Prefer", "resolution=merge-duplicates")
-                                    .json(&payload)
-                                    .send()
-                                    .await;
-                            }
-                        }
 
                         match setting_res {
                             Ok(res) => {
@@ -554,11 +503,6 @@ impl SyncWorker {
                         }
                     }
                     "quota" => {
-                        let quota_url = format!(
-                            "{}/rest/v1/rpc/record_quota_burn",
-                            client.config().supabase_url.trim_end_matches('/')
-                        );
-
                         let device_id = taurine_core::cloud::get_device_hardware_id();
                         let rpc_payload = serde_json::json!({
                             "p_week_epoch": entry.payload.get("week_epoch").and_then(|v| v.as_i64()).unwrap_or(0),
@@ -567,38 +511,14 @@ impl SyncWorker {
                             "p_mutation_id": entry.payload.get("mutation_id").and_then(|v| v.as_str()).unwrap_or_default(),
                         });
 
-                        let mut quota_res = http_client
-                            .post(&quota_url)
-                            .header("apikey", &client.config().anon_key)
-                            .header("Authorization", format!("Bearer {}", tokens.access_token))
-                            .header("Content-Type", "application/json")
-                            .json(&rpc_payload)
-                            .send()
+                        let quota_res = client
+                            .postgrest_post(
+                                "rpc/record_quota_burn",
+                                &rpc_payload,
+                                false,
+                                &mut tokens,
+                            )
                             .await;
-
-                        if let Ok(ref r) = quota_res
-                            && r.status() == reqwest::StatusCode::UNAUTHORIZED
-                        {
-                            tracing::debug!(
-                                "Received 401 posting quota burn RPC; refreshing session..."
-                            );
-                            if Self::refresh_session_tokens(client, &mut tokens)
-                                .await
-                                .is_ok()
-                            {
-                                quota_res = http_client
-                                    .post(&quota_url)
-                                    .header("apikey", &client.config().anon_key)
-                                    .header(
-                                        "Authorization",
-                                        format!("Bearer {}", tokens.access_token),
-                                    )
-                                    .header("Content-Type", "application/json")
-                                    .json(&rpc_payload)
-                                    .send()
-                                    .await;
-                            }
-                        }
 
                         match quota_res {
                             Ok(res) => {
@@ -624,6 +544,24 @@ impl SyncWorker {
                                     if let Some(balance) = new_balance {
                                         crate::engine::quota_guard::QuotaGuard::global()
                                             .set_balance(balance);
+                                        if let Ok(key) =
+                                            taurine_core::db::key::get_or_create_db_key()
+                                        {
+                                            let week_epoch = entry
+                                                .payload
+                                                .get("week_epoch")
+                                                .and_then(|v| v.as_i64())
+                                                .unwrap_or_else(|| {
+                                                    taurine_core::db::crud::quota::calculate_week_start_epoch(now_epoch)
+                                                });
+                                            let _ = taurine_core::db::crud::quota::set_quota_balance_from_cloud(
+                                                conn,
+                                                &key,
+                                                week_epoch,
+                                                balance,
+                                                now_epoch,
+                                            );
+                                        }
                                     }
                                 }
                             }
@@ -638,11 +576,6 @@ impl SyncWorker {
                         }
                     }
                     "event" | "activity_event" => {
-                        let events_url = format!(
-                            "{}/rest/v1/activity_events",
-                            client.config().supabase_url.trim_end_matches('/')
-                        );
-
                         let db_event = conn
                             .query_row(
                                 "SELECT id, trigger_id, timestamp, date, category, app_key, word_count, time_saved_ms, content, version, created_at
@@ -696,40 +629,9 @@ impl SyncWorker {
                             p
                         };
 
-                        let mut events_res = http_client
-                            .post(&events_url)
-                            .header("apikey", &client.config().anon_key)
-                            .header("Authorization", format!("Bearer {}", tokens.access_token))
-                            .header("Content-Type", "application/json")
-                            .header("Prefer", "resolution=merge-duplicates")
-                            .json(&payload)
-                            .send()
+                        let events_res = client
+                            .postgrest_post("activity_events", &payload, true, &mut tokens)
                             .await;
-
-                        if let Ok(ref r) = events_res
-                            && r.status() == reqwest::StatusCode::UNAUTHORIZED
-                        {
-                            tracing::debug!(
-                                "Received 401 pushing activity event; refreshing session..."
-                            );
-                            if Self::refresh_session_tokens(client, &mut tokens)
-                                .await
-                                .is_ok()
-                            {
-                                events_res = http_client
-                                    .post(&events_url)
-                                    .header("apikey", &client.config().anon_key)
-                                    .header(
-                                        "Authorization",
-                                        format!("Bearer {}", tokens.access_token),
-                                    )
-                                    .header("Content-Type", "application/json")
-                                    .header("Prefer", "resolution=merge-duplicates")
-                                    .json(&payload)
-                                    .send()
-                                    .await;
-                            }
-                        }
 
                         match events_res {
                             Ok(res) => {
@@ -757,11 +659,6 @@ impl SyncWorker {
                         }
                     }
                     "trigger_daily_stat" => {
-                        let stats_url = format!(
-                            "{}/rest/v1/trigger_daily_stats",
-                            client.config().supabase_url.trim_end_matches('/')
-                        );
-
                         let parts: Vec<&str> = entry.entity_id.splitn(3, ':').collect();
                         let db_stat = if parts.len() == 3 {
                             let device_id = taurine_core::cloud::get_device_hardware_id();
@@ -819,40 +716,9 @@ impl SyncWorker {
                             p
                         };
 
-                        let mut stats_res = http_client
-                            .post(&stats_url)
-                            .header("apikey", &client.config().anon_key)
-                            .header("Authorization", format!("Bearer {}", tokens.access_token))
-                            .header("Content-Type", "application/json")
-                            .header("Prefer", "resolution=merge-duplicates")
-                            .json(&payload)
-                            .send()
+                        let stats_res = client
+                            .postgrest_post("trigger_daily_stats", &payload, true, &mut tokens)
                             .await;
-
-                        if let Ok(ref r) = stats_res
-                            && r.status() == reqwest::StatusCode::UNAUTHORIZED
-                        {
-                            tracing::debug!(
-                                "Received 401 pushing trigger daily stat; refreshing session..."
-                            );
-                            if Self::refresh_session_tokens(client, &mut tokens)
-                                .await
-                                .is_ok()
-                            {
-                                stats_res = http_client
-                                    .post(&stats_url)
-                                    .header("apikey", &client.config().anon_key)
-                                    .header(
-                                        "Authorization",
-                                        format!("Bearer {}", tokens.access_token),
-                                    )
-                                    .header("Content-Type", "application/json")
-                                    .header("Prefer", "resolution=merge-duplicates")
-                                    .json(&payload)
-                                    .send()
-                                    .await;
-                            }
-                        }
 
                         match stats_res {
                             Ok(res) => {
@@ -880,11 +746,6 @@ impl SyncWorker {
                         }
                     }
                     "stat" | "user_stat" => {
-                        let user_stats_url = format!(
-                            "{}/rest/v1/user_stats",
-                            client.config().supabase_url.trim_end_matches('/')
-                        );
-
                         let device_id = taurine_core::cloud::get_device_hardware_id();
                         let db_stat = conn
                             .query_row(
@@ -933,40 +794,9 @@ impl SyncWorker {
                             p
                         };
 
-                        let mut user_stats_res = http_client
-                            .post(&user_stats_url)
-                            .header("apikey", &client.config().anon_key)
-                            .header("Authorization", format!("Bearer {}", tokens.access_token))
-                            .header("Content-Type", "application/json")
-                            .header("Prefer", "resolution=merge-duplicates")
-                            .json(&payload)
-                            .send()
+                        let user_stats_res = client
+                            .postgrest_post("user_stats", &payload, true, &mut tokens)
                             .await;
-
-                        if let Ok(ref r) = user_stats_res
-                            && r.status() == reqwest::StatusCode::UNAUTHORIZED
-                        {
-                            tracing::debug!(
-                                "Received 401 pushing user stats; refreshing session..."
-                            );
-                            if Self::refresh_session_tokens(client, &mut tokens)
-                                .await
-                                .is_ok()
-                            {
-                                user_stats_res = http_client
-                                    .post(&user_stats_url)
-                                    .header("apikey", &client.config().anon_key)
-                                    .header(
-                                        "Authorization",
-                                        format!("Bearer {}", tokens.access_token),
-                                    )
-                                    .header("Content-Type", "application/json")
-                                    .header("Prefer", "resolution=merge-duplicates")
-                                    .json(&payload)
-                                    .send()
-                                    .await;
-                            }
-                        }
 
                         match user_stats_res {
                             Ok(res) => {
@@ -994,11 +824,6 @@ impl SyncWorker {
                         }
                     }
                     "app_stat" | "user_app_stat" => {
-                        let user_app_stats_url = format!(
-                            "{}/rest/v1/user_app_stats",
-                            client.config().supabase_url.trim_end_matches('/')
-                        );
-
                         let parts: Vec<&str> = entry.entity_id.splitn(2, ':').collect();
                         let db_app_stat = if parts.len() == 2 {
                             let device_id = taurine_core::cloud::get_device_hardware_id();
@@ -1055,40 +880,9 @@ impl SyncWorker {
                             p
                         };
 
-                        let mut app_stats_res = http_client
-                            .post(&user_app_stats_url)
-                            .header("apikey", &client.config().anon_key)
-                            .header("Authorization", format!("Bearer {}", tokens.access_token))
-                            .header("Content-Type", "application/json")
-                            .header("Prefer", "resolution=merge-duplicates")
-                            .json(&payload)
-                            .send()
+                        let app_stats_res = client
+                            .postgrest_post("user_app_stats", &payload, true, &mut tokens)
                             .await;
-
-                        if let Ok(ref r) = app_stats_res
-                            && r.status() == reqwest::StatusCode::UNAUTHORIZED
-                        {
-                            tracing::debug!(
-                                "Received 401 pushing app stats; refreshing session..."
-                            );
-                            if Self::refresh_session_tokens(client, &mut tokens)
-                                .await
-                                .is_ok()
-                            {
-                                app_stats_res = http_client
-                                    .post(&user_app_stats_url)
-                                    .header("apikey", &client.config().anon_key)
-                                    .header(
-                                        "Authorization",
-                                        format!("Bearer {}", tokens.access_token),
-                                    )
-                                    .header("Content-Type", "application/json")
-                                    .header("Prefer", "resolution=merge-duplicates")
-                                    .json(&payload)
-                                    .send()
-                                    .await;
-                            }
-                        }
 
                         match app_stats_res {
                             Ok(res) => {
@@ -1125,38 +919,13 @@ impl SyncWorker {
 
         // 2. Pull Phase (Checkpoint Watermark)
         let last_cp = taurine_core::db::crud::get_sync_checkpoint(conn, "snippets").unwrap_or(0);
-        let rfc3339_cp = Self::unix_secs_to_rfc3339(last_cp);
-        let snippets_url = format!(
-            "{}/rest/v1/snippets?updated_at=gt.{}&order=updated_at.asc",
-            client.config().supabase_url.trim_end_matches('/'),
-            rfc3339_cp
-        );
-
-        let mut pull_res = http_client
-            .get(&snippets_url)
-            .header("apikey", &client.config().anon_key)
-            .header("Authorization", format!("Bearer {}", tokens.access_token))
-            .header("Accept", "application/json")
-            .send()
+        let rfc3339_cp = CloudClient::format_rfc3339_timestamp(last_cp);
+        let pull_res = client
+            .postgrest_get(
+                &format!("snippets?updated_at=gt.{rfc3339_cp}&order=updated_at.asc"),
+                &mut tokens,
+            )
             .await;
-
-        if let Ok(ref r) = pull_res
-            && r.status() == reqwest::StatusCode::UNAUTHORIZED
-        {
-            tracing::debug!("Received 401 pulling snippets; refreshing session...");
-            if Self::refresh_session_tokens(client, &mut tokens)
-                .await
-                .is_ok()
-            {
-                pull_res = http_client
-                    .get(&snippets_url)
-                    .header("apikey", &client.config().anon_key)
-                    .header("Authorization", format!("Bearer {}", tokens.access_token))
-                    .header("Accept", "application/json")
-                    .send()
-                    .await;
-            }
-        }
 
         match pull_res {
             Ok(res) => {
@@ -1167,14 +936,45 @@ impl SyncWorker {
                         "Failed to pull snippets ({status}): {text}"
                     ));
                 }
-                match res.json::<Vec<CloudSnippetPayload>>().await {
-                    Ok(remote_snippets) => {
-                        let mut max_ts = last_cp;
-                        for snippet in &remote_snippets {
+                let text = match res.text().await {
+                    Ok(t) => t,
+                    Err(e) => {
+                        return SyncStatus::Error(format!("Failed to read snippets response: {e}"));
+                    }
+                };
+
+                let items: Vec<serde_json::Value> = match serde_json::from_str(&text) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        return SyncStatus::Error(format!(
+                            "Failed to parse remote snippets JSON array: {e}"
+                        ));
+                    }
+                };
+
+                let mut max_ts = last_cp;
+                for item in items {
+                    let item_updated_at = item
+                        .get("updated_at")
+                        .and_then(|v| {
+                            if let Some(s) = v.as_str() {
+                                CloudClient::parse_rfc3339_timestamp(s).ok()
+                            } else {
+                                v.as_i64()
+                            }
+                        })
+                        .unwrap_or(0);
+
+                    if item_updated_at > max_ts {
+                        max_ts = item_updated_at;
+                    }
+
+                    match serde_json::from_value::<CloudSnippetPayload>(item) {
+                        Ok(snippet) => {
                             if snippet.updated_at > max_ts {
                                 max_ts = snippet.updated_at;
                             }
-                            match reconcile_cloud_snippet(conn, snippet) {
+                            match reconcile_cloud_snippet(conn, &snippet) {
                                 Ok(outcome) => {
                                     if matches!(
                                         outcome,
@@ -1192,19 +992,16 @@ impl SyncWorker {
                                 }
                             }
                         }
-                        if max_ts > last_cp
-                            && let Err(e) = taurine_core::db::crud::set_sync_checkpoint(
-                                conn, "snippets", max_ts,
-                            )
-                        {
-                            tracing::warn!("Failed to set snippets sync checkpoint: {e}");
+                        Err(e) => {
+                            tracing::warn!("Skipping malformed remote snippet: {e}");
                         }
                     }
-                    Err(e) => {
-                        return SyncStatus::Error(format!(
-                            "Failed to deserialize remote snippets: {e}"
-                        ));
-                    }
+                }
+                if max_ts > last_cp
+                    && let Err(e) =
+                        taurine_core::db::crud::set_sync_checkpoint(conn, "snippets", max_ts)
+                {
+                    tracing::warn!("Failed to set snippets sync checkpoint: {e}");
                 }
             }
             Err(e) => {
@@ -1215,38 +1012,13 @@ impl SyncWorker {
         // Pull remote settings
         let last_settings_cp =
             taurine_core::db::crud::get_sync_checkpoint(conn, "user_settings").unwrap_or(0);
-        let rfc3339_settings_cp = Self::unix_secs_to_rfc3339(last_settings_cp);
-        let settings_url = format!(
-            "{}/rest/v1/user_settings?updated_at=gt.{}&order=updated_at.asc",
-            client.config().supabase_url.trim_end_matches('/'),
-            rfc3339_settings_cp
-        );
-
-        let mut settings_pull_res = http_client
-            .get(&settings_url)
-            .header("apikey", &client.config().anon_key)
-            .header("Authorization", format!("Bearer {}", tokens.access_token))
-            .header("Accept", "application/json")
-            .send()
+        let rfc3339_settings_cp = CloudClient::format_rfc3339_timestamp(last_settings_cp);
+        let settings_pull_res = client
+            .postgrest_get(
+                &format!("user_settings?updated_at=gt.{rfc3339_settings_cp}&order=updated_at.asc"),
+                &mut tokens,
+            )
             .await;
-
-        if let Ok(ref r) = settings_pull_res
-            && r.status() == reqwest::StatusCode::UNAUTHORIZED
-        {
-            tracing::debug!("Received 401 pulling settings; refreshing session...");
-            if Self::refresh_session_tokens(client, &mut tokens)
-                .await
-                .is_ok()
-            {
-                settings_pull_res = http_client
-                    .get(&settings_url)
-                    .header("apikey", &client.config().anon_key)
-                    .header("Authorization", format!("Bearer {}", tokens.access_token))
-                    .header("Accept", "application/json")
-                    .send()
-                    .await;
-            }
-        }
 
         match settings_pull_res {
             Ok(res) => {
@@ -1311,37 +1083,12 @@ impl SyncWorker {
 
         // Pull remote quota ledger for the current week
         let current_week = taurine_core::db::crud::quota::calculate_week_start_epoch(now_epoch);
-        let quota_pull_url = format!(
-            "{}/rest/v1/quota_ledger?week_start_epoch=eq.{}&limit=1",
-            client.config().supabase_url.trim_end_matches('/'),
-            current_week
-        );
-
-        let mut quota_pull_res = http_client
-            .get(&quota_pull_url)
-            .header("apikey", &client.config().anon_key)
-            .header("Authorization", format!("Bearer {}", tokens.access_token))
-            .header("Accept", "application/json")
-            .send()
+        let quota_pull_res = client
+            .postgrest_get(
+                &format!("quota_ledger?week_start_epoch=eq.{current_week}&limit=1"),
+                &mut tokens,
+            )
             .await;
-
-        if let Ok(ref r) = quota_pull_res
-            && r.status() == reqwest::StatusCode::UNAUTHORIZED
-        {
-            tracing::debug!("Received 401 pulling quota ledger; refreshing session...");
-            if Self::refresh_session_tokens(client, &mut tokens)
-                .await
-                .is_ok()
-            {
-                quota_pull_res = http_client
-                    .get(&quota_pull_url)
-                    .header("apikey", &client.config().anon_key)
-                    .header("Authorization", format!("Bearer {}", tokens.access_token))
-                    .header("Accept", "application/json")
-                    .send()
-                    .await;
-            }
-        }
 
         if let Ok(res) = quota_pull_res
             && res.status().is_success()
@@ -1416,38 +1163,13 @@ impl SyncWorker {
         // Pull remote activity events
         let last_events_cp =
             taurine_core::db::crud::get_sync_checkpoint(conn, "activity_events").unwrap_or(0);
-        let rfc3339_events_cp = Self::unix_secs_to_rfc3339(last_events_cp);
-        let events_pull_url = format!(
-            "{}/rest/v1/activity_events?updated_at=gt.{}&order=updated_at.asc",
-            client.config().supabase_url.trim_end_matches('/'),
-            rfc3339_events_cp
-        );
-
-        let mut events_pull_res = http_client
-            .get(&events_pull_url)
-            .header("apikey", &client.config().anon_key)
-            .header("Authorization", format!("Bearer {}", tokens.access_token))
-            .header("Accept", "application/json")
-            .send()
+        let rfc3339_events_cp = CloudClient::format_rfc3339_timestamp(last_events_cp);
+        let events_pull_res = client
+            .postgrest_get(
+                &format!("activity_events?updated_at=gt.{rfc3339_events_cp}&order=updated_at.asc"),
+                &mut tokens,
+            )
             .await;
-
-        if let Ok(ref r) = events_pull_res
-            && r.status() == reqwest::StatusCode::UNAUTHORIZED
-        {
-            tracing::debug!("Received 401 pulling activity events; refreshing session...");
-            if Self::refresh_session_tokens(client, &mut tokens)
-                .await
-                .is_ok()
-            {
-                events_pull_res = http_client
-                    .get(&events_pull_url)
-                    .header("apikey", &client.config().anon_key)
-                    .header("Authorization", format!("Bearer {}", tokens.access_token))
-                    .header("Accept", "application/json")
-                    .send()
-                    .await;
-            }
-        }
 
         let mut pulled_events = 0;
         match events_pull_res {
@@ -1512,38 +1234,13 @@ impl SyncWorker {
         // Pull remote trigger daily stats
         let last_trigger_stats_cp =
             taurine_core::db::crud::get_sync_checkpoint(conn, "trigger_daily_stats").unwrap_or(0);
-        let rfc3339_trigger_stats_cp = Self::unix_secs_to_rfc3339(last_trigger_stats_cp);
-        let trigger_stats_pull_url = format!(
-            "{}/rest/v1/trigger_daily_stats?updated_at=gt.{}&order=updated_at.asc",
-            client.config().supabase_url.trim_end_matches('/'),
-            rfc3339_trigger_stats_cp
-        );
-
-        let mut trigger_stats_pull_res = http_client
-            .get(&trigger_stats_pull_url)
-            .header("apikey", &client.config().anon_key)
-            .header("Authorization", format!("Bearer {}", tokens.access_token))
-            .header("Accept", "application/json")
-            .send()
+        let rfc3339_trigger_stats_cp = CloudClient::format_rfc3339_timestamp(last_trigger_stats_cp);
+        let trigger_stats_pull_res = client
+            .postgrest_get(
+                &format!("trigger_daily_stats?updated_at=gt.{rfc3339_trigger_stats_cp}&order=updated_at.asc"),
+                &mut tokens,
+            )
             .await;
-
-        if let Ok(ref r) = trigger_stats_pull_res
-            && r.status() == reqwest::StatusCode::UNAUTHORIZED
-        {
-            tracing::debug!("Received 401 pulling trigger daily stats; refreshing session...");
-            if Self::refresh_session_tokens(client, &mut tokens)
-                .await
-                .is_ok()
-            {
-                trigger_stats_pull_res = http_client
-                    .get(&trigger_stats_pull_url)
-                    .header("apikey", &client.config().anon_key)
-                    .header("Authorization", format!("Bearer {}", tokens.access_token))
-                    .header("Accept", "application/json")
-                    .send()
-                    .await;
-            }
-        }
 
         match trigger_stats_pull_res {
             Ok(res) => {
@@ -1602,38 +1299,13 @@ impl SyncWorker {
         // Pull remote global user stats
         let last_user_stats_cp =
             taurine_core::db::crud::get_sync_checkpoint(conn, "user_stats").unwrap_or(0);
-        let rfc3339_user_stats_cp = Self::unix_secs_to_rfc3339(last_user_stats_cp);
-        let user_stats_pull_url = format!(
-            "{}/rest/v1/user_stats?updated_at=gt.{}&order=updated_at.asc",
-            client.config().supabase_url.trim_end_matches('/'),
-            rfc3339_user_stats_cp
-        );
-
-        let mut user_stats_pull_res = http_client
-            .get(&user_stats_pull_url)
-            .header("apikey", &client.config().anon_key)
-            .header("Authorization", format!("Bearer {}", tokens.access_token))
-            .header("Accept", "application/json")
-            .send()
+        let rfc3339_user_stats_cp = CloudClient::format_rfc3339_timestamp(last_user_stats_cp);
+        let user_stats_pull_res = client
+            .postgrest_get(
+                &format!("user_stats?updated_at=gt.{rfc3339_user_stats_cp}&order=updated_at.asc"),
+                &mut tokens,
+            )
             .await;
-
-        if let Ok(ref r) = user_stats_pull_res
-            && r.status() == reqwest::StatusCode::UNAUTHORIZED
-        {
-            tracing::debug!("Received 401 pulling user stats; refreshing session...");
-            if Self::refresh_session_tokens(client, &mut tokens)
-                .await
-                .is_ok()
-            {
-                user_stats_pull_res = http_client
-                    .get(&user_stats_pull_url)
-                    .header("apikey", &client.config().anon_key)
-                    .header("Authorization", format!("Bearer {}", tokens.access_token))
-                    .header("Accept", "application/json")
-                    .send()
-                    .await;
-            }
-        }
 
         match user_stats_pull_res {
             Ok(res) => {
@@ -1688,38 +1360,16 @@ impl SyncWorker {
         // Pull remote user app stats
         let last_user_app_stats_cp =
             taurine_core::db::crud::get_sync_checkpoint(conn, "user_app_stats").unwrap_or(0);
-        let rfc3339_user_app_stats_cp = Self::unix_secs_to_rfc3339(last_user_app_stats_cp);
-        let app_stats_pull_url = format!(
-            "{}/rest/v1/user_app_stats?updated_at=gt.{}&order=updated_at.asc",
-            client.config().supabase_url.trim_end_matches('/'),
-            rfc3339_user_app_stats_cp
-        );
-
-        let mut app_stats_pull_res = http_client
-            .get(&app_stats_pull_url)
-            .header("apikey", &client.config().anon_key)
-            .header("Authorization", format!("Bearer {}", tokens.access_token))
-            .header("Accept", "application/json")
-            .send()
+        let rfc3339_user_app_stats_cp =
+            CloudClient::format_rfc3339_timestamp(last_user_app_stats_cp);
+        let app_stats_pull_res = client
+            .postgrest_get(
+                &format!(
+                    "user_app_stats?updated_at=gt.{rfc3339_user_app_stats_cp}&order=updated_at.asc"
+                ),
+                &mut tokens,
+            )
             .await;
-
-        if let Ok(ref r) = app_stats_pull_res
-            && r.status() == reqwest::StatusCode::UNAUTHORIZED
-        {
-            tracing::debug!("Received 401 pulling app stats; refreshing session...");
-            if Self::refresh_session_tokens(client, &mut tokens)
-                .await
-                .is_ok()
-            {
-                app_stats_pull_res = http_client
-                    .get(&app_stats_pull_url)
-                    .header("apikey", &client.config().anon_key)
-                    .header("Authorization", format!("Bearer {}", tokens.access_token))
-                    .header("Accept", "application/json")
-                    .send()
-                    .await;
-            }
-        }
 
         match app_stats_pull_res {
             Ok(res) => {

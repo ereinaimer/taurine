@@ -2358,8 +2358,8 @@ mod tests {
         let _ = rx.recv();
 
         // Trigger SIGTERM
-        // SAFETY: Raising SIGTERM on the current process is safe because we have verified via the
-        // mpsc channel that the tokio signal handler is fully registered with the OS.
+        // SAFETY: Raising SIGTERM on the current process is safe because the
+        // tokio signal handler is fully registered via the mpsc channel before the call.
         unsafe {
             libc::raise(libc::SIGTERM);
         }

@@ -112,6 +112,8 @@ GRANT ALL ON TABLE public.quota_burn_events TO service_role;
 -- ----------------------------------------------------------------------------
 -- 2c. Quota Burn RPC (Atomic Delta Deduction with Idempotency)
 -- ----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.record_quota_burn(BIGINT, DOUBLE PRECISION, TEXT, UUID);
+
 CREATE OR REPLACE FUNCTION public.record_quota_burn(
     p_week_epoch BIGINT,
     p_delta DOUBLE PRECISION,

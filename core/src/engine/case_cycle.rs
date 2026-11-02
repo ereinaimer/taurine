@@ -159,7 +159,7 @@ mod tests {
         assert_eq!(s.advance(CycleDirection::Next), "HELLO WORLD");
         // "HELLO WORLD" -> "hello world" Lower
         assert_eq!(s.advance(CycleDirection::Next), "hello world");
-        // "hello world" -> wraps to "Hello world" Sentence (because Lower and Original are duplicates, and we skip duplicates!)
+        // "hello world" -> wraps to "Hello world" Sentence (Lower and Original are duplicates; duplicates skipped)
         assert_eq!(s.advance(CycleDirection::Next), "Hello world");
         // "Hello world" -> "hello world" Lower (going backward)
         assert_eq!(s.advance(CycleDirection::Prev), "hello world");

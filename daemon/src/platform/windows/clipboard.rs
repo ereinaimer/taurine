@@ -66,7 +66,7 @@ fn set_clipboard_dword(format: u32, value: u32) -> Result<(), String> {
     // block (null on failure). ptr::write writes a u32 value into the locked
     // memory through a valid aligned pointer. GlobalUnlock unlocks the memory.
     // SetClipboardData takes ownership of the HGLOBAL on success; if it fails
-    // we free the handle ourselves via GlobalFree to avoid leaks.
+    // the handle is freed via GlobalFree to avoid leaks.
     unsafe {
         let h = GlobalAlloc(GMEM_MOVEABLE, mem::size_of::<u32>()) as HGLOBAL;
         if h.is_null() {
@@ -98,7 +98,7 @@ fn set_clipboard_unicode_nul_terminated(text: &str) -> Result<(), String> {
     // The HGLOBAL is checked for null. ptr::copy_nonoverlapping copies the UTF-16
     // data into the locked memory region. The source (`units.as_ptr()`) has at
     // least `units.len()` elements. SetClipboardData takes ownership on success;
-    // on failure we free via GlobalFree.
+    // on failure the handle is freed via GlobalFree.
     unsafe {
         let h = GlobalAlloc(GMEM_MOVEABLE, byte_len) as HGLOBAL;
         if h.is_null() {
@@ -383,7 +383,7 @@ pub fn set_image_file_exclude_from_history(path: &std::path::Path) -> Result<(),
     // Check if it's a PNG
     let is_png = path_str.ends_with(".png");
 
-    // Decode to RGBA first, so we have the fallback DIB format
+    // Decode to RGBA first for the fallback DIB format
     let img =
         image::load_from_memory(&bytes).map_err(|e| format!("Failed to decode image: {}", e))?;
     let rgba = img.to_rgba8();

@@ -568,7 +568,7 @@ fn test_import_rewrites_asset_uuids() {
     import_triggers(&tx1, &payload, |_, _| Ok(ImportConflictAction::Overwrite)).unwrap();
     tx1.commit().unwrap();
 
-    // Second import (duplicate trigger, but let's import it with overwrite)
+    // Second import (duplicate trigger, imported with overwrite)
     let tx2 = conn.transaction().unwrap();
     import_triggers(&tx2, &payload, |_, _| Ok(ImportConflictAction::Overwrite)).unwrap();
     tx2.commit().unwrap();

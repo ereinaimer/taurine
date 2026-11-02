@@ -43,7 +43,7 @@ fn get_remove_prefix_for_profile(path: &std::path::Path) -> &'static str {
 fn get_profiles() -> Vec<PathBuf> {
     if cfg!(target_os = "windows") {
         // $PROFILE is only set when running inside PowerShell itself.
-        // When running from bash / cmd we construct the paths manually.
+        // When running from bash / cmd, paths are constructed manually.
         if let Some(profile) = std::env::var("PROFILE").ok().filter(|p| !p.is_empty()) {
             return vec![PathBuf::from(profile)];
         }
@@ -130,7 +130,7 @@ fn ensure_tau_alias_in(profiles: &[PathBuf]) -> bool {
                     .filter(|line| line.contains(remove_prefix))
                     .collect();
 
-                // If there is exactly one match and it matches expected_line exactly (when trimmed), we are done
+                // If there is exactly one match and it matches expected_line exactly (when trimmed), no update needed.
                 if matches.len() == 1 && matches[0].trim() == expected_line {
                     continue;
                 }
@@ -257,7 +257,7 @@ mod tests {
         let rc = dir.path().join(".bashrc");
         fs::write(&rc, "alias tau='taurine'\nexport EDITOR=vim\n").unwrap();
 
-        // First ensure our alias is detected
+        // First ensure the alias is detected
         assert!(tau_alias_is_set_in(std::slice::from_ref(&rc)));
 
         // Remove the alias using the internal function
@@ -279,7 +279,7 @@ mod tests {
         let rc = dir.path().join("Microsoft.PowerShell_profile.ps1");
         fs::write(&rc, "function tau { taurine @args }\nexport EDITOR=vim\n").unwrap();
 
-        // First ensure our alias is detected
+        // First ensure the alias is detected
         assert!(tau_alias_is_set_in(std::slice::from_ref(&rc)));
 
         // Remove the alias using the internal function

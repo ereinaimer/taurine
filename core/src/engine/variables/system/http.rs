@@ -93,8 +93,8 @@ fn resolve_status(url: &str) -> Option<String> {
 mod tests {
     use super::*;
 
-    // Note: We avoid making actual network requests in unit tests to prevent flaky CI.
-    // However, we can test the URL formatting and error handling logic.
+    // Actual network requests are avoided in unit tests to prevent flaky CI.
+    // URL formatting and error handling logic are tested below.
 
     #[test]
     fn test_format_url() {

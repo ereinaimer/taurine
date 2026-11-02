@@ -44,7 +44,7 @@ mod platform {
     pub fn acquire_service_liveness() -> Option<ServiceLivenessGuard> {
         let wide_name = get_mutex_name_wide();
 
-        // SAFETY: We provide null security attributes, false for initial ownership,
+        // SAFETY: Null security attributes, false for initial ownership,
         // and a valid null-terminated UTF-16 wide string pointer.
         let handle = unsafe { CreateMutexW(ptr::null(), 0, wide_name.as_ptr()) };
         if handle.is_null() {
@@ -69,7 +69,7 @@ mod platform {
     pub fn is_service_running() -> bool {
         let wide_name = get_mutex_name_wide();
 
-        // SAFETY: We pass SYNCHRONIZE access, false for handle inheritance,
+        // SAFETY: SYNCHRONIZE access, false for handle inheritance,
         // and a valid null-terminated UTF-16 wide string pointer.
         let handle = unsafe { OpenMutexW(SYNCHRONIZE, 0, wide_name.as_ptr()) };
         if handle.is_null() {
@@ -148,7 +148,7 @@ mod platform {
         // SAFETY: fd is a valid open file descriptor.
         let res = unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) };
         if res == 0 {
-            // We acquired the lock, meaning no active service is running.
+            // Lock acquired successfully, indicating no active service is running.
             // SAFETY: Releasing the advisory lock immediately.
             unsafe {
                 libc::flock(fd, libc::LOCK_UN);

@@ -205,8 +205,8 @@ pub fn normalize_snippet_rms(samples: &[f32]) -> Vec<f32> {
 
 /// Slices an utterance buffer preserving a post-roll cushion of trailing consonant decay.
 ///
-/// If an utterance ends due to silence (>8 frames = >256ms), we retain exactly 8 frames
-/// (~256ms / 4,096 samples at 16kHz) of trailing decay so trailing consonants ("-der", "t", "k")
+/// If an utterance ends due to silence (>8 frames = >256ms), exactly 8 frames
+/// (~256ms / 4,096 samples at 16kHz) of trailing decay are retained so trailing consonants ("-der", "t", "k")
 /// are never clipped, while trimming excess dead silence beyond 8 frames.
 pub fn slice_utterance_with_postroll(buffer: &[f32], silence_frames: usize) -> Vec<f32> {
     const POST_ROLL_FRAMES: usize = 8;
@@ -246,8 +246,8 @@ pub fn trailing_silence_frames(samples: &[f32]) -> usize {
 
 /// Slices an utterance buffer preserving a pre-roll cushion of leading speech onset.
 ///
-/// If an utterance starts with silence (>8 frames = >256ms), we retain exactly 8 frames
-/// (~256ms / 4,096 samples at 16kHz) of lead-in so plosives are never clipped,
+/// If an utterance starts with silence (>8 frames = >256ms), exactly 8 frames
+/// (~256ms / 4,096 samples at 16kHz) of lead-in are retained so plosives are never clipped,
 /// while trimming excess dead silence beyond 8 frames.
 pub fn slice_utterance_with_preroll(buffer: &[f32], leading_silence_frames: usize) -> Vec<f32> {
     const PRE_ROLL_FRAMES: usize = 8;
@@ -596,11 +596,11 @@ pub fn query_default_communications_device_name() -> Option<String> {
     const STGM_READ: u32 = 0;
     const VT_LPWSTR: u16 = 31;
 
-    // SAFETY: We initialize COM on this thread (multithreaded), instantiate the system
-    // MMDeviceEnumerator class via CoCreateInstance, query the eCommunications default
-    // audio capture endpoint via COM vtable dispatch, read the friendly name property from
-    // the property store, convert the UTF-16 slice to an owned String, and release all
-    // allocated COM interface pointers and memory.
+    // SAFETY: COM is initialized on this thread (multithreaded), the system
+    // MMDeviceEnumerator class is instantiated via CoCreateInstance, the eCommunications default
+    // audio capture endpoint is queried via COM vtable dispatch, the friendly name property is
+    // read from the property store, converted to an owned String, and all
+    // allocated COM interface pointers and memory are released.
     unsafe {
         let _ = CoInitializeEx(std::ptr::null_mut(), COINIT_MULTITHREADED as u32);
 

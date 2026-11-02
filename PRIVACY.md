@@ -31,11 +31,11 @@ Taurine calculates aggregated usage metrics to support weekly quota tracking and
 - **Device-Isolated Counters**: Aggregated counters are tracked per device to ensure accurate quota tracking without tracking specific typing habits or snippet contents.
 - **No Keystroke Telemetry**: Taurine does not collect or transmit keystroke counts, typed content, application telemetry, or crash telemetry.
 
-## 6. Privacy & Data Purge on Logout
-Signing out of Taurine securely and irreversibly clears sensitive state from the current device:
-- **Complete Local Purge**: Running `taurine logout` shuts down background services, deletes the local SQLCipher database file, and wipes cached session state.
-- **Keystore Key Wiping**: Data Encryption Keys (DEK), vault credentials, and authentication session tokens are permanently removed from the operating system credential manager.
-- **Unsynced Mutation Safeguard**: To prevent accidental data loss, `taurine logout` verifies that all pending changes in the synchronization outbox are flushed to the cloud. If uncommitted mutations remain, logout safely aborts unless explicitly overridden with `--force`.
+## 6. Privacy & Security on Logout
+Signing out of Taurine securely de-authenticates the current device:
+- **Cloud Credential Wiping**: Data Encryption Keys (DEK), vault credentials, and authentication session tokens are permanently removed from the operating system credential manager.
+- **Service Termination**: Running `taurine logout` shuts down the background daemon and disconnects cloud synchronization.
+- **Outbox Synchronization**: Unsynced local mutations are flushed to the cloud before de-authenticating so your cloud account remains up to date.
 
 ## 7. Third-Party AI Integrations (Opt-in)
 Taurine includes an optional inline AI Copilot:

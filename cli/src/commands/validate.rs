@@ -387,7 +387,7 @@ mod tests {
         let array_script = r#"val = args[0]; echo $val"#;
         assert!(audit_script_payload_tags(array_script, TriggerType::Word).is_ok());
 
-        // Traditional invalid dot-namespace variable still fails if we treat it as word payload
+        // Traditional invalid dot-namespace variable still fails when treated as word payload
         assert!(super::audit_payload_tags("User: [my.custom.var=there]").is_err());
 
         // System variables and defined variables in scripts should still be checked

@@ -30,9 +30,7 @@ pub struct LazyLogWriter;
 impl io::Write for LazyLogWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         if let Some(writer) = LAZY_WRITER.get() {
-            // Under load, non_blocking can drop if buffer is full, but we need to forward it.
-            // Since NonBlocking implements Write, we can just call write on a clone of it or a mut ref to it.
-            // Since OnceLock holds NonBlocking which implements Write for &NonBlocking, we can write directly.
+            // Forward buffer directly to NonBlocking writer.
             let mut w = writer.clone();
             return w.write(buf);
         }
@@ -126,7 +124,7 @@ pub fn init_tracing_for_app(
             // Silent mode: no console layer and no file layer.
 
             // Tracing is initialized here because the tracing crate allows global subscriber
-            // to be set only once per application lifecycle and we want to ensure that tracing
+            // to be set only once per application lifecycle; guarantees that tracing
             // is initialized only here so that no other part of the application can
             // initialize tracing and ignore the quiet flag.
 
@@ -414,8 +412,8 @@ pub fn handle_panic_info(panic_info: &PanicHookInfo<'_>) {
         "Application panicked"
     );
 
-    // Also synchronously write the panic to the log file so we keep useful
-    // diagnostics even if the non-blocking writer hasn't flushed yet.
+    // Synchronously write panic to log file to preserve useful
+    // diagnostics even if the non-blocking writer has not flushed yet.
     let no_log_file = NO_LOG_FILE.get().copied().unwrap_or(false);
     if !no_log_file {
         let _ = write_panic_to_log_file(&payload, &location, &backtrace);

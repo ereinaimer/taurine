@@ -137,7 +137,7 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for AppState {
             }
             zwlr_foreign_toplevel_handle_v1::Event::State { state: state_arr } => {
                 // state_arr is a byte array representing an array of u32 (enums)
-                // wayland_client provides raw bytes for arrays. We parse it:
+                // wayland_client provides raw bytes for arrays, parsed below:
                 let mut is_active = false;
                 let mut is_fullscreen = false;
 

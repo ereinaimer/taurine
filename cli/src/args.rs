@@ -94,11 +94,7 @@ pub(crate) enum Commands {
     },
     /// Log out from Taurine
     #[command(alias = "signout")]
-    Logout {
-        /// Force logout even if unsynced mutations remain
-        #[arg(short, long)]
-        force: bool,
-    },
+    Logout,
     /// Synchronize triggers, settings, and telemetry
     #[command(aliases = ["push", "pull"])]
     Sync,

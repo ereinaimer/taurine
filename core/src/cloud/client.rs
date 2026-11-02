@@ -318,6 +318,158 @@ impl CloudClient {
             )),
         }
     }
+
+    /// Returns a reference to the internal HTTP client.
+    pub fn http_client(&self) -> &reqwest::Client {
+        &self.client
+    }
+
+    /// Resolves an absolute REST endpoint URL for a given path and query.
+    pub fn rest_url(&self, path_and_query: &str) -> String {
+        format!(
+            "{}/rest/v1/{}",
+            self.config.supabase_url.trim_end_matches('/'),
+            path_and_query.trim_start_matches('/')
+        )
+    }
+
+    /// Refreshes session tokens via GoTrue and updates the OS keyring.
+    pub async fn refresh_session_and_store(
+        &self,
+        tokens: &mut AuthTokens,
+    ) -> std::result::Result<(), String> {
+        let prev_user_id = tokens.user_id.clone();
+        match self.refresh_session(&tokens.refresh_token).await {
+            Ok(mut new_tokens) => {
+                if new_tokens.user_id.is_empty() {
+                    new_tokens.user_id = prev_user_id;
+                }
+                if let Err(e) = crate::cloud::store_cloud_tokens(&new_tokens) {
+                    tracing::warn!("Failed to store refreshed cloud tokens in keyring: {e}");
+                }
+                *tokens = new_tokens;
+                tracing::debug!("Successfully refreshed cloud auth tokens");
+                Ok(())
+            }
+            Err(e) => {
+                tracing::warn!("Failed to refresh cloud auth tokens: {e}");
+                Err(format!("Session refresh failed: {e}"))
+            }
+        }
+    }
+
+    /// Dispatches an authenticated PostgREST POST request with automatic 401 session refresh.
+    pub async fn postgrest_post<T: serde::Serialize>(
+        &self,
+        path_and_query: &str,
+        payload: &T,
+        prefer_merge: bool,
+        tokens: &mut AuthTokens,
+    ) -> std::result::Result<reqwest::Response, reqwest::Error> {
+        let url = self.rest_url(path_and_query);
+        let mut req = self
+            .client
+            .post(&url)
+            .header("apikey", &self.config.anon_key)
+            .header("Authorization", format!("Bearer {}", tokens.access_token))
+            .header("Content-Type", "application/json");
+
+        if prefer_merge {
+            req = req.header("Prefer", "resolution=merge-duplicates");
+        }
+
+        let mut res = req.json(payload).send().await;
+
+        if let Ok(ref r) = res
+            && r.status() == reqwest::StatusCode::UNAUTHORIZED
+        {
+            tracing::debug!("Received 401 on POST {url}; refreshing session...");
+            if self.refresh_session_and_store(tokens).await.is_ok() {
+                let mut retry_req = self
+                    .client
+                    .post(&url)
+                    .header("apikey", &self.config.anon_key)
+                    .header("Authorization", format!("Bearer {}", tokens.access_token))
+                    .header("Content-Type", "application/json");
+
+                if prefer_merge {
+                    retry_req = retry_req.header("Prefer", "resolution=merge-duplicates");
+                }
+
+                res = retry_req.json(payload).send().await;
+            }
+        }
+
+        res
+    }
+
+    /// Dispatches an authenticated PostgREST GET request with automatic 401 session refresh.
+    pub async fn postgrest_get(
+        &self,
+        path_and_query: &str,
+        tokens: &mut AuthTokens,
+    ) -> std::result::Result<reqwest::Response, reqwest::Error> {
+        let url = self.rest_url(path_and_query);
+        let req = self
+            .client
+            .get(&url)
+            .header("apikey", &self.config.anon_key)
+            .header("Authorization", format!("Bearer {}", tokens.access_token))
+            .header("Accept", "application/json");
+
+        let mut res = req.send().await;
+
+        if let Ok(ref r) = res
+            && r.status() == reqwest::StatusCode::UNAUTHORIZED
+        {
+            tracing::debug!("Received 401 on GET {url}; refreshing session...");
+            if self.refresh_session_and_store(tokens).await.is_ok() {
+                let retry_req = self
+                    .client
+                    .get(&url)
+                    .header("apikey", &self.config.anon_key)
+                    .header("Authorization", format!("Bearer {}", tokens.access_token))
+                    .header("Accept", "application/json");
+
+                res = retry_req.send().await;
+            }
+        }
+
+        res
+    }
+
+    /// Converts a Unix timestamp in seconds to an RFC3339 UTC string.
+    pub fn format_rfc3339_timestamp(ts: i64) -> String {
+        let mut days = ts / 86400;
+        let mut rem_secs = ts % 86400;
+        if rem_secs < 0 {
+            rem_secs += 86400;
+            days -= 1;
+        }
+        let hours = rem_secs / 3600;
+        let mins = (rem_secs % 3600) / 60;
+        let secs = rem_secs % 60;
+
+        let z = days + 719468;
+        let era = (if z >= 0 { z } else { z - 146096 }) / 146097;
+        let doe = (z - era * 146097) as u32;
+        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+        let y = yoe as i64 + era * 400;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let d = doy - (153 * mp + 2) / 5 + 1;
+        let m = if mp < 10 { mp + 3 } else { mp - 9 };
+        let y = if m <= 2 { y + 1 } else { y };
+
+        format!("{y:04}-{m:02}-{d:02}T{hours:02}:{mins:02}:{secs:02}Z")
+    }
+
+    /// Parses an RFC3339 string into a Unix timestamp in seconds.
+    pub fn parse_rfc3339_timestamp(s: &str) -> crate::Result<i64> {
+        chrono::DateTime::parse_from_rfc3339(s)
+            .map(|dt| dt.timestamp())
+            .map_err(|e| crate::Error::Config(format!("Invalid RFC3339 timestamp '{s}': {e}")))
+    }
 }
 
 fn jwt_claims(access_token: &str) -> Option<serde_json::Value> {

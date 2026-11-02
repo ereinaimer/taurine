@@ -319,8 +319,8 @@ fn extract_path_filename(content: &str) -> String {
     }
 
     // Second pass: standalone filenames (with extension) not already covered
-    // by a path match.  Uses a lightweight ad-hoc scan so we still honour the
-    // PATH_REGEX+Path requirement as the primary mechanism.
+    // by a path match. Uses a lightweight ad-hoc scan so the
+    // PATH_REGEX+Path requirement remains the primary mechanism.
     static STANDALONE_FILENAME_REGEX: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"\b[\w-]+\.[a-zA-Z0-9]{1,8}\b").expect("valid standalone filename regex")
     });

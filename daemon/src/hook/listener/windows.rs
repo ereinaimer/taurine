@@ -280,7 +280,7 @@ pub(super) fn windows_grab(
     // the OS-level hook timeout (1 second by default) before cleaning up. Explicit
     // unhooking makes teardown deterministic and prevents Windows from treating the
     // newly-spawned hook thread's handle as stale.
-    // SAFETY: hhook and mouse_hhook are the handles we registered above on this thread.
+    // SAFETY: hhook and mouse_hhook are the handles registered above on this thread.
     // Unhooking from the same thread that hooked is always valid.
     unsafe {
         UnhookWindowsHookEx(hhook);

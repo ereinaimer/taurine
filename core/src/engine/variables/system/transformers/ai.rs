@@ -35,7 +35,7 @@ pub fn strip_markdown_fence(text: &str) -> String {
 
 pub fn apply(_name: &str, _args: &[&str], _content: &str) -> Option<String> {
     // ai(...) transformers are handled asynchronously by the daemon, not synchronously here.
-    // We return None so if it ever slips through, we don't erroneously transform it.
+    // Return None so unprocessed invocations are not erroneously transformed.
     None
 }
 

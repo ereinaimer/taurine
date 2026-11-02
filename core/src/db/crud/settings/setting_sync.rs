@@ -161,6 +161,11 @@ pub fn reconcile_cloud_setting(
         rusqlite::params![remote.key, value_str, remote.version, updated_at],
     )?;
 
+    let _ = conn.execute(
+        "DELETE FROM sync_outbox WHERE entity_type = 'setting' AND entity_id = ?1",
+        [&remote.key],
+    );
+
     crate::settings::bump_settings_version();
 
     Ok(SettingReconcileOutcome::UpdatedFromRemote)

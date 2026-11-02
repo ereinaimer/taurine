@@ -496,8 +496,8 @@ fn handle_shutdown() {
     } else {
         warn!("tray shutdown dropped: tokio handle not initialized");
     }
-    // Watcher: dies with the process on a successful shutdown. If we are
-    // still alive past the stop timeout, the quit did not stick — say so.
+    // Watcher: dies with the process on a successful shutdown. If the process is
+    // still alive past the stop timeout, the quit did not stick — notify user.
     let _ = std::thread::Builder::new()
         .name("tau-quit-watch".to_string())
         .spawn(|| {

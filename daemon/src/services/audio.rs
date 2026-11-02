@@ -164,7 +164,7 @@ fn play_through_sink(
 
 struct RodioVoiceSink {
     // Never read, never remove: dropping the device sink releases the OS
-    // audio stream and silences the player. It lives exactly as long as us.
+    // audio stream and silences the player. It lives as long as the RodioVoiceSink.
     #[allow(dead_code)]
     stream: rodio::MixerDeviceSink,
     /// Persistent player: every cue stops the previous blip before starting
@@ -277,7 +277,7 @@ fn prime_fresh_stream() {
 }
 
 /// Maximum age of a parked cue sink. An undetected output switch (same
-/// name, virtual endpoint re-routed behind our back) can never trip the
+/// name, virtual endpoint re-routed externally) cannot trip the
 /// identity check, so age alone forces rotation: worst case is this many
 /// seconds of silence. Healthy reopens cost ~10ms.
 const SINK_MAX_AGE: Duration = Duration::from_secs(30);
@@ -516,7 +516,7 @@ fn play_cue(is_paused: bool) -> Result<(), String> {
     let volume = get_cached_audio_volume();
     let data = get_audio_data(theme, is_paused);
 
-    // Acquire a fresh OutputStream/MixerDeviceSink on every trigger so we always bind
+    // Acquire a fresh OutputStream/MixerDeviceSink on every trigger to always bind
     // to the *current* default device. Cached streams silently play
     // into dead endpoints on Windows (WASAPI) after a device unplug
     // because rodio/cpal does not surface device-loss errors through

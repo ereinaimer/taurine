@@ -110,7 +110,7 @@ fn run_message_loop() {
     // SAFETY: WTSRegisterSessionNotification registers `hwnd` to receive
     // WM_WTSSESSION_CHANGE messages. `hwnd` is the valid window created above.
     // NOTIFY_FOR_THIS_SESSION limits notifications to this session. Returns 0
-    // on failure, which we check below.
+    // on failure, checked below.
     if unsafe { WTSRegisterSessionNotification(hwnd, NOTIFY_FOR_THIS_SESSION) } == 0 {
         warn!("Failed to register Windows session notifications");
     } else {

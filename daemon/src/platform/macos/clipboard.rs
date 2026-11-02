@@ -6,8 +6,8 @@ pub struct MacosClipboard;
 
 impl ClipboardManager for MacosClipboard {
     fn get_text(&mut self) -> Result<String, String> {
-        // SAFETY: Interaction with the Objective-C AppKit runtime is memory-safe because we only access the general pasteboard
-        // on the main thread and read its text representation, which is validated by the `objc2` type safety.
+        // SAFETY: Interaction with the Objective-C AppKit runtime is memory-safe because the general pasteboard
+        // is only accessed on the main thread and its text representation is validated by objc2 type safety.
         unsafe {
             let pb = NSPasteboard::generalPasteboard();
             let ns_str = pb.stringForType(objc2_app_kit::NSPasteboardTypeString);
@@ -20,7 +20,7 @@ impl ClipboardManager for MacosClipboard {
     }
 
     fn set_text(&mut self, text: &str) -> Result<(), String> {
-        // SAFETY: Interaction with the Objective-C AppKit runtime. We invoke `clearContents` and `setString:forType:`
+        // SAFETY: Interaction with the Objective-C AppKit runtime. Invokes `clearContents` and `setString:forType:`
         // to write text, and declare additional transient mime metadata. All pointer values are validated, and the local
         // references are managed by `objc2`'s reference counting.
         unsafe {
@@ -56,7 +56,7 @@ impl ClipboardManager for MacosClipboard {
     }
 
     fn set_html(&mut self, html: &str, plaintext: &str) -> Result<(), String> {
-        // SAFETY: Interaction with the Objective-C AppKit runtime. We invoke `clearContents` and `setString:forType:`
+        // SAFETY: Interaction with the Objective-C AppKit runtime. Invokes `clearContents` and `setString:forType:`
         // to write HTML and plaintext strings, and declare additional transient metadata. All local references are managed
         // by objc2's reference counting.
         unsafe {
@@ -100,7 +100,7 @@ impl ClipboardManager for MacosClipboard {
         let bytes = std::fs::read(path).map_err(|e| format!("Failed to read image file: {}", e))?;
         let path_str = path.to_string_lossy();
 
-        // SAFETY: Interaction with the Objective-C AppKit runtime. We invoke `clearContents`,
+        // SAFETY: Interaction with the Objective-C AppKit runtime. Invokes `clearContents`,
         // and `setData_forType` / `setPropertyList_forType` to write raw image bytes and file path.
         unsafe {
             let pb = NSPasteboard::generalPasteboard();

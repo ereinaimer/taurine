@@ -48,14 +48,24 @@ impl InvocationType {
     }
 }
 
+fn default_alias_id() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TriggerAliasRow {
+    #[serde(default = "default_alias_id")]
     pub id: String,
+    #[serde(default)]
     pub trigger_id: String,
     pub invocation: String,
+    #[serde(default)]
     pub invocation_type: InvocationType,
+    #[serde(default)]
     pub require_confirmation: bool,
+    #[serde(default)]
     pub strict_threshold: Option<f32>,
+    #[serde(default)]
     pub created_at: i64,
 }
 
@@ -310,7 +320,7 @@ pub fn rename_alias_invocation(
     with_transaction(conn, || {
         // honey: normalizing onto the identical stored text is a
         // no-op success; skipping the write also skips the
-        // same-parent duplicate check tripping on our own row.
+        // same-parent duplicate check tripping on the current row.
         if stored == current_invocation {
             return Ok(true);
         }
