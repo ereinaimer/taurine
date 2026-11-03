@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 use taurine_core::db::crud::UserTier;
 use taurine_core::error::Result;
 
@@ -225,14 +225,9 @@ pub fn execute_login(
 }
 
 /// Logs out the user by stopping the daemon, clearing credentials from the keystore,
-/// and resetting the cached tier. Local database and configuration are preserved.
-pub fn execute_logout(json: bool) -> Result<()> {
-    // Stop the background service first so any in-memory quota deltas flush to SQLite
-    if taurine_core::service::is_service_running() {
-        let _ = taurine_core::service::down();
-    }
-
-    // Attempt a final best-effort sync drain before de-authenticating
+/// syncing pending changes to the cloud, and purging the local database.
+pub fn execute_logout(force: bool, json: bool) -> Result<()> {
+    // Attempt a final sync cycle before purging local state so nothing is lost
     if let Ok(conn) = taurine_core::db::init::setup() {
         let _ = taurine_core::db::crud::triggers::backfill_untracked_triggers_to_outbox(&conn);
         let client = taurine_core::cloud::CloudClient::default_or_from_env();
@@ -248,16 +243,42 @@ pub fn execute_logout(json: bool) -> Result<()> {
                 .await
             });
         }
-        let _ = taurine_core::db::crud::reset_sync_checkpoints(&conn);
+        if let Ok(pending) = taurine_core::db::crud::fetch_outbox_batch(&conn, 1)
+            && !pending.is_empty()
+            && !force
+        {
+            if !json && std::io::stdin().is_terminal() {
+                print!(
+                    "You have unsynced changes that will be permanently lost upon logout. Proceed anyway? [y/N]: "
+                );
+                let _ = std::io::stdout().flush();
+                let mut input = String::new();
+                std::io::stdin()
+                    .read_line(&mut input)
+                    .map_err(taurine_core::Error::Io)?;
+                let trimmed = input.trim().to_lowercase();
+                if trimmed != "y" && trimmed != "yes" {
+                    return Err(taurine_core::Error::Config(
+                        "Logout aborted to prevent data loss. Re-run with --force to discard unsynced data.".into(),
+                    ));
+                }
+            } else {
+                return Err(taurine_core::Error::Config(
+                    "Logout aborted: unsynced mutations remain in outbox. Pass --force to discard."
+                        .into(),
+                ));
+            }
+        }
+    }
+
+    // Stop the background service first so any in-memory quota deltas flush to SQLite
+    if taurine_core::service::is_service_running() {
+        let _ = taurine_core::service::down();
     }
 
     let _ = taurine_core::cloud::clear_vault_dek();
     taurine_core::cloud::clear_tokens()?;
-
-    // Reset local cached tier to Free
-    if let Ok(conn) = taurine_core::db::init::setup() {
-        let _ = taurine_core::db::crud::set_user_tier(&conn, UserTier::Free);
-    }
+    taurine_core::db::init::purge_local_database()?;
 
     if json {
         println!("{}", serde_json::json!({ "status": "logged_out" }));
@@ -455,7 +476,7 @@ mod tests {
     }
 
     #[test]
-    fn test_execute_logout_clears_tokens_and_preserves_local_data() {
+    fn test_execute_logout_aborts_when_unsynced_mutations_remain() {
         let _guard = crate::commands::TEST_LOCK.lock().unwrap();
         crate::commands::test_keyring::use_shared_test_keyring();
         let _ = taurine_core::cloud::clear_tokens();
@@ -469,44 +490,100 @@ mod tests {
         }
 
         let mock_tokens = taurine_core::cloud::AuthTokens {
-            access_token: "mock-token-logout".to_string(),
+            access_token: "mock-token-unsynced".to_string(),
             refresh_token: "mock-refresh".to_string(),
-            user_id: "user-logout-test".to_string(),
+            user_id: "user-unsynced-test".to_string(),
             expires_at: Some(9999999999),
         };
         taurine_core::cloud::store_tokens(&mock_tokens).expect("store tokens succeeds");
-        taurine_core::cloud::store_vault_dek(&[0x55u8; 32]).expect("store vault dek succeeds");
 
         let conn = taurine_core::db::init::setup().expect("setup succeeds");
         taurine_core::db::crud::enqueue_outbox(
             &conn,
             "snippet",
-            "test_local_trigger",
+            "test_unsynced_id",
             "upsert",
-            serde_json::json!({ "id": "test_local_trigger", "output": "preserved" }),
+            serde_json::json!({ "id": "test_unsynced_id", "body": "test" }),
         )
         .expect("enqueue outbox succeeds");
         drop(conn);
 
-        let res = execute_logout(true);
-        assert!(res.is_ok(), "execute_logout must succeed");
+        // force = false, json = true (non-interactive / JSON mode)
+        let res = execute_logout(false, true);
+        assert!(
+            res.is_err(),
+            "execute_logout must abort when unsynced mutations remain"
+        );
+        if let Err(taurine_core::Error::Config(msg)) = res {
+            assert!(msg.contains("Logout aborted: unsynced mutations remain in outbox"));
+        } else {
+            panic!("Expected Config error on aborted logout, got: {res:?}");
+        }
+
+        // Verify tokens are still intact
+        assert!(
+            taurine_core::cloud::get_tokens().unwrap().is_some(),
+            "Tokens must not be wiped when logout aborts"
+        );
+
+        let _ = taurine_core::cloud::clear_tokens();
+        // SAFETY: environment variable manipulation is serialized by TEST_LOCK
+        unsafe {
+            std::env::remove_var("TAURINE_DATA_DIR");
+            std::env::remove_var("TAURINE_SUPABASE_URL");
+        }
+    }
+
+    #[test]
+    fn test_execute_logout_force_proceeds_with_unsynced_mutations() {
+        let _guard = crate::commands::TEST_LOCK.lock().unwrap();
+        crate::commands::test_keyring::use_shared_test_keyring();
+        let _ = taurine_core::cloud::clear_tokens();
+        let _ = taurine_core::cloud::clear_vault_dek();
+
+        let temp = tempfile::tempdir().unwrap();
+        // SAFETY: environment variable manipulation is serialized by TEST_LOCK
+        unsafe {
+            std::env::set_var("TAURINE_DATA_DIR", temp.path());
+            std::env::set_var("TAURINE_SUPABASE_URL", "http://127.0.0.1:1");
+        }
+
+        let mock_tokens = taurine_core::cloud::AuthTokens {
+            access_token: "mock-token-force".to_string(),
+            refresh_token: "mock-refresh".to_string(),
+            user_id: "user-force-test".to_string(),
+            expires_at: Some(9999999999),
+        };
+        taurine_core::cloud::store_tokens(&mock_tokens).expect("store tokens succeeds");
+        taurine_core::cloud::store_vault_dek(&[0x77u8; 32]).expect("store vault dek succeeds");
+
+        let conn = taurine_core::db::init::setup().expect("setup succeeds");
+        taurine_core::db::crud::enqueue_outbox(
+            &conn,
+            "snippet",
+            "test_force_id",
+            "upsert",
+            serde_json::json!({ "id": "test_force_id", "body": "test" }),
+        )
+        .expect("enqueue outbox succeeds");
+        drop(conn);
+
+        // force = true, json = true
+        let res = execute_logout(true, true);
+        assert!(res.is_ok(), "execute_logout with force=true must succeed");
 
         assert!(
             taurine_core::cloud::get_tokens().unwrap().is_none(),
-            "Tokens must be cleared after logout"
+            "Tokens must be wiped after force logout"
         );
         assert!(
             taurine_core::cloud::get_vault_dek().unwrap().is_none(),
-            "Vault DEK must be cleared after logout"
+            "Vault DEK must be wiped after force logout"
         );
-
-        // Verify local data is preserved on logout
-        let conn = taurine_core::db::init::setup().expect("setup succeeds after logout");
-        let pending =
-            taurine_core::db::crud::fetch_outbox_batch(&conn, 10).expect("fetch outbox succeeds");
+        let db_path = taurine_core::paths::get_db_path();
         assert!(
-            !pending.is_empty(),
-            "Local outbox data must be preserved across logout"
+            !db_path.exists(),
+            "Local database must be wiped after force logout"
         );
 
         // SAFETY: environment variable manipulation is serialized by TEST_LOCK
@@ -542,7 +619,8 @@ mod tests {
         let _conn = taurine_core::db::init::setup().expect("setup succeeds");
         drop(_conn);
 
-        let res = execute_logout(true);
+        // force = false, json = true
+        let res = execute_logout(false, true);
         assert!(res.is_ok(), "execute_logout with clean outbox must succeed");
 
         assert!(
@@ -552,6 +630,11 @@ mod tests {
         assert!(
             taurine_core::cloud::get_vault_dek().unwrap().is_none(),
             "Vault DEK must be wiped after logout"
+        );
+        let db_path = taurine_core::paths::get_db_path();
+        assert!(
+            !db_path.exists(),
+            "Local database must be wiped after logout"
         );
 
         // SAFETY: environment variable manipulation is serialized by TEST_LOCK
@@ -610,7 +693,7 @@ mod tests {
         assert_eq!(pending_outbox.len(), 1);
         assert_eq!(pending_outbox[0].entity_id, action.parent_id);
 
-        // 3. Simulate authenticated session and set sync checkpoint watermark
+        // 3. Simulate authenticated session
         let mock_tokens = taurine_core::cloud::AuthTokens {
             access_token: "mock-e2e-token".to_string(),
             refresh_token: "mock-e2e-refresh".to_string(),
@@ -619,15 +702,10 @@ mod tests {
         };
         taurine_core::cloud::store_tokens(&mock_tokens).expect("store tokens succeeds");
         taurine_core::cloud::store_vault_dek(&[0x42u8; 32]).expect("store vault dek succeeds");
+        drop(conn);
 
-        taurine_core::db::crud::set_sync_checkpoint(&conn, "snippet", 1800000000).unwrap();
-        assert_eq!(
-            taurine_core::db::crud::get_sync_checkpoint(&conn, "snippet").unwrap(),
-            1800000000
-        );
-
-        // 4. Execute logout: clears tokens, resets checkpoints, preserves local data
-        let logout_res = execute_logout(true);
+        // 4. Execute logout with force: clears tokens, purges local database
+        let logout_res = execute_logout(true, true);
         assert!(logout_res.is_ok(), "execute_logout must succeed");
 
         assert!(
@@ -638,21 +716,10 @@ mod tests {
             taurine_core::cloud::get_vault_dek().unwrap().is_none(),
             "Vault DEK must be wiped after logout"
         );
-        assert_eq!(
-            taurine_core::db::crud::get_sync_checkpoint(&conn, "snippet").unwrap(),
-            0,
-            "Sync checkpoints must be cleared on logout"
-        );
+        let db_path = taurine_core::paths::get_db_path();
+        assert!(!db_path.exists(), "Local database must be purged on logout");
 
-        let preserved_action = taurine_core::db::crud::get_action_by_trigger(&conn, "tau_offline")
-            .unwrap()
-            .unwrap();
-        assert_eq!(
-            preserved_action.output, "Offline Expansion",
-            "Local triggers must be preserved across logout"
-        );
-
-        // 5. Simulate re-login with another account: backfill triggers and sync bidirectional cloud records
+        // 5. Simulate re-login with another account: initializes fresh DB and syncs cloud records
         let relogin_tokens = taurine_core::cloud::AuthTokens {
             access_token: "mock-e2e-token-2".to_string(),
             refresh_token: "mock-e2e-refresh-2".to_string(),
@@ -661,13 +728,7 @@ mod tests {
         };
         taurine_core::cloud::store_tokens(&relogin_tokens).expect("store relogin tokens succeeds");
 
-        let _ = taurine_core::db::crud::backfill_untracked_triggers_to_outbox(&conn);
-        let outbox_after_login = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
-        assert!(
-            !outbox_after_login.is_empty(),
-            "Offline triggers must queue into outbox upon re-login"
-        );
-
+        let fresh_conn = taurine_core::db::init::setup().expect("setup after relogin succeeds");
         let remote_snippet = taurine_core::db::crud::CloudSnippetPayload {
             user_id: Some("user-e2e-99999".to_string()),
             id: "remote_snippet_uuid".to_string(),
@@ -698,13 +759,13 @@ mod tests {
             assets: Vec::new(),
         };
         let outcome =
-            taurine_core::db::crud::reconcile_cloud_snippet(&conn, &remote_snippet).unwrap();
+            taurine_core::db::crud::reconcile_cloud_snippet(&fresh_conn, &remote_snippet).unwrap();
         assert_eq!(
             outcome,
             taurine_core::db::crud::ReconcileOutcome::InsertedRemote
         );
 
-        let cloud_action = taurine_core::db::crud::get_action_by_trigger(&conn, "tau_cloud")
+        let cloud_action = taurine_core::db::crud::get_action_by_trigger(&fresh_conn, "tau_cloud")
             .unwrap()
             .unwrap();
         assert_eq!(cloud_action.output, "Cloud synced content");

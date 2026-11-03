@@ -663,7 +663,10 @@ fn test_login_args_parsing() {
     }
 
     let cli = Cli::try_parse_from(["taurine", "logout"]).expect("logout parses");
-    assert!(matches!(cli.command, Some(Commands::Logout)));
+    assert!(matches!(
+        cli.command,
+        Some(Commands::Logout { force: false })
+    ));
 }
 
 #[test]
@@ -828,7 +831,7 @@ fn test_unauthenticated_list_rejected_with_login_message() {
 }
 
 #[test]
-fn test_logout_preserves_local_database_and_stops_daemon() {
+fn test_logout_purges_local_database_and_stops_daemon() {
     let _lock = crate::commands::TEST_LOCK.lock().unwrap();
     crate::commands::test_keyring::use_shared_test_keyring();
     let temp = tempfile::tempdir().expect("tempdir");
@@ -851,7 +854,7 @@ fn test_logout_preserves_local_database_and_stops_daemon() {
     .expect("insert trigger succeeds");
     drop(conn);
 
-    crate::commands::auth::execute_logout(false).expect("logout succeeds");
+    crate::commands::auth::execute_logout(true, false).expect("logout succeeds");
 
     assert!(taurine_core::cloud::get_tokens().unwrap().is_none());
     assert!(taurine_core::cloud::get_vault_dek().unwrap().is_none());
@@ -864,10 +867,7 @@ fn test_logout_preserves_local_database_and_stops_daemon() {
             |row| row.get(0),
         )
         .expect("query succeeds");
-    assert_eq!(
-        count, 1,
-        "local database triggers must be preserved on logout"
-    );
+    assert_eq!(count, 0, "local database triggers must be purged on logout");
     drop(conn);
 
     // SAFETY: access to TAURINE_DATA_DIR is serialized by TEST_LOCK
