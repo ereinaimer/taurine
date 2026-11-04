@@ -224,12 +224,17 @@ pub fn execute_login(
     Ok(())
 }
 
-/// Logs out the user by attempting to flush pending sync changes to the cloud,
-/// stopping the background daemon, clearing credentials from the keystore,
+/// Logs out the user by stopping the background daemon, attempting to flush any
+/// pending sync changes to the cloud, clearing credentials from the keystore,
 /// and executing an unconditional factory reset of the local database and vault keys.
 pub fn execute_logout(json: bool) -> Result<()> {
+    // Stop the background service first so any in-memory quota deltas flush to SQLite
+    // and all daemon database locks are released before we sync or purge.
+    if taurine_core::service::is_service_running() {
+        let _ = taurine_core::service::down();
+    }
+
     if let Ok(conn) = taurine_core::db::init::setup() {
-        let _ = taurine_core::db::crud::triggers::backfill_untracked_triggers_to_outbox(&conn);
         let has_pending = taurine_core::db::crud::fetch_outbox_batch(&conn, 1)
             .map(|pending| !pending.is_empty())
             .unwrap_or(false);
@@ -246,28 +251,42 @@ pub fn execute_logout(json: bool) -> Result<()> {
                 }
                 let res = rt.block_on(async {
                     tokio::time::timeout(
-                        std::time::Duration::from_secs(3),
+                        std::time::Duration::from_secs(5),
                         taurine_daemon::SyncWorker::run_sync_cycle(&conn, Some(&client)),
                     )
                     .await
                 });
 
-                if matches!(res, Ok(taurine_daemon::SyncStatus::Success { .. }))
-                    && let Ok(pending) = taurine_core::db::crud::fetch_outbox_batch(&conn, 1)
-                    && pending.is_empty()
-                {
-                    if !json {
-                        println!("Cloud sync completed.");
+                match res {
+                    Ok(taurine_daemon::SyncStatus::Success { .. }) => {
+                        if let Ok(pending) = taurine_core::db::crud::fetch_outbox_batch(&conn, 1)
+                            && pending.is_empty()
+                        {
+                            if !json {
+                                println!("Cloud sync completed.");
+                            }
+                            break;
+                        }
                     }
-                    break;
+                    Ok(taurine_daemon::SyncStatus::Error(err)) => {
+                        if !json {
+                            eprintln!("  Sync attempt {attempt}/3 failed: {err}");
+                        }
+                    }
+                    Ok(taurine_daemon::SyncStatus::NotAuthenticated) => {
+                        if !json {
+                            eprintln!("  Sync attempt {attempt}/3 failed: not authenticated");
+                        }
+                        break;
+                    }
+                    Err(_) => {
+                        if !json {
+                            eprintln!("  Sync attempt {attempt}/3 timed out");
+                        }
+                    }
                 }
             }
         }
-    }
-
-    // Stop the background service first so any in-memory quota deltas flush to SQLite
-    if taurine_core::service::is_service_running() {
-        let _ = taurine_core::service::down();
     }
 
     let _ = taurine_core::cloud::clear_vault_dek();
@@ -553,8 +572,13 @@ mod tests {
         taurine_core::cloud::store_tokens(&mock_tokens).expect("store tokens succeeds");
         taurine_core::cloud::store_vault_dek(&[0x88u8; 32]).expect("store vault dek succeeds");
 
-        let _conn = taurine_core::db::init::setup().expect("setup succeeds");
-        drop(_conn);
+        let conn = taurine_core::db::init::setup().expect("setup succeeds");
+        conn.execute(
+            "INSERT INTO triggers (id, output, created_at, updated_at) VALUES ('trig-clean', 'clean output', 1000, 1000)",
+            [],
+        )
+        .expect("insert trigger succeeds");
+        drop(conn);
 
         let res = execute_logout(true);
         assert!(res.is_ok(), "execute_logout with clean outbox must succeed");
