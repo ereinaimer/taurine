@@ -8,7 +8,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Safe Logout Safeguard**: Prompt for confirmation before purging data on logout if pending mutations remain unsynced, or bypass via `--force`.
 - **Mandatory Authentication Gate**: Require an active Taurine account to launch the background service and connect to cloud sync.
 - **Bidirectional Cloud Sync**: Synchronize and restore snippets, settings, activity history, and multi-device statistics across devices with conflict-free aggregation.
 - **Activity Event Logging**: Record individual user actions with timestamps, application context, word counts, and time saved.
@@ -28,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Modern Settings Overlay**: Quick-access settings modal (`Ctrl+,`) with inline field editing, graphical animated toggles, volume sliders, and connected microphone pickers.
 
 ### Changed
+- **Unconditional Factory Reset Logout**: Automatically flush pending changes with retries and perform a complete local wipe on logout.
 - **Login Terminal Experience**: Prevent redundant authentication flows when already signed in and format messages with account email.
 - **Status Command Streamlining**: Displays account email instead of raw ID, shows relative countdown for weekly quota reset, and removes redundant unlimited labels.
 - **Google Authentication**: Replaced GitHub OAuth with Google OAuth as the default cloud authentication provider alongside email login.
@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Monetization Simplification**: Free tier now includes unlimited snippets, workspaces, and devices, gating exclusively on weekly expansion quota.
 
 ### Removed
+- **Logout Force Flag**: Removed the `--force` flag and interactive prompts from the logout command.
 - **Keystrokes Saved Metric**: Deprecated keystroke counting across all database tables, calculation models, and cloud synchronization.
 - **Trigger Display Names**: Replaced redundant trigger display names with primary trigger invocations and descriptions across the CLI and TUI.
 

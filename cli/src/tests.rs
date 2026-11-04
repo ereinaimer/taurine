@@ -663,10 +663,11 @@ fn test_login_args_parsing() {
     }
 
     let cli = Cli::try_parse_from(["taurine", "logout"]).expect("logout parses");
-    assert!(matches!(
-        cli.command,
-        Some(Commands::Logout { force: false })
-    ));
+    assert!(matches!(cli.command, Some(Commands::Logout)));
+    assert!(
+        Cli::try_parse_from(["taurine", "logout", "--force"]).is_err(),
+        "taurine logout --force must be rejected"
+    );
 }
 
 #[test]
@@ -854,7 +855,7 @@ fn test_logout_purges_local_database_and_stops_daemon() {
     .expect("insert trigger succeeds");
     drop(conn);
 
-    crate::commands::auth::execute_logout(true, false).expect("logout succeeds");
+    crate::commands::auth::execute_logout(false).expect("logout succeeds");
 
     assert!(taurine_core::cloud::get_tokens().unwrap().is_none());
     assert!(taurine_core::cloud::get_vault_dek().unwrap().is_none());
