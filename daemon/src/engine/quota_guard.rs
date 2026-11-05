@@ -12,8 +12,6 @@ pub enum ExpansionType {
     Dynamic,
     /// Voice trigger expansion (-0.90%).
     VoiceTrigger,
-    /// Voice dictation speech-to-text (free & unlimited: 0.00%).
-    VoiceDictation,
 }
 
 impl ExpansionType {
@@ -23,7 +21,6 @@ impl ExpansionType {
             Self::Text => 0.30,
             Self::Dynamic => 0.60,
             Self::VoiceTrigger => 0.90,
-            Self::VoiceDictation => 0.00,
         }
     }
 }
@@ -155,15 +152,10 @@ impl QuotaGuard {
     /// Depletes quota for given expansion type.
     ///
     /// Returns true if permitted and burned, false if blocked due to depletion or unauthenticated state.
-    /// Voice dictation is free and unlimited, so it returns true as long as the user is authenticated.
     pub fn deplete(&self, exp_type: ExpansionType) -> bool {
         let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         if !inner.is_authenticated {
             return false;
-        }
-
-        if exp_type == ExpansionType::VoiceDictation {
-            return true;
         }
 
         if inner.is_unlimited {

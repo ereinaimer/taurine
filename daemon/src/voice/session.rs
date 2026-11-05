@@ -1672,20 +1672,28 @@ impl VoiceSessionManager {
     /// Audio-side gating and recognition run in the `--voice-daemon`
     /// worker; this is the unchanged text-side pipeline.
     pub fn inject_transcript(&self, text: &str) -> Result<Option<String>, String> {
-        let word_count = text.split_whitespace().count();
-        if word_count > 0 {
-            crate::engine::quota_guard::QuotaGuard::global().deplete_words(word_count);
-        }
-
         if text.trim().is_empty() {
             debug!("VoiceSessionManager: transcription returned empty text");
             return Ok(None);
         }
         // Backstop for recordings that span a fullscreen transition: discard
-        // before dictionary, stats, trigger expansion, and injection. Covers
-        // dictation and voice triggers — both funnel through here.
+        // before quota, dictionary, stats, trigger expansion, and injection.
+        // Covers dictation and voice triggers — both funnel through here.
         if self.voice_suppressed() {
             debug!("VoiceSessionManager: discarding transcript while fullscreen app focused");
+            return Ok(None);
+        }
+
+        // Charge only transcripts that will actually be injected, and stop
+        // dictation once the weekly quota is exhausted.
+        let word_count = text.split_whitespace().count();
+        let guard = crate::engine::quota_guard::QuotaGuard::global();
+        if !guard.deplete_words(word_count) {
+            if guard.is_authenticated() {
+                warn!("Dictation dropped: weekly quota exhausted");
+            } else {
+                debug!("Please log in to use Taurine.");
+            }
             return Ok(None);
         }
 
@@ -3489,6 +3497,40 @@ mod tests {
     fn test_inject_transcript_empty_returns_none() {
         let (session, _) = create_test_session();
         assert_eq!(session.inject_transcript("   ").unwrap(), None);
+    }
+
+    #[test]
+    fn test_inject_transcript_blocked_when_quota_exhausted() {
+        // Hermetic: fake injector, temp DB, mock keystore; serialized because
+        // the quota guard is process-global.
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let (session, _) = create_test_session();
+        crate::platform::test_injector().clear();
+
+        let guard = crate::engine::quota_guard::QuotaGuard::global();
+        let original_balance = guard.balance();
+        let original_unlimited = guard.is_unlimited();
+        let original_authenticated = guard.is_authenticated();
+        guard.set_unlimited(false);
+        guard.set_authenticated(true);
+        guard.set_balance(0.0);
+
+        let result = session.inject_transcript("hello world");
+
+        guard.set_balance(original_balance);
+        guard.set_unlimited(original_unlimited);
+        guard.set_authenticated(original_authenticated);
+
+        assert_eq!(result.unwrap(), None);
+        assert!(
+            crate::platform::test_injector().recorded().is_empty(),
+            "exhausted quota must not inject, got {:?}",
+            crate::platform::test_injector().recorded()
+        );
     }
 
     #[test]

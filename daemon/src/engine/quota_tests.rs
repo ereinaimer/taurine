@@ -54,21 +54,6 @@ fn test_quota_burn_voice_trigger() {
 }
 
 #[test]
-fn test_quota_voice_dictation_free() {
-    let guard = QuotaGuard::new_with_balance(100.0);
-    assert!(guard.deplete(ExpansionType::VoiceDictation));
-    assert_eq!(guard.balance(), 100.0);
-    assert_eq!(guard.unflushed_delta(), 0.0);
-
-    guard.set_balance(0.0);
-    assert!(guard.is_depleted());
-    // Dictation is free and unlimited even when exhausted
-    assert!(guard.deplete(ExpansionType::VoiceDictation));
-    assert_eq!(guard.balance(), 0.0);
-    assert_eq!(guard.unflushed_delta(), 0.0);
-}
-
-#[test]
 fn test_warning_threshold_at_10_percent() {
     let guard = QuotaGuard::new_with_balance(100.0);
     assert!(!guard.is_warning());
@@ -118,7 +103,6 @@ fn test_unauthenticated_guard_blocks_all_expansions() {
     assert!(!guard.deplete(ExpansionType::Text));
     assert!(!guard.deplete(ExpansionType::Dynamic));
     assert!(!guard.deplete(ExpansionType::VoiceTrigger));
-    assert!(!guard.deplete(ExpansionType::VoiceDictation));
 
     guard.set_authenticated(true);
     assert!(guard.is_authenticated());
@@ -366,23 +350,6 @@ fn test_quota_guard_unlimited_mode_bypasses_depletion() {
     assert!(guard.deplete(ExpansionType::VoiceTrigger));
     assert_eq!(guard.balance(), 0.0);
     assert_eq!(guard.unflushed_delta(), 0.0);
-}
-
-#[test]
-fn test_quota_guard_voice_dictation_always_free_even_at_zero_balance() {
-    let guard = QuotaGuard::new_with_balance(0.0);
-    assert!(!guard.can_expand());
-    assert!(guard.is_depleted());
-
-    // Voice dictation is free & unlimited on all tiers
-    assert!(guard.deplete(ExpansionType::VoiceDictation));
-    assert_eq!(guard.balance(), 0.0);
-    assert_eq!(guard.unflushed_delta(), 0.0);
-
-    // Paid/typed triggers are still blocked at zero balance on Free tier
-    assert!(!guard.deplete(ExpansionType::Text));
-    assert!(!guard.deplete(ExpansionType::Dynamic));
-    assert!(!guard.deplete(ExpansionType::VoiceTrigger));
 }
 
 #[test]
