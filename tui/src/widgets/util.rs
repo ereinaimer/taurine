@@ -346,6 +346,37 @@ pub(crate) fn render_overlay_select(
     frame.render_stateful_widget(list, list_area, &mut list_state);
 }
 
+/// Geometry for the two-button row shared by action dialogs and the
+/// account gates: two padded cells (`  label  `) with a three-cell gap,
+/// centered in `row`. Rendering and hit-testing both go through this.
+pub(crate) fn action_button_cells(
+    row: Rect,
+    cancel_label: &str,
+    confirm_label: &str,
+) -> (Rect, Rect) {
+    const PAD: u16 = 2;
+    const GAP: u16 = 3;
+    let cancel_width = cancel_label.len() as u16 + PAD * 2;
+    let confirm_width = confirm_label.len() as u16 + PAD * 2;
+    let total = cancel_width
+        .saturating_add(GAP)
+        .saturating_add(confirm_width);
+    let start = row.x.saturating_add(row.width.saturating_sub(total) / 2);
+    let cancel = Rect {
+        x: start,
+        y: row.y,
+        width: cancel_width,
+        height: 1,
+    };
+    let confirm = Rect {
+        x: start.saturating_add(cancel_width).saturating_add(GAP),
+        y: row.y,
+        width: confirm_width,
+        height: 1,
+    };
+    (cancel, confirm)
+}
+
 pub(crate) fn render_action_buttons(
     frame: &mut Frame,
     area: Rect,
@@ -355,23 +386,7 @@ pub(crate) fn render_action_buttons(
     selection: ButtonSelection,
     theme: &Theme,
 ) {
-    use ratatui::layout::{Constraint, Direction, Layout};
-    let cancel_text = format!("  {cancel_label}  ");
-    let confirm_text = format!("  {confirm_label}  ");
-    let cancel_width = cancel_text.len() as u16;
-    let confirm_width = confirm_text.len() as u16;
-    let gap: u16 = 3;
-
-    let btn_layout = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Min(1),
-            Constraint::Length(cancel_width),
-            Constraint::Length(gap),
-            Constraint::Length(confirm_width),
-            Constraint::Min(1),
-        ])
-        .split(area);
+    let (cancel_cell, confirm_cell) = action_button_cells(area, cancel_label, confirm_label);
 
     let cancel_style = if is_focused && selection == ButtonSelection::Cancel {
         Style::default()
@@ -382,8 +397,8 @@ pub(crate) fn render_action_buttons(
         Style::default().fg(theme.text).bg(theme.surface)
     };
     frame.render_widget(
-        Paragraph::new(cancel_text).style(cancel_style),
-        btn_layout[1],
+        Paragraph::new(format!("  {cancel_label}  ")).style(cancel_style),
+        cancel_cell,
     );
 
     let confirm_style = if is_focused && selection == ButtonSelection::Confirm {
@@ -395,8 +410,8 @@ pub(crate) fn render_action_buttons(
         Style::default().fg(theme.text).bg(theme.surface)
     };
     frame.render_widget(
-        Paragraph::new(confirm_text).style(confirm_style),
-        btn_layout[3],
+        Paragraph::new(format!("  {confirm_label}  ")).style(confirm_style),
+        confirm_cell,
     );
 }
 

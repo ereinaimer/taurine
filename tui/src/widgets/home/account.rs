@@ -136,7 +136,7 @@ fn push_wrapped(lines: &mut Vec<Line<'static>>, text: &str, width: usize, style:
     }
 }
 
-fn plan_label(tier: UserTier) -> &'static str {
+pub(crate) fn plan_label(tier: UserTier) -> &'static str {
     match tier {
         UserTier::Free => "Free plan",
         UserTier::Pro => "Pro plan",
@@ -171,7 +171,7 @@ pub(crate) fn format_reset_in(seconds: i64) -> String {
     }
 }
 
-fn quota_bar(remaining: f64, width: usize, theme: &Theme) -> Line<'static> {
+pub(crate) fn quota_bar(remaining: f64, width: usize, theme: &Theme) -> Line<'static> {
     let filled = ((remaining.clamp(0.0, 100.0) / 100.0) * width as f64).round() as usize;
     let filled = filled.min(width);
     Line::from(vec![

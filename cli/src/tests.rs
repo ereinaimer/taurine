@@ -791,20 +791,13 @@ fn test_unauthenticated_up_and_restart_rejected_with_login_message() {
 }
 
 #[test]
-fn test_unauthenticated_tui_and_daemon_rejected_with_login_message() {
+fn test_unauthenticated_daemon_rejected_with_login_message() {
     let _lock = crate::commands::TEST_LOCK.lock().unwrap();
     crate::commands::test_keyring::use_shared_test_keyring();
     let _ = taurine_core::cloud::clear_tokens();
 
-    let cli_tui = Cli::try_parse_from(["taurine"]).expect("tui parses");
-    let res_tui = run(cli_tui, LaunchTarget::Tui);
-    match res_tui {
-        Err(taurine_core::error::Error::Config(msg)) => {
-            assert!(msg.contains("Please log in to use Taurine. Run 'taurine login' to continue."));
-        }
-        other => panic!("expected Config error for tui, got {other:?}"),
-    }
-
+    // The TUI is deliberately absent here: it now opens a sign-in gate
+    // instead of exiting, and cannot be launched inside a test terminal.
     let cli_daemon = Cli::try_parse_from(["taurine", "--daemon"]).expect("daemon parses");
     let res_daemon = run(cli_daemon, LaunchTarget::Daemon);
     match res_daemon {

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **In-TUI Account Gates**: Sign in with Google from the TUI and see a dismissible weekly-quota notice without losing access to the library.
 - **Mandatory Authentication Gate**: Require an active Taurine account to launch the background service and connect to cloud sync.
 - **Bidirectional Cloud Sync**: Synchronize and restore snippets, settings, activity history, and multi-device statistics across devices with conflict-free aggregation.
 - **Activity Event Logging**: Record individual user actions with timestamps, application context, word counts, and time saved.

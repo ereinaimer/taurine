@@ -2,6 +2,7 @@ use std::time::{Duration, Instant};
 
 use tachyonfx::Effect;
 
+use crate::gate::Gate;
 use crate::layout_store::TuiLayout;
 use crate::screen_fx;
 use crate::theme::Theme;
@@ -33,6 +34,11 @@ pub(crate) struct App {
     /// Cached daemon pause flag: the palette labels its toggle from it,
     /// refreshed when the palette opens and after every transition.
     daemon_paused: bool,
+    /// Account gate: signed-out door or depleted-quota notice.
+    gate: Option<Gate>,
+    /// Quota reset epoch the user dismissed the notice for, so it does
+    /// not reopen every frame. A new week has a new epoch.
+    quota_gate_dismissed: Option<i64>,
     transition_effect: Option<Effect>,
     last_frame_instant: Instant,
     is_closing: bool,
@@ -56,6 +62,8 @@ impl Default for App {
             nav_rail: NavRailState::default(),
             rail_icons: None,
             daemon_paused: false,
+            gate: None,
+            quota_gate_dismissed: None,
             transition_effect: None,
             last_frame_instant: Instant::now(),
             is_closing: false,
@@ -220,6 +228,29 @@ impl App {
         if let Some(paused) = taurine_core::rpc::daemon_paused() {
             self.daemon_paused = paused;
         }
+    }
+
+    pub(crate) const fn gate(&self) -> Option<&Gate> {
+        self.gate.as_ref()
+    }
+
+    pub(crate) fn gate_mut(&mut self) -> Option<&mut Gate> {
+        self.gate.as_mut()
+    }
+
+    pub(crate) fn set_gate(&mut self, gate: Option<Gate>) {
+        self.gate = gate;
+    }
+
+    pub(crate) const fn quota_gate_dismissed(&self) -> Option<i64> {
+        self.quota_gate_dismissed
+    }
+
+    /// Dismisses the quota notice for the current week. Editing stays
+    /// available; the daemon still blocks quota-spending actions.
+    pub(crate) fn dismiss_quota_gate(&mut self, reset_epoch: i64) {
+        self.quota_gate_dismissed = Some(reset_epoch);
+        self.gate = None;
     }
 
     pub(crate) const fn toggle_animations(&self) -> &ToggleAnimations {

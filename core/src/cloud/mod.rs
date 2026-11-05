@@ -3,6 +3,7 @@ pub mod crypto;
 pub mod device;
 pub mod keyring;
 pub mod lease;
+pub mod oauth;
 pub mod types;
 
 pub use client::{CloudClient, extract_jwt_email, generate_pkce_challenge};
@@ -16,6 +17,7 @@ pub use keyring::{
     store_tokens,
 };
 pub use lease::{CapabilityLease, TimeAnchor, canonical_lease_payload, sign_lease, validate_lease};
+pub use oauth::{extract_code_from_request_line, open_browser};
 pub use types::{AuthTokens, CloudConfig, CloudProfile};
 
 #[cfg(test)]

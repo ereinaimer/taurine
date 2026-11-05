@@ -1,6 +1,7 @@
 // Licensed under the Aimer Software License (ASL).
 // See LICENSE for details.
 
+mod gate;
 mod layout_store;
 mod overlay;
 mod overlay_fx;
@@ -18,6 +19,7 @@ mod widgets;
 use std::io;
 use std::time::{Duration, Instant};
 
+use crate::gate::{Gate, GateAction};
 use crate::layout_store::TuiLayout;
 use crate::overlay_fx::OverlayTransition;
 use crate::theme::Theme;
@@ -59,6 +61,7 @@ pub fn run() -> taurine_core::Result<()> {
     refresh_library_page(&mut app);
     refresh_settings_page(&mut app);
     refresh_home_page(&mut app);
+    sync_gate(&mut app);
 
     let mut terminal = TerminalGuard::new()?;
     app.load_rail_icons();
@@ -138,6 +141,14 @@ pub fn run() -> taurine_core::Result<()> {
             }
             Event::Mouse(mouse) => handle_tui_mouse_event(&mut app, mouse, last_area),
             Event::Tick => {
+                // honey: a finished Google sign-in lands on the tick, so
+                // the gate never blocks the draw loop while it waits.
+                if let Some(Ok(_email)) = app.gate_mut().and_then(Gate::poll) {
+                    app.set_gate(None);
+                    refresh_library_page(&mut app);
+                    refresh_settings_page(&mut app);
+                    refresh_home_page(&mut app);
+                }
                 let interaction = app.library_page_mut().autosave_tick();
                 apply_library_interaction(&mut app, interaction);
                 // honey: keyboard slider steps queue their write so a held
@@ -150,6 +161,7 @@ pub fn run() -> taurine_core::Result<()> {
                         refresh_home_page(&mut app);
                     }
                 }
+                sync_gate(&mut app);
             }
         }
 
@@ -252,6 +264,13 @@ fn render_app(frame: &mut ratatui::Frame, app: &mut App, area: ratatui::layout::
         area,
     );
 
+    // honey: the signed-out door replaces the workspace entirely. Nothing
+    // behind it is usable, so drawing the rail would only imply otherwise.
+    if let Some(Gate::SignedOut(state)) = app.gate() {
+        gate::render_signed_out(frame, area, theme, state);
+        return;
+    }
+
     let full = workspace_full(app, area);
     let content_divider_row = library_content_divider_row(app, full);
 
@@ -343,6 +362,20 @@ fn render_app(frame: &mut ratatui::Frame, app: &mut App, area: ratatui::layout::
             );
         }
         library::recorder::render(frame, area, theme, recorder);
+    }
+
+    // honey: the quota notice is a page-level layer, not a modal. It dims
+    // the workspace so the library stays visible while editing is allowed.
+    if let Some(Gate::Quota(state)) = app.gate() {
+        dim_frame(frame);
+        gate::render_quota(
+            frame,
+            area,
+            theme,
+            state,
+            app.home_page().account(),
+            home::account::now_epoch(),
+        );
     }
 }
 
@@ -507,7 +540,27 @@ fn switch_page(app: &mut App, page: ActivePage) {
     }
 }
 
+fn handle_gate_key(app: &mut App, key: crossterm::event::KeyEvent) {
+    let action = app.gate_mut().map(|gate| gate.handle_key(key));
+    match action {
+        Some(GateAction::Quit) => app.begin_close_transition(),
+        Some(GateAction::Dismiss) => {
+            if let Some(reset) = app.gate().and_then(Gate::quota_reset_epoch) {
+                app.dismiss_quota_gate(reset);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn handle_tui_key_event(app: &mut App, key: crossterm::event::KeyEvent) {
+    // honey: an account gate owns the keyboard. The workspace behind it
+    // must not react to shortcuts while the gate is up.
+    if app.gate().is_some() {
+        handle_gate_key(app, key);
+        return;
+    }
+
     // honey: the recorder captures every chord, including Ctrl+C and
     // Ctrl+P, so it takes the keyboard before the global shortcuts.
     if app.hotkey_recorder().is_some() {
@@ -953,6 +1006,22 @@ fn handle_tui_mouse_event(
             if down { KeyCode::Down } else { KeyCode::Up },
             KeyModifiers::NONE,
         )
+    }
+
+    // honey: gates own the pointer too; only their buttons react.
+    if app.gate().is_some() {
+        if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
+            let hit = app
+                .gate()
+                .and_then(|gate| gate::hit(area, gate, mouse.column, mouse.row));
+            if let Some(selection) = hit {
+                if let Some(gate) = app.gate_mut() {
+                    gate.select(selection);
+                }
+                handle_gate_key(app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+            }
+        }
+        return;
     }
 
     let modal_open = app.library_page().is_modal_open() || app.is_settings_overlay_open();
@@ -2103,6 +2172,35 @@ fn refresh_home_page(app: &mut App) {
     }
 }
 
+/// Keeps the account gate in sync with the cached account snapshot.
+/// Signed-out always wins; a depleted Free plan shows the notice once
+/// per quota week, and stays dismissed after the user continues.
+fn sync_gate(app: &mut App) {
+    let (authenticated, tier, quota) = {
+        let account = app.home_page().account();
+        (account.authenticated, account.tier, account.quota)
+    };
+    if !authenticated {
+        if !matches!(app.gate(), Some(Gate::SignedOut(_))) {
+            app.set_gate(Some(Gate::signed_out()));
+        }
+        return;
+    }
+    if matches!(app.gate(), Some(Gate::SignedOut(_))) {
+        app.set_gate(None);
+    }
+    let depleted = tier.is_free() && quota.is_some_and(|q| q.remaining_percentage <= 0.0);
+    if depleted {
+        let reset = quota.map(|q| q.reset_epoch).unwrap_or_default();
+        if app.quota_gate_dismissed() != Some(reset) && !matches!(app.gate(), Some(Gate::Quota(_)))
+        {
+            app.set_gate(Some(Gate::quota(reset)));
+        }
+    } else if matches!(app.gate(), Some(Gate::Quota(_))) {
+        app.set_gate(None);
+    }
+}
+
 fn refresh_settings_page(app: &mut App) {
     match taurine_core::db::init::setup() {
         Ok(conn) => {
@@ -2307,6 +2405,92 @@ mod tests {
         assert_eq!(divider_glyph(DividerSide::List, 7, Some(7)), "├");
         assert_eq!(divider_glyph(DividerSide::Props, 7, Some(7)), "┤");
         assert_eq!(divider_glyph(DividerSide::List, 8, Some(7)), "│");
+    }
+
+    #[test]
+    fn signed_out_account_opens_the_gate() {
+        use super::home::account::AccountInfo;
+
+        let mut app = super::terminal::app::App::default();
+        app.home_page_mut().replace_account(AccountInfo {
+            authenticated: false,
+            ..AccountInfo::default()
+        });
+
+        super::sync_gate(&mut app);
+
+        assert!(matches!(app.gate(), Some(super::Gate::SignedOut(_))));
+    }
+
+    #[test]
+    fn depleted_free_plan_opens_the_gate_once() {
+        use super::home::account::{AccountInfo, QuotaWindow};
+        use taurine_core::db::crud::UserTier;
+
+        let mut app = super::terminal::app::App::default();
+        app.home_page_mut().replace_account(AccountInfo {
+            authenticated: true,
+            tier: UserTier::Free,
+            quota: Some(QuotaWindow {
+                remaining_percentage: 0.0,
+                reset_epoch: 1_000,
+            }),
+            ..AccountInfo::default()
+        });
+
+        super::sync_gate(&mut app);
+        assert!(matches!(app.gate(), Some(super::Gate::Quota(_))));
+
+        app.dismiss_quota_gate(1_000);
+        assert!(app.gate().is_none());
+
+        super::sync_gate(&mut app);
+        assert!(
+            app.gate().is_none(),
+            "a dismissed week must not reopen on the next tick"
+        );
+    }
+
+    #[test]
+    fn unlimited_plan_never_opens_the_quota_gate() {
+        use super::home::account::{AccountInfo, QuotaWindow};
+        use taurine_core::db::crud::UserTier;
+
+        let mut app = super::terminal::app::App::default();
+        app.home_page_mut().replace_account(AccountInfo {
+            authenticated: true,
+            tier: UserTier::Pro,
+            quota: Some(QuotaWindow {
+                remaining_percentage: 0.0,
+                reset_epoch: 1_000,
+            }),
+            ..AccountInfo::default()
+        });
+
+        super::sync_gate(&mut app);
+
+        assert!(app.gate().is_none());
+    }
+
+    #[test]
+    fn healthy_free_plan_has_no_gate() {
+        use super::home::account::{AccountInfo, QuotaWindow};
+        use taurine_core::db::crud::UserTier;
+
+        let mut app = super::terminal::app::App::default();
+        app.home_page_mut().replace_account(AccountInfo {
+            authenticated: true,
+            tier: UserTier::Free,
+            quota: Some(QuotaWindow {
+                remaining_percentage: 50.0,
+                reset_epoch: 1_000,
+            }),
+            ..AccountInfo::default()
+        });
+
+        super::sync_gate(&mut app);
+
+        assert!(app.gate().is_none());
     }
 
     #[test]

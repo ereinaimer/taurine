@@ -28,6 +28,12 @@ fn test_user_tier_serde_and_default() {
     assert!(!UserTier::Pro.is_free());
     assert!(UserTier::Pro.is_unlimited());
 
+    assert_eq!(UserTier::from_cloud_tier("pro"), UserTier::Pro);
+    assert_eq!(UserTier::from_cloud_tier("MAX"), UserTier::Max);
+    assert_eq!(UserTier::from_cloud_tier("team"), UserTier::Team);
+    assert_eq!(UserTier::from_cloud_tier("free"), UserTier::Free);
+    assert_eq!(UserTier::from_cloud_tier("unknown"), UserTier::Free);
+
     let json = serde_json::to_string(&UserTier::Free).unwrap();
     assert_eq!(json, "\"free\"");
     let parsed: UserTier = serde_json::from_str(&json).unwrap();

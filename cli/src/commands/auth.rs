@@ -1,4 +1,5 @@
 use std::io::Write;
+use taurine_core::cloud::open_browser;
 use taurine_core::db::crud::UserTier;
 use taurine_core::error::Result;
 
@@ -138,7 +139,7 @@ pub fn execute_login(
                 println!("If your browser does not open automatically, visit:\n{auth_url}\n");
             }
 
-            open_browser(&auth_url);
+            let _ = open_browser(&auth_url);
 
             let (mut stream, _) = listener.accept()?;
             use std::io::{BufRead, BufReader};
@@ -146,11 +147,12 @@ pub fn execute_login(
             let mut request_line = String::new();
             reader.read_line(&mut request_line)?;
 
-            let code = extract_code_from_request_line(&request_line).ok_or_else(|| {
-                taurine_core::Error::Config(
-                    "Failed to extract authorization code from OAuth callback.".into(),
-                )
-            })?;
+            let code = taurine_core::cloud::extract_code_from_request_line(&request_line)
+                .ok_or_else(|| {
+                    taurine_core::Error::Config(
+                        "Failed to extract authorization code from OAuth callback.".into(),
+                    )
+                })?;
 
             let response_body = "<!DOCTYPE html><html><head><title>Taurine Login</title></head><body><h1>Authentication Successful</h1><p>You can close this tab and return to your terminal.</p></body></html>";
             let response = format!(
@@ -181,12 +183,7 @@ pub fn execute_login(
     });
 
     let tier = match profile_res {
-        Ok(profile) => match profile.tier.to_lowercase().as_str() {
-            "pro" => UserTier::Pro,
-            "max" => UserTier::Max,
-            "team" => UserTier::Team,
-            _ => UserTier::Free,
-        },
+        Ok(profile) => UserTier::from_cloud_tier(&profile.tier),
         Err(err) => {
             tracing::warn!("Failed to fetch profile tier: {err}; defaulting to Free");
             UserTier::Free
@@ -301,89 +298,9 @@ pub fn execute_logout(json: bool) -> Result<()> {
     Ok(())
 }
 
-fn extract_code_from_request_line(line: &str) -> Option<String> {
-    let code_idx = line.find("code=")?;
-    let after_code = &line[code_idx + 5..];
-    let end_idx = after_code
-        .find(['&', ' ', '\r', '\n'])
-        .unwrap_or(after_code.len());
-
-    let raw_code = &after_code[..end_idx];
-    if raw_code.is_empty() {
-        None
-    } else {
-        Some(raw_code.to_string())
-    }
-}
-
-#[cfg(target_os = "windows")]
-fn to_wide_null(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(std::iter::once(0)).collect()
-}
-
-fn open_browser(url: &str) {
-    #[cfg(target_os = "windows")]
-    {
-        use std::ptr;
-        let wide_verb = to_wide_null("open");
-        let wide_url = to_wide_null(url);
-        // SAFETY: ShellExecuteW invokes the default system handler for the URL protocol with valid null-terminated wide strings
-        unsafe {
-            windows_sys::Win32::UI::Shell::ShellExecuteW(
-                ptr::null_mut(),
-                wide_verb.as_ptr(),
-                wide_url.as_ptr(),
-                ptr::null(),
-                ptr::null(),
-                windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL,
-            );
-        }
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let _ = std::process::Command::new("open").arg(url).spawn();
-    }
-    #[cfg(target_os = "linux")]
-    {
-        let _ = std::process::Command::new("xdg-open").arg(url).spawn();
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    #[cfg(target_os = "windows")]
-    fn test_to_wide_null_preserves_query_parameters() {
-        let url = "https://example.supabase.co/auth/v1/authorize?provider=google&code_challenge=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk&code_challenge_method=s256&redirect_to=http%3A%2F%2F127.0.0.1%3A54321%2Fcallback";
-        let wide = to_wide_null(url);
-        assert_eq!(*wide.last().unwrap(), 0);
-
-        let decoded = String::from_utf16(&wide[..wide.len() - 1]).expect("valid utf-16");
-        assert_eq!(decoded, url);
-        assert_eq!(decoded.matches('&').count(), 3);
-        assert!(decoded.contains("provider=google"));
-        assert!(decoded.contains("code_challenge="));
-        assert!(decoded.contains("code_challenge_method="));
-        assert!(decoded.contains("redirect_to="));
-    }
-
-    #[test]
-    fn test_extract_code_from_request_line() {
-        assert_eq!(
-            extract_code_from_request_line("GET /callback?code=abc123xyz HTTP/1.1"),
-            Some("abc123xyz".to_string())
-        );
-        assert_eq!(
-            extract_code_from_request_line("GET /callback?code=abc123xyz&state=state1 HTTP/1.1"),
-            Some("abc123xyz".to_string())
-        );
-        assert_eq!(
-            extract_code_from_request_line("GET /callback HTTP/1.1"),
-            None
-        );
-    }
 
     #[test]
     #[ignore = "touches host browser (native_shell_open); opt-in with TAURINE_ALLOW_HOST_INPUT=1"]
@@ -391,7 +308,7 @@ mod tests {
         if !taurine_daemon::platform::host_tests_allowed() {
             return;
         }
-        open_browser(
+        let _ = taurine_core::cloud::open_browser(
             "https://example.supabase.co/auth/v1/authorize?provider=google&code_challenge=test&redirect_to=http://127.0.0.1:8080",
         );
     }

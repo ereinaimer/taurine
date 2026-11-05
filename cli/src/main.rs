@@ -106,7 +106,6 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
             return Ok(());
         }
         LaunchTarget::Tui => {
-            commands::auth::ensure_authenticated()?;
             return taurine_tui::run();
         }
         LaunchTarget::Command => {}
