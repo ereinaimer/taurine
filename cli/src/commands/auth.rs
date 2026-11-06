@@ -222,9 +222,9 @@ pub fn execute_login(
 }
 
 /// Logs out the user by stopping the background daemon, attempting to flush any
-/// pending sync changes to the cloud, clearing credentials from the keystore,
-/// and executing an unconditional factory reset of the local database and vault keys.
-pub fn execute_logout(json: bool) -> Result<()> {
+/// pending sync changes to the cloud, prompting or checking --force if unsynced
+/// mutations remain, clearing credentials from the keystore, and executing a factory reset.
+pub fn execute_logout(force: bool, json: bool) -> Result<()> {
     // Stop the background service first so any in-memory quota deltas flush to SQLite
     // and all daemon database locks are released before we sync or purge.
     if taurine_core::service::is_service_running() {
@@ -282,6 +282,42 @@ pub fn execute_logout(json: bool) -> Result<()> {
                         }
                     }
                 }
+            }
+        }
+
+        // Verify if unsynced mutations still remain after flush attempts
+        let still_pending = taurine_core::db::crud::fetch_outbox_batch(&conn, 1)
+            .map(|pending| !pending.is_empty())
+            .unwrap_or(false);
+
+        if still_pending && !force {
+            use std::io::IsTerminal;
+            if std::io::stdin().is_terminal() {
+                eprintln!(
+                    "Warning: Unsynced changes exist that could not be uploaded to the cloud."
+                );
+                eprintln!(
+                    "Logging out will purge local database storage and discard these changes."
+                );
+                eprint!("Are you sure you want to log out and discard unsynced data? [y/N] ");
+                let _ = std::io::stdout().flush();
+                let mut input = String::new();
+                let _ = std::io::stdin().read_line(&mut input);
+                if input.trim().to_lowercase() != "y" {
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::json!({ "status": "aborted", "reason": "unsynced_changes" })
+                        );
+                    } else {
+                        println!("Logout cancelled. Your local changes are preserved.");
+                    }
+                    return Ok(());
+                }
+            } else {
+                return Err(taurine_core::Error::Config(
+                    "Cannot log out: unsynced changes exist and could not be uploaded. Use --force to discard local data.".to_string(),
+                ));
             }
         }
     }
@@ -406,7 +442,7 @@ mod tests {
     }
 
     #[test]
-    fn test_execute_logout_unconditionally_purges_when_unsynced_mutations_remain() {
+    fn test_execute_logout_requires_force_when_unsynced_mutations_remain() {
         let _guard = crate::commands::TEST_LOCK.lock().unwrap();
         crate::commands::test_keyring::use_shared_test_keyring();
         let _ = taurine_core::cloud::clear_tokens();
@@ -439,10 +475,13 @@ mod tests {
         .expect("enqueue outbox succeeds");
         drop(conn);
 
-        let res = execute_logout(true);
+        let err = execute_logout(false, true).unwrap_err();
+        assert!(err.to_string().contains("unsynced changes exist"));
+
+        let res = execute_logout(true, true);
         assert!(
             res.is_ok(),
-            "execute_logout must succeed even when unsynced mutations remain"
+            "execute_logout with --force must succeed when unsynced mutations remain"
         );
 
         assert!(
@@ -497,7 +536,7 @@ mod tests {
         .expect("insert trigger succeeds");
         drop(conn);
 
-        let res = execute_logout(true);
+        let res = execute_logout(false, true);
         assert!(res.is_ok(), "execute_logout with clean outbox must succeed");
 
         assert!(
@@ -581,9 +620,16 @@ mod tests {
         taurine_core::cloud::store_vault_dek(&[0x42u8; 32]).expect("store vault dek succeeds");
         drop(conn);
 
-        // 4. Execute logout: clears tokens, purges local database
-        let logout_res = execute_logout(true);
-        assert!(logout_res.is_ok(), "execute_logout must succeed");
+        // 4. Execute logout without --force: aborts because unsynced mutations remain
+        let err = execute_logout(false, true).unwrap_err();
+        assert!(err.to_string().contains("unsynced changes exist"));
+
+        // Execute logout with --force: succeeds and purges local database
+        let logout_res = execute_logout(true, true);
+        assert!(
+            logout_res.is_ok(),
+            "execute_logout with --force must succeed"
+        );
 
         assert!(
             taurine_core::cloud::get_tokens().unwrap().is_none(),

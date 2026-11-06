@@ -123,7 +123,7 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
         }) => {
             commands::auth::execute_login(no_browser, provider.as_deref(), email.as_deref(), json)?
         }
-        Some(Commands::Logout) => commands::auth::execute_logout(json)?,
+        Some(Commands::Logout { force }) => commands::auth::execute_logout(force, json)?,
         Some(Commands::Sync) => commands::sync::execute_sync(json)?,
         Some(Commands::Up) => {
             commands::auth::ensure_authenticated()?;
