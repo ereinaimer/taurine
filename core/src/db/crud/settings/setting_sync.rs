@@ -35,6 +35,7 @@ pub const SYNCABLE_SETTINGS: &[&str] = &[
     "spinner_style",
     "voice_dictionary",
     "voice_model",
+    "workspace_map",
     "wpm",
 ];
 
@@ -165,6 +166,10 @@ pub fn reconcile_cloud_setting(
         "DELETE FROM sync_outbox WHERE entity_type = 'setting' AND entity_id = ?1",
         [&remote.key],
     );
+
+    if remote.key == "workspace_map" {
+        let _ = crate::db::crud::workspaces::reconcile_workspace_map(conn, &remote.value);
+    }
 
     crate::settings::bump_settings_version();
 

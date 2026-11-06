@@ -49,7 +49,7 @@ pub use triggers::{
 };
 pub use workspaces::{
     WorkspaceRow, create_workspace, delete_workspace, get_default_workspace, get_workspace_by_id,
-    get_workspaces,
+    get_workspaces, reconcile_workspace_map, sync_workspace_map,
 };
 
 pub use crate::stats::TriggerStatKind;

@@ -4427,3 +4427,103 @@ async fn test_outbox_push_batches_multiple_snippets_in_single_http_request() {
 
     taurine_core::cloud::clear_tokens().unwrap();
 }
+
+#[test]
+fn test_workspace_synchronization_and_cascade_delete_outbox() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let conn = Connection::open_in_memory().unwrap();
+    ensure_schema(&conn).unwrap();
+    taurine_core::db::crud::tier::set_user_tier(&conn, taurine_core::db::crud::tier::UserTier::Pro)
+        .unwrap();
+
+    // 1. Create a workspace 'Engineering'
+    let ws = taurine_core::db::crud::create_workspace(&conn, "Engineering").unwrap();
+
+    // Verify workspace_map setting was created and queued in outbox
+    let setting = taurine_core::db::crud::get_setting(&conn, "workspace_map").unwrap();
+    assert!(
+        setting.is_some(),
+        "Creating workspace must generate workspace_map setting"
+    );
+    let map_val: serde_json::Value = serde_json::from_str(&setting.unwrap().value).unwrap();
+    assert_eq!(map_val[&ws.id], "Engineering");
+
+    // 2. Add two triggers in this workspace
+    conn.execute(
+        "INSERT INTO triggers (
+            id, workspace_id, description, output, action_type, target_os, only_apps, except_apps,
+            tags, is_enabled, auto_case, version, is_deleted, created_at, updated_at
+        ) VALUES (?1, ?2, 'Desc', 'output 1', 'text', 'all', NULL, NULL, '[]', 1, 0, 1, 0, 1000, 1000)",
+        ["trig-ws-1", &ws.id],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO triggers (
+            id, workspace_id, description, output, action_type, target_os, only_apps, except_apps,
+            tags, is_enabled, auto_case, version, is_deleted, created_at, updated_at
+        ) VALUES (?1, ?2, 'Desc', 'output 2', 'text', 'all', NULL, NULL, '[]', 1, 0, 1, 0, 1000, 1000)",
+        ["trig-ws-2", &ws.id],
+    )
+    .unwrap();
+
+    // Clear outbox to focus on deletion cascading
+    let outbox = taurine_core::db::crud::fetch_outbox_batch(&conn, 50).unwrap();
+    for entry in outbox {
+        taurine_core::db::crud::delete_outbox_entry(&conn, entry.id).unwrap();
+    }
+
+    // 3. Delete workspace: must cascade delete both triggers and enqueue their tombstones
+    taurine_core::db::crud::delete_workspace(&conn, &ws.id).unwrap();
+
+    let batch = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    let trig_deletes: Vec<_> = batch
+        .iter()
+        .filter(|e| e.entity_type == "snippet" && e.operation == "delete")
+        .collect();
+    assert_eq!(
+        trig_deletes.len(),
+        2,
+        "Must enqueue delete tombstone for both workspace triggers"
+    );
+    let deleted_ids: Vec<&str> = trig_deletes.iter().map(|e| e.entity_id.as_str()).collect();
+    assert!(deleted_ids.contains(&"trig-ws-1"));
+    assert!(deleted_ids.contains(&"trig-ws-2"));
+
+    // And workspace_map in settings must no longer contain ws.id
+    let updated_setting = taurine_core::db::crud::get_setting(&conn, "workspace_map")
+        .unwrap()
+        .unwrap();
+    let updated_map: serde_json::Value = serde_json::from_str(&updated_setting.value).unwrap();
+    assert!(
+        updated_map.get(&ws.id).is_none(),
+        "Deleted workspace must be removed from workspace_map"
+    );
+
+    // 4. Remote reconciliation: simulate pulling a workspace_map with remote workspace 'Design'
+    let remote_map_json = serde_json::json!({
+        "ws-remote-design": "Design Team"
+    });
+    let remote_setting = taurine_core::db::crud::CloudSettingPayload {
+        user_id: None,
+        key: "workspace_map".to_string(),
+        value: remote_map_json,
+        version: 10,
+        updated_at: Some("2026-11-06T15:00:00Z".to_string()),
+    };
+
+    let outcome = taurine_core::db::crud::reconcile_cloud_setting(&conn, &remote_setting).unwrap();
+    assert_eq!(
+        outcome,
+        taurine_core::db::crud::SettingReconcileOutcome::UpdatedFromRemote
+    );
+
+    // Verify 'Design Team' workspace is created locally with human name
+    let remote_ws = taurine_core::db::crud::get_workspace_by_id(&conn, "ws-remote-design").unwrap();
+    assert!(
+        remote_ws.is_some(),
+        "Remote workspace must be materialized in SQLite"
+    );
+    assert_eq!(remote_ws.unwrap().name, "Design Team");
+}

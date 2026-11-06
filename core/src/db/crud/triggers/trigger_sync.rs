@@ -306,6 +306,21 @@ pub fn serialize_trigger_to_cloud_snippet(
     }
 }
 
+fn resolve_workspace_name(conn: &Connection, target_ws: &str) -> String {
+    if target_ws == "default" {
+        "Personal".to_string()
+    } else {
+        crate::db::crud::get_setting(conn, "workspace_map")
+            .ok()
+            .flatten()
+            .and_then(|s| {
+                serde_json::from_str::<std::collections::HashMap<String, String>>(&s.value).ok()
+            })
+            .and_then(|m| m.get(target_ws).cloned())
+            .unwrap_or_else(|| target_ws.to_string())
+    }
+}
+
 /// Reconciles an incoming remote `CloudSnippetPayload` with the local SQLite database.
 ///
 /// Implements Last-Write-Wins (LWW) conflict resolution using `(version, updated_at)`:
@@ -335,11 +350,13 @@ pub fn reconcile_cloud_snippet(
 
     match local_row {
         None => with_transaction(conn, || {
+            let ws_name = resolve_workspace_name(conn, target_ws);
             conn.execute(
                 "INSERT OR IGNORE INTO workspaces (id, name, is_default, created_at, updated_at, version, is_deleted)
-                 VALUES (?1, ?1, ?2, ?3, ?3, 1, 0)",
+                 VALUES (?1, ?2, ?3, ?4, ?4, 1, 0)",
                 rusqlite::params![
                     target_ws,
+                    ws_name,
                     if target_ws == "default" { 1 } else { 0 },
                     snippet.created_at
                 ],
@@ -398,11 +415,13 @@ pub fn reconcile_cloud_snippet(
                 || (snippet.version == local_version && snippet.updated_at > local_updated_at)
             {
                 with_transaction(conn, || {
+                    let ws_name = resolve_workspace_name(conn, target_ws);
                     conn.execute(
                         "INSERT OR IGNORE INTO workspaces (id, name, is_default, created_at, updated_at, version, is_deleted)
-                         VALUES (?1, ?1, ?2, ?3, ?3, 1, 0)",
+                         VALUES (?1, ?2, ?3, ?4, ?4, 1, 0)",
                         rusqlite::params![
                             target_ws,
+                            ws_name,
                             if target_ws == "default" { 1 } else { 0 },
                             snippet.created_at
                         ],

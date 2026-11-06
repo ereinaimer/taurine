@@ -103,6 +103,9 @@ pub fn create_workspace(conn: &Connection, name: &str) -> crate::Result<Workspac
          VALUES (?1, ?2, 0, ?3, ?3, 1, 0)",
         (&id, trimmed, now),
     )?;
+
+    sync_workspace_map(conn)?;
+
     Ok(WorkspaceRow {
         id,
         name: trimmed.to_string(),
@@ -128,6 +131,14 @@ pub fn delete_workspace(conn: &Connection, id_or_name: &str) -> crate::Result<()
         ));
     }
 
+    // Collect all active triggers belonging to this workspace to enqueue outbox tombstones
+    let mut stmt =
+        conn.prepare("SELECT id FROM triggers WHERE workspace_id = ?1 AND is_deleted = 0")?;
+    let trigger_ids: Vec<String> = stmt
+        .query_map([&ws.id], |row| row.get(0))?
+        .filter_map(std::result::Result::ok)
+        .collect();
+
     let now = crate::db::now_unix_secs();
     conn.execute(
         "UPDATE workspaces SET is_deleted = 1, updated_at = ?1, version = version + 1 WHERE id = ?2",
@@ -137,5 +148,59 @@ pub fn delete_workspace(conn: &Connection, id_or_name: &str) -> crate::Result<()
         "UPDATE triggers SET is_deleted = 1, updated_at = ?1, version = version + 1 WHERE workspace_id = ?2",
         rusqlite::params![now, ws.id],
     )?;
+
+    for trigger_id in trigger_ids {
+        crate::db::crud::triggers::enqueue_trigger_outbox(conn, &trigger_id, "delete")?;
+    }
+
+    sync_workspace_map(conn)?;
+
+    Ok(())
+}
+
+/// Serializes active non-default workspaces into the `workspace_map` setting and enqueues sync.
+pub fn sync_workspace_map(conn: &Connection) -> crate::Result<()> {
+    let workspaces = get_workspaces(conn)?;
+    let mut map = serde_json::Map::new();
+    for ws in workspaces {
+        if !ws.is_default && ws.id != "default" && !ws.is_deleted {
+            map.insert(ws.id, serde_json::Value::String(ws.name));
+        }
+    }
+    let payload = serde_json::Value::Object(map);
+    crate::db::crud::set_setting(conn, "workspace_map", &payload.to_string())?;
+    Ok(())
+}
+
+/// Reconciles a remote `workspace_map` JSON payload into local SQLite storage.
+pub fn reconcile_workspace_map(conn: &Connection, value: &serde_json::Value) -> crate::Result<()> {
+    use std::collections::HashMap;
+
+    let map: HashMap<String, String> = match value {
+        serde_json::Value::Object(obj) => obj
+            .iter()
+            .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+            .collect(),
+        serde_json::Value::String(s) => {
+            serde_json::from_str::<HashMap<String, String>>(s).unwrap_or_default()
+        }
+        _ => HashMap::new(),
+    };
+
+    let now = crate::db::now_unix_secs();
+    for (id, name) in map {
+        if id == "default" || id == "00000000-0000-0000-0000-000000000000" {
+            continue;
+        }
+        conn.execute(
+            "INSERT INTO workspaces (id, name, is_default, created_at, updated_at, version, is_deleted)
+             VALUES (?1, ?2, 0, ?3, ?3, 1, 0)
+             ON CONFLICT(id) DO UPDATE SET
+                 name = excluded.name,
+                 is_deleted = 0
+             WHERE workspaces.is_default = 0",
+            rusqlite::params![id, name, now],
+        )?;
+    }
     Ok(())
 }
