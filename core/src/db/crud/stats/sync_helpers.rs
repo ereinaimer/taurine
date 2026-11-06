@@ -200,7 +200,7 @@ impl From<ActivityEventRow> for CloudActivityEventPayload {
             app_key: row.app_key,
             word_count: row.word_count,
             time_saved_ms: row.time_saved_ms,
-            content: row.content,
+            content: None,
             version: row.version,
             updated_at: None,
         }
@@ -220,7 +220,7 @@ impl From<&ActivityEventRow> for CloudActivityEventPayload {
             app_key: row.app_key.clone(),
             word_count: row.word_count,
             time_saved_ms: row.time_saved_ms,
-            content: row.content.clone(),
+            content: None,
             version: row.version,
             updated_at: None,
         }
@@ -753,14 +753,11 @@ mod tests {
         assert_eq!(payload_activity.app_key, "slack.exe");
         assert_eq!(payload_activity.word_count, 12);
         assert_eq!(payload_activity.time_saved_ms, 3400);
-        assert_eq!(
-            payload_activity.content.as_deref(),
-            Some("testing synced speech content")
-        );
+        assert_eq!(payload_activity.content, None);
         assert_eq!(payload_activity.version, 1);
 
         let json_activity = serde_json::to_string(&payload_activity).unwrap();
-        assert!(json_activity.contains(r#""content":"testing synced speech content""#));
+        assert!(!json_activity.contains("testing synced speech content"));
         let deserialized_activity: CloudActivityEventPayload =
             serde_json::from_str(&json_activity).unwrap();
         assert_eq!(deserialized_activity, payload_activity);

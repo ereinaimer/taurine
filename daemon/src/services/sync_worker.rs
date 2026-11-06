@@ -584,7 +584,7 @@ impl SyncWorker {
                                         app_key: row.get(5)?,
                                         word_count: word_count as u64,
                                         time_saved_ms: time_saved_ms as u64,
-                                        content: row.get(8)?,
+                                        content: None,
                                         version: version as u64,
                                         updated_at: None,
                                     })
@@ -598,6 +598,7 @@ impl SyncWorker {
                         } else {
                             let mut p = entry.payload.clone();
                             if let serde_json::Value::Object(ref mut map) = p {
+                                map.remove("content");
                                 if !map.contains_key("user_id") {
                                     map.insert(
                                         "user_id".to_string(),

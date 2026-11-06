@@ -1383,8 +1383,8 @@ async fn test_activity_events_sync_and_mark_synced() {
                         assert!(req.contains("resolution=merge-duplicates"));
                         assert!(req.contains("evt-speech-sync-1"));
                         assert!(
-                            req.contains(r#""content":"testing synced speech content""#),
-                            "payload must contain speech content: {}",
+                            !req.contains("testing synced speech content"),
+                            "payload must NOT contain private speech content: {}",
                             req
                         );
                         let resp = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
