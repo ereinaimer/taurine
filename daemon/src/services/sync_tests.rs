@@ -4178,3 +4178,128 @@ async fn test_snippet_pull_paginates_across_multiple_pages() {
 
     taurine_core::cloud::clear_tokens().unwrap();
 }
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn test_subsecond_timestamp_watermark_prevents_perpetual_repull() {
+    use std::io::{Read, Write};
+
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    crate::hook::tests::mock_keystore::use_mock_keystore();
+
+    let conn = Connection::open_in_memory().unwrap();
+    ensure_schema(&conn).unwrap();
+    taurine_core::db::crud::set_sync_checkpoint(&conn, "snippets_backfilled", 1).unwrap();
+
+    let tokens = taurine_core::cloud::AuthTokens {
+        access_token: "test_token_subsecond".to_string(),
+        refresh_token: "test_refresh".to_string(),
+        user_id: "usr_subsecond".to_string(),
+        expires_at: Some(2000000000),
+    };
+    taurine_core::cloud::store_tokens(&tokens).unwrap();
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    listener.set_nonblocking(true).unwrap();
+
+    let captured_queries = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let captured_queries_clone = captured_queries.clone();
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let stop_clone = stop.clone();
+
+    let server_thread = std::thread::spawn(move || {
+        while !stop_clone.load(std::sync::atomic::Ordering::Relaxed) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let mut buffer = [0u8; 4096];
+                    let n = stream.read(&mut buffer).unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buffer[..n]).to_string();
+
+                    if req.starts_with("GET /rest/v1/snippets") {
+                        let mut queries = captured_queries_clone.lock().unwrap();
+                        let is_second_cycle = queries.len() == 1;
+                        queries.push(req.clone());
+
+                        if !is_second_cycle {
+                            let snippet = serde_json::json!({
+                                "id": "00000000-0000-0000-0000-000000000001",
+                                "output": "subsecond output",
+                                "version": 1,
+                                "updated_at": "2026-11-06T12:00:00.654321Z",
+                                "created_at": 1000,
+                            });
+                            let body = serde_json::to_string(&vec![snippet]).unwrap();
+                            let resp = format!(
+                                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                                body.len(),
+                                body
+                            );
+                            let _ = stream.write_all(resp.as_bytes());
+                        } else {
+                            let resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+                            let _ = stream.write_all(resp.as_bytes());
+                        }
+                    } else if req.starts_with("GET /rest/v1/") {
+                        let resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+                        let _ = stream.write_all(resp.as_bytes());
+                    }
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(15));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let config = CloudConfig {
+        supabase_url: format!("http://127.0.0.1:{port}"),
+        anon_key: "test-anon-key".to_string(),
+    };
+    let client = CloudClient::new(config);
+
+    // Cycle 1: pulls the snippet with microsecond timestamp
+    let status1 = SyncWorker::run_sync_cycle(&conn, Some(&client)).await;
+    assert_eq!(
+        status1,
+        SyncStatus::Success {
+            pulled_snippets: 1,
+            pushed_snippets: 0,
+            pulled_settings: 0,
+            pushed_settings: 0,
+            pulled_events: 0,
+            pushed_stats: 0,
+        }
+    );
+
+    // Cycle 2: should send query with microsecond watermark
+    let status2 = SyncWorker::run_sync_cycle(&conn, Some(&client)).await;
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    let _ = server_thread.join();
+
+    assert_eq!(
+        status2,
+        SyncStatus::Success {
+            pulled_snippets: 0,
+            pushed_snippets: 0,
+            pulled_settings: 0,
+            pushed_settings: 0,
+            pulled_events: 0,
+            pushed_stats: 0,
+        }
+    );
+
+    let queries = captured_queries.lock().unwrap().clone();
+    assert_eq!(queries.len(), 2, "Expected 2 snippet queries");
+    assert!(
+        queries[1].contains("updated_at=gt.2026-11-06T12%3A00%3A00.654321Z")
+            || queries[1].contains("updated_at=gt.2026-11-06T12:00:00.654321Z"),
+        "Cycle 2 query must contain exact microsecond timestamp: {}",
+        queries[1]
+    );
+
+    taurine_core::cloud::clear_tokens().unwrap();
+}

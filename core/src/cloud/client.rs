@@ -438,37 +438,41 @@ impl CloudClient {
         res
     }
 
-    /// Converts a Unix timestamp in seconds to an RFC3339 UTC string.
+    /// Converts a Unix timestamp (seconds, milliseconds, or microseconds) to an RFC3339 UTC string.
     pub fn format_rfc3339_timestamp(ts: i64) -> String {
-        let mut days = ts / 86400;
-        let mut rem_secs = ts % 86400;
-        if rem_secs < 0 {
-            rem_secs += 86400;
-            days -= 1;
+        if ts <= 0 {
+            return "1970-01-01T00:00:00Z".to_string();
         }
-        let hours = rem_secs / 3600;
-        let mins = (rem_secs % 3600) / 60;
-        let secs = rem_secs % 60;
 
-        let z = days + 719468;
-        let era = (if z >= 0 { z } else { z - 146096 }) / 146097;
-        let doe = (z - era * 146097) as u32;
-        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-        let y = yoe as i64 + era * 400;
-        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-        let mp = (5 * doy + 2) / 153;
-        let d = doy - (153 * mp + 2) / 5 + 1;
-        let m = if mp < 10 { mp + 3 } else { mp - 9 };
-        let y = if m <= 2 { y + 1 } else { y };
+        if ts > 100_000_000_000_000 {
+            // Microseconds
+            if let Some(dt) = chrono::DateTime::from_timestamp_micros(ts) {
+                return dt.to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
+            }
+        } else if ts > 100_000_000_000 {
+            // Milliseconds
+            if let Some(dt) = chrono::DateTime::from_timestamp_millis(ts) {
+                return dt.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+            }
+        }
 
-        format!("{y:04}-{m:02}-{d:02}T{hours:02}:{mins:02}:{secs:02}Z")
+        if let Some(dt) = chrono::DateTime::from_timestamp(ts, 0) {
+            dt.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+        } else {
+            "1970-01-01T00:00:00Z".to_string()
+        }
     }
 
-    /// Parses an RFC3339 string into a Unix timestamp in seconds.
+    /// Parses an RFC3339 string into a Unix timestamp.
+    /// If subsecond precision is present, returns microseconds; otherwise returns seconds.
     pub fn parse_rfc3339_timestamp(s: &str) -> crate::Result<i64> {
-        chrono::DateTime::parse_from_rfc3339(s)
-            .map(|dt| dt.timestamp())
-            .map_err(|e| crate::Error::Config(format!("Invalid RFC3339 timestamp '{s}': {e}")))
+        let dt = chrono::DateTime::parse_from_rfc3339(s)
+            .map_err(|e| crate::Error::Config(format!("Invalid RFC3339 timestamp '{s}': {e}")))?;
+        if s.contains('.') {
+            Ok(dt.timestamp_micros())
+        } else {
+            Ok(dt.timestamp())
+        }
     }
 }
 

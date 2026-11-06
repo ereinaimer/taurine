@@ -1092,10 +1092,7 @@ impl SyncWorker {
                             let ts = setting
                                 .updated_at
                                 .as_deref()
-                                .and_then(|s| {
-                                    taurine_core::chrono::DateTime::parse_from_rfc3339(s).ok()
-                                })
-                                .map(|dt| dt.timestamp())
+                                .and_then(|s| CloudClient::parse_rfc3339_timestamp(s).ok())
                                 .unwrap_or(0);
                             if ts > max_ts {
                                 max_ts = ts;
@@ -1249,14 +1246,15 @@ impl SyncWorker {
                             let ts = event
                                 .updated_at
                                 .as_deref()
-                                .and_then(|s| {
-                                    taurine_core::chrono::DateTime::parse_from_rfc3339(s).ok()
-                                })
-                                .map(|dt| dt.timestamp())
-                                .unwrap_or(if event.timestamp > 1_000_000_000_000 {
-                                    event.timestamp / 1000
-                                } else {
-                                    event.timestamp
+                                .and_then(|s| CloudClient::parse_rfc3339_timestamp(s).ok())
+                                .unwrap_or_else(|| {
+                                    if event.timestamp > 100_000_000_000_000 {
+                                        event.timestamp
+                                    } else if event.timestamp > 100_000_000_000 {
+                                        event.timestamp * 1_000
+                                    } else {
+                                        event.timestamp * 1_000_000
+                                    }
                                 });
                             if ts > max_ts {
                                 max_ts = ts;
@@ -1319,10 +1317,7 @@ impl SyncWorker {
                             let ts = stat
                                 .updated_at
                                 .as_deref()
-                                .and_then(|s| {
-                                    taurine_core::chrono::DateTime::parse_from_rfc3339(s).ok()
-                                })
-                                .map(|dt| dt.timestamp())
+                                .and_then(|s| CloudClient::parse_rfc3339_timestamp(s).ok())
                                 .unwrap_or(0);
                             if ts > max_ts {
                                 max_ts = ts;
@@ -1384,10 +1379,7 @@ impl SyncWorker {
                             let ts = stat
                                 .updated_at
                                 .as_deref()
-                                .and_then(|s| {
-                                    taurine_core::chrono::DateTime::parse_from_rfc3339(s).ok()
-                                })
-                                .map(|dt| dt.timestamp())
+                                .and_then(|s| CloudClient::parse_rfc3339_timestamp(s).ok())
                                 .unwrap_or(0);
                             if ts > max_ts {
                                 max_ts = ts;
@@ -1448,10 +1440,7 @@ impl SyncWorker {
                             let ts = stat
                                 .updated_at
                                 .as_deref()
-                                .and_then(|s| {
-                                    taurine_core::chrono::DateTime::parse_from_rfc3339(s).ok()
-                                })
-                                .map(|dt| dt.timestamp())
+                                .and_then(|s| CloudClient::parse_rfc3339_timestamp(s).ok())
                                 .unwrap_or(0);
                             if ts > max_ts {
                                 max_ts = ts;
