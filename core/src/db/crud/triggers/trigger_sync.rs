@@ -708,19 +708,37 @@ pub fn purge_deleted_tombstones(conn: &Connection, max_age_seconds: i64) -> crat
 
     with_transaction(conn, || {
         conn.execute(
-            "DELETE FROM scripts WHERE trigger_id IN (SELECT id FROM triggers WHERE is_deleted = 1 AND updated_at <= ?1)",
+            "DELETE FROM scripts WHERE trigger_id IN (
+                SELECT id FROM triggers
+                WHERE is_deleted = 1
+                  AND updated_at <= ?1
+                  AND id NOT IN (SELECT entity_id FROM sync_outbox WHERE entity_type = 'snippet')
+            )",
             [cutoff],
         )?;
         conn.execute(
-            "DELETE FROM assets WHERE trigger_id IN (SELECT id FROM triggers WHERE is_deleted = 1 AND updated_at <= ?1)",
+            "DELETE FROM assets WHERE trigger_id IN (
+                SELECT id FROM triggers
+                WHERE is_deleted = 1
+                  AND updated_at <= ?1
+                  AND id NOT IN (SELECT entity_id FROM sync_outbox WHERE entity_type = 'snippet')
+            )",
             [cutoff],
         )?;
         conn.execute(
-            "DELETE FROM trigger_aliases WHERE trigger_id IN (SELECT id FROM triggers WHERE is_deleted = 1 AND updated_at <= ?1)",
+            "DELETE FROM trigger_aliases WHERE trigger_id IN (
+                SELECT id FROM triggers
+                WHERE is_deleted = 1
+                  AND updated_at <= ?1
+                  AND id NOT IN (SELECT entity_id FROM sync_outbox WHERE entity_type = 'snippet')
+            )",
             [cutoff],
         )?;
         let count = conn.execute(
-            "DELETE FROM triggers WHERE is_deleted = 1 AND updated_at <= ?1",
+            "DELETE FROM triggers
+             WHERE is_deleted = 1
+               AND updated_at <= ?1
+               AND id NOT IN (SELECT entity_id FROM sync_outbox WHERE entity_type = 'snippet')",
             [cutoff],
         )?;
         Ok(count)

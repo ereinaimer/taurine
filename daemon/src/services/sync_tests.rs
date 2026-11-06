@@ -647,6 +647,23 @@ fn test_tombstone_gc_purges_old_deleted_rows() {
     )
     .unwrap();
 
+    // 4. Soft-deleted row older than 30 days but STILL in sync_outbox: should NOT be purged
+    conn.execute(
+        "INSERT INTO triggers (
+            id, description, output, action_type, target_os, tags,
+            is_enabled, auto_case, version, is_deleted, created_at, updated_at
+        ) VALUES ('tomb-pending-outbox', 'Old Deleted in Outbox', '', 'text', 'all', '[]',
+                  1, 0, 2, 1, ?1, ?1)",
+        [old_epoch],
+    )
+    .unwrap();
+    taurine_core::db::crud::triggers::enqueue_trigger_outbox(
+        &conn,
+        "tomb-pending-outbox",
+        "delete",
+    )
+    .unwrap();
+
     // Purge rows older than 30 days
     let purged = purge_deleted_tombstones(&conn, 30 * 86400).unwrap();
     assert_eq!(purged, 1);
@@ -660,6 +677,18 @@ fn test_tombstone_gc_purges_old_deleted_rows() {
         )
         .unwrap();
     assert!(!old_exists, "tomb-old should be permanently purged");
+
+    let pending_exists: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM triggers WHERE id = 'tomb-pending-outbox')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(
+        pending_exists,
+        "tomb-pending-outbox should be preserved until outbox upload"
+    );
 
     let recent_exists: bool = conn
         .query_row(

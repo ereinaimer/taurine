@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Modern Settings Overlay**: Quick-access settings modal (`Ctrl+,`) with inline field editing, graphical animated toggles, volume sliders, and connected microphone pickers.
 
 ### Changed
+- **Snippet Sync Batching**: Coalesce burst offline edits into single queue items and upload multiple snippets in bulk requests.
 - **Unconditional Factory Reset Logout**: Automatically flush pending changes with retries and perform a complete local wipe on logout.
 - **Login Terminal Experience**: Prevent redundant authentication flows when already signed in and format messages with account email.
 - **Status Command Streamlining**: Displays account email instead of raw ID, shows relative countdown for weekly quota reset, and removes redundant unlimited labels.
@@ -41,6 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Trigger Display Names**: Replaced redundant trigger display names with primary trigger invocations and descriptions across the CLI and TUI.
 
 ### Fixed
+- **Workspace Name Synchronization**: Preserve human workspace names across devices and cascade deletions to the cloud.
+- **Microsecond Sync Checkpoints**: Prevent repeated re-pulling of unchanged snippets and settings caused by subsecond timestamp truncation.
+- **Tombstone Cleanup Outbox Guard**: Prevent local deletion cleanup from purging tombstones before they finish uploading to the cloud.
+- **Offline Sync Backoff**: Back off sync attempts progressively during network outages to avoid battery drain and connection spin.
 - **Snippet Sync Pagination**: Reliably synchronize large snippet collections across devices without remote row limit truncation.
 - **Workspace Assignment Sync**: Persist workspace assignments immediately when creating snippets via the CLI and enqueue them for cloud sync.
 - **Windows App Stats Sync**: Accurately parse Windows executable paths to synchronize per-application usage statistics to the cloud dashboard.
