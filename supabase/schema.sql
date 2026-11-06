@@ -4,6 +4,50 @@
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
+-- 0. User Profiles (Tier, Stripe Customer, and Account Provisioning)
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.profiles (
+    id                 UUID        PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    tier               TEXT        NOT NULL DEFAULT 'free',
+    stripe_customer_id TEXT,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view their own profile" ON public.profiles;
+CREATE POLICY "Users can view their own profile"
+    ON public.profiles
+    FOR SELECT
+    USING (auth.uid() = id);
+
+DROP POLICY IF EXISTS "Users can update their own profile" ON public.profiles;
+CREATE POLICY "Users can update their own profile"
+    ON public.profiles
+    FOR UPDATE
+    USING (auth.uid() = id)
+    WITH CHECK (auth.uid() = id);
+
+GRANT SELECT, UPDATE ON TABLE public.profiles TO authenticated;
+GRANT ALL ON TABLE public.profiles TO service_role;
+
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger AS $$
+BEGIN
+    INSERT INTO public.profiles (id, tier)
+    VALUES (NEW.id, 'free')
+    ON CONFLICT (id) DO NOTHING;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+    AFTER INSERT ON auth.users
+    FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- ----------------------------------------------------------------------------
 -- 1. Snippets (Trigger Configurations and Multi-Aliases)
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.snippets (
@@ -402,7 +446,7 @@ CREATE TRIGGER trg_reconcile_snippet_upsert
 CREATE OR REPLACE FUNCTION public.reconcile_setting_upsert()
 RETURNS trigger AS $$
 BEGIN
-    IF NEW.version < OLD.version THEN
+    IF NEW.version < OLD.version OR (NEW.version = OLD.version AND NEW.updated_at < OLD.updated_at) THEN
         RETURN OLD;
     END IF;
     RETURN NEW;
@@ -414,3 +458,26 @@ CREATE TRIGGER trg_reconcile_setting_upsert
     BEFORE UPDATE ON public.user_settings
     FOR EACH ROW
     EXECUTE FUNCTION public.reconcile_setting_upsert();
+
+-- ----------------------------------------------------------------------------
+-- 10. Timestamp Auto-Update Triggers
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.set_current_timestamp_updated_at()
+RETURNS trigger AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_snippets_updated_at ON public.snippets;
+CREATE TRIGGER trg_snippets_updated_at
+    BEFORE UPDATE ON public.snippets
+    FOR EACH ROW
+    EXECUTE FUNCTION public.set_current_timestamp_updated_at();
+
+DROP TRIGGER IF EXISTS trg_profiles_updated_at ON public.profiles;
+CREATE TRIGGER trg_profiles_updated_at
+    BEFORE UPDATE ON public.profiles
+    FOR EACH ROW
+    EXECUTE FUNCTION public.set_current_timestamp_updated_at();
