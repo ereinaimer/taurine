@@ -444,16 +444,28 @@ pub fn reconcile_cloud_snippet(
                         ],
                     )?;
 
+                    let existing_aliases = list_aliases(conn, target_id).unwrap_or_default();
+                    let concurrent_local_aliases: Vec<_> = existing_aliases
+                        .into_iter()
+                        .filter(|a| a.created_at > snippet.updated_at)
+                        .collect();
+
                     conn.execute(
-                        "DELETE FROM trigger_aliases WHERE trigger_id = ?1",
-                        [target_id],
+                        "DELETE FROM trigger_aliases WHERE trigger_id = ?1 AND created_at <= ?2",
+                        rusqlite::params![target_id, snippet.updated_at],
                     )?;
 
                     for alias in &snippet.aliases {
                         conn.execute(
                             "INSERT INTO trigger_aliases (
                                 id, trigger_id, invocation, invocation_type, require_confirmation, strict_threshold, created_at
-                            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                            ON CONFLICT(id) DO UPDATE SET
+                                trigger_id = excluded.trigger_id,
+                                invocation = excluded.invocation,
+                                invocation_type = excluded.invocation_type,
+                                require_confirmation = excluded.require_confirmation,
+                                strict_threshold = excluded.strict_threshold",
                             rusqlite::params![
                                 alias.id,
                                 target_id,
@@ -468,10 +480,28 @@ pub fn reconcile_cloud_snippet(
 
                     reconcile_script_and_assets(conn, target_id, snippet)?;
 
-                    let _ = conn.execute(
-                        "DELETE FROM sync_outbox WHERE entity_type = 'snippet' AND entity_id = ?1",
-                        [target_id],
-                    );
+                    if !concurrent_local_aliases.is_empty() {
+                        if let Some(trigger) = super::trigger_get::get_trigger(conn, target_id)? {
+                            let aliases = list_aliases(conn, target_id)?;
+                            let assets = load_trigger_assets(conn, target_id)?;
+                            let merged_payload =
+                                serialize_trigger_to_cloud_snippet(&trigger, &aliases, &assets);
+                            if let Ok(payload_val) = serde_json::to_value(&merged_payload) {
+                                let _ = crate::db::crud::enqueue_outbox(
+                                    conn,
+                                    "snippet",
+                                    target_id,
+                                    "upsert",
+                                    payload_val,
+                                );
+                            }
+                        }
+                    } else {
+                        let _ = conn.execute(
+                            "DELETE FROM sync_outbox WHERE entity_type = 'snippet' AND entity_id = ?1",
+                            [target_id],
+                        );
+                    }
 
                     Ok(ReconcileOutcome::UpdatedFromRemote)
                 })

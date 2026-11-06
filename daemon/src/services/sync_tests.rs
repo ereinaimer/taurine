@@ -377,6 +377,88 @@ fn test_lww_remote_newer_overwrites_local_and_aliases() {
 }
 
 #[test]
+fn test_reconcile_preserves_concurrent_local_aliases_and_reenqueues() {
+    let conn = Connection::open_in_memory().unwrap();
+    ensure_schema(&conn).unwrap();
+
+    let trigger_id = "trig-concurrent-alias";
+    conn.execute(
+        "INSERT INTO triggers (
+            id, description, output, action_type, target_os, only_apps, except_apps,
+            tags, is_enabled, auto_case, version, is_deleted, created_at, updated_at
+        ) VALUES (?1, 'Orig Desc', 'orig output', 'text', 'all', NULL, NULL,
+                  '[]', 1, 0, 1, 0, 1000, 1000)",
+        [trigger_id],
+    )
+    .unwrap();
+
+    // 1. Old alias created before remote update
+    conn.execute(
+        "INSERT INTO trigger_aliases (
+            id, trigger_id, invocation, invocation_type, require_confirmation, strict_threshold, created_at
+        ) VALUES ('alias-old', ?1, 'old_alias', 'word', 0, NULL, 1000)",
+        [trigger_id],
+    )
+    .unwrap();
+
+    // 2. Concurrent alias created locally AFTER remote update (created_at 2500 > remote updated_at 2000)
+    conn.execute(
+        "INSERT INTO trigger_aliases (
+            id, trigger_id, invocation, invocation_type, require_confirmation, strict_threshold, created_at
+        ) VALUES ('alias-concurrent', ?1, 'concurrent_alias', 'word', 0, NULL, 2500)",
+        [trigger_id],
+    )
+    .unwrap();
+
+    let remote_snippet = CloudSnippetPayload {
+        user_id: None,
+        id: trigger_id.to_string(),
+        workspace_id: "default".to_string(),
+        output: "new remote output".to_string(),
+        description: Some("New Desc".to_string()),
+        action_type: "text".to_string(),
+        target_os: None,
+        only_apps: None,
+        except_apps: None,
+        tags: None,
+        is_enabled: true,
+        auto_case: false,
+        version: 2,
+        is_deleted: false,
+        updated_at: 2000,
+        created_at: 1000,
+        aliases: vec![TriggerAliasRow {
+            id: "alias-remote".to_string(),
+            trigger_id: trigger_id.to_string(),
+            invocation: "remote_alias".to_string(),
+            invocation_type: InvocationType::Word,
+            require_confirmation: false,
+            strict_threshold: None,
+            created_at: 2000,
+        }],
+        script: None,
+        assets: Vec::new(),
+    };
+
+    let outcome = reconcile_cloud_snippet(&conn, &remote_snippet).unwrap();
+    assert_eq!(outcome, ReconcileOutcome::UpdatedFromRemote);
+
+    let aliases = list_aliases(&conn, trigger_id).unwrap();
+    // Old alias must be deleted (created_at 1000 <= updated_at 2000)
+    assert!(!aliases.iter().any(|a| a.invocation == "old_alias"));
+    // Remote alias must be inserted
+    assert!(aliases.iter().any(|a| a.invocation == "remote_alias"));
+    // Concurrent local alias must be preserved (created_at 2500 > updated_at 2000)
+    assert!(aliases.iter().any(|a| a.invocation == "concurrent_alias"));
+    assert_eq!(aliases.len(), 2);
+
+    // Merged state must be re-enqueued to outbox so the cloud learns about the local concurrent alias
+    let outbox = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    assert_eq!(outbox.len(), 1);
+    assert_eq!(outbox[0].entity_id, trigger_id);
+}
+
+#[test]
 fn test_lww_local_newer_preserved() {
     let conn = Connection::open_in_memory().unwrap();
     ensure_schema(&conn).unwrap();
