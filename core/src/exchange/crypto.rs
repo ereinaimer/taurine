@@ -1,7 +1,6 @@
 use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::Aead};
 use argon2::{Algorithm, Argon2, Params, Version};
 use rand::random;
-use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
 // Obscurity only, not secrecy. Real confidentiality comes from the
@@ -29,7 +28,8 @@ const KEY_LEN: usize = 32;
 const WRAPPED_DEK_LEN: usize = KEY_LEN + 16;
 const FLAG_HAS_PASSWORD: u8 = 0x01;
 const MIN_NOPW_BLOB_LEN: usize = 4 + 1 + NONCE_LEN + NONCE_LEN + WRAPPED_DEK_LEN + 16;
-const MIN_PW_BLOB_LEN: usize = MIN_NOPW_BLOB_LEN + SALT_LEN + NONCE_LEN + WRAPPED_DEK_LEN;
+const MIN_PW_BLOB_LEN: usize = 4 + 1 + SALT_LEN + NONCE_LEN + NONCE_LEN + WRAPPED_DEK_LEN + 16;
+const MIN_LEGACY_PW_BLOB_LEN: usize = MIN_PW_BLOB_LEN + NONCE_LEN + WRAPPED_DEK_LEN;
 
 pub const MIN_EXPORT_PASSWORD_LEN: usize = 8;
 
@@ -82,42 +82,39 @@ pub fn encrypt(plaintext: &[u8], password: Option<&str>) -> crate::Result<Vec<u8
     let payload_nonce: [u8; NONCE_LEN] = random();
     let payload_ct = seal(&dek, &payload_nonce, plaintext)?;
 
-    let nonce_a: [u8; NONCE_LEN] = random();
-    let mut app = app_key();
-    let wrap_app = seal(&app, &nonce_a, &dek)?;
-    app.zeroize();
+    let mut blob = Vec::with_capacity(payload_ct.len() + MIN_LEGACY_PW_BLOB_LEN);
+    blob.extend_from_slice(&super::TAU_MAGIC);
+    blob.push(if has_password { FLAG_HAS_PASSWORD } else { 0 });
 
-    let (salt, nonce_p, wrap_pw) = if let Some(pw) = password {
+    if let Some(pw) = password {
         let salt: [u8; SALT_LEN] = random();
         let mut pw_key = derive_key(pw, &salt)?;
         let nonce_p: [u8; NONCE_LEN] = random();
         let wrap_pw = seal(&pw_key, &nonce_p, &dek)?;
         pw_key.zeroize();
-        (Some(salt), Some(nonce_p), Some(wrap_pw))
-    } else {
-        (None, None, None)
-    };
-    dek.zeroize();
 
-    let mut blob = Vec::with_capacity(payload_ct.len() + MIN_PW_BLOB_LEN);
-    blob.extend_from_slice(&super::TAU_MAGIC);
-    blob.push(if has_password { FLAG_HAS_PASSWORD } else { 0 });
-    if let Some(salt) = salt {
         blob.extend_from_slice(&salt);
-    }
-    blob.extend_from_slice(&payload_nonce);
-    blob.extend_from_slice(&nonce_a);
-    blob.extend_from_slice(&wrap_app);
-    if let (Some(nonce_p), Some(wrap_pw)) = (nonce_p, wrap_pw) {
+        blob.extend_from_slice(&payload_nonce);
         blob.extend_from_slice(&nonce_p);
         blob.extend_from_slice(&wrap_pw);
+    } else {
+        let nonce_a: [u8; NONCE_LEN] = random();
+        let mut app = app_key();
+        let wrap_app = seal(&app, &nonce_a, &dek)?;
+        app.zeroize();
+
+        blob.extend_from_slice(&payload_nonce);
+        blob.extend_from_slice(&nonce_a);
+        blob.extend_from_slice(&wrap_app);
     }
+    dek.zeroize();
+
     blob.extend_from_slice(&payload_ct);
     Ok(blob)
 }
 
 pub fn decrypt(blob: &[u8], password: Option<&str>) -> crate::Result<Vec<u8>> {
-    if blob.len() < MIN_NOPW_BLOB_LEN {
+    if blob.len() < 4 + 1 {
         return Err(crate::Error::Config("encrypted file too short".to_string()));
     }
     if blob[..4] != super::TAU_MAGIC {
@@ -131,104 +128,95 @@ pub fn decrypt(blob: &[u8], password: Option<&str>) -> crate::Result<Vec<u8>> {
     }
     let has_password = flags & FLAG_HAS_PASSWORD != 0;
 
-    let mut off = 5;
-    let salt = if has_password {
+    if has_password {
+        if password.is_none_or(|p| p.trim().is_empty()) {
+            return Err(crate::Error::Config(
+                "password required for encrypted file".to_string(),
+            ));
+        }
         if blob.len() < MIN_PW_BLOB_LEN {
             return Err(crate::Error::Config("encrypted file too short".to_string()));
         }
-        let s = &blob[off..off + SALT_LEN];
-        off += SALT_LEN;
-        Some(s)
+
+        let salt = &blob[5..5 + SALT_LEN];
+        let payload_nonce: [u8; NONCE_LEN] = blob[5 + SALT_LEN..5 + SALT_LEN + NONCE_LEN]
+            .try_into()
+            .map_err(|_| crate::Error::Config("Invalid nonce length".to_string()))?;
+
+        let pw = password.unwrap_or("");
+        let mut pw_key = derive_key(pw, salt)?;
+
+        // Try standard standalone password layout first:
+        // salt (16) + payload_nonce (12) + nonce_p (12) + wrap_pw (48) + payload_ct
+        let offset_p = 5 + SALT_LEN + NONCE_LEN;
+        let nonce_p: [u8; NONCE_LEN] = blob[offset_p..offset_p + NONCE_LEN]
+            .try_into()
+            .map_err(|_| crate::Error::Config("Invalid nonce length".to_string()))?;
+        let wrap_pw = &blob[offset_p + NONCE_LEN..offset_p + NONCE_LEN + WRAPPED_DEK_LEN];
+        let payload_ct = &blob[offset_p + NONCE_LEN + WRAPPED_DEK_LEN..];
+
+        match open(&pw_key, &nonce_p, wrap_pw) {
+            Ok(dek_bytes) => {
+                let plain = open(&dek_bytes, &payload_nonce, payload_ct)?;
+                pw_key.zeroize();
+                Ok(plain)
+            }
+            Err(_) => {
+                // If standard layout fails, check if this is a legacy file with embedded wrap_app:
+                // salt (16) + payload_nonce (12) + nonce_a (12) + wrap_app (48) + legacy_nonce_p (12) + legacy_wrap_pw (48) + payload_ct
+                if blob.len() >= MIN_LEGACY_PW_BLOB_LEN {
+                    let leg_offset_p = offset_p + NONCE_LEN + WRAPPED_DEK_LEN;
+                    let leg_nonce_p: [u8; NONCE_LEN] = blob[leg_offset_p..leg_offset_p + NONCE_LEN]
+                        .try_into()
+                        .map_err(|_| crate::Error::Config("Invalid nonce length".to_string()))?;
+                    let leg_wrap_pw =
+                        &blob[leg_offset_p + NONCE_LEN..leg_offset_p + NONCE_LEN + WRAPPED_DEK_LEN];
+                    let leg_payload_ct = &blob[leg_offset_p + NONCE_LEN + WRAPPED_DEK_LEN..];
+
+                    if let Ok(leg_dek_bytes) = open(&pw_key, &leg_nonce_p, leg_wrap_pw) {
+                        let plain = open(&leg_dek_bytes, &payload_nonce, leg_payload_ct)?;
+                        pw_key.zeroize();
+                        return Ok(plain);
+                    }
+                }
+                pw_key.zeroize();
+                Err(crate::Error::Config("wrong password".to_string()))
+            }
+        }
     } else {
-        None
-    };
-    let payload_nonce: [u8; NONCE_LEN] = blob[off..off + NONCE_LEN]
-        .try_into()
-        .map_err(|_| crate::Error::Config("Invalid nonce length".to_string()))?;
-    off += NONCE_LEN;
-    let nonce_a: [u8; NONCE_LEN] = blob[off..off + NONCE_LEN]
-        .try_into()
-        .map_err(|_| crate::Error::Config("Invalid nonce length".to_string()))?;
-    off += NONCE_LEN;
-    let wrap_app = &blob[off..off + WRAPPED_DEK_LEN];
-    off += WRAPPED_DEK_LEN;
-    let wrap_pw = if has_password {
-        let nonce_p: [u8; NONCE_LEN] = blob[off..off + NONCE_LEN]
+        if blob.len() < MIN_NOPW_BLOB_LEN {
+            return Err(crate::Error::Config("encrypted file too short".to_string()));
+        }
+        let mut off = 5;
+        let payload_nonce: [u8; NONCE_LEN] = blob[off..off + NONCE_LEN]
             .try_into()
             .map_err(|_| crate::Error::Config("Invalid nonce length".to_string()))?;
         off += NONCE_LEN;
-        let ct = &blob[off..off + WRAPPED_DEK_LEN];
+        let nonce_a: [u8; NONCE_LEN] = blob[off..off + NONCE_LEN]
+            .try_into()
+            .map_err(|_| crate::Error::Config("Invalid nonce length".to_string()))?;
+        off += NONCE_LEN;
+        let wrap_app = &blob[off..off + WRAPPED_DEK_LEN];
         off += WRAPPED_DEK_LEN;
-        Some((nonce_p, ct))
-    } else {
-        None
-    };
-    let payload_ct = &blob[off..];
+        let payload_ct = &blob[off..];
 
-    if has_password && password.is_none_or(|p| p.trim().is_empty()) {
-        return Err(crate::Error::Config(
-            "password required for encrypted file".to_string(),
-        ));
-    }
-
-    let mut app = app_key();
-    let dek_app = match open(&app, &nonce_a, wrap_app) {
-        Ok(dek) => dek,
-        Err(_) => {
-            app.zeroize();
-            return Err(crate::Error::Config(
-                "file is corrupted and cannot be imported".to_string(),
-            ));
-        }
-    };
-    app.zeroize();
-    let mut dek_app_vec = dek_app;
-    let mut dek_app_arr: [u8; KEY_LEN] = dek_app_vec.as_slice().try_into().map_err(|_| {
-        dek_app_vec.zeroize();
-        crate::Error::Config("file is corrupted and cannot be imported".to_string())
-    })?;
-    dek_app_vec.zeroize();
-
-    let mut dek: [u8; KEY_LEN] = if has_password {
-        let pw = password.unwrap_or("");
-        let salt = salt.unwrap_or(&[]);
-        let mut pw_key = derive_key(pw, salt)?;
-        let (nonce_p, wrap_pw_ct) = wrap_pw.ok_or_else(|| {
-            dek_app_arr.zeroize();
-            crate::Error::Config("file is corrupted and cannot be imported".to_string())
-        })?;
-        let dek_pw = match open(&pw_key, &nonce_p, wrap_pw_ct) {
+        let mut app = app_key();
+        let dek_app = match open(&app, &nonce_a, wrap_app) {
             Ok(dek) => dek,
             Err(_) => {
-                pw_key.zeroize();
-                dek_app_arr.zeroize();
-                return Err(crate::Error::Config("wrong password".to_string()));
+                app.zeroize();
+                return Err(crate::Error::Config(
+                    "file is corrupted and cannot be imported".to_string(),
+                ));
             }
         };
-        pw_key.zeroize();
-        if dek_pw.as_slice().ct_eq(dek_app_arr.as_slice()).unwrap_u8() != 1 {
-            dek_app_arr.zeroize();
-            return Err(crate::Error::Config(
-                "file is corrupted and cannot be imported".to_string(),
-            ));
-        }
-        dek_app_arr.zeroize();
-        let mut dek_pw_vec = dek_pw;
-        let arr: [u8; KEY_LEN] = dek_pw_vec.as_slice().try_into().map_err(|_| {
-            dek_pw_vec.zeroize();
+        app.zeroize();
+
+        let plain = open(&dek_app, &payload_nonce, payload_ct).map_err(|_| {
             crate::Error::Config("file is corrupted and cannot be imported".to_string())
         })?;
-        dek_pw_vec.zeroize();
-        arr
-    } else {
-        dek_app_arr
-    };
-
-    let plain = open(&dek, &payload_nonce, payload_ct).map_err(|_| {
-        crate::Error::Config("file is corrupted and cannot be imported".to_string())
-    })?;
-    dek.zeroize();
-    Ok(plain)
+        Ok(plain)
+    }
 }
 
 fn seal(key: &[u8], nonce: &[u8; NONCE_LEN], plaintext: &[u8]) -> crate::Result<Vec<u8>> {
@@ -391,5 +379,78 @@ mod tests {
         let blob = encrypt(b"top secret", Some("hunter22")).unwrap();
         let err = decrypt(&blob[..20], Some("hunter22")).unwrap_err();
         assert!(err.to_string().contains("too short"));
+    }
+
+    #[test]
+    fn password_protected_backup_cannot_be_decrypted_with_app_key() {
+        let plaintext = b"classified trigger database payload";
+        let blob = encrypt(plaintext, Some("strong_vault_pass_123")).unwrap();
+
+        // Attempting to decrypt with None must fail
+        assert!(decrypt(&blob, None).is_err());
+
+        // Extract potential 12-byte nonces and 48-byte slices from the header
+        // to prove that app_key cannot unwrap anything into a valid DEK
+        let app = app_key();
+        for offset in 5..blob.len().saturating_sub(NONCE_LEN + WRAPPED_DEK_LEN) {
+            let test_nonce: [u8; NONCE_LEN] = blob[offset..offset + NONCE_LEN].try_into().unwrap();
+            let test_ct = &blob[offset + NONCE_LEN..offset + NONCE_LEN + WRAPPED_DEK_LEN];
+            let unwrapped = open(&app, &test_nonce, test_ct);
+            if let Ok(dek) = unwrapped {
+                // If it opened by chance, verify it CANNOT decrypt the payload
+                let payload_nonce: [u8; NONCE_LEN] = blob[5 + SALT_LEN..5 + SALT_LEN + NONCE_LEN]
+                    .try_into()
+                    .unwrap();
+                let payload_ct = &blob[5 + SALT_LEN + NONCE_LEN + NONCE_LEN + WRAPPED_DEK_LEN..];
+                assert!(open(&dek, &payload_nonce, payload_ct).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn legacy_dual_wrapped_backup_requires_password_and_decrypts() {
+        let plaintext = b"legacy backup data payload";
+        let pw = "legacy_password_123";
+
+        // Construct a legacy dual-wrapped blob manually
+        let mut dek: [u8; KEY_LEN] = random();
+        let payload_nonce: [u8; NONCE_LEN] = random();
+        let payload_ct = seal(&dek, &payload_nonce, plaintext).unwrap();
+
+        let salt: [u8; SALT_LEN] = random();
+        let mut pw_key = derive_key(pw, &salt).unwrap();
+        let nonce_p: [u8; NONCE_LEN] = random();
+        let wrap_pw = seal(&pw_key, &nonce_p, &dek).unwrap();
+        pw_key.zeroize();
+
+        let nonce_a: [u8; NONCE_LEN] = random();
+        let mut app = app_key();
+        let wrap_app = seal(&app, &nonce_a, &dek).unwrap();
+        app.zeroize();
+        dek.zeroize();
+
+        // Legacy format: TAU\0 + FLAG_HAS_PASSWORD + salt + payload_nonce + nonce_a + wrap_app + nonce_p + wrap_pw + payload_ct
+        let mut legacy_blob = Vec::new();
+        legacy_blob.extend_from_slice(&crate::exchange::TAU_MAGIC);
+        legacy_blob.push(FLAG_HAS_PASSWORD);
+        legacy_blob.extend_from_slice(&salt);
+        legacy_blob.extend_from_slice(&payload_nonce);
+        legacy_blob.extend_from_slice(&nonce_a);
+        legacy_blob.extend_from_slice(&wrap_app);
+        legacy_blob.extend_from_slice(&nonce_p);
+        legacy_blob.extend_from_slice(&wrap_pw);
+        legacy_blob.extend_from_slice(&payload_ct);
+
+        // Decrypt without password must fail
+        let err = decrypt(&legacy_blob, None).unwrap_err();
+        assert!(err.to_string().contains("password required"));
+
+        // Decrypt with wrong password must fail
+        let err_wrong = decrypt(&legacy_blob, Some("wrong_password")).unwrap_err();
+        assert_eq!(err_wrong.to_string(), "wrong password");
+
+        // Decrypt with correct password must succeed
+        let decrypted = decrypt(&legacy_blob, Some(pw)).unwrap();
+        assert_eq!(decrypted, plaintext);
     }
 }
