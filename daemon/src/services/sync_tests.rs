@@ -4046,3 +4046,135 @@ async fn test_app_stat_with_windows_colon_path_resolves_and_syncs() {
 
     taurine_core::cloud::clear_tokens().unwrap();
 }
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn test_snippet_pull_paginates_across_multiple_pages() {
+    use std::io::{Read, Write};
+
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    crate::hook::tests::mock_keystore::use_mock_keystore();
+
+    let conn = Connection::open_in_memory().unwrap();
+    ensure_schema(&conn).unwrap();
+    taurine_core::db::crud::set_sync_checkpoint(&conn, "snippets_backfilled", 1).unwrap();
+
+    let tokens = taurine_core::cloud::AuthTokens {
+        access_token: "test_token".to_string(),
+        refresh_token: "test_refresh".to_string(),
+        user_id: "usr_paginate_snippets".to_string(),
+        expires_at: Some(2000000000),
+    };
+    taurine_core::cloud::store_tokens(&tokens).unwrap();
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    listener.set_nonblocking(true).unwrap();
+
+    let offsets_seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let offsets_seen_clone = offsets_seen.clone();
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let stop_clone = stop.clone();
+
+    let server_thread = std::thread::spawn(move || {
+        while !stop_clone.load(std::sync::atomic::Ordering::Relaxed) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let mut buffer = [0u8; 4096];
+                    let n = stream.read(&mut buffer).unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buffer[..n]).to_string();
+
+                    if req.starts_with("GET /rest/v1/snippets") {
+                        if req.contains("offset=0") {
+                            offsets_seen_clone.lock().unwrap().push(0);
+                            let mut page = Vec::with_capacity(500);
+                            for i in 0..500 {
+                                page.push(serde_json::json!({
+                                    "id": format!("00000000-0000-0000-0000-{i:012x}"),
+                                    "output": format!("output_{i}"),
+                                    "version": 1,
+                                    "updated_at": "2026-11-06T11:00:00Z",
+                                    "created_at": 1000,
+                                }));
+                            }
+                            let body = serde_json::to_string(&page).unwrap();
+                            let resp = format!(
+                                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                                body.len(),
+                                body
+                            );
+                            let _ = stream.write_all(resp.as_bytes());
+                        } else if req.contains("offset=500") {
+                            offsets_seen_clone.lock().unwrap().push(500);
+                            let mut page = Vec::with_capacity(200);
+                            for i in 500..700 {
+                                page.push(serde_json::json!({
+                                    "id": format!("00000000-0000-0000-0000-{i:012x}"),
+                                    "output": format!("output_{i}"),
+                                    "version": 1,
+                                    "updated_at": "2026-11-06T11:05:00Z",
+                                    "created_at": 1000,
+                                }));
+                            }
+                            let body = serde_json::to_string(&page).unwrap();
+                            let resp = format!(
+                                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                                body.len(),
+                                body
+                            );
+                            let _ = stream.write_all(resp.as_bytes());
+                        }
+                    } else if req.starts_with("GET /rest/v1/") {
+                        let resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+                        let _ = stream.write_all(resp.as_bytes());
+                    }
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(15));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let config = CloudConfig {
+        supabase_url: format!("http://127.0.0.1:{port}"),
+        anon_key: "test-anon-key".to_string(),
+    };
+    let client = CloudClient::new(config);
+
+    let status = SyncWorker::run_sync_cycle(&conn, Some(&client)).await;
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    let _ = server_thread.join();
+
+    assert_eq!(
+        status,
+        SyncStatus::Success {
+            pulled_snippets: 700,
+            pushed_snippets: 0,
+            pulled_settings: 0,
+            pushed_settings: 0,
+            pulled_events: 0,
+            pushed_stats: 0,
+        }
+    );
+
+    let offsets = offsets_seen.lock().unwrap().clone();
+    assert_eq!(
+        offsets,
+        vec![0, 500],
+        "Must paginate sequentially through offset 0 and 500"
+    );
+
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM triggers", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(
+        count, 700,
+        "All 700 paginated snippets must be inserted into local DB"
+    );
+
+    taurine_core::cloud::clear_tokens().unwrap();
+}

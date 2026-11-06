@@ -958,96 +958,111 @@ impl SyncWorker {
             }
         }
 
-        // 2. Pull Phase (Checkpoint Watermark)
+        // 2. Pull Phase (Checkpoint Watermark with Pagination)
         let last_cp = taurine_core::db::crud::get_sync_checkpoint(conn, "snippets").unwrap_or(0);
         let rfc3339_cp = CloudClient::format_rfc3339_timestamp(last_cp);
-        let pull_res = client
-            .postgrest_get(
-                &format!("snippets?updated_at=gt.{rfc3339_cp}&order=updated_at.asc"),
-                &mut tokens,
-            )
-            .await;
+        let mut max_ts = last_cp;
+        const PULL_PAGE_SIZE: usize = 500;
+        let mut snippet_offset: usize = 0;
 
-        match pull_res {
-            Ok(res) => {
-                if !res.status().is_success() {
-                    let status = res.status();
-                    let text = res.text().await.unwrap_or_default();
-                    return SyncStatus::Error(format!(
-                        "Failed to pull snippets ({status}): {text}"
-                    ));
-                }
-                let text = match res.text().await {
-                    Ok(t) => t,
-                    Err(e) => {
-                        return SyncStatus::Error(format!("Failed to read snippets response: {e}"));
-                    }
-                };
+        loop {
+            let pull_res = client
+                .postgrest_get(
+                    &format!(
+                        "snippets?updated_at=gt.{rfc3339_cp}&order=updated_at.asc&limit={PULL_PAGE_SIZE}&offset={snippet_offset}"
+                    ),
+                    &mut tokens,
+                )
+                .await;
 
-                let items: Vec<serde_json::Value> = match serde_json::from_str(&text) {
-                    Ok(v) => v,
-                    Err(e) => {
+            match pull_res {
+                Ok(res) => {
+                    if !res.status().is_success() {
+                        let status = res.status();
+                        let text = res.text().await.unwrap_or_default();
                         return SyncStatus::Error(format!(
-                            "Failed to parse remote snippets JSON array: {e}"
+                            "Failed to pull snippets ({status}): {text}"
                         ));
                     }
-                };
+                    let text = match res.text().await {
+                        Ok(t) => t,
+                        Err(e) => {
+                            return SyncStatus::Error(format!(
+                                "Failed to read snippets response: {e}"
+                            ));
+                        }
+                    };
 
-                let mut max_ts = last_cp;
-                for item in items {
-                    let item_updated_at = item
-                        .get("updated_at")
-                        .and_then(|v| {
-                            if let Some(s) = v.as_str() {
-                                CloudClient::parse_rfc3339_timestamp(s).ok()
-                            } else {
-                                v.as_i64()
-                            }
-                        })
-                        .unwrap_or(0);
+                    let items: Vec<serde_json::Value> = match serde_json::from_str(&text) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            return SyncStatus::Error(format!(
+                                "Failed to parse remote snippets JSON array: {e}"
+                            ));
+                        }
+                    };
 
-                    if item_updated_at > max_ts {
-                        max_ts = item_updated_at;
-                    }
+                    let count = items.len();
+                    for item in items {
+                        let item_updated_at = item
+                            .get("updated_at")
+                            .and_then(|v| {
+                                if let Some(s) = v.as_str() {
+                                    CloudClient::parse_rfc3339_timestamp(s).ok()
+                                } else {
+                                    v.as_i64()
+                                }
+                            })
+                            .unwrap_or(0);
 
-                    match serde_json::from_value::<CloudSnippetPayload>(item) {
-                        Ok(snippet) => {
-                            if snippet.updated_at > max_ts {
-                                max_ts = snippet.updated_at;
-                            }
-                            match reconcile_cloud_snippet(conn, &snippet) {
-                                Ok(outcome) => {
-                                    if matches!(
-                                        outcome,
-                                        ReconcileOutcome::InsertedRemote
-                                            | ReconcileOutcome::UpdatedFromRemote
-                                    ) {
-                                        pulled_snippets += 1;
+                        if item_updated_at > max_ts {
+                            max_ts = item_updated_at;
+                        }
+
+                        match serde_json::from_value::<CloudSnippetPayload>(item) {
+                            Ok(snippet) => {
+                                if snippet.updated_at > max_ts {
+                                    max_ts = snippet.updated_at;
+                                }
+                                match reconcile_cloud_snippet(conn, &snippet) {
+                                    Ok(outcome) => {
+                                        if matches!(
+                                            outcome,
+                                            ReconcileOutcome::InsertedRemote
+                                                | ReconcileOutcome::UpdatedFromRemote
+                                        ) {
+                                            pulled_snippets += 1;
+                                        }
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            "Failed to reconcile snippet {}: {e}",
+                                            snippet.id
+                                        );
                                     }
                                 }
-                                Err(e) => {
-                                    tracing::warn!(
-                                        "Failed to reconcile snippet {}: {e}",
-                                        snippet.id
-                                    );
-                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!("Skipping malformed remote snippet: {e}");
                             }
                         }
-                        Err(e) => {
-                            tracing::warn!("Skipping malformed remote snippet: {e}");
-                        }
                     }
+
+                    if count < PULL_PAGE_SIZE {
+                        break;
+                    }
+                    snippet_offset += count;
                 }
-                if max_ts > last_cp
-                    && let Err(e) =
-                        taurine_core::db::crud::set_sync_checkpoint(conn, "snippets", max_ts)
-                {
-                    tracing::warn!("Failed to set snippets sync checkpoint: {e}");
+                Err(e) => {
+                    return SyncStatus::Error(format!("Network error pulling snippets: {e}"));
                 }
             }
-            Err(e) => {
-                return SyncStatus::Error(format!("Network error pulling snippets: {e}"));
-            }
+        }
+
+        if max_ts > last_cp
+            && let Err(e) = taurine_core::db::crud::set_sync_checkpoint(conn, "snippets", max_ts)
+        {
+            tracing::warn!("Failed to set snippets sync checkpoint: {e}");
         }
 
         // Pull remote settings
@@ -1201,13 +1216,18 @@ impl SyncWorker {
             }
         }
 
-        // Pull remote activity events
+        // Pull remote activity events (clamped to active 30-day retention window on initial sync)
         let last_events_cp =
             taurine_core::db::crud::get_sync_checkpoint(conn, "activity_events").unwrap_or(0);
-        let rfc3339_events_cp = CloudClient::format_rfc3339_timestamp(last_events_cp);
+        let effective_events_cp = if last_events_cp == 0 {
+            now_epoch.saturating_sub(30 * 86400)
+        } else {
+            last_events_cp
+        };
+        let rfc3339_events_cp = CloudClient::format_rfc3339_timestamp(effective_events_cp);
         let events_pull_res = client
             .postgrest_get(
-                &format!("activity_events?updated_at=gt.{rfc3339_events_cp}&order=updated_at.asc"),
+                &format!("activity_events?updated_at=gt.{rfc3339_events_cp}&order=updated_at.asc&limit=500"),
                 &mut tokens,
             )
             .await;
