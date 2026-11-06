@@ -97,6 +97,81 @@ impl SyncWorker {
         )))
     }
 
+    fn prepare_snippet_payload(
+        conn: &rusqlite::Connection,
+        entry: &taurine_core::db::crud::OutboxEntry,
+        user_id: &str,
+    ) -> serde_json::Value {
+        let mut payload = if entry.operation == "upsert"
+            && let Ok(Some(trigger)) =
+                taurine_core::db::crud::triggers::get_trigger(conn, &entry.entity_id)
+        {
+            let aliases = taurine_core::db::crud::triggers::list_aliases(conn, &entry.entity_id)
+                .unwrap_or_default();
+            let assets =
+                taurine_core::db::crud::triggers::load_trigger_assets(conn, &entry.entity_id)
+                    .unwrap_or_default();
+            let snippet_obj = taurine_core::db::crud::triggers::serialize_trigger_to_cloud_snippet(
+                &trigger, &aliases, &assets,
+            );
+            serde_json::to_value(&snippet_obj).unwrap_or_else(|_| entry.payload.clone())
+        } else {
+            entry.payload.clone()
+        };
+
+        if let serde_json::Value::Object(ref mut map) = payload {
+            map.remove("local_id");
+            map.remove("name");
+            if !map.contains_key("user_id") {
+                map.insert(
+                    "user_id".to_string(),
+                    serde_json::Value::String(user_id.to_string()),
+                );
+            }
+            if let Some(target_os_val) = map.get("target_os")
+                && target_os_val.is_null()
+            {
+                map.insert(
+                    "target_os".to_string(),
+                    serde_json::Value::String("all".to_string()),
+                );
+            } else if !map.contains_key("target_os") {
+                map.insert(
+                    "target_os".to_string(),
+                    serde_json::Value::String("all".to_string()),
+                );
+            }
+        } else if let serde_json::Value::Array(ref mut arr) = payload {
+            for item in arr.iter_mut() {
+                if let serde_json::Value::Object(map) = item {
+                    map.remove("local_id");
+                    map.remove("name");
+                    if !map.contains_key("user_id") {
+                        map.insert(
+                            "user_id".to_string(),
+                            serde_json::Value::String(user_id.to_string()),
+                        );
+                    }
+                    if let Some(target_os_val) = map.get("target_os")
+                        && target_os_val.is_null()
+                    {
+                        map.insert(
+                            "target_os".to_string(),
+                            serde_json::Value::String("all".to_string()),
+                        );
+                    } else if !map.contains_key("target_os") {
+                        map.insert(
+                            "target_os".to_string(),
+                            serde_json::Value::String("all".to_string()),
+                        );
+                    }
+                }
+            }
+        }
+
+        payload
+    }
+
     /// Spawns a background thread running periodic sync cycles.
     pub fn spawn<F, E>(conn_provider: F, interval: Duration) -> std::thread::JoinHandle<()>
     where
@@ -343,115 +418,123 @@ impl SyncWorker {
                 break;
             }
 
-            for entry in &unattempted {
-                attempted_ids.insert(entry.id);
+            let (snippet_entries, other_entries): (Vec<_>, Vec<_>) = unattempted
+                .into_iter()
+                .partition(|e| e.entity_type == "snippet");
 
-                match entry.entity_type.as_str() {
-                    "snippet" => {
-                        let mut payload = if entry.operation == "upsert"
-                            && let Ok(Some(trigger)) = taurine_core::db::crud::triggers::get_trigger(
-                                conn,
-                                &entry.entity_id,
-                            ) {
-                            let aliases = taurine_core::db::crud::triggers::list_aliases(
-                                conn,
-                                &entry.entity_id,
-                            )
-                            .unwrap_or_default();
-                            let assets = taurine_core::db::crud::triggers::load_trigger_assets(
-                                conn,
-                                &entry.entity_id,
-                            )
-                            .unwrap_or_default();
-                            let snippet_obj =
-                                taurine_core::db::crud::triggers::serialize_trigger_to_cloud_snippet(
-                                    &trigger, &aliases, &assets,
-                                );
-                            serde_json::to_value(&snippet_obj)
-                                .unwrap_or_else(|_| entry.payload.clone())
-                        } else {
-                            entry.payload.clone()
-                        };
+            if snippet_entries.len() > 1 {
+                for entry in &snippet_entries {
+                    attempted_ids.insert(entry.id);
+                }
 
-                        if let serde_json::Value::Object(ref mut map) = payload {
-                            map.remove("local_id");
-                            map.remove("name");
-                            if !map.contains_key("user_id") {
-                                map.insert(
-                                    "user_id".to_string(),
-                                    serde_json::Value::String(tokens.user_id.clone()),
-                                );
-                            }
-                            if let Some(target_os_val) = map.get("target_os")
-                                && target_os_val.is_null()
-                            {
-                                map.insert(
-                                    "target_os".to_string(),
-                                    serde_json::Value::String("all".to_string()),
-                                );
-                            } else if !map.contains_key("target_os") {
-                                map.insert(
-                                    "target_os".to_string(),
-                                    serde_json::Value::String("all".to_string()),
-                                );
-                            }
-                        } else if let serde_json::Value::Array(ref mut arr) = payload {
-                            for item in arr.iter_mut() {
-                                if let serde_json::Value::Object(map) = item {
-                                    map.remove("local_id");
-                                    map.remove("name");
-                                    if !map.contains_key("user_id") {
-                                        map.insert(
-                                            "user_id".to_string(),
-                                            serde_json::Value::String(tokens.user_id.clone()),
-                                        );
-                                    }
-                                    if let Some(target_os_val) = map.get("target_os")
-                                        && target_os_val.is_null()
-                                    {
-                                        map.insert(
-                                            "target_os".to_string(),
-                                            serde_json::Value::String("all".to_string()),
-                                        );
-                                    } else if !map.contains_key("target_os") {
-                                        map.insert(
-                                            "target_os".to_string(),
-                                            serde_json::Value::String("all".to_string()),
-                                        );
-                                    }
-                                }
-                            }
+                let batch_payload: Vec<serde_json::Value> = snippet_entries
+                    .iter()
+                    .map(|e| Self::prepare_snippet_payload(conn, e, &tokens.user_id))
+                    .collect();
+
+                let push_res = client
+                    .postgrest_post("snippets?on_conflict=id", &batch_payload, true, &mut tokens)
+                    .await;
+
+                match push_res {
+                    Ok(res) if res.status().is_success() => {
+                        for entry in &snippet_entries {
+                            let _ = taurine_core::db::crud::delete_outbox_entry(conn, entry.id);
+                            pushed_snippets += 1;
                         }
-
-                        let push_res = client
-                            .postgrest_post("snippets?on_conflict=id", &payload, true, &mut tokens)
-                            .await;
-
-                        match push_res {
-                            Ok(res) => {
-                                if !res.status().is_success() {
-                                    let status = res.status();
-                                    let text = res.text().await.unwrap_or_default();
+                    }
+                    Ok(res) if is_fatal_client_error(res.status()) => {
+                        // Fall back to item-by-item push to isolate any poisoned entry
+                        for entry in &snippet_entries {
+                            let payload =
+                                Self::prepare_snippet_payload(conn, entry, &tokens.user_id);
+                            let single_res = client
+                                .postgrest_post(
+                                    "snippets?on_conflict=id",
+                                    &payload,
+                                    true,
+                                    &mut tokens,
+                                )
+                                .await;
+                            match single_res {
+                                Ok(r) if r.status().is_success() => {
+                                    let _ =
+                                        taurine_core::db::crud::delete_outbox_entry(conn, entry.id);
+                                    pushed_snippets += 1;
+                                }
+                                Ok(r) => {
+                                    let status = r.status();
+                                    let text = r.text().await.unwrap_or_default();
                                     if let Some(err_status) =
                                         Self::handle_outbox_failure(conn, entry, status, &text)
                                     {
                                         return err_status;
                                     }
-                                    continue;
                                 }
-                                let _ = taurine_core::db::crud::delete_outbox_entry(conn, entry.id);
-                                pushed_snippets += 1;
-                            }
-                            Err(e) => {
-                                if let Some(err_status) =
-                                    Self::handle_outbox_network_error(conn, entry, &e)
-                                {
-                                    return err_status;
+                                Err(e) => {
+                                    if let Some(err_status) =
+                                        Self::handle_outbox_network_error(conn, entry, &e)
+                                    {
+                                        return err_status;
+                                    }
                                 }
-                                continue;
                             }
                         }
                     }
+                    Ok(res) => {
+                        let status = res.status();
+                        let text = res.text().await.unwrap_or_default();
+                        if let Some(entry) = snippet_entries.first()
+                            && let Some(err_status) =
+                                Self::handle_outbox_failure(conn, entry, status, &text)
+                        {
+                            return err_status;
+                        }
+                    }
+                    Err(e) => {
+                        if let Some(entry) = snippet_entries.first()
+                            && let Some(err_status) =
+                                Self::handle_outbox_network_error(conn, entry, &e)
+                        {
+                            return err_status;
+                        }
+                    }
+                }
+            } else if let Some(entry) = snippet_entries.first() {
+                attempted_ids.insert(entry.id);
+                let payload = Self::prepare_snippet_payload(conn, entry, &tokens.user_id);
+                let push_res = client
+                    .postgrest_post("snippets?on_conflict=id", &payload, true, &mut tokens)
+                    .await;
+
+                match push_res {
+                    Ok(res) => {
+                        if !res.status().is_success() {
+                            let status = res.status();
+                            let text = res.text().await.unwrap_or_default();
+                            if let Some(err_status) =
+                                Self::handle_outbox_failure(conn, entry, status, &text)
+                            {
+                                return err_status;
+                            }
+                        } else {
+                            let _ = taurine_core::db::crud::delete_outbox_entry(conn, entry.id);
+                            pushed_snippets += 1;
+                        }
+                    }
+                    Err(e) => {
+                        if let Some(err_status) = Self::handle_outbox_network_error(conn, entry, &e)
+                        {
+                            return err_status;
+                        }
+                    }
+                }
+            }
+
+            for entry in &other_entries {
+                attempted_ids.insert(entry.id);
+
+                match entry.entity_type.as_str() {
                     "setting" => {
                         if !taurine_core::db::crud::is_setting_syncable(&entry.entity_id) {
                             let _ = taurine_core::db::crud::delete_outbox_entry(conn, entry.id);

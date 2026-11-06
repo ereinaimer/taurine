@@ -1,5 +1,5 @@
 use crate::error::Result;
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -24,6 +24,26 @@ pub fn enqueue_outbox(
     payload: serde_json::Value,
 ) -> Result<i64> {
     let payload_str = payload.to_string();
+
+    // Check if an unattempted entry already exists for this entity to coalesce burst edits
+    let existing_id: Option<i64> = conn
+        .query_row(
+            "SELECT id FROM sync_outbox WHERE entity_type = ?1 AND entity_id = ?2 AND retry_count = 0 LIMIT 1",
+            params![entity_type, entity_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+
+    if let Some(id) = existing_id {
+        let mut update_stmt = conn.prepare_cached(
+            "UPDATE sync_outbox
+             SET operation = ?1, payload = ?2, created_at = unixepoch()
+             WHERE id = ?3",
+        )?;
+        update_stmt.execute(params![operation, payload_str, id])?;
+        return Ok(id);
+    }
+
     let mut stmt = conn.prepare_cached(
         "INSERT INTO sync_outbox (entity_type, entity_id, operation, payload)
          VALUES (?1, ?2, ?3, ?4)",
@@ -156,6 +176,43 @@ mod tests {
         let remaining = fetch_outbox_batch(&conn, 10).unwrap();
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].id, id2);
+    }
+
+    #[test]
+    fn test_enqueue_outbox_coalesces_unattempted_entry() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::init::ensure_schema(&conn).unwrap();
+
+        let id1 = enqueue_outbox(
+            &conn,
+            "snippet",
+            "trig-coalesce",
+            "upsert",
+            serde_json::json!({"output": "v1"}),
+        )
+        .unwrap();
+
+        let id2 = enqueue_outbox(
+            &conn,
+            "snippet",
+            "trig-coalesce",
+            "upsert",
+            serde_json::json!({"output": "v2"}),
+        )
+        .unwrap();
+
+        assert_eq!(id1, id2, "Coalesced outbox row must reuse same id");
+
+        let batch = fetch_outbox_batch(&conn, 10).unwrap();
+        assert_eq!(
+            batch.len(),
+            1,
+            "Must have exactly 1 coalesced row in outbox"
+        );
+        assert_eq!(
+            batch[0].payload.get("output").and_then(|v| v.as_str()),
+            Some("v2")
+        );
     }
 
     #[test]

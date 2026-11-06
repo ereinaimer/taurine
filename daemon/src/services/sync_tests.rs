@@ -3261,18 +3261,26 @@ fn test_sync_setting_versioning_and_clean_json_roundtrip() {
     taurine_core::db::crud::set_setting(&conn, "wpm", "140").unwrap();
 
     let batch2 = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
-    assert_eq!(batch2.len(), 2);
-    assert_eq!(batch2[1].payload["key"], "wpm");
-    assert_eq!(batch2[1].payload["value"], 140);
-    assert_eq!(batch2[1].payload["version"], 2);
+    assert_eq!(
+        batch2.len(),
+        1,
+        "Subsequent update must coalesce into existing entry"
+    );
+    assert_eq!(batch2[0].payload["key"], "wpm");
+    assert_eq!(batch2[0].payload["value"], 140);
+    assert_eq!(batch2[0].payload["version"], 2);
 
     // 3. Set a string-typed setting: outbox payload must contain clean parsed string, not double-quoted string
     taurine_core::db::crud::set_setting(&conn, "audio_theme", "\"mechanical\"").unwrap();
     let batch3 = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
-    assert_eq!(batch3.len(), 3);
-    assert_eq!(batch3[2].payload["key"], "audio_theme");
-    assert_eq!(batch3[2].payload["value"], "mechanical");
-    assert_eq!(batch3[2].payload["version"], 1);
+    assert_eq!(
+        batch3.len(),
+        2,
+        "Second distinct setting adds new outbox row"
+    );
+    assert_eq!(batch3[1].payload["key"], "audio_theme");
+    assert_eq!(batch3[1].payload["value"], "mechanical");
+    assert_eq!(batch3[1].payload["version"], 1);
 
     // 4. Remote reconciliation with clean string ("arcade")
     let remote_clean_str = taurine_core::db::crud::CloudSettingPayload {
@@ -3628,7 +3636,7 @@ async fn test_sync_incremental_checkpoints_worker_and_quarantine_e2e() {
     let server_handle = std::thread::spawn(move || {
         let mut handled = 0;
         let start = std::time::Instant::now();
-        while handled < 10 && start.elapsed() < std::time::Duration::from_secs(5) {
+        while handled < 12 && start.elapsed() < std::time::Duration::from_secs(5) {
             match listener.accept() {
                 Ok((mut stream, _)) => {
                     let mut buf = [0u8; 4096];
@@ -4299,6 +4307,122 @@ async fn test_subsecond_timestamp_watermark_prevents_perpetual_repull() {
             || queries[1].contains("updated_at=gt.2026-11-06T12:00:00.654321Z"),
         "Cycle 2 query must contain exact microsecond timestamp: {}",
         queries[1]
+    );
+
+    taurine_core::cloud::clear_tokens().unwrap();
+}
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn test_outbox_push_batches_multiple_snippets_in_single_http_request() {
+    use std::io::{Read, Write};
+
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    crate::hook::tests::mock_keystore::use_mock_keystore();
+
+    let conn = Connection::open_in_memory().unwrap();
+    ensure_schema(&conn).unwrap();
+    taurine_core::db::crud::set_sync_checkpoint(&conn, "snippets_backfilled", 1).unwrap();
+
+    let tokens = taurine_core::cloud::AuthTokens {
+        access_token: "test_token_batch".to_string(),
+        refresh_token: "test_refresh".to_string(),
+        user_id: "usr_batch".to_string(),
+        expires_at: Some(2000000000),
+    };
+    taurine_core::cloud::store_tokens(&tokens).unwrap();
+
+    // Enqueue 5 snippets
+    for i in 1..=5 {
+        taurine_core::db::crud::enqueue_outbox(
+            &conn,
+            "snippet",
+            &format!("trig-batch-{i}"),
+            "upsert",
+            serde_json::json!({
+                "id": format!("trig-batch-{i}"),
+                "output": format!("batch output {i}"),
+                "workspace_id": "default",
+                "version": 1,
+                "is_deleted": false,
+                "updated_at": 1730000000 + i,
+                "created_at": 1730000000,
+            }),
+        )
+        .unwrap();
+    }
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    listener.set_nonblocking(true).unwrap();
+
+    let post_requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let post_requests_clone = post_requests.clone();
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let stop_clone = stop.clone();
+
+    let server_thread = std::thread::spawn(move || {
+        while !stop_clone.load(std::sync::atomic::Ordering::Relaxed) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let mut buffer = [0u8; 8192];
+                    let n = stream.read(&mut buffer).unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buffer[..n]).to_string();
+
+                    if req.starts_with("POST /rest/v1/snippets") {
+                        post_requests_clone.lock().unwrap().push(req.clone());
+                        let resp = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                        let _ = stream.write_all(resp.as_bytes());
+                    } else if req.starts_with("GET /rest/v1/") {
+                        let resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+                        let _ = stream.write_all(resp.as_bytes());
+                    }
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(15));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let config = CloudConfig {
+        supabase_url: format!("http://127.0.0.1:{port}"),
+        anon_key: "test-anon-key".to_string(),
+    };
+    let client = CloudClient::new(config);
+
+    let status = SyncWorker::run_sync_cycle(&conn, Some(&client)).await;
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    let _ = server_thread.join();
+
+    assert_eq!(
+        status,
+        SyncStatus::Success {
+            pulled_snippets: 0,
+            pushed_snippets: 5,
+            pulled_settings: 0,
+            pushed_settings: 0,
+            pulled_events: 0,
+            pushed_stats: 0,
+        }
+    );
+
+    let posts = post_requests.lock().unwrap().clone();
+    assert_eq!(
+        posts.len(),
+        1,
+        "Must push all 5 snippets in exactly 1 batch HTTP request"
+    );
+    assert!(posts[0].contains("\"id\":\"trig-batch-1\""));
+    assert!(posts[0].contains("\"id\":\"trig-batch-5\""));
+
+    let remaining = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    assert!(
+        remaining.is_empty(),
+        "All outbox rows must be deleted after batch push"
     );
 
     taurine_core::cloud::clear_tokens().unwrap();

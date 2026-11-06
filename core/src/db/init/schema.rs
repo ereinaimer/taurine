@@ -211,6 +211,9 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_sync_outbox_order
             ON sync_outbox(retry_count ASC, id ASC);
 
+        CREATE INDEX IF NOT EXISTS idx_sync_outbox_entity
+            ON sync_outbox(entity_type, entity_id);
+
         CREATE TABLE IF NOT EXISTS sync_checkpoints (
             entity_type    TEXT PRIMARY KEY,
             last_synced_at INTEGER NOT NULL DEFAULT 0
