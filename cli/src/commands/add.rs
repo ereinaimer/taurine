@@ -152,10 +152,17 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
     if let Some(ref ws_id) = target_ws {
         for (invocation_type, invocation, _) in &invocations {
             if let Ok(Some(pid)) = find_parent_by_invocation(&conn, *invocation_type, invocation) {
-                let _ = conn.execute(
-                    "UPDATE triggers SET workspace_id = ?1, version = version + 1, updated_at = unixepoch(), is_synced = 0 WHERE id = ?2",
-                    rusqlite::params![ws_id, pid],
-                );
+                if conn
+                    .execute(
+                        "UPDATE triggers SET workspace_id = ?1, version = version + 1, updated_at = unixepoch() WHERE id = ?2",
+                        rusqlite::params![ws_id, pid],
+                    )
+                    .is_ok()
+                {
+                    let _ = taurine_core::db::crud::triggers::enqueue_trigger_outbox(
+                        &conn, &pid, "upsert",
+                    );
+                }
                 break;
             }
         }
@@ -952,6 +959,33 @@ mod tests {
             let row = get_trigger(&conn, &pid).unwrap().unwrap();
             assert_eq!(row.output, "user@example.com");
             assert_eq!(row.invocations.len(), 1);
+        });
+    }
+
+    #[test]
+    fn add_with_workspace_updates_workspace_id_and_enqueues_outbox() {
+        init_tracing_for_tests();
+
+        with_test_db(|_db_path| {
+            let conn = taurine_core::db::init::setup().unwrap();
+            let ws =
+                taurine_core::db::crud::workspaces::create_workspace(&conn, "ws_test").unwrap();
+
+            let mut args = add_args(vec![":test", "replacement output"], vec![], vec![], vec![]);
+            args.workspace = Some("ws_test".to_string());
+            execute_args(args, false).unwrap();
+
+            let pid = parent_for(&conn, InvocationType::Word, ":test");
+            let row = get_trigger(&conn, &pid).unwrap().unwrap();
+            assert_eq!(row.workspace_id, ws.id);
+
+            let outbox = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+            assert!(
+                outbox
+                    .iter()
+                    .any(|e| e.entity_type == "snippet" && e.entity_id == pid),
+                "Workspace update must enqueue snippet to sync outbox"
+            );
         });
     }
 }

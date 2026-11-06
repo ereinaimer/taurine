@@ -164,10 +164,17 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
     if let Some(ref ws_id) = target_ws {
         for (invocation_type, invocation, _) in &invocations {
             if let Ok(Some(pid)) = find_parent_by_invocation(&conn, *invocation_type, invocation) {
-                let _ = conn.execute(
-                    "UPDATE triggers SET workspace_id = ?1, version = version + 1, updated_at = unixepoch(), is_synced = 0 WHERE id = ?2",
-                    rusqlite::params![ws_id, pid],
-                );
+                if conn
+                    .execute(
+                        "UPDATE triggers SET workspace_id = ?1, version = version + 1, updated_at = unixepoch() WHERE id = ?2",
+                        rusqlite::params![ws_id, pid],
+                    )
+                    .is_ok()
+                {
+                    let _ = taurine_core::db::crud::triggers::enqueue_trigger_outbox(
+                        &conn, &pid, "upsert",
+                    );
+                }
                 break;
             }
         }

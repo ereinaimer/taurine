@@ -691,11 +691,7 @@ fn create_entry_inner(
     Ok((id, aliases))
 }
 
-pub(crate) fn enqueue_trigger_outbox(
-    conn: &Connection,
-    trigger_id: &str,
-    operation: &str,
-) -> Result<()> {
+pub fn enqueue_trigger_outbox(conn: &Connection, trigger_id: &str, operation: &str) -> Result<()> {
     if let Some(trigger) = super::trigger_get::get_trigger(conn, trigger_id)? {
         let aliases = super::aliases::list_aliases(conn, trigger_id)?;
         let assets = super::trigger_sync::load_trigger_assets(conn, trigger_id)?;
