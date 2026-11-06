@@ -41,6 +41,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Trigger Display Names**: Replaced redundant trigger display names with primary trigger invocations and descriptions across the CLI and TUI.
 
 ### Fixed
+- **Sync Reflection Loop**: Eliminate continuous re-upload of unchanged local and remote triggers on periodic cycles.
+- **Offline Sync Quarantine**: Prevent network dropouts and temporary server outages from permanently quarantining pending outbox items.
+- **Backup Password Security**: Remove hardcoded application master key from password-protected backup exports to ensure backups can only be decrypted with the user password.
+- **Telemetry Privacy**: Redact raw expanded snippet and voice dictation text from cloud activity sync.
+- **Concurrent Shortcut Sync**: Preserve newer concurrent local shortcuts when reconciling remote trigger updates.
+- **Pause Hotkey Performance**: Skip redundant remote sync pulls when local changes are clean and sync ran recently.
+- **Logout Data Protection**: Prompt interactive users and require `--force` flag before erasing local data if unsynced mutations remain.
 - **Dictation Quota Enforcement**: Stop dictation once the weekly quota is exhausted instead of transcribing for free.
 - **Multi-Device Stats Sync**: Prevent runaway expansion count inflation across multiple synchronized devices.
 - **Logging Performance**: Eliminated high-frequency log pollution during fullscreen applications and idle timers.
