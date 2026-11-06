@@ -4527,3 +4527,48 @@ fn test_workspace_synchronization_and_cascade_delete_outbox() {
     );
     assert_eq!(remote_ws.unwrap().name, "Design Team");
 }
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn test_sync_concurrency_mutex_and_backoff_progression() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+
+    // 1. Verify progressive network backoff calculation
+    assert_eq!(
+        SyncWorker::network_backoff_duration(0),
+        std::time::Duration::from_secs(3)
+    );
+    assert_eq!(
+        SyncWorker::network_backoff_duration(1),
+        std::time::Duration::from_secs(5)
+    );
+    assert_eq!(
+        SyncWorker::network_backoff_duration(2),
+        std::time::Duration::from_secs(15)
+    );
+    assert_eq!(
+        SyncWorker::network_backoff_duration(3),
+        std::time::Duration::from_secs(30)
+    );
+    assert_eq!(
+        SyncWorker::network_backoff_duration(4),
+        std::time::Duration::from_secs(60)
+    );
+    assert_eq!(
+        SyncWorker::network_backoff_duration(10),
+        std::time::Duration::from_secs(60)
+    );
+
+    // 2. Concurrency serialization: run multiple simultaneous sync cycles
+    let conn1 = Connection::open_in_memory().unwrap();
+    ensure_schema(&conn1).unwrap();
+
+    let f1 = SyncWorker::run_sync_cycle(&conn1, None);
+    let f2 = SyncWorker::run_sync_cycle(&conn1, None);
+
+    let (res1, res2) = tokio::join!(f1, f2);
+    assert_eq!(res1, SyncStatus::NotAuthenticated);
+    assert_eq!(res2, SyncStatus::NotAuthenticated);
+}

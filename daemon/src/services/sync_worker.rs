@@ -32,6 +32,8 @@ pub struct SyncWorker {
     interval: Duration,
 }
 
+static SYNC_MUTEX: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 pub(crate) fn is_fatal_client_error(status: reqwest::StatusCode) -> bool {
     status.is_client_error()
         && status != reqwest::StatusCode::UNAUTHORIZED
@@ -43,6 +45,17 @@ impl SyncWorker {
     /// Creates a new `SyncWorker` with the specified execution interval.
     pub fn new(interval: Duration) -> Self {
         Self { interval }
+    }
+
+    /// Computes progressive network backoff duration based on consecutive network failures.
+    pub fn network_backoff_duration(failures: u32) -> Duration {
+        match failures {
+            0 => Duration::from_secs(3),
+            1 => Duration::from_secs(5),
+            2 => Duration::from_secs(15),
+            3 => Duration::from_secs(30),
+            _ => Duration::from_secs(60),
+        }
     }
 
     /// Returns the configured execution interval.
@@ -239,8 +252,8 @@ impl SyncWorker {
                     fallback_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
                     let client = CloudClient::default_or_from_env();
                     let mut last_sync = std::time::Instant::now() - Duration::from_secs(60);
+                    let mut consecutive_network_errors: u32 = 0;
                     const DEBOUNCE_MS: u64 = 300;
-                    const COOLDOWN_SECS: u64 = 3;
 
                     // Initial tick on boot
                     fallback_ticker.tick().await;
@@ -261,11 +274,12 @@ impl SyncWorker {
                             }
                         }
 
-                        // Cooldown guard to avoid spamming cloud API
-                        if last_sync.elapsed() < Duration::from_secs(COOLDOWN_SECS) {
+                        // Cooldown / progressive backoff guard to avoid spamming cloud API
+                        let current_backoff =
+                            Self::network_backoff_duration(consecutive_network_errors);
+                        if last_sync.elapsed() < current_backoff {
                             tokio::time::sleep(
-                                Duration::from_secs(COOLDOWN_SECS)
-                                    .saturating_sub(last_sync.elapsed()),
+                                current_backoff.saturating_sub(last_sync.elapsed()),
                             )
                             .await;
                         }
@@ -287,6 +301,20 @@ impl SyncWorker {
 
                                 let status = Self::run_sync_cycle(&conn, Some(&client)).await;
                                 last_sync = std::time::Instant::now();
+                                match &status {
+                                    SyncStatus::Success { .. } => {
+                                        consecutive_network_errors = 0;
+                                    }
+                                    SyncStatus::Error(e)
+                                        if e.to_lowercase().contains("network error")
+                                            || e.to_lowercase().contains("connection")
+                                            || e.to_lowercase().contains("dns") =>
+                                    {
+                                        consecutive_network_errors =
+                                            consecutive_network_errors.saturating_add(1);
+                                    }
+                                    _ => {}
+                                }
                                 Self::log_sync_status(status);
                             }
                             Err(e) => {
@@ -352,6 +380,8 @@ impl SyncWorker {
         conn: &rusqlite::Connection,
         client: Option<&CloudClient>,
     ) -> SyncStatus {
+        let _sync_guard = SYNC_MUTEX.lock().await;
+
         // 0. Flush any pending in-memory quota deltas to SQLite (applies locally regardless of cloud auth)
         if let Ok(key) = taurine_core::db::key::get_or_create_db_key() {
             let _ = crate::engine::quota_guard::QuotaGuard::global().flush_to_db(conn, &key);
