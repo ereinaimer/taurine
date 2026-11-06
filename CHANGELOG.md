@@ -41,6 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Trigger Display Names**: Replaced redundant trigger display names with primary trigger invocations and descriptions across the CLI and TUI.
 
 ### Fixed
+- **Snippet Sync Pagination**: Reliably synchronize large snippet collections across devices without remote row limit truncation.
+- **Workspace Assignment Sync**: Persist workspace assignments immediately when creating snippets via the CLI and enqueue them for cloud sync.
+- **Windows App Stats Sync**: Accurately parse Windows executable paths to synchronize per-application usage statistics to the cloud dashboard.
+- **Initial Telemetry Sync**: Clamp initial activity history synchronization to the active retention window for faster initial device setup.
 - **Sync Reflection Loop**: Eliminate continuous re-upload of unchanged local and remote triggers on periodic cycles.
 - **Offline Sync Quarantine**: Prevent network dropouts and temporary server outages from permanently quarantining pending outbox items.
 - **Backup Password Security**: Remove hardcoded application master key from password-protected backup exports to ensure backups can only be decrypted with the user password.
