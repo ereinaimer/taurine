@@ -3936,3 +3936,113 @@ async fn test_network_and_server_errors_never_quarantine_even_with_high_retry_co
 
     taurine_core::cloud::clear_tokens().unwrap();
 }
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn test_app_stat_with_windows_colon_path_resolves_and_syncs() {
+    use std::io::{Read, Write};
+
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    crate::hook::tests::mock_keystore::use_mock_keystore();
+
+    let conn = Connection::open_in_memory().unwrap();
+    ensure_schema(&conn).unwrap();
+    taurine_core::db::crud::set_sync_checkpoint(&conn, "snippets_backfilled", 1).unwrap();
+
+    let tokens = taurine_core::cloud::AuthTokens {
+        access_token: "test_token".to_string(),
+        refresh_token: "test_refresh".to_string(),
+        user_id: "usr_test_colon_path".to_string(),
+        expires_at: Some(2000000000),
+    };
+    taurine_core::cloud::store_tokens(&tokens).unwrap();
+
+    let app_key = "C:\\Program Files\\App\\app.exe";
+    let date = "2026-11-06";
+    let device_id = taurine_core::cloud::get_device_hardware_id();
+
+    conn.execute(
+        "INSERT INTO app_stats (device_id, app_key, date, executions, words_spoken, words_expanded, time_saved_ms, version, updated_at)
+         VALUES (?1, ?2, ?3, 42, 0, 150, 5000, 1, 1000)",
+        rusqlite::params![device_id, app_key, date],
+    )
+    .unwrap();
+
+    let entity_id = format!("{app_key}:{date}");
+    taurine_core::db::crud::enqueue_outbox(
+        &conn,
+        "app_stat",
+        &entity_id,
+        "upsert",
+        serde_json::json!({
+            "device_id": device_id,
+            "app_key": app_key,
+            "date": date,
+        }),
+    )
+    .unwrap();
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    listener.set_nonblocking(true).unwrap();
+
+    let received_body = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let received_body_clone = received_body.clone();
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let stop_clone = stop.clone();
+
+    let server_thread = std::thread::spawn(move || {
+        while !stop_clone.load(std::sync::atomic::Ordering::Relaxed) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let mut buffer = [0u8; 4096];
+                    let n = stream.read(&mut buffer).unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buffer[..n]).to_string();
+
+                    if req.starts_with("POST /rest/v1/user_app_stats") {
+                        let mut body_lock = received_body_clone.lock().unwrap();
+                        *body_lock = req.clone();
+                        let resp = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                        let _ = stream.write_all(resp.as_bytes());
+                    } else if req.starts_with("GET /rest/v1/") {
+                        let resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+                        let _ = stream.write_all(resp.as_bytes());
+                    }
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(15));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let config = CloudConfig {
+        supabase_url: format!("http://127.0.0.1:{port}"),
+        anon_key: "test-anon-key".to_string(),
+    };
+    let client = CloudClient::new(config);
+
+    let status = SyncWorker::run_sync_cycle(&conn, Some(&client)).await;
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    let _ = server_thread.join();
+
+    assert!(
+        matches!(status, SyncStatus::Success { .. }),
+        "Expected success, got: {status:?}"
+    );
+
+    let req_str = received_body.lock().unwrap().clone();
+    assert!(
+        req_str.contains("\"executions\":42"),
+        "Payload must include database executions count 42 even with colon in path: {req_str}"
+    );
+    assert!(
+        req_str.contains("\"words_expanded\":150"),
+        "Payload must include database words_expanded count 150: {req_str}"
+    );
+
+    taurine_core::cloud::clear_tokens().unwrap();
+}

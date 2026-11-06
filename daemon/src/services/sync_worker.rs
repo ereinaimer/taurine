@@ -660,13 +660,41 @@ impl SyncWorker {
                         }
                     }
                     "trigger_daily_stat" => {
-                        let parts: Vec<&str> = entry.entity_id.splitn(3, ':').collect();
-                        let db_stat = if parts.len() == 3 {
+                        let (lookup_trigger_id, lookup_date, lookup_app_key) =
+                            if let (Some(t), Some(d), Some(a)) = (
+                                entry.payload.get("trigger_id").and_then(|v| v.as_str()),
+                                entry.payload.get("date").and_then(|v| v.as_str()),
+                                entry.payload.get("app_key").and_then(|v| v.as_str()),
+                            ) {
+                                (
+                                    Some(t.to_string()),
+                                    Some(d.to_string()),
+                                    Some(a.to_string()),
+                                )
+                            } else {
+                                let parts: Vec<&str> = entry.entity_id.splitn(3, ':').collect();
+                                if parts.len() == 3 {
+                                    (
+                                        Some(parts[0].to_string()),
+                                        Some(parts[1].to_string()),
+                                        Some(parts[2].to_string()),
+                                    )
+                                } else {
+                                    (None, None, None)
+                                }
+                            };
+
+                        let db_stat = if let (
+                            Some(ref trigger_id),
+                            Some(ref date),
+                            Some(ref app_key),
+                        ) = (lookup_trigger_id, lookup_date, lookup_app_key)
+                        {
                             let device_id = taurine_core::cloud::get_device_hardware_id();
                             conn.query_row(
                                 "SELECT trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version
                                  FROM trigger_daily_stats WHERE device_id = ?1 AND trigger_id = ?2 AND date = ?3 AND app_key = ?4",
-                                rusqlite::params![device_id, parts[0], parts[1], parts[2]],
+                                rusqlite::params![device_id, trigger_id, date, app_key],
                                 |row| {
                                     let executions: i64 = row.get(3)?;
                                     let words_spoken: i64 = row.get(4)?;
@@ -825,13 +853,25 @@ impl SyncWorker {
                         }
                     }
                     "app_stat" | "user_app_stat" => {
-                        let parts: Vec<&str> = entry.entity_id.splitn(2, ':').collect();
-                        let db_app_stat = if parts.len() == 2 {
+                        let (lookup_app_key, lookup_date) = if let (Some(a), Some(d)) = (
+                            entry.payload.get("app_key").and_then(|v| v.as_str()),
+                            entry.payload.get("date").and_then(|v| v.as_str()),
+                        ) {
+                            (Some(a.to_string()), Some(d.to_string()))
+                        } else if let Some((a, d)) = entry.entity_id.rsplit_once(':') {
+                            (Some(a.to_string()), Some(d.to_string()))
+                        } else {
+                            (None, None)
+                        };
+
+                        let db_app_stat = if let (Some(ref app_key), Some(ref date)) =
+                            (lookup_app_key, lookup_date)
+                        {
                             let device_id = taurine_core::cloud::get_device_hardware_id();
                             conn.query_row(
                                 "SELECT app_key, date, executions, words_spoken, words_expanded, time_saved_ms, version
                                  FROM app_stats WHERE device_id = ?1 AND app_key = ?2 AND date = ?3",
-                                rusqlite::params![device_id, parts[0], parts[1]],
+                                rusqlite::params![device_id, app_key, date],
                                 |row| {
                                     let executions: i64 = row.get(2)?;
                                     let words_spoken: i64 = row.get(3)?;
