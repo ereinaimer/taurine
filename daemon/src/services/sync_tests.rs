@@ -3519,18 +3519,13 @@ async fn test_sync_incremental_checkpoints_worker_and_quarantine_e2e() {
     )
     .unwrap();
 
-    // 2. Enqueue retry >= 5 entry (already attempted 5 times)
-    let id_retry5 = taurine_core::db::crud::enqueue_outbox(
+    // 2. Enqueue fatal 422 client error entry
+    let id_fatal_422 = taurine_core::db::crud::enqueue_outbox(
         &conn,
         "snippet",
-        "trig-retry-5",
+        "trig-fatal-422",
         "upsert",
-        serde_json::json!({"id": "trig-retry-5"}),
-    )
-    .unwrap();
-    conn.execute(
-        "UPDATE sync_outbox SET retry_count = 5 WHERE id = ?1",
-        [id_retry5],
+        serde_json::json!({"id": "trig-fatal-422"}),
     )
     .unwrap();
 
@@ -3565,8 +3560,8 @@ async fn test_sync_incremental_checkpoints_worker_and_quarantine_e2e() {
                         if req.contains("trig-fatal-400") {
                             let resp = "HTTP/1.1 400 Bad Request\r\nContent-Length: 17\r\nConnection: close\r\n\r\nInvalid JSON body";
                             stream.write_all(resp.as_bytes()).unwrap();
-                        } else if req.contains("trig-retry-5") {
-                            let resp = "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 12\r\nConnection: close\r\n\r\nServer Error";
+                        } else if req.contains("trig-fatal-422") {
+                            let resp = "HTTP/1.1 422 Unprocessable Entity\r\nContent-Length: 20\r\nConnection: close\r\n\r\nInvalid trigger body";
                             stream.write_all(resp.as_bytes()).unwrap();
                         } else {
                             let resp = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
@@ -3725,14 +3720,17 @@ async fn test_sync_incremental_checkpoints_worker_and_quarantine_e2e() {
         .unwrap();
     assert!(fatal_in_q, "Fatal 400 entry must be in quarantine table");
 
-    let retry5_in_q: bool = conn
+    let fatal_422_in_q: bool = conn
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM sync_outbox_quarantine WHERE id = ?1)",
-            [id_retry5],
+            [id_fatal_422],
             |r| r.get(0),
         )
         .unwrap();
-    assert!(retry5_in_q, "Retry >= 5 entry must be in quarantine table");
+    assert!(
+        fatal_422_in_q,
+        "Fatal 422 entry must be in quarantine table"
+    );
 
     // Verify incremental checkpoints were set for all 5 entities
     let cp_settings = taurine_core::db::crud::get_sync_checkpoint(&conn, "user_settings").unwrap();
@@ -3773,5 +3771,86 @@ async fn test_sync_incremental_checkpoints_worker_and_quarantine_e2e() {
     assert_eq!(cp_app_stats, expected_app_stats_ts);
 
     server_handle.join().unwrap();
+    taurine_core::cloud::clear_tokens().unwrap();
+}
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn test_network_and_server_errors_never_quarantine_even_with_high_retry_count() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    crate::hook::tests::mock_keystore::use_mock_keystore();
+
+    let tokens = taurine_core::cloud::AuthTokens {
+        access_token: "mock-token-xyz".to_string(),
+        refresh_token: "mock-refresh".to_string(),
+        user_id: "user-test-q".to_string(),
+        expires_at: Some(2000000000),
+    };
+    taurine_core::cloud::store_tokens(&tokens).unwrap();
+
+    let conn = Connection::open_in_memory().unwrap();
+    ensure_schema(&conn).unwrap();
+    taurine_core::db::crud::set_sync_checkpoint(&conn, "snippets_backfilled", 1).unwrap();
+
+    let entry_id = taurine_core::db::crud::enqueue_outbox(
+        &conn,
+        "snippet",
+        "snippet-offline-retry",
+        "upsert",
+        serde_json::json!({
+            "id": "snippet-offline-retry",
+            "output": "must not be quarantined on network outage",
+        }),
+    )
+    .unwrap();
+
+    // Artificially inflate retry_count to 10
+    conn.execute(
+        "UPDATE sync_outbox SET retry_count = 10 WHERE id = ?1",
+        [entry_id],
+    )
+    .unwrap();
+
+    // Point to non-listening port to simulate network failure / offline
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener); // closed immediately: connection refused
+
+    let config = CloudConfig {
+        supabase_url: format!("http://127.0.0.1:{port}"),
+        anon_key: "test-anon-key".to_string(),
+    };
+    let client = CloudClient::new(config);
+
+    let status = SyncWorker::run_sync_cycle(&conn, Some(&client)).await;
+    assert!(
+        matches!(status, SyncStatus::Error(ref msg) if msg.contains("Network error")),
+        "Expected network error status, got: {status:?}"
+    );
+
+    // Verify item is NOT quarantined
+    let q_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM sync_outbox_quarantine", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(
+        q_count, 0,
+        "Network error must NEVER quarantine outbox items"
+    );
+
+    // Verify item remains in sync_outbox with retry_count incremented
+    let (rem_count, rem_retries): (i64, i64) = conn
+        .query_row(
+            "SELECT COUNT(*), retry_count FROM sync_outbox WHERE id = ?1",
+            [entry_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(rem_count, 1, "Item must remain in sync_outbox");
+    assert_eq!(rem_retries, 11, "Retry count must be incremented to 11");
+
     taurine_core::cloud::clear_tokens().unwrap();
 }

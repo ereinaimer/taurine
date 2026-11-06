@@ -57,7 +57,7 @@ impl SyncWorker {
         text: &str,
     ) -> Option<SyncStatus> {
         let error_msg = format!("{status}: {text}");
-        if is_fatal_client_error(status) || entry.retry_count >= 5 {
+        if is_fatal_client_error(status) {
             tracing::error!(
                 "Quarantining outbox entry {} ({}): {error_msg}",
                 entry.id,
@@ -85,26 +85,16 @@ impl SyncWorker {
         e: &reqwest::Error,
     ) -> Option<SyncStatus> {
         let error_msg = format!("Network error: {e}");
-        if entry.retry_count >= 5 {
-            tracing::error!(
-                "Quarantining outbox entry {} ({}) after network errors: {error_msg}",
-                entry.id,
-                entry.entity_type
-            );
-            let _ = taurine_core::db::crud::quarantine_outbox_entry(conn, entry.id, &error_msg);
-            None
-        } else {
-            tracing::warn!(
-                "Recording failure for outbox entry {} ({}): {error_msg}",
-                entry.id,
-                entry.entity_type
-            );
-            let _ = taurine_core::db::crud::record_outbox_failure(conn, entry.id, &error_msg);
-            Some(SyncStatus::Error(format!(
-                "Network error pushing {}: {e}",
-                entry.entity_type
-            )))
-        }
+        tracing::warn!(
+            "Recording failure for outbox entry {} ({}): {error_msg}",
+            entry.id,
+            entry.entity_type
+        );
+        let _ = taurine_core::db::crud::record_outbox_failure(conn, entry.id, &error_msg);
+        Some(SyncStatus::Error(format!(
+            "Network error pushing {}: {e}",
+            entry.entity_type
+        )))
     }
 
     /// Spawns a background thread running periodic sync cycles.
