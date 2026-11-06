@@ -323,9 +323,6 @@ impl SyncWorker {
         let mut pulled_snippets = 0;
         let mut pulled_settings = 0;
 
-        // Backfill any untracked local triggers into outbox before draining
-        let _ = taurine_core::db::crud::triggers::backfill_untracked_triggers_to_outbox(conn);
-
         // 1. Push Phase (Outbox Drain)
         let mut attempted_ids = std::collections::HashSet::new();
         loop {
