@@ -197,6 +197,19 @@ impl SyncWorker {
 
                         match conn_provider() {
                             Ok(conn) => {
+                                // Fast pre-flight check for event wake:
+                                // If triggered by rapid hotkey toggles within 2s of a completed sync and outbox is clean,
+                                // skip duplicate redundant remote requests.
+                                if last_sync.elapsed() < Duration::from_millis(2000) {
+                                    let has_outbox = taurine_core::db::crud::fetch_outbox_batch(&conn, 1)
+                                        .map(|b| !b.is_empty())
+                                        .unwrap_or(false);
+                                    if !has_outbox {
+                                        tracing::debug!("Event pre-flight: outbox is clean and sync ran recently; skipping duplicate wake");
+                                        continue;
+                                    }
+                                }
+
                                 let status = Self::run_sync_cycle(&conn, Some(&client)).await;
                                 last_sync = std::time::Instant::now();
                                 Self::log_sync_status(status);
