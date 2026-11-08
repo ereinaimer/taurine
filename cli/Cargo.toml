@@ -31,7 +31,7 @@ dirs = "7"
 zeroize = "1.8"
 rusqlite = { version = "0.39", features = ["bundled-sqlcipher-vendored-openssl"] }
 keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service"] }
-genai = "0.6.5"
+genai = "0.7.3"
 regex = "1"
 self-replace = "1"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
@@ -41,7 +41,7 @@ unicode-normalization = "0.1"
 notify-rust = "4.18.0"
 
 [target."cfg(windows)".dependencies]
-sysinfo = "0.39.0"
+sysinfo = "0.40.1"
 winreg = "0.56.0"
 
 [build-dependencies]

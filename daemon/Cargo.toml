@@ -20,7 +20,7 @@ arboard = { version = "3.4.1", features = ["wayland-data-control"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 notify-rust = "4"
-genai = "0.6.5"
+genai = "0.7.3"
 futures = "0.3"
 zeroize = "1.8"
 crossbeam-channel = "0.5"
@@ -28,21 +28,21 @@ libc = "0.2"
 zstd = "0.14"
 rusqlite = { version = "0.39", features = ["bundled-sqlcipher-vendored-openssl"] }
 
-rodio = { version = "0.22", default-features = false, features = ["wav", "playback"] }
+rodio = { version = "0.23", default-features = false, features = ["wav", "playback"] }
 os_info = "3"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 unicode-normalization = "0.1"
 reqwest = "0.13.4"
 cpal = "0.18"
 rubato = "5.0"
-sherpa-onnx = "1.13.8"
+sherpa-onnx = "2.0.1"
 shenava-ctc-beam = "0.1.0"
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 rdev = { version = "0.5.3", features = ["unstable_grab"] }
 
 [target.'cfg(any(windows, target_os = "macos"))'.dependencies]
-tray-icon = { version = "0.25", default-features = false }
+tray-icon = { version = "0.26", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
