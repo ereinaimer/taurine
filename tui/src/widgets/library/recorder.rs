@@ -28,6 +28,13 @@ use crate::widgets::util::{self, OverlayChrome};
 /// Dark label on the active green fill, matching the toggle's ON state.
 const ACTIVE_TEXT: Color = Color::Rgb(0x0C, 0x0C, 0x0C);
 
+pub(crate) const RECORDER_FOOTER: util::OverlayFooter = util::OverlayFooter {
+    confirm_label: "Done",
+    enter_hint: true,
+    hot: None,
+    danger: false,
+};
+
 /// Where a committed chord lands: the selected row's own invocation, one
 /// of its sibling aliases, or a settings hotkey.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -279,14 +286,13 @@ impl HotkeyRecorderState {
 const MENU_ERROR: &str = "The Menu key can't be used in a hotkey.";
 
 pub(crate) fn render(frame: &mut Frame, area: Rect, theme: &Theme, state: &HotkeyRecorderState) {
-    let chrome = OverlayChrome::new(popup(area));
-    chrome.render(frame, theme, "Record hotkey");
+    let chrome = OverlayChrome::with_footer(popup(area));
+    chrome.render_with_footer(frame, theme, "Record hotkey", &RECORDER_FOOTER);
     let layout = layout(area);
     if layout.content.width == 0 || layout.content.height == 0 {
         return;
     }
     render_instructions(frame, theme, &layout, state);
-    render_chips(frame, theme, &layout);
     render_divider(frame, theme, layout.content, layout.divider_top);
     render_keycaps(frame, theme, &layout, state);
 }
@@ -320,14 +326,9 @@ fn render_instructions(
         frame.render_widget(Paragraph::new(lines), layout.instructions);
         return;
     };
-    // honey: stop the pills before the Cancel/Done chips on the same row.
-    let budget = usize::from(
-        layout
-            .cancel
-            .x
-            .saturating_sub(layout.instructions.x)
-            .saturating_sub(1),
-    );
+    // honey: pills span the full instructions width now that the
+    // Cancel/Done actions moved to the footer band.
+    let budget = usize::from(layout.instructions.width);
     let mut lines = vec![Line::from(hotkey::render_hotkey_spans(
         &preview,
         budget,
@@ -337,31 +338,6 @@ fn render_instructions(
     ))];
     lines.extend(error);
     frame.render_widget(Paragraph::new(lines), layout.instructions);
-}
-
-fn render_chips(frame: &mut Frame, theme: &Theme, layout: &Layout) {
-    let cancel_bg = theme.keycap.bg;
-    let cancel = vec![
-        Span::styled(" Esc ", Style::default().fg(theme.text_muted).bg(cancel_bg)),
-        Span::styled("Cancel ", Style::default().fg(theme.text).bg(cancel_bg)),
-    ];
-    render_chip(frame, layout.cancel, cancel_bg, cancel);
-    let done = vec![Span::styled(
-        " ✓ Done ",
-        Style::default()
-            .fg(ACTIVE_TEXT)
-            .bg(ENABLED_KNOB)
-            .add_modifier(StyleModifier::BOLD),
-    )];
-    render_chip(frame, layout.done, ENABLED_KNOB, done);
-}
-
-fn render_chip(frame: &mut Frame, rect: Rect, bg: Color, spans: Vec<Span<'static>>) {
-    if rect.width == 0 {
-        return;
-    }
-    frame.render_widget(Block::default().style(Style::default().bg(bg)), rect);
-    frame.render_widget(Paragraph::new(Line::from(spans)), rect);
 }
 
 fn render_divider(frame: &mut Frame, theme: &Theme, content: Rect, y: u16) {
@@ -982,18 +958,20 @@ mod tests {
     }
 
     #[test]
-    fn done_chip_is_the_toggle_green() {
+    fn footer_band_is_the_shared_footer() {
         let state = HotkeyRecorderState::new(HotkeyTarget::PrimaryTrigger);
         let (terminal, area) = draw(&state);
-        let layout = layout(area);
-        assert_eq!(
-            bg_at(&terminal, area, layout.done.x, layout.done.y),
-            ENABLED_KNOB
-        );
-        assert_eq!(
-            bg_at(&terminal, area, layout.cancel.x, layout.cancel.y),
-            DARK_THEME.keycap.bg
-        );
+        let popup = popup(area);
+        let row_y = popup.y.saturating_add(popup.height).saturating_sub(2);
+        assert_eq!(bg_at(&terminal, area, popup.x, row_y), DARK_THEME.header.bg);
+        let footer_row: String = (0..area.width)
+            .map(|x| {
+                terminal.backend().buffer().content[(row_y * area.width + x) as usize]
+                    .symbol()
+                    .to_string()
+            })
+            .collect();
+        assert!(footer_row.contains("Enter Done"), "{footer_row}");
     }
 
     #[test]

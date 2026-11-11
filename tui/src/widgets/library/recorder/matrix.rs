@@ -9,10 +9,6 @@ use crate::widgets::util::{self, OverlayChrome};
 pub(crate) const TKL_WIDTH: u16 = 77;
 const MAIN_WIDTH: u16 = 57;
 const CLUSTER_GAP: u16 = 3;
-const CANCEL_WIDTH: u16 = 12;
-const DONE_WIDTH: u16 = 8;
-const CHIP_GAP: u16 = 2;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Cell {
     Key {
@@ -289,20 +285,11 @@ pub(crate) struct Layout {
 /// keyboard stretches across the content width instead of leaving empty
 /// gutters on either side.
 pub(crate) fn layout(area: Rect) -> Layout {
-    let chrome = OverlayChrome::new(popup(area));
+    let popup = popup(area);
+    let chrome = OverlayChrome::with_footer(popup);
     let content = chrome.content;
     let keycap_height = keycap_height(content.height);
-    let right = content.x.saturating_add(content.width);
-    let chips_x = right
-        .saturating_sub(CANCEL_WIDTH + CHIP_GAP + DONE_WIDTH)
-        .max(content.x);
-    let cancel = Rect::new(chips_x, content.y, CANCEL_WIDTH, 1);
-    let done = Rect::new(
-        chips_x.saturating_add(CANCEL_WIDTH + CHIP_GAP),
-        content.y,
-        DONE_WIDTH,
-        1,
-    );
+    let (cancel, done) = util::overlay_footer_cells(popup, &super::RECORDER_FOOTER);
     let instructions = Rect::new(content.x, content.y, content.width, 2);
     let divider_top = content.y.saturating_add(3);
     let keycap_top = divider_top.saturating_add(2);
@@ -336,6 +323,8 @@ pub(crate) fn layout(area: Rect) -> Layout {
 /// flat caps otherwise.
 const fn keycap_height(content_height: u16) -> u16 {
     // honey: five rows of header, divider, and gap sit above the matrix.
+    // Terminals 36-39 rows tall now fall back to flat caps because the
+    // footer band takes 3 content rows.
     if content_height >= 28 { 3 } else { 1 }
 }
 
