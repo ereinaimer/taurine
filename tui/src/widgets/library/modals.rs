@@ -9,7 +9,7 @@ use ratatui::{
 use crate::theme::Theme;
 use crate::widgets::field::TextField;
 use crate::widgets::library::state::{
-    LibraryAppFilterState, LibraryCreateModalField, LibraryCreateModalState,
+    ButtonSelection, LibraryAppFilterState, LibraryCreateModalField, LibraryCreateModalState,
     LibraryDeleteModalState, LibraryExportModalField, LibraryExportModalState,
     LibraryExportResultModalState, LibraryHeaderMenuState, LibraryImportModalField,
     LibraryImportModalState, LibraryImportResultModalState, LibraryImportRunVariablesModalState,
@@ -125,7 +125,7 @@ pub(crate) fn export_popup(area: Rect) -> Rect {
     } else {
         area.width.max(1)
     };
-    util::centered_rect(width, area.height.clamp(1, 10), area)
+    util::centered_rect(width, area.height.clamp(1, 12), area)
 }
 
 pub(crate) fn import_popup(area: Rect) -> Rect {
@@ -134,7 +134,7 @@ pub(crate) fn import_popup(area: Rect) -> Rect {
     } else {
         area.width.max(1)
     };
-    util::centered_rect(width, area.height.clamp(1, 12), area)
+    util::centered_rect(width, area.height.clamp(1, 14), area)
 }
 
 pub(crate) fn import_run_variables_popup(area: Rect) -> Rect {
@@ -411,6 +411,76 @@ pub(crate) const CREATE_FOOTER: util::OverlayFooter = util::OverlayFooter {
 /// mouse branch so clicks land on the labels as drawn.
 pub(crate) fn create_footer_hit(area: Rect, column: u16, row: u16) -> Option<util::FooterSide> {
     util::overlay_footer_hit(create_popup(area), &CREATE_FOOTER, column, row)
+}
+
+/// Shared confirm/cancel footer for the export modal: the Export verb
+/// is mouse-and-Enter, so the confirm cell carries the Enter hint.
+pub(crate) const EXPORT_FOOTER: util::OverlayFooter = util::OverlayFooter {
+    confirm_label: "Export",
+    enter_hint: true,
+    hot: None,
+    danger: false,
+};
+
+/// Footer with the export modal's hot cell from its button selection,
+/// lit only while the (keyboard-only) ActionButton field has focus.
+pub(crate) fn export_footer(state: &LibraryExportModalState) -> util::OverlayFooter {
+    util::OverlayFooter {
+        hot: (state.focus() == LibraryExportModalField::ActionButton).then(|| {
+            match state.button_selection() {
+                ButtonSelection::Confirm => util::FooterSide::Confirm,
+                ButtonSelection::Cancel => util::FooterSide::Cancel,
+            }
+        }),
+        ..EXPORT_FOOTER
+    }
+}
+
+/// Shared confirm/cancel footer for the import modal: the Import verb
+/// is mouse-and-Enter, so the confirm cell carries the Enter hint.
+pub(crate) const IMPORT_FOOTER: util::OverlayFooter = util::OverlayFooter {
+    confirm_label: "Import",
+    enter_hint: true,
+    hot: None,
+    danger: false,
+};
+
+/// Footer with the import modal's hot cell from its button selection,
+/// lit only while the (keyboard-only) ActionButton field has focus.
+pub(crate) fn import_footer(state: &LibraryImportModalState) -> util::OverlayFooter {
+    util::OverlayFooter {
+        hot: (state.focus() == LibraryImportModalField::ActionButton).then(|| {
+            match state.button_selection() {
+                ButtonSelection::Confirm => util::FooterSide::Confirm,
+                ButtonSelection::Cancel => util::FooterSide::Cancel,
+            }
+        }),
+        ..IMPORT_FOOTER
+    }
+}
+
+/// Shared confirm/cancel footer for the run-variables warning: the
+/// y/N caution imports on confirm, so the verb carries the danger
+/// styling like the delete confirm.
+pub(crate) const IMPORT_RUN_VARIABLES_FOOTER: util::OverlayFooter = util::OverlayFooter {
+    confirm_label: "Import",
+    enter_hint: true,
+    hot: None,
+    danger: true,
+};
+
+/// Footer for the open modal: the single source both renderers and the
+/// click branch read, so cells land on the labels as drawn. None for
+/// modals without a confirm/cancel band.
+pub(crate) fn modal_footer(modal: &LibraryModal) -> Option<util::OverlayFooter> {
+    match modal {
+        LibraryModal::Create(_) => Some(CREATE_FOOTER),
+        LibraryModal::ConfirmDelete(state) => Some(delete_footer(state)),
+        LibraryModal::Import(state) => Some(import_footer(state)),
+        LibraryModal::Export(state) => Some(export_footer(state)),
+        LibraryModal::ConfirmImportRunVariables(_) => Some(IMPORT_RUN_VARIABLES_FOOTER),
+        _ => None,
+    }
 }
 
 fn pill_hit(left: Rect, labels: &[String], column: u16) -> Option<usize> {
@@ -822,8 +892,8 @@ fn render_library_export_modal(
     theme: &Theme,
     state: &LibraryExportModalState,
 ) {
-    let chrome = util::OverlayChrome::new(export_popup(area));
-    chrome.render(frame, theme, "Export Triggers");
+    let chrome = util::OverlayChrome::with_footer(export_popup(area));
+    chrome.render_with_footer(frame, theme, "Export Triggers", &export_footer(state));
     let inner = chrome.content;
 
     let sections = Layout::default()
@@ -890,24 +960,6 @@ fn render_library_export_modal(
         feedback_area,
     );
 
-    let buttons_area = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(0),
-            Constraint::Length(1),
-            Constraint::Length(0),
-        ])
-        .split(sections[4]);
-    util::render_action_buttons(
-        frame,
-        buttons_area[1],
-        "Cancel",
-        "Export",
-        focused(LibraryExportModalField::ActionButton),
-        state.button_selection(),
-        theme,
-    );
-
     // honey: text fields position the real caret themselves via util.
 }
 
@@ -917,8 +969,8 @@ fn render_library_import_modal(
     theme: &Theme,
     state: &LibraryImportModalState,
 ) {
-    let chrome = util::OverlayChrome::new(import_popup(area));
-    chrome.render(frame, theme, "Import Triggers");
+    let chrome = util::OverlayChrome::with_footer(import_popup(area));
+    chrome.render_with_footer(frame, theme, "Import Triggers", &import_footer(state));
     let inner = chrome.content;
 
     let sections = Layout::default()
@@ -997,24 +1049,6 @@ fn render_library_import_modal(
     frame.render_widget(
         Paragraph::new(feedback_text).style(feedback_style),
         feedback_area,
-    );
-
-    let buttons_area = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(0),
-            Constraint::Length(1),
-            Constraint::Length(0),
-        ])
-        .split(sections[6]);
-    util::render_action_buttons(
-        frame,
-        buttons_area[1],
-        "Cancel",
-        "Import",
-        state.focus() == LibraryImportModalField::ActionButton,
-        state.button_selection(),
-        theme,
     );
 
     // honey: text fields position the real caret themselves via util.

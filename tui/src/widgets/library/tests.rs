@@ -884,6 +884,187 @@ fn export_modal_owns_input_and_keeps_search_inactive() {
 }
 
 #[test]
+fn export_enter_from_path_field_confirms() {
+    let mut state = sample_state();
+    state.open_export_modal();
+
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    let pending = interaction.pending_export().expect("pending export");
+    assert_eq!(pending.password, None);
+}
+
+#[test]
+fn import_enter_from_path_field_confirms_or_errors() {
+    let mut state = sample_state();
+    state.open_import_modal();
+
+    // Empty path surfaces the inline error and prepares nothing.
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(interaction.pending_import_prepare().is_none());
+    let Some(LibraryModal::Import(modal)) = state.modal() else {
+        panic!("expected import modal");
+    };
+    assert_eq!(modal.error(), Some("Import path is required."));
+
+    // A typed path confirms from the field like the footer verb.
+    for ch in "path.tau".chars() {
+        state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(interaction.pending_import_prepare().is_some());
+}
+
+#[test]
+fn confirm_modal_footer_import_returns_prepare_interaction() {
+    let mut state = sample_state();
+    state.open_import_modal();
+    for ch in "path.tau".chars() {
+        state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+
+    let interaction = state.confirm_modal_footer();
+
+    assert!(interaction.pending_import_prepare().is_some());
+    // honey: the modal stays open; apply_library_interaction closes it
+    // on success.
+    assert!(matches!(state.modal(), Some(LibraryModal::Import(_))));
+}
+
+#[test]
+fn cancel_modal_footer_closes_import_form() {
+    let mut state = sample_state();
+    state.open_import_modal();
+
+    state.cancel_modal_footer();
+
+    assert!(state.modal().is_none());
+}
+
+#[test]
+fn export_modal_renders_footer_without_button_row() {
+    let mut state = sample_state();
+    state.open_export_modal();
+    let modal = state.modal().expect("export modal");
+    let buffer = render_modal_buffer(modal);
+
+    let popup = modals::export_popup(ratatui::layout::Rect::new(0, 0, 100, 30));
+    let footer_row = buffer_row(
+        &buffer,
+        popup.y.saturating_add(popup.height).saturating_sub(2),
+    );
+    assert!(footer_row.contains("Esc Cancel"));
+    assert!(footer_row.contains("Enter Export"));
+    // honey: the centered button row is gone; the verb lives only on
+    // the footer band.
+    assert_eq!(footer_row.matches("Export").count(), 1);
+    let content_bottom = popup.y.saturating_add(popup.height).saturating_sub(3);
+    for y in popup.y.saturating_add(3)..content_bottom {
+        assert!(
+            !buffer_row(&buffer, y).contains("Export"),
+            "row {y} still renders an Export button"
+        );
+    }
+}
+
+#[test]
+fn import_modal_renders_footer_without_button_row() {
+    let mut state = sample_state();
+    state.open_import_modal();
+    let modal = state.modal().expect("import modal");
+    let buffer = render_modal_buffer(modal);
+
+    let popup = modals::import_popup(ratatui::layout::Rect::new(0, 0, 100, 30));
+    let footer_row = buffer_row(
+        &buffer,
+        popup.y.saturating_add(popup.height).saturating_sub(2),
+    );
+    assert!(footer_row.contains("Esc Cancel"));
+    assert!(footer_row.contains("Enter Import"));
+    assert_eq!(footer_row.matches("Import").count(), 1);
+    let content_bottom = popup.y.saturating_add(popup.height).saturating_sub(3);
+    for y in popup.y.saturating_add(3)..content_bottom {
+        assert!(
+            !buffer_row(&buffer, y).contains("Import"),
+            "row {y} still renders an Import button"
+        );
+    }
+}
+
+fn run_variables_exchange_file() -> std::path::PathBuf {
+    let path = std::env::temp_dir().join(format!("taurine-rwv-{}.tau", std::process::id()));
+    let trigger = taurine_core::exchange::TriggerExport {
+        description: None,
+        trigger_type: taurine_core::db::crud::TriggerType::default(),
+        trigger: ";rwv".to_string(),
+        output: "[execute(echo hi)]".to_string(),
+        action_type: "output".to_string(),
+        is_enabled: true,
+        target_os: "any".to_string(),
+        tags: vec![],
+        script: None,
+        assets: vec![],
+        aliases: vec![],
+    };
+    let blob = taurine_core::exchange::encode_exchange_blob(
+        &taurine_core::exchange::ExchangePayload::new(vec![trigger]),
+        None,
+    )
+    .unwrap();
+    std::fs::write(&path, &blob).unwrap();
+    path
+}
+
+fn open_run_variables_modal() -> LibraryPageState {
+    use crate::widgets::library::actions::{
+        LibraryImportPreparedResult, PendingLibraryImportPrepare,
+    };
+
+    let path = run_variables_exchange_file();
+    let return_to_import = LibraryImportModalState::with_path(path.to_string_lossy().into_owned());
+    let prepare = PendingLibraryImportPrepare {
+        path: path.to_string_lossy().into_owned(),
+        password: None,
+        conflict_mode: LibraryImportConflictMode::Skip,
+        return_to_modal: return_to_import.clone(),
+    };
+    let (prepared, return_to_import) = match prepare.prepare().expect("prepare import") {
+        LibraryImportPreparedResult::NeedsRunVariableConfirmation {
+            prepared,
+            return_to_modal,
+        } => (prepared, *return_to_modal),
+        result => panic!("expected run-variables confirmation, got {result:?}"),
+    };
+    std::fs::remove_file(&path).ok();
+
+    let mut state = sample_state();
+    state.open_import_run_variables_modal(prepared, return_to_import);
+    state
+}
+
+#[test]
+fn confirm_modal_footer_run_variables_imports_prepared() {
+    let mut state = open_run_variables_modal();
+
+    let interaction = state.confirm_modal_footer();
+
+    assert!(interaction.pending_import_commit().is_some());
+    assert!(matches!(
+        state.modal(),
+        Some(LibraryModal::ConfirmImportRunVariables(_))
+    ));
+}
+
+#[test]
+fn cancel_modal_footer_run_variables_returns_to_import() {
+    let mut state = open_run_variables_modal();
+
+    state.cancel_modal_footer();
+
+    assert!(matches!(state.modal(), Some(LibraryModal::Import(_))));
+}
+
+#[test]
 fn pressing_d_types_into_search() {
     let mut state = sample_state();
     assert!(!state.is_search_active());

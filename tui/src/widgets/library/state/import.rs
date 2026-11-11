@@ -168,6 +168,7 @@ impl LibraryImportModalState {
 
         match (key.code, key.modifiers) {
             (KeyCode::Esc, KeyModifiers::NONE) => LibraryInteraction::close(),
+            (KeyCode::Enter, KeyModifiers::NONE) => self.confirm(),
             (KeyCode::Down | KeyCode::Char('j'), KeyModifiers::NONE) => {
                 self.advance_focus(true);
                 LibraryInteraction::handled()
@@ -205,16 +206,21 @@ impl LibraryImportModalState {
             (KeyCode::Enter | KeyCode::Char(' '), KeyModifiers::NONE) => {
                 match self.button_selection {
                     ButtonSelection::Cancel => LibraryInteraction::close(),
-                    ButtonSelection::Confirm => match self.build_pending_prepare() {
-                        Ok(pending_prepare) => LibraryInteraction::prepare_import(pending_prepare),
-                        Err(error) => {
-                            self.error = Some(error.to_string());
-                            LibraryInteraction::handled()
-                        }
-                    },
+                    ButtonSelection::Confirm => self.confirm(),
                 }
             }
             _ => LibraryInteraction::handled(),
+        }
+    }
+
+    /// Build the pending import prepare, or surface the failure inline.
+    pub(crate) fn confirm(&mut self) -> LibraryInteraction {
+        match self.build_pending_prepare() {
+            Ok(pending_prepare) => LibraryInteraction::prepare_import(pending_prepare),
+            Err(error) => {
+                self.error = Some(error.to_string());
+                LibraryInteraction::handled()
+            }
         }
     }
 

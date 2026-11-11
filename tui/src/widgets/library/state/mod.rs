@@ -1181,6 +1181,39 @@ impl LibraryPageState {
         )));
     }
 
+    /// Footer confirm on the open exchange/warning modal. The modal stays
+    /// open; apply_library_interaction closes it on success.
+    pub(crate) fn confirm_modal_footer(&mut self) -> LibraryInteraction {
+        match self.modal.take() {
+            Some(LibraryModal::Export(mut state)) => {
+                let interaction = state.confirm();
+                self.modal = Some(LibraryModal::Export(state));
+                interaction
+            }
+            Some(LibraryModal::Import(mut state)) => {
+                let interaction = state.confirm();
+                self.modal = Some(LibraryModal::Import(state));
+                interaction
+            }
+            Some(LibraryModal::ConfirmImportRunVariables(state)) => {
+                let prepared = state.prepared.clone();
+                self.modal = Some(LibraryModal::ConfirmImportRunVariables(state));
+                LibraryInteraction::import(prepared)
+            }
+            _ => LibraryInteraction::handled(),
+        }
+    }
+
+    /// Footer cancel: the warning returns to its import form; the
+    /// exchange forms close.
+    pub(crate) fn cancel_modal_footer(&mut self) {
+        // honey: Export/Import close by dropping; other modals never
+        // reach a routed footer click.
+        if let Some(LibraryModal::ConfirmImportRunVariables(state)) = self.modal.take() {
+            self.modal = Some(LibraryModal::Import(state.return_to_import));
+        }
+    }
+
     /// Opens a shared header menu from the create draft, parking the
     /// cursor on the draft value; picks return to the draft.
     pub(crate) fn open_header_menu_for_create(

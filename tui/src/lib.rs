@@ -1526,6 +1526,34 @@ fn handle_tui_mouse_event(
                 }
                 return;
             }
+            // honey: exchange and warning modals stay keyboard-first; their
+            // footer is the one clickable surface besides the keys.
+            let full = workspace_full(app, area);
+            let footer_popup = match app.library_page().modal() {
+                Some(library::LibraryModal::Import(_)) => Some(library::modals::import_popup(full)),
+                Some(library::LibraryModal::Export(_)) => Some(library::modals::export_popup(full)),
+                Some(library::LibraryModal::ConfirmImportRunVariables(_)) => {
+                    Some(library::modals::import_run_variables_popup(full))
+                }
+                _ => None,
+            };
+            if let Some(popup) = footer_popup
+                && let Some(footer) = app
+                    .library_page()
+                    .modal()
+                    .and_then(library::modals::modal_footer)
+                && let Some(side) =
+                    util::overlay_footer_hit(popup, &footer, mouse.column, mouse.row)
+            {
+                match side {
+                    util::FooterSide::Cancel => app.library_page_mut().cancel_modal_footer(),
+                    util::FooterSide::Confirm => {
+                        let interaction = app.library_page_mut().confirm_modal_footer();
+                        apply_library_interaction(app, interaction);
+                    }
+                }
+                return;
+            }
             // honey: the shared scrim/Esc-hint rule dismisses the
             // settings overlay and any editor modal above it; row and
             // search clicks reuse the page hit path on the body.
