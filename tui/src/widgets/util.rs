@@ -146,6 +146,9 @@ pub(crate) struct OverlayChrome {
     pub(crate) popup: Rect,
     pub(crate) body: Rect,
     pub(crate) header: Rect,
+    /// Bottom band for confirm/cancel chrome; zero-height when the
+    /// popup was built without a footer.
+    pub(crate) footer: Rect,
     pub(crate) content: Rect,
 }
 
@@ -165,6 +168,7 @@ impl OverlayChrome {
                 width: popup.width,
                 height: OVERLAY_HEADER_ROWS.min(popup.height),
             },
+            footer: Rect::default(),
             content: Rect {
                 x: body.x,
                 y: content_y,
@@ -174,8 +178,51 @@ impl OverlayChrome {
         }
     }
 
-    /// Paint the fill and header band without the title; app-filter
-    /// overlays carry their validation error in the title row.
+    /// Chrome for dialogs with a footer band: content is trimmed above
+    /// the band and its one-row gap so text never runs underneath it.
+    // honey: consumed by the overlay dialogs landing in later tasks.
+    #[allow(dead_code)]
+    pub(crate) fn with_footer(popup: Rect) -> Self {
+        let body = overlay_body(popup);
+        let footer_height =
+            OVERLAY_FOOTER_ROWS.min(popup.height.saturating_sub(OVERLAY_HEADER_ROWS));
+        let footer = Rect {
+            x: popup.x,
+            y: popup
+                .y
+                .saturating_add(popup.height)
+                .saturating_sub(footer_height),
+            width: popup.width,
+            height: footer_height,
+        };
+        let content_y = body.y.saturating_add(OVERLAY_HEADER_ROWS);
+        let content_bottom = popup
+            .y
+            .saturating_add(popup.height)
+            .saturating_sub(footer_height)
+            .saturating_sub(1);
+        Self {
+            popup,
+            body,
+            header: Rect {
+                x: popup.x,
+                y: popup.y,
+                width: popup.width,
+                height: OVERLAY_HEADER_ROWS.min(popup.height),
+            },
+            footer,
+            content: Rect {
+                x: body.x,
+                y: content_y,
+                width: body.width,
+                height: content_bottom.saturating_sub(content_y),
+            },
+        }
+    }
+
+    /// Paint the fill, header band, and footer band without any text;
+    /// app-filter overlays carry their validation error in the title
+    /// row.
     pub(crate) fn paint(&self, frame: &mut Frame, theme: &Theme) {
         frame.render_widget(Clear, self.popup);
         frame.render_widget(
@@ -188,6 +235,12 @@ impl OverlayChrome {
                 self.header,
             );
         }
+        if self.footer.height > 0 {
+            frame.render_widget(
+                Block::default().style(Style::default().bg(theme.header.bg)),
+                self.footer,
+            );
+        }
     }
 
     pub(crate) fn render(&self, frame: &mut Frame, theme: &Theme, title: &str) {
@@ -195,6 +248,101 @@ impl OverlayChrome {
         if self.body.width > 0 && self.body.height > 0 {
             render_overlay_title(frame, self.body, theme, title);
         }
+    }
+
+    // honey: consumed by the overlay dialogs landing in later tasks.
+    #[allow(dead_code)]
+    pub(crate) fn render_with_footer(
+        &self,
+        frame: &mut Frame,
+        theme: &Theme,
+        title: &str,
+        footer: &OverlayFooter,
+    ) {
+        self.render(frame, theme, title);
+        render_overlay_footer(frame, self, theme, footer);
+    }
+}
+
+/// Bottom popup rows covered by the shared footer band.
+// honey: consumed by the overlay dialogs landing in later tasks.
+#[allow(dead_code)]
+pub(crate) const OVERLAY_FOOTER_ROWS: u16 = 3;
+
+/// Label for the footer band's left cell.
+#[allow(dead_code)]
+pub(crate) const OVERLAY_FOOTER_CANCEL: &str = "Cancel";
+
+/// Which footer cell a click or hotkey landed on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub(crate) enum FooterSide {
+    Cancel,
+    Confirm,
+}
+
+/// Shared confirm/cancel footer row: `Esc Cancel` pinned left,
+/// confirm verb flush right, both on the footer band.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub(crate) struct OverlayFooter {
+    pub(crate) confirm_label: &'static str,
+    pub(crate) enter_hint: bool,
+    pub(crate) hot: Option<FooterSide>,
+    pub(crate) danger: bool,
+}
+
+/// Footer cells shared by rendering and hit-testing so clicks land on
+/// the labels as drawn: cancel at the body's left edge, confirm flush
+/// right, on the band's middle row.
+#[allow(dead_code)]
+pub(crate) fn overlay_footer_cells(popup: Rect, footer: &OverlayFooter) -> (Rect, Rect) {
+    let body = overlay_body(popup);
+    let row_y = popup.y.saturating_add(popup.height).saturating_sub(2);
+    // "Esc" + " " + "Cancel" = 10.
+    let cancel_width = 3 + 1 + OVERLAY_FOOTER_CANCEL.chars().count() as u16;
+    let confirm_width =
+        if footer.enter_hint { 6 } else { 0 } + footer.confirm_label.chars().count() as u16;
+    let cancel = Rect {
+        x: body.x,
+        y: row_y,
+        width: cancel_width,
+        height: 1,
+    };
+    let confirm = Rect {
+        x: body
+            .x
+            .saturating_add(body.width)
+            .saturating_sub(confirm_width),
+        y: row_y,
+        width: confirm_width,
+        height: 1,
+    };
+    (cancel, confirm)
+}
+
+/// Footer cell under a click, or `None` off the label row.
+#[allow(dead_code)]
+pub(crate) fn overlay_footer_hit(
+    popup: Rect,
+    footer: &OverlayFooter,
+    column: u16,
+    row: u16,
+) -> Option<FooterSide> {
+    if popup.height < OVERLAY_HEADER_ROWS + OVERLAY_FOOTER_ROWS {
+        return None;
+    }
+    let row_y = popup.y.saturating_add(popup.height).saturating_sub(2);
+    if row != row_y {
+        return None;
+    }
+    let (cancel, confirm) = overlay_footer_cells(popup, footer);
+    if crate::terminal::mouse::contains(cancel, column, row) {
+        Some(FooterSide::Cancel)
+    } else if crate::terminal::mouse::contains(confirm, column, row) {
+        Some(FooterSide::Confirm)
+    } else {
+        None
     }
 }
 
@@ -280,6 +428,79 @@ pub(crate) fn overlay_title_esc_hit(body: Rect, column: u16, row: u16) -> bool {
 pub(crate) fn overlay_dismiss_hit(popup: Rect, column: u16, row: u16) -> bool {
     !crate::terminal::mouse::contains(popup, column, row)
         || overlay_title_esc_hit(overlay_body(popup), column, row)
+}
+
+/// Selected-cell style shared with the confirm buttons: full text on
+/// the surface band, bold.
+#[allow(dead_code)]
+fn overlay_footer_hot_style(theme: &Theme) -> Style {
+    Style::default()
+        .fg(theme.text)
+        .bg(theme.surface)
+        .add_modifier(Modifier::BOLD)
+}
+
+/// Paints the two footer cells on the band; the hot cell takes the
+/// selection style, the other keeps its muted hint / bold verb.
+#[allow(dead_code)]
+fn render_overlay_footer(
+    frame: &mut Frame,
+    chrome: &OverlayChrome,
+    theme: &Theme,
+    footer: &OverlayFooter,
+) {
+    if chrome.footer.height == 0 {
+        return;
+    }
+    let (cancel, confirm) = overlay_footer_cells(chrome.popup, footer);
+
+    let cancel_line = if footer.hot == Some(FooterSide::Cancel) {
+        Line::styled(
+            format!("Esc {OVERLAY_FOOTER_CANCEL}"),
+            overlay_footer_hot_style(theme),
+        )
+    } else {
+        Line::from(vec![
+            Span::styled(
+                OVERLAY_TITLE_HINT,
+                Style::default()
+                    .fg(theme.text_muted)
+                    .add_modifier(Modifier::DIM),
+            ),
+            Span::raw(" "),
+            Span::styled(OVERLAY_FOOTER_CANCEL, Style::default().fg(theme.text)),
+        ])
+    };
+    frame.render_widget(Paragraph::new(cancel_line), cancel);
+
+    let confirm_text = if footer.enter_hint {
+        format!("Enter {}", footer.confirm_label)
+    } else {
+        footer.confirm_label.to_string()
+    };
+    let confirm_line = if footer.hot == Some(FooterSide::Confirm) {
+        Line::styled(confirm_text, overlay_footer_hot_style(theme))
+    } else {
+        let verb_style = if footer.danger {
+            Style::default().fg(theme.error)
+        } else {
+            Style::default().fg(theme.text)
+        }
+        .add_modifier(Modifier::BOLD);
+        let mut spans = Vec::new();
+        if footer.enter_hint {
+            spans.push(Span::styled(
+                "Enter",
+                Style::default()
+                    .fg(theme.text_muted)
+                    .add_modifier(Modifier::DIM),
+            ));
+            spans.push(Span::raw(" "));
+        }
+        spans.push(Span::styled(footer.confirm_label, verb_style));
+        Line::from(spans)
+    };
+    frame.render_widget(Paragraph::new(confirm_line), confirm);
 }
 
 pub(crate) fn render_overlay_select(
@@ -780,7 +1001,7 @@ mod tests {
 
     use super::{
         OVERLAY_HEADER_ROWS, OverlayChrome, confirm_button_cells, overlay_body,
-        overlay_dismiss_hit, overlay_popup,
+        overlay_dismiss_hit, overlay_popup, overlay_popup_sized,
     };
 
     #[test]
@@ -791,6 +1012,85 @@ mod tests {
         assert_eq!(chrome.body, Rect::new(25, 8, 50, 13));
         assert_eq!(chrome.header, Rect::new(22, 7, 56, OVERLAY_HEADER_ROWS));
         assert_eq!(chrome.content, Rect::new(25, 11, 50, 10));
+    }
+
+    #[test]
+    fn footer_chrome_trims_content_above_band_and_gap() {
+        let chrome =
+            OverlayChrome::with_footer(overlay_popup_sized(56, 12, Rect::new(0, 0, 100, 30)));
+        assert_eq!(chrome.popup, Rect::new(22, 9, 56, 12));
+        assert_eq!(chrome.body, Rect::new(25, 10, 50, 10));
+        assert_eq!(chrome.header, Rect::new(22, 9, 56, 3));
+        assert_eq!(chrome.footer, Rect::new(22, 18, 56, 3));
+        assert_eq!(chrome.content, Rect::new(25, 13, 50, 4));
+    }
+
+    #[test]
+    fn footer_cells_pin_cancel_left_and_confirm_right() {
+        let popup = Rect::new(22, 9, 56, 12);
+        let footer = super::OverlayFooter {
+            confirm_label: "Create",
+            enter_hint: false,
+            hot: None,
+            danger: false,
+        };
+        let (cancel, confirm) = super::overlay_footer_cells(popup, &footer);
+        assert_eq!(cancel, Rect::new(25, 19, 10, 1)); // "Esc Cancel"
+        assert_eq!(confirm, Rect::new(69, 19, 6, 1)); // "Create", flush right of body
+        let enter_footer = super::OverlayFooter {
+            confirm_label: "Import",
+            enter_hint: true,
+            ..footer
+        };
+        let (_, confirm) = super::overlay_footer_cells(popup, &enter_footer);
+        assert_eq!(confirm, Rect::new(63, 19, 12, 1)); // "Enter Import"
+    }
+
+    #[test]
+    fn footer_hit_selects_sides_and_rejects_other_rows() {
+        let popup = Rect::new(22, 9, 56, 12);
+        let footer = super::OverlayFooter {
+            confirm_label: "Delete",
+            enter_hint: true,
+            hot: None,
+            danger: true,
+        };
+        let hit = |c, r| super::overlay_footer_hit(popup, &footer, c, r);
+        assert_eq!(hit(25, 19), Some(super::FooterSide::Cancel));
+        assert_eq!(hit(74, 19), Some(super::FooterSide::Confirm));
+        assert_eq!(hit(25, 17), None); // gap row above band
+        assert_eq!(hit(25, 18), None); // band top row, no text
+        assert_eq!(hit(10, 19), None); // outside popup
+    }
+
+    #[test]
+    fn footer_row_renders_cancel_left_and_confirm_right() {
+        use crate::theme::default::DARK_THEME;
+        use ratatui::{Terminal, backend::TestBackend};
+        let popup = Rect::new(0, 0, 56, 12);
+        let footer = super::OverlayFooter {
+            confirm_label: "Create",
+            enter_hint: false,
+            hot: None,
+            danger: false,
+        };
+        let backend = TestBackend::new(56, 12);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal
+            .draw(|frame| {
+                let chrome = OverlayChrome::with_footer(popup);
+                chrome.render_with_footer(frame, &DARK_THEME, "New Trigger", &footer);
+            })
+            .expect("draw");
+        let buffer = terminal.backend().buffer().clone();
+        let row: String = (0..56)
+            .map(|x| buffer[(x, 10)].symbol().to_string())
+            .collect();
+        assert!(row.trim_start().starts_with("Esc Cancel"));
+        assert!(row.trim_end().ends_with("Create"));
+        // band color mirrors the header band
+        assert_eq!(buffer[(0, 11)].bg, DARK_THEME.header.bg);
+        assert_eq!(buffer[(0, 9)].bg, DARK_THEME.header.bg);
     }
 
     #[test]
