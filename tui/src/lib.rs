@@ -1580,16 +1580,39 @@ fn handle_tui_mouse_event(
                                 mouse.row,
                             )
                         {
-                            match side {
-                                util::FooterSide::Cancel => {
-                                    app.settings_page_mut().clear_modal();
-                                }
-                                util::FooterSide::Confirm => {
-                                    let interaction = app.settings_page_mut().handle_key(
-                                        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-                                    );
-                                    apply_settings_interaction(app, interaction);
-                                }
+                            match modal {
+                                settings::SettingsModal::ConfirmReset(_) => match side {
+                                    util::FooterSide::Cancel => {
+                                        app.settings_page_mut().clear_modal();
+                                    }
+                                    util::FooterSide::Confirm => {
+                                        let already = match app.settings_page().modal() {
+                                            Some(settings::SettingsModal::ConfirmReset(s)) => {
+                                                s.selected_yes()
+                                            }
+                                            _ => false,
+                                        };
+                                        if already {
+                                            let interaction = app.settings_page_mut().handle_key(
+                                                KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+                                            );
+                                            apply_settings_interaction(app, interaction);
+                                        } else {
+                                            app.settings_page_mut().select_reset_confirm(true);
+                                        }
+                                    }
+                                },
+                                _ => match side {
+                                    util::FooterSide::Cancel => {
+                                        app.settings_page_mut().clear_modal();
+                                    }
+                                    util::FooterSide::Confirm => {
+                                        let interaction = app.settings_page_mut().handle_key(
+                                            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+                                        );
+                                        apply_settings_interaction(app, interaction);
+                                    }
+                                },
                             }
                             return;
                         }

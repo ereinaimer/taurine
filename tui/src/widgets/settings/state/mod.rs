@@ -379,6 +379,14 @@ impl SettingsPageState {
         self.modal = None;
     }
 
+    /// Move the reset confirm's footer selection; no-op unless that
+    /// modal is open.
+    pub(crate) fn select_reset_confirm(&mut self, selected: bool) {
+        if let Some(SettingsModal::ConfirmReset(state)) = self.modal.as_mut() {
+            state.select_confirm(selected);
+        }
+    }
+
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> SettingsInteraction {
         if self.slider_drag.is_some() {
             // honey: a key press abandons an in-flight pointer drag so a
@@ -735,6 +743,24 @@ mod tests {
         state.replace_settings(Settings::default());
 
         assert_eq!(state.window_anchor, Some(4));
+    }
+
+    #[test]
+    fn reset_confirm_passthrough_selects_reset() {
+        let mut state = SettingsPageState::default();
+        state.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
+
+        let Some(SettingsModal::ConfirmReset(modal)) = state.modal() else {
+            panic!("reset should open a confirm modal");
+        };
+        assert!(!modal.selected_yes());
+
+        state.select_reset_confirm(true);
+
+        let Some(SettingsModal::ConfirmReset(modal)) = state.modal() else {
+            panic!("passthrough must keep the modal open");
+        };
+        assert!(modal.selected_yes());
     }
 
     #[test]

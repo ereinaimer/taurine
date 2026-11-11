@@ -1,6 +1,6 @@
 use ratatui::{
     Frame,
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
@@ -37,7 +37,30 @@ const SAVE_FOOTER: util::OverlayFooter = util::OverlayFooter {
 pub(crate) fn modal_footer(modal: &SettingsModal) -> Option<util::OverlayFooter> {
     match modal {
         SettingsModal::Input(_) | SettingsModal::HotkeyCapture(_) => Some(SAVE_FOOTER),
-        SettingsModal::Select(_) | SettingsModal::ConfirmReset(_) => None,
+        SettingsModal::Select(_) => None,
+        SettingsModal::ConfirmReset(state) => Some(reset_footer(state)),
+    }
+}
+
+/// Shared confirm/cancel footer for the reset modal: the Reset verb is
+/// mouse-and-Enter, so the confirm cell carries the Enter hint, and
+/// danger styling marks the destructive action.
+const RESET_FOOTER: util::OverlayFooter = util::OverlayFooter {
+    confirm_label: "Reset",
+    enter_hint: true,
+    hot: None,
+    danger: true,
+};
+
+/// Footer with the reset modal's hot cell from its current selection.
+fn reset_footer(state: &ConfirmResetModalState) -> util::OverlayFooter {
+    util::OverlayFooter {
+        hot: Some(if state.selected_yes() {
+            util::FooterSide::Confirm
+        } else {
+            util::FooterSide::Cancel
+        }),
+        ..RESET_FOOTER
     }
 }
 
@@ -95,8 +118,8 @@ pub(crate) fn confirm_popup(area: Rect) -> Rect {
     } else {
         area.width.max(1)
     };
-    let height = if area.height >= 9 {
-        9
+    let height = if area.height >= 11 {
+        11
     } else {
         area.height.max(1)
     };
@@ -288,6 +311,7 @@ fn render_confirm_reset_modal(
     state: &ConfirmResetModalState,
 ) {
     let popup = confirm_popup(area);
+    let footer = reset_footer(state);
     let Some(content) = overlay_shell(
         frame,
         area,
@@ -295,7 +319,7 @@ fn render_confirm_reset_modal(
         popup.height,
         "Reset Setting",
         theme,
-        None,
+        Some(&footer),
     ) else {
         return;
     };
@@ -304,7 +328,6 @@ fn render_confirm_reset_modal(
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(2),
-            Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Min(0),
         ])
@@ -323,33 +346,11 @@ fn render_confirm_reset_modal(
         sections[0],
     );
 
-    let yes_style = if state.selected_yes() {
-        Style::default()
-            .fg(theme.text)
-            .bg(theme.surface)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(theme.text_muted)
-    };
-    let no_style = if !state.selected_yes() {
-        Style::default()
-            .fg(theme.text)
-            .bg(theme.surface)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(theme.text_muted)
-    };
-
-    let buttons = Line::from(vec![
-        Span::styled("  Yes  ", yes_style),
-        Span::raw("    "),
-        Span::styled("  No  ", no_style),
-    ]);
-
-    let feedback = state.error().unwrap_or("");
-    if !feedback.is_empty() {
+    // honey: the feedback row is error-only; the reset/cancel hints live
+    // in the footer band.
+    if let Some(error) = state.error() {
         frame.render_widget(
-            Paragraph::new(feedback).style(
+            Paragraph::new(error).style(
                 Style::default()
                     .fg(theme.error)
                     .add_modifier(Modifier::BOLD),
@@ -357,17 +358,13 @@ fn render_confirm_reset_modal(
             sections[1],
         );
     }
-
-    frame.render_widget(
-        Paragraph::new(buttons).alignment(Alignment::Center),
-        sections[2],
-    );
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::widgets::settings::state::SettingKey;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use ratatui::{Terminal, backend::TestBackend};
 
     fn rendered_rows(modal: &SettingsModal) -> Vec<String> {
@@ -437,7 +434,7 @@ mod tests {
     }
 
     #[test]
-    fn modal_footer_targets_only_editor_modals() {
+    fn modal_footer_targets_editor_and_reset_modals() {
         let save = util::OverlayFooter {
             confirm_label: "Save",
             enter_hint: true,
@@ -466,11 +463,21 @@ mod tests {
             ))),
             None
         );
+
+        let mut reset = ConfirmResetModalState::new(SettingKey::Wpm);
         assert_eq!(
-            modal_footer(&SettingsModal::ConfirmReset(ConfirmResetModalState::new(
-                SettingKey::Wpm
-            ))),
-            None
+            modal_footer(&SettingsModal::ConfirmReset(reset.clone())),
+            Some(util::OverlayFooter {
+                confirm_label: "Reset",
+                enter_hint: true,
+                hot: Some(util::FooterSide::Cancel),
+                danger: true,
+            })
+        );
+        reset.select_confirm(true);
+        assert_eq!(
+            modal_footer(&SettingsModal::ConfirmReset(reset)).map(|footer| footer.hot),
+            Some(Some(util::FooterSide::Confirm))
         );
     }
 
@@ -508,10 +515,57 @@ mod tests {
         let modal = SettingsModal::ConfirmReset(ConfirmResetModalState::new(SettingKey::Wpm));
         let screen = rendered(&modal);
         assert!(screen.contains("Reset Setting"));
-        assert!(screen.contains("Yes"));
-        assert!(screen.contains("No"));
+        assert!(screen.contains("Esc Cancel"));
+        assert!(screen.contains("Enter Reset"));
+        assert!(!screen.contains("Yes"));
+        assert!(!screen.contains("No"));
         // honey: shared flat chrome carries no border glyphs.
         assert!(!screen.contains('╭'));
+    }
+
+    #[test]
+    fn confirm_reset_defaults_to_cancel() {
+        let mut state = ConfirmResetModalState::new(SettingKey::Wpm);
+        assert!(!state.selected_yes());
+
+        let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert!(interaction.should_close_modal());
+        assert!(interaction.pending_reset().is_none());
+    }
+
+    #[test]
+    fn confirm_reset_right_selects_reset_then_enter_resets() {
+        let mut state = ConfirmResetModalState::new(SettingKey::Wpm);
+
+        state.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        assert!(state.selected_yes());
+
+        let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert!(interaction.pending_reset().is_some());
+        assert!(!interaction.should_close_modal());
+    }
+
+    #[test]
+    fn confirm_reset_left_returns_to_cancel() {
+        let mut state = ConfirmResetModalState::new(SettingKey::Wpm);
+        state.select_confirm(true);
+        assert!(state.selected_yes());
+
+        state.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+
+        assert!(!state.selected_yes());
+    }
+
+    #[test]
+    fn confirm_reset_hjkl_move_the_footer_selection() {
+        let mut state = ConfirmResetModalState::new(SettingKey::Wpm);
+
+        state.handle_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
+        assert!(state.selected_yes());
+        state.handle_key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE));
+        assert!(!state.selected_yes());
     }
 
     #[test]

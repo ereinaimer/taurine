@@ -18,7 +18,7 @@ impl ConfirmResetModalState {
         Self {
             key,
             default_display_value: key.display_value(&defaults),
-            selected_yes: true,
+            selected_yes: false,
             error: None,
         }
     }
@@ -39,16 +39,21 @@ impl ConfirmResetModalState {
         self.selected_yes
     }
 
+    /// Move the footer selection: `true` is Reset, `false` is Cancel.
+    pub(crate) fn select_confirm(&mut self, selected: bool) {
+        self.selected_yes = selected;
+    }
+
     pub(crate) fn handle_key(&mut self, key: KeyEvent) -> SettingsInteraction {
         self.error = None;
 
         match (key.code, key.modifiers) {
             (KeyCode::Left, KeyModifiers::NONE) | (KeyCode::Char('h'), KeyModifiers::NONE) => {
-                self.selected_yes = true;
+                self.select_confirm(false);
                 SettingsInteraction::handled()
             }
             (KeyCode::Right, KeyModifiers::NONE) | (KeyCode::Char('l'), KeyModifiers::NONE) => {
-                self.selected_yes = false;
+                self.select_confirm(true);
                 SettingsInteraction::handled()
             }
             (KeyCode::Enter, KeyModifiers::NONE) => {
