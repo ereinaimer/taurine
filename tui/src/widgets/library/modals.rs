@@ -19,10 +19,9 @@ use crate::widgets::toggle::{ToggleAnimations, ToggleId};
 use crate::widgets::util::{self};
 
 const EXPORT_RESULT_MODAL_TITLE: &str = "Export complete";
-const IMPORT_RUN_VARIABLES_WARNING_LINES: [&str; 3] = [
+const IMPORT_RUN_VARIABLES_WARNING_LINES: [&str; 2] = [
     "CAUTION: This import contains [exec] variables that execute",
     "shell commands. Untrusted scripts can damage your system.",
-    "Continue? [y/N]",
 ];
 
 pub fn render_library_modal(
@@ -143,7 +142,7 @@ pub(crate) fn import_run_variables_popup(area: Rect) -> Rect {
     } else {
         area.width.max(1)
     };
-    util::centered_rect(width, 10.min(area.height.max(1)), area)
+    util::centered_rect(width, 12.min(area.height.max(1)), area)
 }
 
 pub(crate) fn import_result_popup(area: Rect, state: &LibraryImportResultModalState) -> Rect {
@@ -1064,14 +1063,19 @@ fn render_library_import_run_variables_modal(
     theme: &Theme,
     state: &LibraryImportRunVariablesModalState,
 ) {
-    let chrome = util::OverlayChrome::new(import_run_variables_popup(area));
-    chrome.render(frame, theme, "Run Variables Warning");
+    let chrome = util::OverlayChrome::with_footer(import_run_variables_popup(area));
+    chrome.render_with_footer(
+        frame,
+        theme,
+        "Run Variables Warning",
+        &IMPORT_RUN_VARIABLES_FOOTER,
+    );
     let inner = chrome.content;
 
     let sections = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),
+            Constraint::Length(2),
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Min(0),
@@ -1082,7 +1086,6 @@ fn render_library_import_run_variables_modal(
         Paragraph::new(vec![
             Line::from(IMPORT_RUN_VARIABLES_WARNING_LINES[0]),
             Line::from(IMPORT_RUN_VARIABLES_WARNING_LINES[1]),
-            Line::from(IMPORT_RUN_VARIABLES_WARNING_LINES[2]),
         ])
         .style(Style::default().fg(theme.text_muted)),
         sections[0],

@@ -1065,6 +1065,24 @@ fn cancel_modal_footer_run_variables_returns_to_import() {
 }
 
 #[test]
+fn run_variables_warning_uses_shared_footer() {
+    let state = open_run_variables_modal();
+    let modal = state.modal().expect("run variables modal");
+    let buffer = render_modal_buffer(modal);
+
+    let rendered: String = (0..buffer.area.height)
+        .map(|y| buffer_row(&buffer, y))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(rendered.contains("CAUTION: This import contains [exec] variables"));
+    assert!(rendered.contains("shell commands. Untrusted scripts can damage your system."));
+    assert!(rendered.contains("Esc Cancel"));
+    assert!(rendered.contains("Enter Import"));
+    assert!(!rendered.contains("[y/N]"));
+}
+
+#[test]
 fn pressing_d_types_into_search() {
     let mut state = sample_state();
     assert!(!state.is_search_active());
