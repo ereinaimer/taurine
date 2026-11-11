@@ -24,9 +24,27 @@ pub fn render_settings_modal(frame: &mut Frame, area: Rect, theme: &Theme, modal
     }
 }
 
+/// Footer for the editor modals: the single source both renderers and
+/// the click branch read, so cells land on the labels as drawn. None
+/// for modals without a confirm/cancel band.
+const SAVE_FOOTER: util::OverlayFooter = util::OverlayFooter {
+    confirm_label: "Save",
+    enter_hint: true,
+    hot: None,
+    danger: false,
+};
+
+pub(crate) fn modal_footer(modal: &SettingsModal) -> Option<util::OverlayFooter> {
+    match modal {
+        SettingsModal::Input(_) | SettingsModal::HotkeyCapture(_) => Some(SAVE_FOOTER),
+        SettingsModal::Select(_) | SettingsModal::ConfirmReset(_) => None,
+    }
+}
+
 /// Flat popup shell shared by the editor modals: the shared header
 /// band and gap, then content. Mirrors the library overlays. Returns
-/// the content rect below the gap, or None when too small.
+/// the content rect below the gap, or None when too small. A footer
+/// builds the chrome with the bottom band and trims content above it.
 fn overlay_shell(
     frame: &mut Frame,
     area: Rect,
@@ -34,10 +52,21 @@ fn overlay_shell(
     height: u16,
     title: &str,
     theme: &Theme,
+    footer: Option<&util::OverlayFooter>,
 ) -> Option<Rect> {
     let popup = util::centered_rect(width, height, area);
-    let chrome = util::OverlayChrome::new(popup);
-    chrome.render(frame, theme, title);
+    let chrome = match footer {
+        Some(footer) => {
+            let chrome = util::OverlayChrome::with_footer(popup);
+            chrome.render_with_footer(frame, theme, title, footer);
+            chrome
+        }
+        None => {
+            let chrome = util::OverlayChrome::new(popup);
+            chrome.render(frame, theme, title);
+            chrome
+        }
+    };
     if chrome.body.width == 0 || chrome.content.height == 0 {
         return None;
     }
@@ -52,8 +81,8 @@ pub(crate) fn input_popup(area: Rect) -> Rect {
     } else {
         area.width.max(1)
     };
-    let height = if area.height >= 9 {
-        9
+    let height = if area.height >= 12 {
+        12
     } else {
         area.height.max(1)
     };
@@ -80,7 +109,7 @@ pub(crate) fn hotkey_popup(area: Rect) -> Rect {
     } else {
         area.width.max(1)
     };
-    util::centered_rect(content_width.saturating_add(4), 5 + 5, area)
+    util::centered_rect(content_width.saturating_add(4), 5 + 8, area)
 }
 
 fn render_input_modal(frame: &mut Frame, area: Rect, theme: &Theme, state: &InputModalState) {
@@ -92,6 +121,7 @@ fn render_input_modal(frame: &mut Frame, area: Rect, theme: &Theme, state: &Inpu
         popup.height,
         state.key().display_name(),
         theme,
+        Some(&SAVE_FOOTER),
     ) else {
         return;
     };
@@ -122,17 +152,18 @@ fn render_input_modal(frame: &mut Frame, area: Rect, theme: &Theme, state: &Inpu
         frame.set_cursor_position((cx, cy));
     }
 
-    let feedback = state.error().unwrap_or("Enter Save   Esc Cancel");
-    let feedback_style = if state.error().is_some() {
-        Style::default()
-            .fg(theme.error)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default()
-            .fg(theme.text_muted)
-            .add_modifier(Modifier::DIM)
-    };
-    frame.render_widget(Paragraph::new(feedback).style(feedback_style), sections[2]);
+    // honey: the feedback row is error-only; the save/cancel hints live
+    // in the footer band.
+    if let Some(error) = state.error() {
+        frame.render_widget(
+            Paragraph::new(error).style(
+                Style::default()
+                    .fg(theme.error)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            sections[2],
+        );
+    }
 }
 
 fn render_hotkey_capture_modal(
@@ -149,6 +180,7 @@ fn render_hotkey_capture_modal(
         popup.height,
         state.key().display_name(),
         theme,
+        Some(&SAVE_FOOTER),
     ) else {
         return;
     };
@@ -263,6 +295,7 @@ fn render_confirm_reset_modal(
         popup.height,
         "Reset Setting",
         theme,
+        None,
     ) else {
         return;
     };
@@ -337,7 +370,7 @@ mod tests {
     use crate::widgets::settings::state::SettingKey;
     use ratatui::{Terminal, backend::TestBackend};
 
-    fn rendered(modal: &SettingsModal) -> String {
+    fn rendered_rows(modal: &SettingsModal) -> Vec<String> {
         let theme = &crate::theme::default::DARK_THEME;
         let backend = TestBackend::new(100, 30);
         let mut terminal = Terminal::new(backend).expect("test terminal");
@@ -353,8 +386,92 @@ mod tests {
                     .map(|x| buffer[(x, y)].symbol())
                     .collect::<String>()
             })
-            .collect::<Vec<_>>()
-            .join("\n")
+            .collect()
+    }
+
+    fn rendered(modal: &SettingsModal) -> String {
+        rendered_rows(modal).join("\n")
+    }
+
+    #[test]
+    fn input_popup_grows_for_footer_band() {
+        let area = Rect::new(0, 0, 100, 30);
+        assert_eq!(input_popup(area).height, 12);
+        // clamps below the guard so tiny terminals still show the modal
+        assert_eq!(input_popup(Rect::new(0, 0, 100, 11)).height, 11);
+    }
+
+    #[test]
+    fn hotkey_popup_grows_for_footer_band() {
+        assert_eq!(hotkey_popup(Rect::new(0, 0, 100, 30)).height, 13);
+    }
+
+    #[test]
+    fn input_modal_footer_carries_save_and_cancel() {
+        let modal = SettingsModal::Input(InputModalState::new(SettingKey::Wpm, "120".to_string()));
+        let popup = input_popup(Rect::new(0, 0, 100, 30));
+        let rows = rendered_rows(&modal);
+        let footer_row = &rows[(popup.y + popup.height - 2) as usize];
+        assert!(footer_row.trim_start().starts_with("Esc Cancel"));
+        assert!(footer_row.trim_end().ends_with("Enter Save"));
+        // honey: the feedback row is error-only; the hint text lives in
+        // the footer. Row = body.y + header rows + description + field.
+        let feedback_row = &rows[(popup.y + 1 + 3 + 2 + 1) as usize];
+        assert!(feedback_row.trim().is_empty());
+        assert!(!rendered(&modal).contains("Enter Save   Esc Cancel"));
+        assert!(!rendered(&modal).contains('╭'));
+    }
+
+    #[test]
+    fn hotkey_capture_modal_footer_carries_save_and_cancel() {
+        let modal = SettingsModal::HotkeyCapture(HotkeyCaptureModalState::new(
+            SettingKey::PauseHotkey,
+            "Alt + `".to_string(),
+        ));
+        let popup = hotkey_popup(Rect::new(0, 0, 100, 30));
+        let rows = rendered_rows(&modal);
+        let footer_row = &rows[(popup.y + popup.height - 2) as usize];
+        assert!(footer_row.trim_start().starts_with("Esc Cancel"));
+        assert!(footer_row.trim_end().ends_with("Enter Save"));
+        assert!(!rendered(&modal).contains('╭'));
+    }
+
+    #[test]
+    fn modal_footer_targets_only_editor_modals() {
+        let save = util::OverlayFooter {
+            confirm_label: "Save",
+            enter_hint: true,
+            hot: None,
+            danger: false,
+        };
+        assert_eq!(
+            modal_footer(&SettingsModal::Input(InputModalState::new(
+                SettingKey::Wpm,
+                "120".to_string()
+            ))),
+            Some(save)
+        );
+        assert_eq!(
+            modal_footer(&SettingsModal::HotkeyCapture(HotkeyCaptureModalState::new(
+                SettingKey::PauseHotkey,
+                "Alt + `".to_string()
+            ))),
+            Some(save)
+        );
+        assert_eq!(
+            modal_footer(&SettingsModal::Select(SelectModalState::new(
+                SettingKey::SpinnerStyle,
+                vec!["classic".to_string()],
+                "classic".to_string()
+            ))),
+            None
+        );
+        assert_eq!(
+            modal_footer(&SettingsModal::ConfirmReset(ConfirmResetModalState::new(
+                SettingKey::Wpm
+            ))),
+            None
+        );
     }
 
     #[test]

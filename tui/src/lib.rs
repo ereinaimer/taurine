@@ -1563,11 +1563,36 @@ fn handle_tui_mouse_event(
                         frame: area,
                         library_full: area,
                     };
-                    if let Some(modal_popup) = modal.transition_rect(&areas)
-                        && util::overlay_dismiss_hit(modal_popup, mouse.column, mouse.row)
-                    {
-                        app.settings_page_mut().clear_modal();
-                        return;
+                    if let Some(modal_popup) = modal.transition_rect(&areas) {
+                        if util::overlay_dismiss_hit(modal_popup, mouse.column, mouse.row) {
+                            app.settings_page_mut().clear_modal();
+                            return;
+                        }
+                        // honey: the editor modals' footer is the one
+                        // clickable surface besides the keys; Confirm
+                        // reuses the Enter path so validation and save
+                        // stay single-sourced.
+                        if let Some(footer) = settings::modals::modal_footer(modal)
+                            && let Some(side) = util::overlay_footer_hit(
+                                modal_popup,
+                                &footer,
+                                mouse.column,
+                                mouse.row,
+                            )
+                        {
+                            match side {
+                                util::FooterSide::Cancel => {
+                                    app.settings_page_mut().clear_modal();
+                                }
+                                util::FooterSide::Confirm => {
+                                    let interaction = app.settings_page_mut().handle_key(
+                                        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+                                    );
+                                    apply_settings_interaction(app, interaction);
+                                }
+                            }
+                            return;
+                        }
                     }
                 }
                 let popup = settings::overlay_popup(area);
