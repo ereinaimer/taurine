@@ -930,10 +930,40 @@ fn delete_confirmation_cancel_closes_modal() {
 }
 
 #[test]
+fn delete_confirmation_starts_on_cancel() {
+    let item = LibraryTrigger::single(list_item(
+        "id-gm",
+        None,
+        TriggerType::Word,
+        "gm",
+        "Good Morning",
+        "text",
+        "all",
+        9,
+        None,
+    ));
+    let delete = LibraryDeleteModalState::from_item(&item, 0);
+
+    assert!(!delete.selected_delete());
+}
+
+#[test]
+fn delete_confirmation_enter_on_default_cancels() {
+    let mut state = sample_state();
+    state.open_delete_modal_for_selected();
+
+    let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert!(interaction.pending_delete().is_none());
+    assert!(state.modal().is_none());
+}
+
+#[test]
 fn delete_confirmation_enter_creates_pending_delete() {
     let mut state = sample_state();
     state.open_delete_modal_for_selected();
 
+    state.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
     let pending = interaction.pending_delete().expect("pending delete");
@@ -988,65 +1018,95 @@ fn delete_key_while_confirm_open_keeps_modal() {
 }
 
 #[test]
-fn confirm_up_selects_yes_and_down_selects_no() {
+fn delete_footer_hit_targets_cancel_left_and_delete_right() {
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let popup = modals::delete_popup(area);
+    let (cancel, confirm) =
+        crate::widgets::util::overlay_footer_cells(popup, &modals::DELETE_FOOTER);
+
+    let hit = |column, row| modals::delete_footer_hit(area, column, row);
+    assert_eq!(
+        hit(cancel.x, cancel.y),
+        Some(crate::widgets::util::FooterSide::Cancel)
+    );
+    assert_eq!(
+        hit(
+            cancel.x.saturating_add(cancel.width).saturating_sub(1),
+            cancel.y
+        ),
+        Some(crate::widgets::util::FooterSide::Cancel)
+    );
+    assert_eq!(
+        hit(confirm.x, confirm.y),
+        Some(crate::widgets::util::FooterSide::Confirm)
+    );
+    assert_eq!(
+        hit(
+            confirm.x.saturating_add(confirm.width).saturating_sub(1),
+            confirm.y
+        ),
+        Some(crate::widgets::util::FooterSide::Confirm)
+    );
+}
+
+#[test]
+fn delete_footer_hit_ignores_question_gap_and_outside() {
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let popup = modals::delete_popup(area);
+    let body = crate::widgets::util::overlay_body(popup);
+    let (cancel, confirm) =
+        crate::widgets::util::overlay_footer_cells(popup, &modals::DELETE_FOOTER);
+    let footer_row = cancel.y;
+
+    let hit = |column, row| modals::delete_footer_hit(area, column, row);
+    // Question, trigger name, error, and gap rows above the band.
+    for row in [
+        footer_row.saturating_sub(5),
+        footer_row.saturating_sub(4),
+        footer_row.saturating_sub(3),
+        footer_row.saturating_sub(2),
+    ] {
+        assert_eq!(hit(body.x, row), None);
+    }
+    // Gap between the two cells and cells outside them.
+    assert_eq!(hit(cancel.x + cancel.width, footer_row), None);
+    assert_eq!(hit(confirm.x.saturating_sub(1), footer_row), None);
+    assert_eq!(hit(0, 0), None);
+}
+
+#[test]
+fn delete_modal_renders_danger_footer_labels() {
+    use crate::theme::default::DARK_THEME;
+    use ratatui::{Terminal, backend::TestBackend};
+
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let backend = TestBackend::new(area.width, area.height);
+    let mut terminal = Terminal::new(backend).expect("test terminal");
     let mut state = sample_state();
     state.open_delete_modal_for_selected();
-
-    state.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-    assert!(
-        !state
-            .modal()
-            .and_then(|modal| match modal {
-                LibraryModal::ConfirmDelete(delete) => Some(delete.selected_yes()),
-                _ => None,
-            })
-            .expect("confirm modal")
-    );
-
-    state.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
-    assert!(
-        state
-            .modal()
-            .and_then(|modal| match modal {
-                LibraryModal::ConfirmDelete(delete) => Some(delete.selected_yes()),
-                _ => None,
-            })
-            .expect("confirm modal")
-    );
-}
-
-#[test]
-fn delete_option_hit_selects_horizontal_buttons() {
-    // Sized 56x10 popup on 100x30 centers at (22,10); body starts at
-    // (25,11); buttons row is body.y+6=17 with Yes at x=42..48 and
-    // No at x=52..57.
-    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
-
-    assert_eq!(modals::delete_option_hit(area, 43, 17), Some(true));
-    assert_eq!(modals::delete_option_hit(area, 42, 17), Some(true));
-    assert_eq!(modals::delete_option_hit(area, 48, 17), Some(true));
-    assert_eq!(modals::delete_option_hit(area, 53, 17), Some(false));
-    assert_eq!(modals::delete_option_hit(area, 52, 17), Some(false));
-    assert_eq!(modals::delete_option_hit(area, 57, 17), Some(false));
-}
-
-#[test]
-fn delete_option_hit_ignores_chrome_gap_and_outside() {
-    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
-
-    // Header band, gap, question, name, blank rows.
-    assert_eq!(modals::delete_option_hit(area, 30, 11), None);
-    assert_eq!(modals::delete_option_hit(area, 30, 12), None);
-    assert_eq!(modals::delete_option_hit(area, 30, 13), None);
-    assert_eq!(modals::delete_option_hit(area, 30, 14), None);
-    assert_eq!(modals::delete_option_hit(area, 30, 15), None);
-    assert_eq!(modals::delete_option_hit(area, 30, 16), None);
-    // Gap between the buttons and cells outside them.
-    assert_eq!(modals::delete_option_hit(area, 49, 17), None);
-    assert_eq!(modals::delete_option_hit(area, 30, 17), None);
-    assert_eq!(modals::delete_option_hit(area, 41, 17), None);
-    assert_eq!(modals::delete_option_hit(area, 58, 17), None);
-    assert_eq!(modals::delete_option_hit(area, 0, 0), None);
+    terminal
+        .draw(|frame| {
+            let modal = state.modal().expect("delete modal");
+            modals::render_library_modal(
+                frame,
+                frame.area(),
+                &DARK_THEME,
+                modal,
+                &crate::widgets::toggle::ToggleAnimations::default(),
+                None,
+            );
+        })
+        .expect("test draw");
+    let buffer = terminal.backend().buffer().clone();
+    let popup = modals::delete_popup(area);
+    let row_y = popup.y.saturating_add(popup.height).saturating_sub(2);
+    let footer_row: String = (0..area.width)
+        .map(|x| buffer[(x, row_y)].symbol())
+        .collect();
+    assert!(footer_row.contains("Esc Cancel"));
+    assert!(footer_row.contains("Enter Delete"));
+    assert!(!footer_row.contains("Yes"));
+    assert!(!footer_row.contains("No"));
 }
 
 #[test]
@@ -5900,17 +5960,17 @@ fn delete_dialog_uses_shared_overlay_chrome() {
     let modal = state.modal().expect("delete modal");
     let buffer = render_modal_buffer(modal);
 
-    assert!(buffer_row(&buffer, 11).contains("Confirm delete"));
-    assert!(buffer_row(&buffer, 11).contains("Esc"));
-    assert!(!buffer_row(&buffer, 11).contains('╭'));
-    for y in 10..=12 {
+    assert!(buffer_row(&buffer, 10).contains("Confirm delete"));
+    assert!(buffer_row(&buffer, 10).contains("Esc"));
+    assert!(!buffer_row(&buffer, 10).contains('╭'));
+    for y in 9..=11 {
         assert_eq!(buffer[(22, y)].bg, DARK_THEME.header.bg);
     }
     assert_eq!(
-        buffer[(22, 13)].bg,
+        buffer[(22, 12)].bg,
         ratatui::style::Color::Rgb(0x14, 0x14, 0x14)
     );
-    assert!(buffer_row(&buffer, 14).contains("Do you want to delete"));
+    assert!(buffer_row(&buffer, 13).contains("Do you want to delete"));
 }
 
 #[test]

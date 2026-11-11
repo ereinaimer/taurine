@@ -1078,19 +1078,19 @@ impl LibraryPageState {
         ));
     }
 
-    /// Confirm-modal cursor for mouse hit-testing: `Some(true)` is Yes,
-    /// `Some(false)` is No, `None` when no confirm is open.
-    pub(crate) fn delete_selected_yes(&self) -> Option<bool> {
+    /// Confirm-modal cursor for mouse hit-testing: `Some(true)` is
+    /// Delete, `Some(false)` is Cancel, `None` when no confirm is open.
+    pub(crate) fn delete_confirm_selected(&self) -> Option<bool> {
         match self.modal.as_ref() {
-            Some(LibraryModal::ConfirmDelete(state)) => Some(state.selected_yes()),
+            Some(LibraryModal::ConfirmDelete(state)) => Some(state.selected_delete()),
             _ => None,
         }
     }
 
     /// Flip the confirm-modal cursor; no-op unless a confirm is open.
-    pub(crate) fn set_delete_selected_yes(&mut self, selected: bool) {
+    pub(crate) fn set_delete_confirm_selected(&mut self, selected: bool) {
         if let Some(LibraryModal::ConfirmDelete(state)) = self.modal.as_mut() {
-            state.set_selected_yes(selected);
+            state.set_selected_delete(selected);
         }
     }
 
@@ -1136,13 +1136,13 @@ impl LibraryPageState {
         LibraryInteraction::handled()
     }
 
-    /// Confirm the open delete modal, mirroring the Enter key: Yes
-    /// yields the pending delete, No closes the modal.
+    /// Confirm the open delete modal, mirroring the Enter key: Delete
+    /// yields the pending delete, Cancel closes the modal.
     pub(crate) fn confirm_delete(&mut self) -> LibraryInteraction {
         let Some(LibraryModal::ConfirmDelete(state)) = self.modal.as_ref() else {
             return LibraryInteraction::handled();
         };
-        if state.selected_yes() {
+        if state.selected_delete() {
             let interaction = LibraryInteraction::delete(PendingLibraryDelete {
                 trigger_id: state.trigger_id().to_string(),
                 restore_index: state.restore_index(),
@@ -1962,29 +1962,17 @@ impl LibraryPageState {
             },
             LibraryModal::ConfirmDelete(mut state) => match (key.code, key.modifiers) {
                 (KeyCode::Left, KeyModifiers::NONE) | (KeyCode::Char('h'), KeyModifiers::NONE) => {
-                    state.set_selected_yes(true);
-                    self.modal = Some(LibraryModal::ConfirmDelete(state));
-                    LibraryInteraction::handled()
-                }
-                // honey: vertical arrows match the overlay option-menu
-                // language; the rows stack Yes over No.
-                (KeyCode::Up, KeyModifiers::NONE) | (KeyCode::Char('k'), KeyModifiers::NONE) => {
-                    state.set_selected_yes(true);
+                    state.set_selected_delete(false);
                     self.modal = Some(LibraryModal::ConfirmDelete(state));
                     LibraryInteraction::handled()
                 }
                 (KeyCode::Right, KeyModifiers::NONE) | (KeyCode::Char('l'), KeyModifiers::NONE) => {
-                    state.set_selected_yes(false);
-                    self.modal = Some(LibraryModal::ConfirmDelete(state));
-                    LibraryInteraction::handled()
-                }
-                (KeyCode::Down, KeyModifiers::NONE) | (KeyCode::Char('j'), KeyModifiers::NONE) => {
-                    state.set_selected_yes(false);
+                    state.set_selected_delete(true);
                     self.modal = Some(LibraryModal::ConfirmDelete(state));
                     LibraryInteraction::handled()
                 }
                 (KeyCode::Enter, KeyModifiers::NONE) => {
-                    if state.selected_yes() {
+                    if state.selected_delete() {
                         let interaction = LibraryInteraction::delete(PendingLibraryDelete {
                             trigger_id: state.trigger_id().to_string(),
                             restore_index: state.restore_index(),

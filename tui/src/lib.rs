@@ -1502,8 +1502,8 @@ fn handle_tui_mouse_event(
                 }
                 return;
             }
-            // honey: the delete confirm owns its clicks: option rows
-            // select (a click on the cursor row confirms), while the
+            // honey: the delete confirm owns its clicks: footer cells
+            // select (a click on the hot cell confirms), while the
             // shared scrim/Esc-hint rule cancels. Other modals stay
             // keyboard-only.
             if let Some(library::LibraryModal::ConfirmDelete(_)) = app.library_page().modal() {
@@ -1513,13 +1513,15 @@ fn handle_tui_mouse_event(
                     app.library_page_mut().clear_modal();
                     return;
                 }
-                if let Some(yes) = library::modals::delete_option_hit(full, mouse.column, mouse.row)
+                if let Some(side) =
+                    library::modals::delete_footer_hit(full, mouse.column, mouse.row)
                 {
-                    if app.library_page().delete_selected_yes() == Some(yes) {
+                    let selected = side == util::FooterSide::Confirm;
+                    if app.library_page().delete_confirm_selected() == Some(selected) {
                         let interaction = app.library_page_mut().confirm_delete();
                         apply_library_interaction(app, interaction);
                     } else {
-                        app.library_page_mut().set_delete_selected_yes(yes);
+                        app.library_page_mut().set_delete_confirm_selected(selected);
                     }
                 }
                 return;
@@ -4810,54 +4812,41 @@ mod tests {
     }
 
     #[test]
-    fn clicking_no_row_flips_delete_selection() {
+    fn clicking_delete_footer_cancel_closes_modal() {
         let mut app = library_app();
         seed_single_library_item(&mut app);
         app.library_page_mut().open_delete_modal_for_selected();
-        assert_eq!(app.library_page().delete_selected_yes(), Some(true));
+        assert_eq!(app.library_page().delete_confirm_selected(), Some(false));
 
-        let no = delete_button_cell(&app, library::modals::DELETE_NO_LABEL);
-        handle_tui_mouse_event(&mut app, left_click(no.x, no.y), TEST_AREA);
+        let cancel = delete_footer_cell(&app, util::FooterSide::Cancel);
+        handle_tui_mouse_event(&mut app, left_click(cancel.x, cancel.y), TEST_AREA);
 
-        assert!(app.library_page().is_modal_open());
-        assert_eq!(app.library_page().delete_selected_yes(), Some(false));
+        assert!(!app.library_page().is_modal_open());
+        assert_eq!(app.library_page().filtered_len(), 1);
     }
 
-    fn delete_button_cell(app: &App, label: &str) -> ratatui::layout::Rect {
-        let full = workspace_full(app, TEST_AREA);
-        let body = util::overlay_body(library::modals::delete_popup(full));
-        let row = ratatui::layout::Rect {
-            x: body.x,
-            y: body
-                .y
-                .saturating_add(library::modals::DELETE_BUTTONS_OFFSET),
-            width: body.width,
-            height: 1,
-        };
-        let (yes, no) = util::confirm_button_cells(
-            row,
-            library::modals::DELETE_YES_LABEL,
-            library::modals::DELETE_NO_LABEL,
-        );
-        if label == library::modals::DELETE_YES_LABEL {
-            yes
+    fn delete_footer_cell(app: &App, side: util::FooterSide) -> ratatui::layout::Rect {
+        let popup = library::modals::delete_popup(workspace_full(app, TEST_AREA));
+        let (cancel, confirm) = util::overlay_footer_cells(popup, &library::modals::DELETE_FOOTER);
+        if side == util::FooterSide::Cancel {
+            cancel
         } else {
-            no
+            confirm
         }
     }
 
     #[test]
-    fn clicking_yes_row_selects_yes() {
+    fn clicking_delete_footer_confirm_selects_delete() {
         let mut app = library_app();
         seed_single_library_item(&mut app);
         app.library_page_mut().open_delete_modal_for_selected();
-        app.library_page_mut().set_delete_selected_yes(false);
+        assert_eq!(app.library_page().delete_confirm_selected(), Some(false));
 
-        let yes = delete_button_cell(&app, library::modals::DELETE_YES_LABEL);
-        handle_tui_mouse_event(&mut app, left_click(yes.x, yes.y), TEST_AREA);
+        let confirm = delete_footer_cell(&app, util::FooterSide::Confirm);
+        handle_tui_mouse_event(&mut app, left_click(confirm.x, confirm.y), TEST_AREA);
 
         assert!(app.library_page().is_modal_open());
-        assert_eq!(app.library_page().delete_selected_yes(), Some(true));
+        assert_eq!(app.library_page().delete_confirm_selected(), Some(true));
     }
 
     #[test]

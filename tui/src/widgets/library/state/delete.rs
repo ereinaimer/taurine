@@ -4,7 +4,7 @@ use super::trigger::LibraryTrigger;
 pub(crate) struct LibraryDeleteModalState {
     trigger_id: String,
     trigger: String,
-    selected_yes: bool,
+    selected_delete: bool,
     restore_index: usize,
     error: Option<String>,
 }
@@ -14,7 +14,7 @@ impl LibraryDeleteModalState {
         Self {
             trigger_id: item.id().to_string(),
             trigger: item.trigger().to_string(),
-            selected_yes: true,
+            selected_delete: false,
             restore_index,
             error: None,
         }
@@ -28,12 +28,12 @@ impl LibraryDeleteModalState {
         &self.trigger
     }
 
-    pub(crate) const fn selected_yes(&self) -> bool {
-        self.selected_yes
+    pub(crate) const fn selected_delete(&self) -> bool {
+        self.selected_delete
     }
 
-    pub(crate) fn set_selected_yes(&mut self, selected: bool) {
-        self.selected_yes = selected;
+    pub(crate) fn set_selected_delete(&mut self, selected: bool) {
+        self.selected_delete = selected;
     }
 
     pub(crate) const fn restore_index(&self) -> usize {

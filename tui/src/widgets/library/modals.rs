@@ -80,54 +80,43 @@ pub(crate) fn delete_popup(area: Rect) -> Rect {
     util::overlay_popup_sized(56, DELETE_POPUP_HEIGHT, area)
 }
 
-/// Delete popup height: header band, gap, question, trigger, blank,
-/// buttons, error, so nothing sits empty below the buttons.
-pub(crate) const DELETE_POPUP_HEIGHT: u16 = 10;
+/// Delete popup height: header band, gap, question, trigger, error,
+/// then the shared footer band, so nothing sits empty below the text.
+pub(crate) const DELETE_POPUP_HEIGHT: u16 = 11;
 
 /// Body-row offsets inside the delete confirm, shared by rendering and
-/// hit-testing: header band, gap, question, trigger, blank, then the
-/// horizontal Yes/No button pair.
+/// hit-testing: header band, gap, question, trigger, error, then the
+/// footer band.
 pub(crate) const DELETE_QUESTION_OFFSET: u16 = 3;
 pub(crate) const DELETE_NAME_OFFSET: u16 = 4;
-pub(crate) const DELETE_BUTTONS_OFFSET: u16 = 6;
+pub(crate) const DELETE_ERROR_OFFSET: u16 = 5;
 
-/// Delete confirm button labels, shared by rendering and hit-testing
-/// so the pair never drifts between the two paths.
-pub(crate) const DELETE_YES_LABEL: &str = "Yes";
-pub(crate) const DELETE_NO_LABEL: &str = "No";
+/// Shared confirm/cancel footer for the delete modal: the Delete verb
+/// is mouse-and-Enter, so the confirm cell carries the Enter hint, and
+/// danger styling marks the destructive action.
+pub(crate) const DELETE_FOOTER: util::OverlayFooter = util::OverlayFooter {
+    confirm_label: "Delete",
+    enter_hint: true,
+    hot: None,
+    danger: true,
+};
 
-/// Buttons row inside the delete confirm, shared by rendering and
-/// hit-testing.
-fn delete_buttons_row(area: Rect) -> Rect {
-    let popup = delete_popup(area);
-    let body = util::overlay_body(popup);
-    Rect {
-        x: body.x,
-        y: body.y.saturating_add(DELETE_BUTTONS_OFFSET),
-        width: body.width,
-        height: 1,
+/// Footer with the delete modal's hot cell from its current selection.
+pub(crate) fn delete_footer(state: &LibraryDeleteModalState) -> util::OverlayFooter {
+    util::OverlayFooter {
+        hot: Some(if state.selected_delete() {
+            util::FooterSide::Confirm
+        } else {
+            util::FooterSide::Cancel
+        }),
+        ..DELETE_FOOTER
     }
 }
 
-/// Click on the delete confirm at `(column, row)`: `Some(true)` is Yes,
-/// `Some(false)` is No. Only the button cells select; title, blanks,
-/// question, trigger, and error cells never do.
-pub(crate) fn delete_option_hit(area: Rect, column: u16, row: u16) -> Option<bool> {
-    let row_area = delete_buttons_row(area);
-    let (yes, no) = util::confirm_button_cells(row_area, DELETE_YES_LABEL, DELETE_NO_LABEL);
-    let inside = |cell: Rect| {
-        column >= cell.x
-            && column < cell.x.saturating_add(cell.width)
-            && row == cell.y
-            && cell.width > 0
-    };
-    if inside(yes) {
-        Some(true)
-    } else if inside(no) {
-        Some(false)
-    } else {
-        None
-    }
+/// Footer cell under a delete-modal click, shared by rendering and the
+/// mouse branch so clicks land on the labels as drawn.
+pub(crate) fn delete_footer_hit(area: Rect, column: u16, row: u16) -> Option<util::FooterSide> {
+    util::overlay_footer_hit(delete_popup(area), &DELETE_FOOTER, column, row)
 }
 
 pub(crate) fn export_popup(area: Rect) -> Rect {
@@ -185,8 +174,8 @@ fn render_library_delete_modal(
     theme: &Theme,
     state: &LibraryDeleteModalState,
 ) {
-    let chrome = util::OverlayChrome::new(delete_popup(area));
-    chrome.render(frame, theme, "Confirm delete");
+    let chrome = util::OverlayChrome::with_footer(delete_popup(area));
+    chrome.render_with_footer(frame, theme, "Confirm delete", &delete_footer(state));
     let body = chrome.body;
     if body.width == 0 || body.height == 0 {
         return;
@@ -194,10 +183,7 @@ fn render_library_delete_modal(
 
     let question_y = body.y.saturating_add(DELETE_QUESTION_OFFSET);
     let name_y = body.y.saturating_add(DELETE_NAME_OFFSET);
-    let buttons = delete_buttons_row(area);
-    // honey: error rides directly under the buttons so a failed
-    // confirm stays visible without reserving dead space for it.
-    let error_y = buttons.y.saturating_add(1);
+    let error_y = body.y.saturating_add(DELETE_ERROR_OFFSET);
     let bottom = body.y.saturating_add(body.height);
     if question_y < bottom {
         frame.render_widget(
@@ -224,22 +210,6 @@ fn render_library_delete_modal(
         );
     }
 
-    // honey: horizontal pair on the shared confirm geometry so a
-    // future delete overlay reuses the same cells in rendering and
-    // hit-testing.
-    if buttons.y < bottom && buttons.width > 0 {
-        let (yes, no) = util::confirm_button_cells(buttons, DELETE_YES_LABEL, DELETE_NO_LABEL);
-        util::render_confirm_buttons(
-            frame,
-            yes,
-            no,
-            DELETE_YES_LABEL,
-            DELETE_NO_LABEL,
-            state.selected_yes(),
-            theme,
-        );
-    }
-
     let feedback_style = if state.error().is_some() {
         Style::default()
             .fg(theme.error)
@@ -249,7 +219,7 @@ fn render_library_delete_modal(
             .fg(theme.text_muted)
             .add_modifier(Modifier::DIM)
     };
-    if error_y < bottom && error_y != buttons.y {
+    if error_y < bottom {
         frame.render_widget(
             Paragraph::new(state.error().unwrap_or("")).style(feedback_style),
             Rect {
