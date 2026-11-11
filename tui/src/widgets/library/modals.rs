@@ -462,7 +462,7 @@ pub(crate) fn import_footer(state: &LibraryImportModalState) -> util::OverlayFoo
 /// y/N caution imports on confirm, so the verb carries the danger
 /// styling like the delete confirm.
 pub(crate) const IMPORT_RUN_VARIABLES_FOOTER: util::OverlayFooter = util::OverlayFooter {
-    confirm_label: "Import",
+    confirm_label: "Continue",
     enter_hint: true,
     hot: None,
     danger: true,

@@ -1078,7 +1078,7 @@ fn run_variables_warning_uses_shared_footer() {
     assert!(rendered.contains("CAUTION: This import contains [exec] variables"));
     assert!(rendered.contains("shell commands. Untrusted scripts can damage your system."));
     assert!(rendered.contains("Esc Cancel"));
-    assert!(rendered.contains("Enter Import"));
+    assert!(rendered.contains("Enter Continue"));
     assert!(!rendered.contains("[y/N]"));
 }
 
