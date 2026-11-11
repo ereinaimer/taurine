@@ -180,8 +180,6 @@ impl OverlayChrome {
 
     /// Chrome for dialogs with a footer band: content is trimmed above
     /// the band and its one-row gap so text never runs underneath it.
-    // honey: consumed by the overlay dialogs landing in later tasks.
-    #[allow(dead_code)]
     pub(crate) fn with_footer(popup: Rect) -> Self {
         let body = overlay_body(popup);
         let footer_height =
@@ -250,8 +248,6 @@ impl OverlayChrome {
         }
     }
 
-    // honey: consumed by the overlay dialogs landing in later tasks.
-    #[allow(dead_code)]
     pub(crate) fn render_with_footer(
         &self,
         frame: &mut Frame,
@@ -265,17 +261,13 @@ impl OverlayChrome {
 }
 
 /// Bottom popup rows covered by the shared footer band.
-// honey: consumed by the overlay dialogs landing in later tasks.
-#[allow(dead_code)]
 pub(crate) const OVERLAY_FOOTER_ROWS: u16 = 3;
 
 /// Label for the footer band's left cell.
-#[allow(dead_code)]
 pub(crate) const OVERLAY_FOOTER_CANCEL: &str = "Cancel";
 
 /// Which footer cell a click or hotkey landed on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub(crate) enum FooterSide {
     Cancel,
     Confirm,
@@ -284,7 +276,6 @@ pub(crate) enum FooterSide {
 /// Shared confirm/cancel footer row: `Esc Cancel` pinned left,
 /// confirm verb flush right, both on the footer band.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub(crate) struct OverlayFooter {
     pub(crate) confirm_label: &'static str,
     pub(crate) enter_hint: bool,
@@ -295,7 +286,6 @@ pub(crate) struct OverlayFooter {
 /// Footer cells shared by rendering and hit-testing so clicks land on
 /// the labels as drawn: cancel at the body's left edge, confirm flush
 /// right, on the band's middle row.
-#[allow(dead_code)]
 pub(crate) fn overlay_footer_cells(popup: Rect, footer: &OverlayFooter) -> (Rect, Rect) {
     let body = overlay_body(popup);
     let row_y = popup.y.saturating_add(popup.height).saturating_sub(2);
@@ -322,7 +312,6 @@ pub(crate) fn overlay_footer_cells(popup: Rect, footer: &OverlayFooter) -> (Rect
 }
 
 /// Footer cell under a click, or `None` off the label row.
-#[allow(dead_code)]
 pub(crate) fn overlay_footer_hit(
     popup: Rect,
     footer: &OverlayFooter,
@@ -432,7 +421,6 @@ pub(crate) fn overlay_dismiss_hit(popup: Rect, column: u16, row: u16) -> bool {
 
 /// Selected-cell style shared with the confirm buttons: full text on
 /// the surface band, bold.
-#[allow(dead_code)]
 fn overlay_footer_hot_style(theme: &Theme) -> Style {
     Style::default()
         .fg(theme.text)
@@ -442,7 +430,6 @@ fn overlay_footer_hot_style(theme: &Theme) -> Style {
 
 /// Paints the two footer cells on the band; the hot cell takes the
 /// selection style, the other keeps its muted hint / bold verb.
-#[allow(dead_code)]
 fn render_overlay_footer(
     frame: &mut Frame,
     chrome: &OverlayChrome,

@@ -418,14 +418,29 @@ pub(crate) enum CreateHit {
 
 /// Properties content inside the create body. Skip the header band and
 /// its gap, run values to the overlay's right edge so they align with
-/// the title's Esc hint, and clear the error row.
+/// the title's Esc hint, and clear the error row and footer band.
 pub(crate) fn create_props_content(right: Rect) -> Rect {
     Rect {
         x: right.x.saturating_add(2),
         y: right.y.saturating_add(3),
         width: right.width.saturating_sub(2),
-        height: right.height.saturating_sub(4),
+        height: right.height.saturating_sub(7),
     }
+}
+
+/// Shared confirm/cancel footer for the create modal: the Create verb
+/// is mouse-only, so the confirm cell carries no Enter hint.
+pub(crate) const CREATE_FOOTER: util::OverlayFooter = util::OverlayFooter {
+    confirm_label: "Create",
+    enter_hint: false,
+    hot: None,
+    danger: false,
+};
+
+/// Footer cell under a create-modal click, shared by rendering and the
+/// mouse branch so clicks land on the labels as drawn.
+pub(crate) fn create_footer_hit(area: Rect, column: u16, row: u16) -> Option<util::FooterSide> {
+    util::overlay_footer_hit(create_popup(area), &CREATE_FOOTER, column, row)
 }
 
 fn pill_hit(left: Rect, labels: &[String], column: u16) -> Option<usize> {
@@ -650,8 +665,8 @@ fn render_library_create_modal(
     hovered: Option<ToggleId>,
 ) {
     let is_script = !state.is_text_action();
-    let chrome = util::OverlayChrome::new(create_popup(area));
-    chrome.render(frame, theme, "New Trigger");
+    let chrome = util::OverlayChrome::with_footer(create_popup(area));
+    chrome.render_with_footer(frame, theme, "New Trigger", &CREATE_FOOTER);
     let popup = chrome.popup;
     let body = chrome.body;
     if body.width == 0 || body.height == 0 {
@@ -730,7 +745,10 @@ fn render_library_create_modal(
         && divider > body.x
         && divider < body.x.saturating_add(body.width)
     {
-        let height = popup.height.saturating_sub(util::OVERLAY_HEADER_ROWS);
+        let height = popup
+            .height
+            .saturating_sub(util::OVERLAY_HEADER_ROWS)
+            .saturating_sub(util::OVERLAY_FOOTER_ROWS);
         if height > 0 {
             let color = if state.divider_drag() || state.divider_hover() {
                 super::DIVIDER_HOVER_COLOR
@@ -807,7 +825,7 @@ fn render_library_create_modal(
         box_row += 1;
     }
 
-    let error_y = body.y.saturating_add(body.height).saturating_sub(1);
+    let error_y = body.y.saturating_add(body.height).saturating_sub(3);
     if let Some(error) = state.error()
         && error_y < bottom
     {

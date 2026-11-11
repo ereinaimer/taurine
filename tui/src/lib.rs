@@ -1465,6 +1465,18 @@ fn handle_tui_mouse_event(
                     app.library_page_mut().clear_modal();
                     return;
                 }
+                if let Some(side) =
+                    library::modals::create_footer_hit(full, mouse.column, mouse.row)
+                {
+                    match side {
+                        util::FooterSide::Cancel => app.library_page_mut().clear_modal(),
+                        util::FooterSide::Confirm => {
+                            let interaction = app.library_page_mut().submit_create_modal();
+                            apply_library_interaction(app, interaction);
+                        }
+                    }
+                    return;
+                }
                 if app
                     .library_page_mut()
                     .grab_create_divider(full, mouse.column, mouse.row)
@@ -5029,17 +5041,39 @@ mod tests {
     }
 
     #[test]
-    fn clicking_create_footer_does_nothing() {
+    fn clicking_create_footer_cancel_closes_modal() {
         let mut app = library_app();
         seed_single_library_item(&mut app);
         app.library_page_mut().open_create_modal();
+        let full = workspace_full(&app, TEST_AREA);
+        let (cancel, _) = util::overlay_footer_cells(
+            library::modals::create_popup(full),
+            &library::modals::CREATE_FOOTER,
+        );
 
-        // The old Create button row is now an inert footer.
-        handle_tui_mouse_event(&mut app, left_click(20, 25), TEST_AREA);
+        handle_tui_mouse_event(&mut app, left_click(cancel.x, cancel.y), TEST_AREA);
+
+        assert!(!app.library_page().is_modal_open());
+    }
+
+    #[test]
+    fn clicking_create_footer_create_submits_with_error_kept_open() {
+        let mut app = library_app();
+        seed_single_library_item(&mut app);
+        app.library_page_mut().open_create_modal();
+        let full = workspace_full(&app, TEST_AREA);
+        let (_, confirm) = util::overlay_footer_cells(
+            library::modals::create_popup(full),
+            &library::modals::CREATE_FOOTER,
+        );
+
+        // Empty draft: the Create click surfaces the error and keeps the
+        // modal open, mirroring the mouse-only submit rule.
+        handle_tui_mouse_event(&mut app, left_click(confirm.x, confirm.y), TEST_AREA);
 
         assert!(matches!(
             app.library_page().modal(),
-            Some(library::LibraryModal::Create(draft)) if draft.error().is_none()
+            Some(library::LibraryModal::Create(draft)) if draft.error().is_some()
         ));
     }
 

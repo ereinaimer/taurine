@@ -5472,6 +5472,104 @@ fn create_valid_text_trigger_builds_pending() {
 }
 
 #[test]
+fn create_footer_hit_targets_cancel_left_and_create_right() {
+    let area = ratatui::layout::Rect::new(0, 0, 100, 40);
+    let popup = modals::create_popup(area);
+    let (cancel, confirm) =
+        crate::widgets::util::overlay_footer_cells(popup, &modals::CREATE_FOOTER);
+
+    let hit = |column, row| modals::create_footer_hit(area, column, row);
+    assert_eq!(
+        hit(cancel.x, cancel.y),
+        Some(crate::widgets::util::FooterSide::Cancel)
+    );
+    assert_eq!(
+        hit(
+            cancel.x.saturating_add(cancel.width).saturating_sub(1),
+            cancel.y
+        ),
+        Some(crate::widgets::util::FooterSide::Cancel)
+    );
+    assert_eq!(
+        hit(confirm.x, confirm.y),
+        Some(crate::widgets::util::FooterSide::Confirm)
+    );
+    assert_eq!(
+        hit(
+            confirm.x.saturating_add(confirm.width).saturating_sub(1),
+            confirm.y
+        ),
+        Some(crate::widgets::util::FooterSide::Confirm)
+    );
+    // One row above the band is never a footer hit.
+    assert_eq!(hit(cancel.x, cancel.y.saturating_sub(1)), None);
+    assert_eq!(hit(confirm.x, confirm.y.saturating_sub(1)), None);
+}
+
+#[test]
+fn submit_create_modal_builds_pending_from_valid_draft() {
+    let mut state = open_create_state();
+    type_text(&mut state, ":hw");
+    state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    type_text(&mut state, "hi");
+
+    let interaction = state.submit_create_modal();
+
+    let pending = interaction.pending_create().expect("pending create");
+    assert_eq!(pending.trigger, ":hw");
+    assert_eq!(pending.content, "hi");
+    // The modal stays open; the apply path closes it, mirroring export/import.
+    assert!(matches!(state.modal(), Some(LibraryModal::Create(_))));
+    assert!(create_modal(&state).error().is_none());
+}
+
+#[test]
+fn submit_create_modal_keeps_modal_open_with_error_on_invalid_draft() {
+    let mut state = open_create_state();
+
+    let interaction = state.submit_create_modal();
+
+    assert!(interaction.pending_create().is_none());
+    assert!(matches!(state.modal(), Some(LibraryModal::Create(_))));
+    assert!(create_modal(&state).error().is_some());
+}
+
+#[test]
+fn create_modal_renders_footer_labels_without_enter_hint() {
+    use crate::theme::default::DARK_THEME;
+    use ratatui::{Terminal, backend::TestBackend};
+
+    let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+    let backend = TestBackend::new(area.width, area.height);
+    let mut terminal = Terminal::new(backend).expect("test terminal");
+    let state = open_create_state();
+    terminal
+        .draw(|frame| {
+            let modal = state.modal().expect("create modal");
+            modals::render_library_modal(
+                frame,
+                frame.area(),
+                &DARK_THEME,
+                modal,
+                &crate::widgets::toggle::ToggleAnimations::default(),
+                None,
+            );
+        })
+        .expect("test draw");
+    let buffer = terminal.backend().buffer().clone();
+    let popup = modals::create_popup(area);
+    let row_y = popup.y.saturating_add(popup.height).saturating_sub(2);
+    let footer_row: String = (0..area.width)
+        .map(|x| buffer[(x, row_y)].symbol())
+        .collect();
+    assert!(footer_row.contains("Esc Cancel"));
+    assert!(footer_row.contains("Create"));
+    // Mouse-only submit: no Enter hint in the confirm cell.
+    assert!(!footer_row.contains("Enter Create"));
+}
+
+#[test]
 fn create_type_row_enter_opens_header_menu_for_draft() {
     let mut state = open_create_state();
     state.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
@@ -5657,7 +5755,7 @@ fn create_props_content_aligns_with_title_hint() {
     assert_eq!(content.x, 52);
     assert_eq!(content.y, 12);
     assert_eq!(content.width, 45);
-    assert_eq!(content.height, 8);
+    assert_eq!(content.height, 5);
     assert_eq!(content.x + content.width, right.x + right.width);
 }
 
@@ -5914,14 +6012,16 @@ fn create_form_renders_placeholders_and_stacked_pickers() {
     assert!(row(&empty, 11).trim_start().starts_with(text_placeholder));
     assert!(row(&empty, 17).contains("Tags"));
     assert!(!row(&empty, 19).contains("Usage"));
-    // The pane divider starts at the header band's bottom edge.
+    // The pane divider starts at the header band's bottom edge and
+    // stops above the footer band.
     for y in 1..=3 {
         assert_ne!(empty[(50, y)].symbol(), "│");
     }
     assert_eq!(empty[(50, 4)].symbol(), "│");
-    assert_eq!(empty[(50, 27)].symbol(), "│");
+    assert_eq!(empty[(50, 24)].symbol(), "│");
+    assert_ne!(empty[(50, 25)].symbol(), "│");
     // The empty error row must not restyle the divider's last cell.
-    assert_eq!(empty[(50, 26)].fg, DARK_THEME.border);
+    assert_eq!(empty[(50, 24)].fg, DARK_THEME.border);
 
     type_text(&mut state, "gm");
     state.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));

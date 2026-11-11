@@ -1155,6 +1155,26 @@ impl LibraryPageState {
         }
     }
 
+    /// Footer Create click: build the pending create from the open draft.
+    /// The modal stays open; apply_library_interaction closes it on success
+    /// and set_save_error surfaces apply failures, mirroring export/import.
+    pub(crate) fn submit_create_modal(&mut self) -> LibraryInteraction {
+        let Some(LibraryModal::Create(mut draft)) = self.modal.take() else {
+            return LibraryInteraction::handled();
+        };
+        match draft.build_pending_create() {
+            Ok(pending) => {
+                self.modal = Some(LibraryModal::Create(draft));
+                LibraryInteraction::create(pending)
+            }
+            Err(error) => {
+                draft.set_error(error.to_string());
+                self.modal = Some(LibraryModal::Create(draft));
+                LibraryInteraction::handled()
+            }
+        }
+    }
+
     pub(crate) fn open_create_modal(&mut self) {
         self.modal = Some(LibraryModal::Create(Box::new(
             LibraryCreateModalState::with_split(self.create_split_ratio()),

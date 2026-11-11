@@ -651,9 +651,6 @@ impl LibraryCreateModalState {
         }
     }
 
-    // honey: the create action is temporarily buttonless; keep the
-    // pending builder ready for the submit affordance that replaces it.
-    #[allow(dead_code)]
     pub(crate) fn build_pending_create(&self) -> taurine_core::Result<PendingLibraryCreate> {
         // honey: core validates the trigger rules and canonicalizes
         // hotkeys; the stored form is what gets created. No database
