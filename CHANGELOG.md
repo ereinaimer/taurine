@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Confirmation Footer Bar**: Create, save, import, delete, and reset dialogs now end in a shared footer bar with Cancel on the left and the confirming action on the right; destructive confirms start focused on Cancel so a stray Enter never deletes anything.
+- **Confirmation Footer Bar**: Create, save, import, export, delete, and reset dialogs now end in a shared footer bar with Cancel on the left and the confirming action on the right; destructive confirms start focused on Cancel so a stray Enter never deletes anything.
 - **In-TUI Account Gates**: Sign in with Google from the TUI and see a dismissible weekly-quota notice without losing access to the library.
 - **Mandatory Authentication Gate**: Require an active Taurine account to launch the background service and connect to cloud sync.
 - **Bidirectional Cloud Sync**: Synchronize and restore snippets, settings, activity history, and multi-device statistics across devices with conflict-free aggregation.

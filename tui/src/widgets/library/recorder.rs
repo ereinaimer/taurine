@@ -1,9 +1,9 @@
 //! Full-TKL virtual keyboard overlay for recording a hotkey chord.
 //!
-//! The overlay is a flat, borderless popup: an instruction header with
-//! Cancel/Done chips and a six-row keyboard. The matrix and its geometry
-//! live in [`matrix`] so rendering and hit-testing share one source of
-//! truth.
+//! The overlay is a flat, borderless popup: an instruction header, a
+//! six-row keyboard, and the shared footer band for cancel/commit. The
+//! matrix and its geometry live in [`matrix`] so rendering and
+//! hit-testing share one source of truth.
 
 mod matrix;
 mod platform;
