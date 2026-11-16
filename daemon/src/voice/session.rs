@@ -1684,6 +1684,17 @@ impl VoiceSessionManager {
             return Ok(None);
         }
 
+        // Fast pre-filter: stop early if weekly quota is exhausted or unauthenticated
+        let guard = crate::engine::quota_guard::QuotaGuard::global();
+        if !guard.can_expand() {
+            if guard.is_authenticated() {
+                warn!("Dictation dropped: weekly quota exhausted");
+            } else {
+                debug!("Please log in to use Taurine.");
+            }
+            return Ok(None);
+        }
+
         // Apply personal dictionary
         let dict = self.dictionary.lock().unwrap_or_else(|p| p.into_inner());
         let corrected = dict.apply(text);
@@ -1746,9 +1757,22 @@ impl VoiceSessionManager {
             return Ok(None);
         }
 
-        // Charge only transcripts that will actually be injected, and stop
-        // dictation once the weekly quota is exhausted.
         let words_count = final_text.split_whitespace().count();
+
+        // Inject text segment using canonical expansion pipeline with IS_INJECTING guard
+        let report = crate::injector::inject_expansion_for_voice(
+            vec![taurine_core::engine::variables::ExpansionStep::Text(
+                final_text.to_string(),
+            )],
+            taurine_core::settings::SpinnerStyle::default(),
+        );
+
+        if !report.completed {
+            warn!("Voice dictation injection incomplete or aborted; quota not deducted");
+            return Ok(None);
+        }
+
+        // Deduct quota only after successful injection
         let guard = crate::engine::quota_guard::QuotaGuard::global();
         if !guard.deplete_words(words_count) {
             if guard.is_authenticated() {
@@ -1767,14 +1791,6 @@ impl VoiceSessionManager {
             chars_count,
             active_app,
             Some(final_text.to_string()),
-        );
-
-        // Inject text segment using canonical expansion pipeline with IS_INJECTING guard
-        crate::injector::inject_expansion_for_voice(
-            vec![taurine_core::engine::variables::ExpansionStep::Text(
-                final_text.to_string(),
-            )],
-            taurine_core::settings::SpinnerStyle::default(),
         );
 
         info!(

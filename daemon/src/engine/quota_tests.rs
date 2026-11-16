@@ -271,6 +271,57 @@ fn test_dispatch_expansion_drops_when_quota_exhausted() {
 }
 
 #[test]
+fn test_dispatch_expansion_does_not_deplete_quota_on_injection_failure() {
+    let _lock = taurine_core::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let original_balance = QuotaGuard::global().balance();
+    let original_delta = QuotaGuard::global().unflushed_delta();
+    QuotaGuard::global().set_balance(100.0);
+
+    let expansion = ExpansionResult {
+        delete_count: 2,
+        steps: vec![ExpansionStep::Text("hello".to_string())],
+        trigger: "hi".to_string(),
+        undo_trigger: None,
+        is_calculation: false,
+        stat_kind: TriggerStatKind::Snippet,
+        track_usage: false,
+        follow_up: None,
+    };
+
+    let state = Arc::new(taurine_core::engine::EngineState::new());
+
+    dispatch_expansion_with(
+        expansion,
+        SpinnerStyle::default(),
+        state,
+        move |_steps, _delete_count, _spinner| {
+            // Simulate aborted or failed injection
+            crate::injector::InjectionReport {
+                completed: false,
+                successful_chars: 0,
+            }
+        },
+        |_follow_up, _spinner| {},
+    );
+
+    let balance = QuotaGuard::global().balance();
+    let delta = QuotaGuard::global().unflushed_delta() - original_delta;
+
+    QuotaGuard::global().set_balance(original_balance);
+
+    assert_eq!(
+        balance, 100.0,
+        "Failed expansion injection must not deplete quota balance"
+    );
+    assert_eq!(
+        delta, 0.0,
+        "Failed expansion injection must not accumulate unflushed delta"
+    );
+}
+
+#[test]
 fn test_voice_trigger_drops_when_quota_exhausted() {
     let _lock = taurine_core::testing::TEST_LOCK
         .lock()

@@ -144,7 +144,7 @@ pub(crate) fn dispatch_expansion_with<I, L>(
         crate::engine::quota_guard::ExpansionType::Text
     };
 
-    if !crate::engine::quota_guard::QuotaGuard::global().deplete(expansion_type) {
+    if !crate::engine::quota_guard::QuotaGuard::global().can_expand() {
         if !crate::engine::quota_guard::QuotaGuard::global().is_authenticated() {
             tracing::debug!("Please log in to use Taurine.");
         } else {
@@ -241,11 +241,16 @@ pub(crate) fn dispatch_expansion_with<I, L>(
         has_follow_up,
         "Finished expansion dispatch"
     );
-    if follow_up.is_none()
-        && injection.successful_chars > 0
-        && let Some(undo_trigger) = undo_trigger
-    {
-        state.refresh_undo_state(&undo_trigger, injection.successful_chars);
+    if injection.completed {
+        crate::engine::quota_guard::QuotaGuard::global().deplete(expansion_type);
+        if follow_up.is_none()
+            && injection.successful_chars > 0
+            && let Some(undo_trigger) = undo_trigger
+        {
+            state.refresh_undo_state(&undo_trigger, injection.successful_chars);
+        }
+    } else {
+        tracing::warn!("Expansion incomplete or aborted; quota not deducted");
     }
     launch_follow_up_fn(follow_up, spinner_style);
 
