@@ -316,6 +316,65 @@ fn test_voice_trigger_drops_when_quota_exhausted() {
 }
 
 #[test]
+fn test_voice_trigger_does_not_deplete_quota_when_expansion_fails() {
+    let _lock = taurine_core::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let original_balance = QuotaGuard::global().balance();
+    let original_delta = QuotaGuard::global().unflushed_delta();
+    QuotaGuard::global().set_balance(100.0);
+
+    let mut conn = create_test_db();
+    // Missing script_binary causes expand_trigger_action_with_args to return None
+    let inv = taurine_core::db::crud::ResolvedInvocation {
+        trigger_id: "broken-script-id".to_string(),
+        invocation: "broken".to_string(),
+        invocation_type: taurine_core::db::crud::InvocationType::Voice,
+        action: taurine_core::db::crud::TriggerAction {
+            output: "broken".to_string(),
+            action_type: "script".to_string(),
+            only_apps: None,
+            except_apps: None,
+            auto_case: false,
+            parent_id: "broken-script-id".to_string(),
+            interpreter: None,
+            behavior: None,
+            script_binary: None,
+        },
+        require_confirmation: false,
+        strict_threshold: 0.5,
+    };
+
+    let result = fire_voice_trigger_with_args(
+        inv,
+        &ArgMap::default(),
+        "broken",
+        &mut conn,
+        None,
+        SpinnerStyle::default(),
+    );
+
+    assert!(
+        result.is_none(),
+        "Voice trigger with broken expansion must return None"
+    );
+
+    let balance = QuotaGuard::global().balance();
+    let delta = QuotaGuard::global().unflushed_delta() - original_delta;
+
+    QuotaGuard::global().set_balance(original_balance);
+
+    assert_eq!(
+        balance, 100.0,
+        "Failed voice trigger must not deplete quota balance"
+    );
+    assert_eq!(
+        delta, 0.0,
+        "Failed voice trigger must not accumulate unflushed delta"
+    );
+}
+
+#[test]
 fn test_quota_guard_set_global_and_init_global() {
     let _lock = taurine_core::testing::TEST_LOCK
         .lock()

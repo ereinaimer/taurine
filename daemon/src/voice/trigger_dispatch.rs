@@ -16,9 +16,7 @@ pub fn fire_voice_trigger_with_args(
     active_app: Option<String>,
     spinner_style: taurine_core::settings::SpinnerStyle,
 ) -> Option<String> {
-    if !crate::engine::quota_guard::QuotaGuard::global()
-        .deplete(crate::engine::quota_guard::ExpansionType::VoiceTrigger)
-    {
+    if !crate::engine::quota_guard::QuotaGuard::global().can_expand() {
         if !crate::engine::quota_guard::QuotaGuard::global().is_authenticated() {
             tracing::debug!("Please log in to use Taurine.");
         } else {
@@ -39,6 +37,18 @@ pub fn fire_voice_trigger_with_args(
         );
         return None;
     };
+
+    // Deduct quota only after template expansion succeeds
+    if !crate::engine::quota_guard::QuotaGuard::global()
+        .deplete(crate::engine::quota_guard::ExpansionType::VoiceTrigger)
+    {
+        if !crate::engine::quota_guard::QuotaGuard::global().is_authenticated() {
+            tracing::debug!("Please log in to use Taurine.");
+        } else {
+            tracing::warn!("Voice trigger dropped: Weekly quota exhausted");
+        }
+        return None;
+    }
     if expansion.ai_transformer_template.is_some() {
         tracing::warn!(
             "Voice trigger '{}' contains AI transformer; injecting static steps only",
