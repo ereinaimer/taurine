@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Trigger Display Names**: Replaced redundant trigger display names with primary trigger invocations and descriptions across the CLI and TUI.
 
 ### Fixed
+- **Voice Trigger Quota Consistency**: Allow low-quota voice shortcuts to finish expanding and eliminate duplicate quota charges.
 - **Workspace Name Synchronization**: Preserve human workspace names across devices and cascade deletions to the cloud.
 - **Microsecond Sync Checkpoints**: Prevent repeated re-pulling of unchanged snippets and settings caused by subsecond timestamp truncation.
 - **Tombstone Cleanup Outbox Guard**: Prevent local deletion cleanup from purging tombstones before they finish uploading to the cloud.

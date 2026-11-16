@@ -1684,19 +1684,6 @@ impl VoiceSessionManager {
             return Ok(None);
         }
 
-        // Charge only transcripts that will actually be injected, and stop
-        // dictation once the weekly quota is exhausted.
-        let word_count = text.split_whitespace().count();
-        let guard = crate::engine::quota_guard::QuotaGuard::global();
-        if !guard.deplete_words(word_count) {
-            if guard.is_authenticated() {
-                warn!("Dictation dropped: weekly quota exhausted");
-            } else {
-                debug!("Please log in to use Taurine.");
-            }
-            return Ok(None);
-        }
-
         // Apply personal dictionary
         let dict = self.dictionary.lock().unwrap_or_else(|p| p.into_inner());
         let corrected = dict.apply(text);
@@ -1742,7 +1729,6 @@ impl VoiceSessionManager {
                     inv.invocation, matched.score
                 );
 
-                let fallback = inv.action.output.clone();
                 let output = crate::voice::fire_voice_trigger_with_args(
                     inv,
                     &matched.args,
@@ -1750,9 +1736,8 @@ impl VoiceSessionManager {
                     &mut conn,
                     active_app.clone(),
                     taurine_core::settings::SpinnerStyle::default(),
-                )
-                .unwrap_or(fallback);
-                return Ok(Some(output));
+                );
+                return Ok(output);
             }
         }
 
@@ -1761,8 +1746,20 @@ impl VoiceSessionManager {
             return Ok(None);
         }
 
-        // Record voice dictation stats
+        // Charge only transcripts that will actually be injected, and stop
+        // dictation once the weekly quota is exhausted.
         let words_count = final_text.split_whitespace().count();
+        let guard = crate::engine::quota_guard::QuotaGuard::global();
+        if !guard.deplete_words(words_count) {
+            if guard.is_authenticated() {
+                warn!("Dictation dropped: weekly quota exhausted");
+            } else {
+                debug!("Please log in to use Taurine.");
+            }
+            return Ok(None);
+        }
+
+        // Record voice dictation stats
         let chars_count = final_text.chars().count();
 
         taurine_core::db::crud::record_voice_dictation_usage(
@@ -3567,6 +3564,181 @@ mod tests {
         let (session, _) = create_test_session();
         let res = session.inject_transcript("say hi to Bob").unwrap();
         assert_eq!(res, Some("Hello, bob!".to_string()));
+    }
+
+    #[test]
+    fn test_voice_trigger_soft_landing_when_low_quota() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let conn = taurine_core::db::get_conn().expect("temp db conn");
+        taurine_core::db::crud::create_entry(
+            &conn,
+            taurine_core::db::crud::NewEntry {
+                description: None,
+                content: "Expanded result".to_string(),
+                action_type: "text".to_string(),
+                target_os: "all".to_string(),
+                only_apps: None,
+                except_apps: None,
+                tags_json: "[]".to_string(),
+                auto_case: false,
+                interpreter: None,
+                behavior: None,
+                invocations: vec![(
+                    taurine_core::db::crud::InvocationType::Voice,
+                    "expand snippet".to_string(),
+                    false,
+                )],
+            },
+        )
+        .expect("seed voice trigger");
+
+        let (session, _) = create_test_session();
+        let guard = crate::engine::quota_guard::QuotaGuard::global();
+        let original_balance = guard.balance();
+        let original_unlimited = guard.is_unlimited();
+        let original_authenticated = guard.is_authenticated();
+
+        guard.set_unlimited(false);
+        guard.set_authenticated(true);
+        // Set low balance: 0.005% is less than the 0.90% voice trigger cost
+        // and less than the 2-word cost (0.008%).
+        guard.set_balance(0.005);
+        crate::platform::test_injector().clear();
+
+        let res = session.inject_transcript("expand snippet").unwrap();
+
+        let delta = guard.unflushed_delta();
+        let balance = guard.balance();
+
+        guard.set_balance(original_balance);
+        guard.set_unlimited(original_unlimited);
+        guard.set_authenticated(original_authenticated);
+
+        assert_eq!(res, Some("Expanded result".to_string()));
+        assert_eq!(balance, 0.0);
+        // Must charge only the 0.90% voice trigger cost, without word double-charge (0.008%)
+        assert!(
+            (delta - 0.90).abs() < 1e-6,
+            "expected delta 0.90, got {delta}"
+        );
+        assert!(
+            crate::platform::test_injector()
+                .recorded()
+                .iter()
+                .any(|c| c == "paste"),
+            "soft-landing trigger must inject via paste, got {:?}",
+            crate::platform::test_injector().recorded()
+        );
+    }
+
+    #[test]
+    fn test_voice_trigger_blocked_when_exhausted_quota_returns_none() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let conn = taurine_core::db::get_conn().expect("temp db conn");
+        taurine_core::db::crud::create_entry(
+            &conn,
+            taurine_core::db::crud::NewEntry {
+                description: None,
+                content: "Expanded result".to_string(),
+                action_type: "text".to_string(),
+                target_os: "all".to_string(),
+                only_apps: None,
+                except_apps: None,
+                tags_json: "[]".to_string(),
+                auto_case: false,
+                interpreter: None,
+                behavior: None,
+                invocations: vec![(
+                    taurine_core::db::crud::InvocationType::Voice,
+                    "expand snippet".to_string(),
+                    false,
+                )],
+            },
+        )
+        .expect("seed voice trigger");
+
+        let (session, _) = create_test_session();
+        let guard = crate::engine::quota_guard::QuotaGuard::global();
+        let original_balance = guard.balance();
+        let original_unlimited = guard.is_unlimited();
+        let original_authenticated = guard.is_authenticated();
+
+        guard.set_unlimited(false);
+        guard.set_authenticated(true);
+        guard.set_balance(0.0);
+        crate::platform::test_injector().clear();
+
+        let res = session.inject_transcript("expand snippet").unwrap();
+
+        let delta = guard.unflushed_delta();
+
+        guard.set_balance(original_balance);
+        guard.set_unlimited(original_unlimited);
+        guard.set_authenticated(original_authenticated);
+
+        // Exhausted quota must return None, not a phantom fallback Some(...)
+        assert_eq!(res, None);
+        assert_eq!(delta, 0.0);
+        assert!(
+            crate::platform::test_injector().recorded().is_empty(),
+            "exhausted voice trigger must not inject anything, got {:?}",
+            crate::platform::test_injector().recorded()
+        );
+    }
+
+    #[test]
+    fn test_voice_dictation_soft_landing_when_low_quota() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let (session, _) = create_test_session();
+
+        let guard = crate::engine::quota_guard::QuotaGuard::global();
+        let original_balance = guard.balance();
+        let original_unlimited = guard.is_unlimited();
+        let original_authenticated = guard.is_authenticated();
+
+        guard.set_unlimited(false);
+        guard.set_authenticated(true);
+        // 0.005% balance is less than the 10-word cost (10 * 0.004% = 0.040%)
+        guard.set_balance(0.005);
+        crate::platform::test_injector().clear();
+
+        let res = session
+            .inject_transcript("one two three four five six seven eight nine ten")
+            .unwrap();
+
+        let delta = guard.unflushed_delta();
+        let balance = guard.balance();
+
+        guard.set_balance(original_balance);
+        guard.set_unlimited(original_unlimited);
+        guard.set_authenticated(original_authenticated);
+
+        assert!(res.is_some());
+        assert_eq!(balance, 0.0);
+        assert!(
+            (delta - 0.040).abs() < 1e-6,
+            "expected delta 0.040, got {delta}"
+        );
+        assert!(
+            crate::platform::test_injector()
+                .recorded()
+                .iter()
+                .any(|c| c == "paste"),
+            "soft-landing dictation must inject via paste, got {:?}",
+            crate::platform::test_injector().recorded()
+        );
     }
 
     #[test]
