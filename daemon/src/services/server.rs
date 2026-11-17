@@ -101,7 +101,6 @@ impl DaemonService {
         );
 
         // Update voice settings cache
-        taurine_core::settings::set_cached_voice_model(settings.voice_model.clone());
         taurine_core::settings::set_cached_voice_ptt_hotkey(settings.voice_ptt_hotkey.clone());
         taurine_core::settings::set_cached_voice_handsfree_hotkey(
             settings.voice_handsfree_hotkey.clone(),
@@ -111,7 +110,6 @@ impl DaemonService {
             &settings.voice_handsfree_hotkey,
         );
         taurine_core::settings::set_cached_voice_dictionary(settings.voice_dictionary.clone());
-        taurine_core::settings::set_cached_voice_keep_loaded(settings.voice_keep_loaded);
         taurine_core::settings::set_cached_pause_media_while_dictating(
             settings.pause_media_while_dictating,
         );
@@ -123,23 +121,9 @@ impl DaemonService {
 
         // Sync live voice session manager
         if let Some(session) = crate::VOICE_SESSION.get() {
-            session.set_model_name(settings.voice_model.clone());
             session.set_dictionary(taurine_core::voice::VoiceDictionary::from_csv(
                 &settings.voice_dictionary,
             ));
-            if settings.voice_keep_loaded {
-                let session = session.clone();
-                std::thread::Builder::new()
-                    .name("tau-voice-keep".to_string())
-                    .spawn(move || {
-                        if let Err(e) = session.ensure_worker_ready() {
-                            tracing::debug!("voice keep-loaded reload failed (lazy fallback): {e}");
-                        }
-                    })
-                    .ok();
-            } else {
-                session.unload_model_if_resident();
-            }
             if session.capture().is_running() {
                 let _ = session.capture().restart();
             }

@@ -5,9 +5,7 @@ mod modals;
 pub(crate) use hotkey_capture::HotkeyCaptureModalState;
 #[cfg(test)]
 pub(crate) use keys::cursor_style_label;
-pub(crate) use keys::{
-    EditorKind, SettingKey, SettingKeyMeta, cursor_set_cursor_style, voice_model_tier,
-};
+pub(crate) use keys::{EditorKind, SettingKey, SettingKeyMeta, cursor_set_cursor_style};
 pub(crate) use modals::{ConfirmResetModalState, InputModalState, SelectChoice, SelectModalState};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -28,36 +26,6 @@ const AUDIO_THEME_OPTIONS: [&str; 7] = [
     "rubber",
     "zen",
 ];
-
-/// Voice model tiers, ordered best quality to lightest footprint.
-const VOICE_MODEL_OPTIONS: [(&str, &str, &str); 3] = [
-    (
-        "Best",
-        "Highest accuracy; slower and uses the most RAM",
-        "best",
-    ),
-    (
-        "Balanced",
-        "Great accuracy with faster dictation and moderate RAM",
-        "balanced",
-    ),
-    (
-        "Fast",
-        "Quickest and lightest; best for low-RAM machines",
-        "fast",
-    ),
-];
-
-fn voice_model_choices() -> Vec<SelectChoice> {
-    VOICE_MODEL_OPTIONS
-        .iter()
-        .map(|(label, detail, value)| SelectChoice {
-            label: (*label).to_string(),
-            detail: (*detail).to_string(),
-            value: (*value).to_string(),
-        })
-        .collect()
-}
 
 /// Choices for the microphone picker: the system default plus every live
 /// input device reported by the shared tray enumeration.
@@ -557,13 +525,6 @@ impl SettingsPageState {
                     .collect(),
                 self.settings.ai_provider.clone().unwrap_or_default(),
             ))),
-            EditorKind::VoiceModelSelect => {
-                Some(SettingsModal::Select(SelectModalState::new_choices(
-                    key,
-                    voice_model_choices(),
-                    voice_model_tier(&self.settings.voice_model),
-                )))
-            }
             EditorKind::VoiceInputDeviceSelect => {
                 let current = self
                     .settings
@@ -809,16 +770,6 @@ mod tests {
     }
 
     #[test]
-    fn voice_model_picker_offers_tiers_with_descriptions() {
-        let choices = voice_model_choices();
-        let labels: Vec<&str> = choices.iter().map(|choice| choice.label.as_str()).collect();
-        let values: Vec<&str> = choices.iter().map(|choice| choice.value.as_str()).collect();
-        assert_eq!(labels, ["Best", "Balanced", "Fast"]);
-        assert_eq!(values, ["best", "balanced", "fast"]);
-        assert!(choices.iter().all(|choice| !choice.detail.is_empty()));
-    }
-
-    #[test]
     fn voice_device_picker_keeps_system_default_first() {
         let choices = voice_device_choices(vec!["Mic A".to_string(), "Mic B".to_string()]);
         let labels: Vec<&str> = choices.iter().map(|choice| choice.label.as_str()).collect();
@@ -829,40 +780,6 @@ mod tests {
             choices.iter().all(|choice| choice.detail.is_empty()),
             "microphone rows are single-line items"
         );
-    }
-
-    #[test]
-    fn voice_model_picker_saves_the_tier_value_not_the_label() {
-        let mut picker = SelectModalState::new_choices(
-            SettingKey::VoiceModel,
-            voice_model_choices(),
-            "balanced",
-        );
-        let interaction = picker.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-
-        assert_eq!(
-            interaction
-                .pending_save()
-                .map(|pending| pending.value.clone()),
-            Some(Some("balanced".to_string()))
-        );
-    }
-
-    #[test]
-    fn voice_model_opens_the_tier_picker() {
-        let mut state = SettingsPageState::default();
-        state.selected = state
-            .visible_keys()
-            .iter()
-            .position(|key| *key == SettingKey::VoiceModel)
-            .expect("visible voice model");
-        state.open_editor_for_selected();
-
-        let Some(SettingsModal::Select(modal)) = state.modal else {
-            panic!("voice model should open a select modal");
-        };
-        assert_eq!(modal.key(), SettingKey::VoiceModel);
-        assert_eq!(modal.options(), ["Best", "Balanced", "Fast"]);
     }
 
     #[test]
@@ -904,29 +821,6 @@ mod tests {
 
         state.settings.pause_audio_enabled = false;
         assert!(state.visible_keys().contains(&SettingKey::AudioVolume));
-    }
-
-    #[test]
-    fn test_voice_keep_loaded_toggles_and_needs_no_modal() {
-        let mut state = SettingsPageState::default();
-        let idx = state
-            .visible_keys()
-            .iter()
-            .position(|k| *k == SettingKey::VoiceKeepLoaded)
-            .expect("VoiceKeepLoaded should be visible");
-        state.selected = idx;
-
-        assert_eq!(
-            SettingKey::VoiceKeepLoaded.editor_kind(),
-            EditorKind::Toggle
-        );
-        let interaction = state.toggle_selected_setting();
-        let pending = interaction.pending_save().expect("toggle saves");
-        assert_eq!(pending.key, SettingKey::VoiceKeepLoaded);
-        assert_eq!(pending.value.as_deref(), Some("true"));
-
-        state.open_editor_for_selected();
-        assert!(state.modal.is_none());
     }
 
     #[test]
@@ -1002,13 +896,13 @@ mod tests {
         let idx = state
             .visible_keys()
             .iter()
-            .position(|k| *k == SettingKey::VoiceKeepLoaded)
-            .expect("VoiceKeepLoaded should be visible");
+            .position(|k| *k == SettingKey::PauseMediaWhileDictating)
+            .expect("PauseMediaWhileDictating should be visible");
         state.selected = idx;
 
         let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         let pending = interaction.pending_save().expect("enter toggles");
-        assert_eq!(pending.key, SettingKey::VoiceKeepLoaded);
+        assert_eq!(pending.key, SettingKey::PauseMediaWhileDictating);
         assert!(state.modal.is_none());
     }
 
@@ -1033,8 +927,8 @@ mod tests {
         let idx = state
             .visible_keys()
             .iter()
-            .position(|k| *k == SettingKey::VoiceKeepLoaded)
-            .expect("VoiceKeepLoaded should be visible");
+            .position(|k| *k == SettingKey::PauseMediaWhileDictating)
+            .expect("PauseMediaWhileDictating should be visible");
         state.selected = idx;
 
         let interaction = state.handle_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
@@ -1078,8 +972,12 @@ mod tests {
     #[test]
     fn test_search_matches_descriptions() {
         let mut state = SettingsPageState::default();
-        type_query(&mut state, "extra ram");
-        assert!(state.visible_keys().contains(&SettingKey::VoiceKeepLoaded));
+        type_query(&mut state, "pause music");
+        assert!(
+            state
+                .visible_keys()
+                .contains(&SettingKey::PauseMediaWhileDictating)
+        );
     }
 
     #[test]
@@ -1166,19 +1064,19 @@ mod tests {
         let idx = state
             .visible_keys()
             .iter()
-            .position(|k| *k == SettingKey::VoiceKeepLoaded)
-            .expect("VoiceKeepLoaded should be visible");
+            .position(|k| *k == SettingKey::PauseMediaWhileDictating)
+            .expect("PauseMediaWhileDictating should be visible");
 
-        let interaction = state.click_setting(SettingKey::VoiceKeepLoaded, 0);
+        let interaction = state.click_setting(SettingKey::PauseMediaWhileDictating, 0);
         let pending = interaction.pending_save().expect("first click toggles");
-        assert_eq!(pending.key, SettingKey::VoiceKeepLoaded);
+        assert_eq!(pending.key, SettingKey::PauseMediaWhileDictating);
         assert_eq!(state.selected_index(), idx);
 
-        let interaction = state.click_setting(SettingKey::VoiceKeepLoaded, 0);
+        let interaction = state.click_setting(SettingKey::PauseMediaWhileDictating, 0);
         let pending = interaction
             .pending_save()
             .expect("second click toggles back");
-        assert_eq!(pending.key, SettingKey::VoiceKeepLoaded);
+        assert_eq!(pending.key, SettingKey::PauseMediaWhileDictating);
     }
 
     #[test]

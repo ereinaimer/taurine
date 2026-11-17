@@ -253,7 +253,7 @@ fn test_inline_dictionary_mode_settings() {
 
 #[test]
 fn setting_key_all_has_unique_storage_keys() {
-    assert_eq!(SettingKey::ALL.len(), 45);
+    assert_eq!(SettingKey::ALL.len(), 43);
 
     let mut seen = HashSet::new();
     for key in SettingKey::ALL {
@@ -321,7 +321,6 @@ fn sweep_covers_defaults_set_and_reset_for_all_keys() {
         ("inline_dictionary_enabled", "false"),
         ("inline_dictionary_mode", "full"),
         ("notify_on_update", "false"),
-        ("voice_model", "parakeet-unified-en-0.6b"),
         ("voice_ptt_hotkey", "ctrl+space"),
         ("voice_handsfree_hotkey", "ctrl+alt+space"),
         ("voice_dictionary", "Rust, Taurine"),
@@ -372,13 +371,11 @@ fn sweep_covers_defaults_set_and_reset_for_all_keys() {
         inline_dictionary_enabled: false,
         inline_dictionary_mode: InlineDictionaryMode::Full,
         notify_on_update: false,
-        voice_model: "parakeet-unified-en-0.6b".to_string(),
         _voice_always_on: None,
         voice_ptt_hotkey: "ctrl+space".to_string(),
         voice_handsfree_hotkey: "ctrl+alt+space".to_string(),
         voice_dictionary: "Rust, Taurine".to_string(),
         voice_input_device: Some("External Mic".to_string()),
-        voice_keep_loaded: false,
         pause_media_while_dictating: true,
         tui_cursor_style: TuiCursorStyle::Underscore,
     };
@@ -597,69 +594,6 @@ fn settings_version_bumps_on_cached_write() {
     assert!(
         crate::settings::settings_version() > v0,
         "cached write must bump the settings version"
-    );
-}
-
-#[test]
-fn test_invalid_voice_model_diagnostic() {
-    let (_dir, conn) = open_test_db();
-    let manager = SettingsManager::new(&conn);
-
-    let err =
-        apply_setting_input_with_manager(&manager, "voice_model", Some("whispr")).unwrap_err();
-    let msg = err.to_string();
-
-    assert!(
-        msg.contains("'whispr' is not a recognized voice model"),
-        "expected problem message, got: {msg}"
-    );
-    assert!(
-        msg.contains("Available voice models"),
-        "expected options listing, got: {msg}"
-    );
-    assert!(
-        msg.contains("parakeet"),
-        "expected parakeet option, got: {msg}"
-    );
-}
-
-#[test]
-fn test_valid_voice_model_aliases() {
-    let (_dir, conn) = open_test_db();
-    let manager = SettingsManager::new(&conn);
-
-    apply_setting_input_with_manager(&manager, "voice_model", Some("auto")).unwrap();
-    assert_eq!(manager.load_all().voice_model, "auto");
-
-    apply_setting_input_with_manager(&manager, "voice_model", Some("parakeet-unified-en-0.6b"))
-        .unwrap();
-    assert_eq!(manager.load_all().voice_model, "parakeet-unified-en-0.6b");
-
-    apply_setting_input_with_manager(&manager, "voice_model", Some("parakeet-tdt-ctc-110m"))
-        .unwrap();
-    assert_eq!(manager.load_all().voice_model, "parakeet-tdt-ctc-110m");
-
-    apply_setting_input_with_manager(&manager, "voice_model", Some("parakeet-tdt-0.6b-v2"))
-        .unwrap();
-    assert_eq!(manager.load_all().voice_model, "parakeet-tdt-0.6b-v2");
-
-    // Tier aliases canonicalize to their full model IDs.
-    apply_setting_input_with_manager(&manager, "voice_model", Some("best")).unwrap();
-    assert_eq!(manager.load_all().voice_model, "parakeet-unified-en-0.6b");
-
-    apply_setting_input_with_manager(&manager, "voice_model", Some("balanced")).unwrap();
-    assert_eq!(manager.load_all().voice_model, "parakeet-tdt-0.6b-v2");
-
-    apply_setting_input_with_manager(&manager, "voice_model", Some("fast")).unwrap();
-    assert_eq!(manager.load_all().voice_model, "parakeet-tdt-ctc-110m");
-
-    // Other shorthand remains rejected.
-    assert!(apply_setting_input_with_manager(&manager, "voice_model", Some("unified")).is_err());
-    assert!(apply_setting_input_with_manager(&manager, "voice_model", Some("110m")).is_err());
-    assert!(apply_setting_input_with_manager(&manager, "voice_model", Some("tiny")).is_err());
-    assert!(
-        apply_setting_input_with_manager(&manager, "voice_model", Some("whisper-small-en"))
-            .is_err()
     );
 }
 

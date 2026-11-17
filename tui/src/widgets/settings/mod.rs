@@ -751,7 +751,7 @@ mod tests {
     fn select_value_hit_returns_select_value() {
         let area = ratatui::layout::Rect::new(26, 2, 71, 24);
         let mut state = SettingsPageState::default();
-        let key = SettingKey::VoiceModel;
+        let key = SettingKey::AudioTheme;
         state.selected = state
             .visible_keys()
             .iter()

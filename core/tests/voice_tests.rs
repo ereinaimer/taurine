@@ -9,9 +9,7 @@ use taurine_core::db::crud::{
 };
 use taurine_core::db::crud::{record_voice_dictation_usage, record_voice_trigger_usage};
 use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
-use taurine_core::voice::{
-    VoiceDictionary, format_transcript, get_model_entry, get_system_ram_gb, resolve_model_alias,
-};
+use taurine_core::voice::{VoiceDictionary, format_transcript};
 
 fn setup_test_db() -> Connection {
     let conn = Connection::open_in_memory().expect("failed to open in-memory sqlite db");
@@ -181,47 +179,6 @@ fn voice_entry(
             require_confirmation,
         )],
     }
-}
-
-#[test]
-fn test_voice_models_catalog_and_ram_tier() {
-    let unified = get_model_entry("parakeet-unified-en-0.6b").expect("unified must be in catalog");
-    assert_eq!(unified.id, "parakeet-unified-en-0.6b");
-    assert!(!unified.is_archive);
-    assert!(unified.remote_files.is_some());
-    let light = get_model_entry("parakeet-tdt-ctc-110m").expect("110m must be in catalog");
-    assert_eq!(light.id, "parakeet-tdt-ctc-110m");
-    assert!(light.is_archive);
-    assert_eq!(get_model_entry("silero_vad_v6"), None);
-    assert_eq!(get_model_entry("kws-zipformer-zh-en-3M"), None);
-    assert_eq!(get_model_entry("whisper-small-en"), None);
-    assert_eq!(get_model_entry("parakeet-tdt-0.6b-v3"), None);
-    assert_eq!(get_model_entry("moonshine-base-en"), None);
-    assert_eq!(get_model_entry("moonshine-tiny-en"), None);
-    // Tier aliases resolve; other shorthand stays rejected.
-    assert_eq!(
-        get_model_entry("best").unwrap().id,
-        "parakeet-unified-en-0.6b"
-    );
-    assert_eq!(
-        get_model_entry("balanced").unwrap().id,
-        "parakeet-tdt-0.6b-v2"
-    );
-    assert_eq!(get_model_entry("fast").unwrap().id, "parakeet-tdt-ctc-110m");
-    assert_eq!(get_model_entry("110m"), None);
-    assert_eq!(get_model_entry("unified"), None);
-    assert_eq!(
-        resolve_model_alias("parakeet-unified-en-0.6b"),
-        "parakeet-unified-en-0.6b"
-    );
-    assert_eq!(resolve_model_alias("best"), "parakeet-unified-en-0.6b");
-    assert_eq!(
-        resolve_model_alias("parakeet-tdt-ctc-110m"),
-        "parakeet-tdt-ctc-110m"
-    );
-    assert_eq!(resolve_model_alias("fast"), "parakeet-tdt-ctc-110m");
-    assert_eq!(resolve_model_alias("balanced"), "parakeet-tdt-0.6b-v2");
-    assert!(get_system_ram_gb() >= 4);
 }
 
 #[test]

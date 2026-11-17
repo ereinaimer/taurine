@@ -34,7 +34,6 @@ pub const SYNCABLE_SETTINGS: &[&str] = &[
     "pause_notifications_enabled",
     "spinner_style",
     "voice_dictionary",
-    "voice_model",
     "workspace_map",
     "wpm",
 ];
@@ -200,7 +199,6 @@ mod tests {
         assert!(!is_setting_syncable("voice_input_device"));
         assert!(!is_setting_syncable("start_on_boot"));
         assert!(!is_setting_syncable("scripts_enabled"));
-        assert!(!is_setting_syncable("voice_keep_loaded"));
         assert!(!is_setting_syncable("auto_update"));
         assert!(!is_setting_syncable("user_tier"));
         assert!(!is_setting_syncable("last_update_check"));

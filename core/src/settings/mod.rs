@@ -34,7 +34,6 @@ static CACHED_INLINE_CURRENCY_TO_WORDS_ENABLED: std::sync::atomic::AtomicBool =
 static CACHED_AUDIO_THEME: parking_lot::RwLock<AudioTheme> =
     parking_lot::RwLock::new(AudioTheme::Minimal);
 static CACHED_AUDIO_VOLUME: AtomicU32 = AtomicU32::new(50);
-static CACHED_VOICE_MODEL: parking_lot::RwLock<Option<String>> = parking_lot::RwLock::new(None);
 static CACHED_VOICE_PTT_HOTKEY: parking_lot::RwLock<Option<String>> =
     parking_lot::RwLock::new(None);
 static CACHED_VOICE_HANDSFREE_HOTKEY: parking_lot::RwLock<Option<String>> =
@@ -43,8 +42,6 @@ static CACHED_VOICE_DICTIONARY: parking_lot::RwLock<Option<String>> =
     parking_lot::RwLock::new(None);
 static CACHED_VOICE_INPUT_DEVICE: parking_lot::RwLock<Option<String>> =
     parking_lot::RwLock::new(None);
-static CACHED_VOICE_KEEP_LOADED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
 static CACHED_PAUSE_MEDIA_WHILE_DICTATING: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(true);
 
@@ -229,18 +226,6 @@ pub fn get_cached_inline_datetime_dialect() -> String {
         .unwrap_or_else(|| "uk".to_string())
 }
 
-pub fn set_cached_voice_model(model: String) {
-    *CACHED_VOICE_MODEL.write() = Some(model);
-    bump_settings_version();
-}
-
-pub fn get_cached_voice_model() -> String {
-    CACHED_VOICE_MODEL
-        .read()
-        .clone()
-        .unwrap_or_else(|| "auto".to_string())
-}
-
 pub fn set_cached_voice_ptt_hotkey(hotkey: String) {
     *CACHED_VOICE_PTT_HOTKEY.write() = Some(hotkey);
     bump_settings_version();
@@ -281,15 +266,6 @@ pub fn set_cached_voice_input_device(device: Option<String>) {
 
 pub fn get_cached_voice_input_device() -> Option<String> {
     CACHED_VOICE_INPUT_DEVICE.read().clone()
-}
-
-pub fn set_cached_voice_keep_loaded(keep: bool) {
-    CACHED_VOICE_KEEP_LOADED.store(keep, Ordering::Relaxed);
-    bump_settings_version();
-}
-
-pub fn get_cached_voice_keep_loaded() -> bool {
-    CACHED_VOICE_KEEP_LOADED.load(Ordering::Relaxed)
 }
 
 pub fn set_cached_pause_media_while_dictating(enabled: bool) {
@@ -462,18 +438,16 @@ pub enum SettingKey {
     InlineDictionaryEnabled,
     InlineDictionaryMode,
     NotifyOnUpdate,
-    VoiceModel,
     VoicePttHotkey,
     VoiceHandsfreeHotkey,
     VoiceDictionary,
     VoiceInputDevice,
-    VoiceKeepLoaded,
     PauseMediaWhileDictating,
     TuiCursorStyle,
 }
 
 impl SettingKey {
-    pub const ALL: [Self; 45] = [
+    pub const ALL: [Self; 43] = [
         Self::PauseHotkey,
         Self::PauseNotificationsEnabled,
         Self::PauseAudioEnabled,
@@ -511,12 +485,10 @@ impl SettingKey {
         Self::InlineDictionaryEnabled,
         Self::InlineDictionaryMode,
         Self::NotifyOnUpdate,
-        Self::VoiceModel,
         Self::VoicePttHotkey,
         Self::VoiceHandsfreeHotkey,
         Self::VoiceDictionary,
         Self::VoiceInputDevice,
-        Self::VoiceKeepLoaded,
         Self::PauseMediaWhileDictating,
         Self::TuiCursorStyle,
     ];
@@ -566,12 +538,10 @@ impl SettingKey {
             Self::InlineDictionaryEnabled => "inline_dictionary_enabled",
             Self::InlineDictionaryMode => "inline_dictionary_mode",
             Self::NotifyOnUpdate => "notify_on_update",
-            Self::VoiceModel => "voice_model",
             Self::VoicePttHotkey => "voice_ptt_hotkey",
             Self::VoiceHandsfreeHotkey => "voice_handsfree_hotkey",
             Self::VoiceDictionary => "voice_dictionary",
             Self::VoiceInputDevice => "voice_input_device",
-            Self::VoiceKeepLoaded => "voice_keep_loaded",
             Self::PauseMediaWhileDictating => "pause_media_while_dictating",
             Self::TuiCursorStyle => "tui_cursor_style",
         }
@@ -617,7 +587,6 @@ pub struct Settings {
     pub inline_dictionary_enabled: bool,
     pub inline_dictionary_mode: InlineDictionaryMode,
     pub notify_on_update: bool,
-    pub voice_model: String,
     /// Legacy ambient-listening flag. Deserialization keeps accepting
     /// `voice_always_on` from older configs but the value is ignored:
     /// always-on listening was superseded by on-demand voice hotkeys.
@@ -627,7 +596,6 @@ pub struct Settings {
     pub voice_handsfree_hotkey: String,
     pub voice_dictionary: String,
     pub voice_input_device: Option<String>,
-    pub voice_keep_loaded: bool,
     pub pause_media_while_dictating: bool,
     pub tui_cursor_style: TuiCursorStyle,
 }
@@ -699,12 +667,10 @@ impl std::fmt::Debug for Settings {
             .field("inline_dictionary_enabled", &self.inline_dictionary_enabled)
             .field("inline_dictionary_mode", &self.inline_dictionary_mode)
             .field("notify_on_update", &self.notify_on_update)
-            .field("voice_model", &self.voice_model)
             .field("voice_ptt_hotkey", &self.voice_ptt_hotkey)
             .field("voice_handsfree_hotkey", &self.voice_handsfree_hotkey)
             .field("voice_dictionary", &self.voice_dictionary)
             .field("voice_input_device", &self.voice_input_device)
-            .field("voice_keep_loaded", &self.voice_keep_loaded)
             .field(
                 "pause_media_while_dictating",
                 &self.pause_media_while_dictating,
@@ -715,7 +681,7 @@ impl std::fmt::Debug for Settings {
 }
 
 impl Settings {
-    pub const ALL_KEYS: [&'static str; 45] = [
+    pub const ALL_KEYS: [&'static str; 43] = [
         "pause_hotkey",
         "pause_notifications_enabled",
         "pause_audio_enabled",
@@ -753,12 +719,10 @@ impl Settings {
         "inline_dictionary_enabled",
         "inline_dictionary_mode",
         "notify_on_update",
-        "voice_model",
         "voice_ptt_hotkey",
         "voice_handsfree_hotkey",
         "voice_dictionary",
         "voice_input_device",
-        "voice_keep_loaded",
         "pause_media_while_dictating",
         "tui_cursor_style",
     ];
@@ -823,7 +787,6 @@ impl Settings {
             "scripts_enabled" => "scripts_enabled",
             "system_tray" | "system_tray_enabled" | "tray" => "system_tray_enabled",
             "notify_on_update" | "notify_update" | "update_notify" => "notify_on_update",
-            "voice_model" | "voice_engine" => "voice_model",
             "voice_ptt_hotkey" | "voice_ptt" | "ptt_hotkey" | "ptt" => "voice_ptt_hotkey",
             "voice_handsfree_hotkey" | "voice_handsfree" | "handsfree_hotkey" | "handsfree" => {
                 "voice_handsfree_hotkey"
@@ -831,8 +794,6 @@ impl Settings {
             "voice_dictionary" | "voice_vocab" | "voice_words" => "voice_dictionary",
             "voice_input_device" | "voice_device" | "voice_mic" | "input_device" | "mic"
             | "microphone" => "voice_input_device",
-            "voice_keep_loaded" => "voice_keep_loaded",
-            "keep_loaded" | "voice_keep" => "voice_keep_loaded",
             "pause_media_while_dictating" => "pause_media_while_dictating",
             "pause_media" => "pause_media_while_dictating",
             "tui_cursor_style" | "cursor_style" | "cursor" => "tui_cursor_style",
@@ -946,13 +907,11 @@ impl Default for Settings {
             inline_dictionary_enabled: true,
             inline_dictionary_mode: InlineDictionaryMode::default(),
             notify_on_update: false,
-            voice_model: "auto".to_string(),
             _voice_always_on: None,
             voice_ptt_hotkey: "win+lctrl".to_string(),
             voice_handsfree_hotkey: "win+lctrl+lalt".to_string(),
             voice_dictionary: String::new(),
             voice_input_device: None,
-            voice_keep_loaded: false,
             pause_media_while_dictating: true,
             tui_cursor_style: TuiCursorStyle::default(),
         }
@@ -1046,7 +1005,6 @@ mod tests {
     #[test]
     fn test_voice_settings_defaults() {
         let defaults = Settings::default();
-        assert_eq!(defaults.voice_model, "auto");
         assert_eq!(defaults._voice_always_on, None);
         assert_eq!(defaults.voice_ptt_hotkey, "win+lctrl");
         assert_eq!(defaults.voice_handsfree_hotkey, "win+lctrl+lalt");
@@ -1061,18 +1019,9 @@ mod tests {
         let mut legacy = serde_json::to_value(Settings::default()).unwrap();
         legacy["voice_always_on"] = serde_json::json!(true);
         let settings: Settings = serde_json::from_value(legacy).expect("legacy config must load");
-        assert_eq!(settings.voice_model, "auto");
         let json = serde_json::to_value(&settings).unwrap();
         assert!(json.get("_voice_always_on").is_none());
         assert!(json.get("voice_always_on").is_none());
-    }
-
-    #[test]
-    fn voice_keep_loaded_defaults_off_and_key_registered() {
-        assert!(!Settings::default().voice_keep_loaded);
-        assert!(Settings::ALL_KEYS.contains(&"voice_keep_loaded"));
-        assert_eq!(Settings::resolve_key("keep_loaded"), "voice_keep_loaded");
-        assert!(!get_cached_voice_keep_loaded());
     }
 
     #[test]
@@ -1106,8 +1055,6 @@ mod tests {
 
     #[test]
     fn test_resolve_key_voice_settings() {
-        assert_eq!(Settings::resolve_key("voice_model"), "voice_model");
-        assert_eq!(Settings::resolve_key("voice_engine"), "voice_model");
         assert_eq!(
             Settings::resolve_key("voice_ptt_hotkey"),
             "voice_ptt_hotkey"

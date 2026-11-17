@@ -142,41 +142,6 @@ fn daemon_flag_keeps_daemon_launch_path() {
 }
 
 #[test]
-fn voice_daemon_flag_stays_hidden_and_routes() {
-    let cli = Cli::try_parse_from([
-        "taurine",
-        "--voice-daemon",
-        "--voice-pipe",
-        "taurine-voice-1-abc",
-        "--voice-version-token",
-        "v1",
-    ])
-    .expect("--voice-daemon should parse");
-    assert!(cli.voice_daemon);
-    assert_eq!(
-        cli.voice_pipe.as_deref(),
-        Some("taurine-voice-1-abc"),
-        "pipe name must round-trip"
-    );
-    assert_eq!(
-        cli.voice_version_token.as_deref(),
-        Some("v1"),
-        "version token must round-trip"
-    );
-    assert_eq!(launch_target(&cli), LaunchTarget::VoiceDaemon);
-
-    let mut help = Vec::new();
-    Cli::command()
-        .write_long_help(&mut help)
-        .expect("help must render");
-    let help = String::from_utf8(help).expect("help must be UTF-8");
-    assert!(
-        !help.contains("voice-daemon"),
-        "internal worker role must stay out of help"
-    );
-}
-
-#[test]
 fn auto_update_flag_keeps_auto_update_launch_path() {
     let cli =
         Cli::try_parse_from(["taurine", "--auto-update"]).expect("--auto-update should parse");

@@ -28,9 +28,7 @@ fn main() -> std::process::ExitCode {
     );
     let quiet = cli.quiet || (is_interactive_command && cli.verbose == 0);
 
-    let component = if cli.voice_daemon {
-        taurine_core::logs::LogComponent::VoiceDaemon
-    } else if cli.daemon {
+    let component = if cli.daemon {
         taurine_core::logs::LogComponent::Daemon
     } else {
         taurine_core::logs::LogComponent::Cli
@@ -97,9 +95,6 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
             taurine_daemon::start()?;
             info!("Taurine service has been stopped cleanly.");
             return Ok(());
-        }
-        LaunchTarget::VoiceDaemon => {
-            return taurine_daemon::voice::daemon::run(cli.voice_pipe, cli.voice_version_token);
         }
         LaunchTarget::AutoUpdate => {
             let _ = commands::update::run_auto_update();
@@ -238,9 +233,7 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
 }
 
 fn launch_target(cli: &Cli) -> LaunchTarget {
-    if cli.voice_daemon {
-        LaunchTarget::VoiceDaemon
-    } else if cli.daemon {
+    if cli.daemon {
         LaunchTarget::Daemon
     } else if cli.auto_update {
         LaunchTarget::AutoUpdate

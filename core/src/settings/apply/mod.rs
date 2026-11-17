@@ -156,15 +156,6 @@ pub fn apply_setting_input_with_manager(
             )?;
             ApplySettingOutcome::default()
         }
-        "voice_keep_loaded" => {
-            let enabled = parse_boolean_setting_value_with_key(
-                actual_key,
-                require_non_empty(value, actual_key)?,
-            )?;
-            crate::settings::set_cached_voice_keep_loaded(enabled);
-            manager.update_setting(actual_key, enabled)?;
-            ApplySettingOutcome::default()
-        }
         "pause_media_while_dictating" => {
             let enabled = parse_boolean_setting_value_with_key(
                 actual_key,
@@ -323,24 +314,6 @@ pub fn apply_setting_input_with_manager(
                 _ => None,
             };
             manager.update_setting(actual_key, parsed)?;
-            ApplySettingOutcome::default()
-        }
-        "voice_model" => {
-            let val = require_non_empty(value, actual_key)?;
-            let canonical = match canonicalize_voice_model(val) {
-                Some(model) => model.to_string(),
-                None => {
-                    let diag =
-                        Diagnostic::problem(format!("'{val}' is not a recognized voice model"))
-                            .suggest(val, KNOWN_VOICE_MODELS)
-                            .options("Available voice models", KNOWN_VOICE_MODELS)
-                            .example("taurine config set voice_model auto")
-                            .render();
-                    return Err(Error::Config(diag));
-                }
-            };
-            crate::settings::set_cached_voice_model(canonical.clone());
-            manager.update_setting(actual_key, canonical)?;
             ApplySettingOutcome::default()
         }
         "voice_always_on" | "always_on" | "voice_listen" | "voice_wake" => {
@@ -509,26 +482,6 @@ fn require_non_empty<'a>(value: Option<&'a str>, key: &str) -> Result<&'a str> {
     value
         .filter(|value| !value.is_empty())
         .ok_or_else(|| Error::Config(format!("{key} must not be empty")))
-}
-
-pub const KNOWN_VOICE_MODELS: &[&str] = &[
-    "auto",
-    "best",
-    "balanced",
-    "fast",
-    "parakeet-unified-en-0.6b",
-    "parakeet-tdt-0.6b-v2",
-    "parakeet-tdt-ctc-110m",
-];
-
-pub fn canonicalize_voice_model(input: &str) -> Option<&'static str> {
-    match input.trim().to_ascii_lowercase().as_str() {
-        "auto" => Some("auto"),
-        "best" | "parakeet-unified-en-0.6b" => Some("parakeet-unified-en-0.6b"),
-        "balanced" | "parakeet-tdt-0.6b-v2" => Some("parakeet-tdt-0.6b-v2"),
-        "fast" | "parakeet-tdt-ctc-110m" => Some("parakeet-tdt-ctc-110m"),
-        _ => None,
-    }
 }
 
 pub fn validate_voice_hotkey(input: &str) -> std::result::Result<String, String> {

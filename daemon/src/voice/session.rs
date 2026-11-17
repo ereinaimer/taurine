@@ -1,16 +1,12 @@
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
 
-use taurine_core::voice::{
-    VoiceDictionary, format_mb, format_transcript, model_disk_size_mb, process_rss_mb,
-};
+use taurine_core::voice::{VoiceDictionary, format_transcript};
 
 use super::capture::AudioCapture;
 use super::modes::VoiceMode;
-use super::worker_client::WorkerClient;
 
 /// Minimal energy threshold to consider audio frames as containing speech.
 pub(crate) const MIN_SPEECH_RMS_ENERGY: f32 = 1e-7;
@@ -19,7 +15,7 @@ pub(crate) const MIN_SPEECH_RMS_ENERGY: f32 = 1e-7;
 pub(crate) const MIN_SAMPLES_COUNT: usize = 1600;
 
 /// Mash window after a session end: presses inside it cue instantly but defer
-/// engine work to a still-held rescue instead of churning the worker and mic.
+/// engine work to a still-held rescue instead of churning the mic.
 pub(crate) const MASH_WINDOW_MS: u64 = 300;
 /// Still-held rescue delay: a gated press starts only if the key is still
 /// down after this wait; a released key was a bounce and records nothing.
@@ -30,99 +26,8 @@ pub(crate) const RESCUE_WAIT_MS: u64 = 200;
 /// milliseconds; only a lost release can still be recording with the key
 /// up this long.
 const STUCK_PTT_GRACE: Duration = Duration::from_secs(10);
-/// Ceiling for the Processing state. Single-window sessions keep exactly
-/// 90s; each extra 60s decode window adds 150s (60s transcribe timeout +
-/// window audio length, with margin) so stacked segment decodes never trip
-/// the watchdog while truly ownerless states still reset.
+/// Ceiling for the Processing state.
 const STUCK_PROCESSING_BASE: Duration = Duration::from_secs(90);
-const STUCK_PROCESSING_PER_WINDOW: Duration = Duration::from_secs(150);
-
-/// Hold ladder rungs mirroring the worker sweep: a fresh load holds 10s;
-/// genuine use inside the window steps one rung up to the 60s cap, so at
-/// most 60s of residency follows last use, then zero. Both tables must agree.
-const HOLD_RUNGS_SECS: [u64; 4] = [10, 20, 30, 60];
-
-fn base_hold() -> Duration {
-    Duration::from_secs(HOLD_RUNGS_SECS[0])
-}
-
-fn next_rung(hold: Duration) -> Duration {
-    match HOLD_RUNGS_SECS.iter().position(|r| *r == hold.as_secs()) {
-        Some(i) => Duration::from_secs(HOLD_RUNGS_SECS[(i + 1).min(HOLD_RUNGS_SECS.len() - 1)]),
-        None => base_hold(),
-    }
-}
-
-/// Chunk cadence for live streaming while recording.
-const STREAM_POLL_INTERVAL: Duration = Duration::from_millis(150);
-
-/// 60s decode window at 16kHz: each window gets its own transcribe call.
-const TRANSCRIBE_WINDOW_SAMPLES: usize = 16_000 * 60;
-
-fn segment_audio_windows(total: usize, window: usize) -> Vec<(usize, usize)> {
-    let mut out = Vec::new();
-    let mut offset = 0;
-    while offset < total {
-        let len = (total - offset).min(window);
-        out.push((offset, len));
-        offset += len;
-    }
-    out
-}
-
-/// Processing watchdog limit for a session with `windows` 60s decode
-/// windows. Single-window (0 or 1) sessions keep exactly the 90s base.
-fn processing_timeout_limit(windows: u64) -> Duration {
-    if windows <= 1 {
-        STUCK_PROCESSING_BASE
-    } else {
-        STUCK_PROCESSING_BASE.saturating_add(Duration::from_secs(
-            windows.saturating_mul(STUCK_PROCESSING_PER_WINDOW.as_secs()),
-        ))
-    }
-}
-
-/// Per-window transcribe timeout. Single-window sessions keep the flat 60s
-/// timeout so the 90s watchdog always covers the decode; multi-window
-/// sessions scale with window audio length (covered by the scaled watchdog).
-fn per_window_timeout(window_len_samples: usize, single_window: bool) -> Duration {
-    if single_window {
-        Duration::from_secs(60)
-    } else {
-        Duration::from_secs(60)
-            .checked_add(Duration::from_secs(
-                (window_len_samples as u64).div_ceil(16_000),
-            ))
-            .unwrap_or(Duration::from_secs(120))
-    }
-}
-
-/// TTL bookkeeping for the worker-side model. The audio and the recognizer
-/// live in the `--voice-daemon` worker; this stays lean by design.
-struct EngineMeta {
-    model_id: String,
-    last_used: Instant,
-    hold: Duration,
-}
-
-/// Lock-free progress shared with one chunk-forwarder thread.
-struct StreamProgress {
-    /// Samples already handed to the worker.
-    sent: AtomicUsize,
-    /// Next chunk sequence number.
-    seq: AtomicU64,
-    alive: AtomicBool,
-}
-
-impl StreamProgress {
-    fn new() -> Self {
-        Self {
-            sent: AtomicUsize::new(0),
-            seq: AtomicU64::new(0),
-            alive: AtomicBool::new(true),
-        }
-    }
-}
 
 /// Monotonic timestamps marking one press-to-feedback cycle.
 #[derive(Debug, Clone, Copy)]
@@ -142,71 +47,33 @@ pub(crate) struct RequestLatency {
     transcript_at: Instant,
 }
 
-/// One live streaming request: shared progress plus a joinable thread.
-///
-/// `target` is snapshotted at request start so a settings change mid-record
-/// can neither respawn the worker nor wipe its buffers under a live session.
-struct StreamEntry {
-    progress: Arc<StreamProgress>,
-    handle: Option<std::thread::JoinHandle<()>>,
-    target: String,
-    timing: PttTiming,
-}
-
 /// Test-only mic-open cue stub (records call order instead of playing audio).
 #[cfg(test)]
 type CueHook = Arc<dyn Fn() + Send + Sync>;
 /// Test-only capture-start stub (records call order, injects device errors).
 #[cfg(test)]
 type CaptureHook = Arc<dyn Fn() -> Result<(), String> + Send + Sync>;
+/// Test-only transcription stub.
+#[cfg(test)]
+type TranscribeHook = Arc<dyn Fn(&[f32]) -> Result<String, String> + Send + Sync>;
 
 /// Manages the lifecycle of voice recording, dictation sessions, and text injection.
-///
-/// The single configured model lives in the isolated `--voice-daemon`
-/// worker: it loads on demand when a Push-to-Talk or Hands-Free session
-/// starts, stays pinned for the whole recording, and is fully evicted once
-/// its hold rung (10s base, up to 60s with use) expires after last use.
-/// The microphone is closed on every release; every press opens fresh.
 pub struct VoiceSessionManager {
     mode: Mutex<VoiceMode>,
     capture: Arc<AudioCapture>,
     paused: Arc<AtomicBool>,
     engine_state: Option<Arc<taurine_core::engine::EngineState>>,
-    model_name: Mutex<String>,
     dictionary: Mutex<VoiceDictionary>,
-    worker: WorkerClient,
-    meta: Arc<Mutex<Option<EngineMeta>>>,
-    active_req: Mutex<Option<String>>,
+    active_req: Mutex<Option<(String, PttTiming)>>,
     media: Arc<dyn super::media_suspend::MediaSuspender>,
     media_paused: Arc<std::sync::Mutex<Vec<super::media_suspend::PausedSession>>>,
-    /// Synchronous in-flight marker for the suspend worker. Set before spawn
-    /// so an immediate stop waits for the token instead of draining empty
-    /// and leaving a stale guard; cleared by the worker after writing.
     media_suspend_inflight: Arc<AtomicBool>,
-    streams: Arc<Mutex<HashMap<String, StreamEntry>>>,
     req_counter: AtomicU64,
-    /// Press remembered while busy: a press landing during decode cannot
-    /// start, so it is parked here and honored the moment the session
-    /// returns to Idle with the key still held. Never auto-records from a
-    /// released key; Escape and cancel always clear it.
     pending_press: AtomicBool,
-    /// Weak self-handle for the mash-gate rescue waiter. Set once the
-    /// manager lives in an `Arc` (production `start()`, tests via
-    /// `into_test_arc`); the waiter upgrades it after its delay and
-    /// no-ops if the manager is already gone, so it never extends a lifetime.
     self_ref: OnceLock<Weak<VoiceSessionManager>>,
-    /// End of the last dictation session, for the mash gate. Stamped by every
-    /// path that terminates a session; presses inside `MASH_WINDOW_MS` cue
-    /// instantly but defer engine work to the still-held rescue waiter.
     last_stop: Mutex<Option<Instant>>,
-    /// When the current PushToTalk recording started; None when not recording.
-    /// The sweep auto-stops a recording long past key-up (lost release).
     ptt_started_at: Mutex<Option<Instant>>,
-    /// When the current Processing state was entered; None otherwise. Bounds
-    /// a wedged worker so one dead transcription cannot silence voice.
     processing_since: Mutex<Option<Instant>>,
-    /// Window count for the in-flight segmented decode (Task 7 watchdog scaling).
-    processing_windows: AtomicU64,
     #[cfg(test)]
     last_latency: Mutex<Option<RequestLatency>>,
     #[cfg(test)]
@@ -219,6 +86,8 @@ pub struct VoiceSessionManager {
     stop_hook: Mutex<Option<CueHook>>,
     #[cfg(test)]
     error_hook: Mutex<Option<CueHook>>,
+    #[cfg(test)]
+    transcribe_hook: Mutex<Option<TranscribeHook>>,
 }
 
 impl VoiceSessionManager {
@@ -229,10 +98,7 @@ impl VoiceSessionManager {
             capture,
             paused,
             engine_state: None,
-            model_name: Mutex::new("auto".to_string()),
             dictionary: Mutex::new(VoiceDictionary::default()),
-            worker: WorkerClient::new().expect("voice worker runtime must build"),
-            meta: Arc::new(Mutex::new(None)),
             active_req: Mutex::new(None),
             #[cfg(test)]
             media: Arc::new(super::media_suspend::NoopMediaSuspender),
@@ -248,14 +114,12 @@ impl VoiceSessionManager {
             },
             media_paused: Arc::new(Mutex::new(Vec::new())),
             media_suspend_inflight: Arc::new(AtomicBool::new(false)),
-            streams: Arc::new(Mutex::new(HashMap::new())),
             req_counter: AtomicU64::new(0),
             pending_press: AtomicBool::new(false),
             self_ref: OnceLock::new(),
             last_stop: Mutex::new(None),
             ptt_started_at: Mutex::new(None),
             processing_since: Mutex::new(None),
-            processing_windows: AtomicU64::new(0),
             #[cfg(test)]
             last_latency: Mutex::new(None),
             #[cfg(test)]
@@ -268,12 +132,10 @@ impl VoiceSessionManager {
             stop_hook: Mutex::new(None),
             #[cfg(test)]
             error_hook: Mutex::new(None),
+            #[cfg(test)]
+            transcribe_hook: Mutex::new(None),
         }
     }
-
-    /// Builder method to share the daemon EngineState for fullscreen checks.
-    /// Production wires the live state in daemon/src/lib.rs; tests opt in per
-    /// case. Unset means "not suppressed".
     pub fn with_engine_state(mut self, state: Arc<taurine_core::engine::EngineState>) -> Self {
         self.engine_state = Some(state);
         self
@@ -287,26 +149,11 @@ impl VoiceSessionManager {
             .is_some_and(|s| s.fullscreen_suppressed())
     }
 
-    /// Builder method to specify the voice model name.
-    pub fn with_model_name(self, name: impl Into<String>) -> Self {
-        *self.model_name.lock().unwrap_or_else(|p| p.into_inner()) = name.into();
-        self
-    }
-
-    /// Builder method to configure custom vocabulary dictionary.
     pub fn with_dictionary(self, dict: VoiceDictionary) -> Self {
         *self.dictionary.lock().unwrap_or_else(|p| p.into_inner()) = dict;
         self
     }
 
-    /// Builder method to inject a worker client (tests only, no spawn).
-    #[cfg(test)]
-    pub(crate) fn with_worker(mut self, worker: WorkerClient) -> Self {
-        self.worker = worker;
-        self
-    }
-
-    /// Builder method to inject a media suspender (tests only).
     #[cfg(test)]
     pub(crate) fn with_media(
         mut self,
@@ -315,8 +162,6 @@ impl VoiceSessionManager {
         self.media = media;
         self
     }
-
-    /// Builder method to stub the mic-open cue (tests only, records order).
     #[cfg(test)]
     pub(crate) fn with_cue_hook(self, hook: CueHook) -> Self {
         *self.cue_hook.lock().unwrap_or_else(|p| p.into_inner()) = Some(hook);
@@ -343,6 +188,14 @@ impl VoiceSessionManager {
         self
     }
 
+    #[cfg(test)]
+    pub(crate) fn with_transcribe_hook(self, hook: TranscribeHook) -> Self {
+        *self
+            .transcribe_hook
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = Some(hook);
+        self
+    }
     /// Fire the mic-close cue (stubbed in tests to observe ordering).
     /// Silent while suppressed: stop paths stay functional over a fullscreen
     /// app, but play nothing over it.
@@ -478,74 +331,17 @@ impl VoiceSessionManager {
         self.paused.load(Ordering::Relaxed)
     }
 
-    /// Resolve the configured model name to the single model ID to load.
-    ///
-    /// Respects `voice_model`: a pinned canonical name loads exactly that
-    /// model, `auto` loads unified on >= 16 GiB total RAM and 110m below.
-    fn target_model(&self) -> &'static str {
-        let configured = self
-            .model_name
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .clone();
-        taurine_core::voice::resolve_configured_model(&configured)
-    }
-
-    /// Update the STT model name. If the model changed, the worker is shut
-    /// down so the next session handshakes fresh on the new model.
-    pub fn set_model_name(&self, name: impl Into<String>) {
-        let new_name = name.into();
-        let mut model = self.model_name.lock().unwrap_or_else(|p| p.into_inner());
-        if *model != new_name {
-            *model = new_name;
-            self.worker.shutdown();
-            let mut meta = self.meta.lock().unwrap_or_else(|p| p.into_inner());
-            *meta = None;
-        }
-    }
-
-    /// Update personal dictionary rules.
     pub fn set_dictionary(&self, dict: VoiceDictionary) {
         *self.dictionary.lock().unwrap_or_else(|p| p.into_inner()) = dict;
     }
 
-    /// Unloads the voice model from RAM once its hold rung expires.
-    ///
-    /// Only evicts while idle: an active recording or transcription pins the
-    /// model so long dictations never pay a mid-session reload. Guarantees
-    /// 0 MB idle voice memory once the rung deadline passes after last use.
-    /// The microphone is closed on every stop, so there is no mic state to
-    /// reap here.
+    /// Clean expired transcription state and recover capture devices.
     pub fn clean_expired_transcriber(&self) {
         if self.is_active() {
             self.recover_live_capture_device();
             self.recover_stranded_session();
-            return;
-        }
-        if taurine_core::settings::get_cached_voice_keep_loaded() {
-            return;
-        }
-        let mut guard = self.meta.lock().unwrap_or_else(|p| p.into_inner());
-        if let Some(ref meta) = *guard
-            && meta.last_used.elapsed() > meta.hold
-        {
-            let hold_secs = meta.hold.as_secs();
-            let rss_before = process_rss_mb();
-            *guard = None;
-            self.worker.unload_model();
-            let rss_after = process_rss_mb();
-            info!(
-                "VoiceSessionManager: model evicted ({hold_secs}s hold expired, RSS {} -> {} MB)",
-                format_mb(rss_before),
-                format_mb(rss_after),
-            );
         }
     }
-
-    /// While a session owns the mic, a device failure must migrate the
-    /// stream, never strand the recording on a dead endpoint. The frame
-    /// buffer outlives the stream, so reopening loses no captured audio.
-    /// Silent when healthy: at most one cheap identity query per sweep.
     fn recover_live_capture_device(&self) {
         if !matches!(
             self.current_mode(),
@@ -568,11 +364,9 @@ impl VoiceSessionManager {
             }
         }
     }
-
     /// Last-resort recovery for sessions the event path lost: a PTT recording
     /// whose key is long released, or a Processing state older than any
-    /// possible transcription. Only fires on already-stranded sessions;
-    /// healthy holds (key down) and fresh states never trip the grace.
+    /// possible transcription.
     fn recover_stranded_session(&self) {
         match self.current_mode() {
             VoiceMode::PushToTalk => {
@@ -592,13 +386,11 @@ impl VoiceSessionManager {
                 }
             }
             VoiceMode::Processing => {
-                let windows = self.processing_windows.load(Ordering::Relaxed);
-                let limit = processing_timeout_limit(windows);
                 let past_timeout = self
                     .processing_since
                     .lock()
                     .unwrap_or_else(|p| p.into_inner())
-                    .is_some_and(|t| t.elapsed() >= limit);
+                    .is_some_and(|t| t.elapsed() >= STUCK_PROCESSING_BASE);
                 if past_timeout {
                     warn!(
                         "VoiceSessionManager: voice stuck processing with no owner; resetting to Idle"
@@ -610,17 +402,9 @@ impl VoiceSessionManager {
         }
     }
 
-    /// Reset a wedged Processing state without joining: the owner thread is
-    /// gone and its worker call may never return, so joining here would hang
-    /// the 5s sweep. Detaching the handle lets the dead thread die alone;
-    /// a discard poke frees the worker-side buffer for the next session.
+    /// Reset a wedged Processing state.
     fn reset_stranded_processing(&self) {
         self.pending_press.store(false, Ordering::Relaxed);
-        // Snapshot the window count before clearing: a stranded multi-window
-        // decode leaves one worker buffer per window id plus the base id,
-        // and all of them must be dropped below.
-        let windows = self.processing_windows.load(Ordering::Relaxed);
-        self.processing_windows.store(0, Ordering::Relaxed);
         *self.mode.lock().unwrap_or_else(|p| p.into_inner()) = VoiceMode::Idle;
         *self
             .processing_since
@@ -630,104 +414,13 @@ impl VoiceSessionManager {
         self.stop_capture();
         self.resume_media();
         self.capture.buffer().clear();
-        if let Some(req_id) = self
+        let _ = self
             .active_req
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .take()
-            && let Some(entry) = self
-                .streams
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .remove(&req_id)
-        {
-            entry.progress.alive.store(false, Ordering::Relaxed);
-            std::mem::drop(entry.handle);
-            self.discard_session_buffers(&req_id, windows);
-        }
+            .take();
         debug!("VoiceSessionManager: stranded session reset");
     }
-
-    /// Drop one session's worker-side buffers without decoding: the base
-    /// streamed prefix plus every per-window id from segmented decode.
-    /// Best-effort and asynchronous: failures leave orphaned buffers that
-    /// die with the worker, never user-visible state.
-    fn discard_session_buffers(&self, req_id: &str, windows: u64) {
-        let worker = self.worker.clone();
-        let base = req_id.to_string();
-        std::thread::Builder::new()
-            .name("taurine-voice-discard".to_string())
-            .spawn(move || {
-                let _ = worker.discard(&base);
-                if windows > 1 {
-                    for i in 0..windows {
-                        let _ = worker.discard(&format!("{base}-w{i}"));
-                    }
-                }
-            })
-            .ok();
-    }
-
-    /// Refresh a fresh model timestamp so a session starting on a stale-but
-    /// resident model does not expire mid-recording. Start never steps the
-    /// rung: one completed dictation steps exactly once, in finalize_request,
-    /// matching the worker transcribe-success step.
-    fn touch_loaded_slot(&self) {
-        let mut guard = self.meta.lock().unwrap_or_else(|p| p.into_inner());
-        if let Some(ref mut meta) = *guard
-            && meta.last_used.elapsed() <= meta.hold
-        {
-            meta.last_used = Instant::now();
-        }
-    }
-
-    /// Streaming pin for the daemon mirror: each successful chunk forward
-    /// refreshes last_used without stepping the rung, matching the worker
-    /// OP_APPEND pin so a long recording agrees at finalize instead of the
-    /// daemon resetting to base while the worker steps up.
-    fn pin_stream_meta(meta: &Mutex<Option<EngineMeta>>, target: &str) {
-        if let Some(ref mut entry) = *meta.lock().unwrap_or_else(|p| p.into_inner())
-            && entry.model_id == target
-        {
-            entry.last_used = Instant::now();
-        }
-    }
-
-    /// Record one completed dictation as genuine use: step up inside the
-    /// window, restart at base past the deadline or on a model switch.
-    fn record_use(&self, target: String) {
-        let mut meta = self.meta.lock().unwrap_or_else(|p| p.into_inner());
-        let hold = match &*meta {
-            Some(prev) if prev.model_id == target && prev.last_used.elapsed() <= prev.hold => {
-                let next = next_rung(prev.hold);
-                if next != prev.hold {
-                    debug!(
-                        "VoiceSessionManager: extending voice model hold to {}s",
-                        next.as_secs()
-                    );
-                }
-                next
-            }
-            _ => {
-                let rss = process_rss_mb();
-                let file_mb = model_disk_size_mb(&target, None);
-                info!(
-                    "VoiceSessionManager: model '{target}' resident ({} MB on disk, RSS {} -> {} MB)",
-                    format_mb(file_mb),
-                    format_mb(rss),
-                    format_mb(rss),
-                );
-                base_hold()
-            }
-        };
-        *meta = Some(EngineMeta {
-            model_id: target,
-            last_used: Instant::now(),
-            hold,
-        });
-    }
-
-    /// Stamp the end of a dictation session for the mash gate.
     fn note_session_end(&self) {
         *self.last_stop.lock().unwrap_or_else(|p| p.into_inner()) = Some(Instant::now());
     }
@@ -816,118 +509,6 @@ impl VoiceSessionManager {
             warn!("VoiceSessionManager: pending press auto-start failed: {e}");
         }
     }
-
-    /// Shut the worker process down entirely (daemon shutdown path).
-    pub fn shutdown_worker(&self) {
-        self.worker.shutdown();
-        let mut meta = self.meta.lock().unwrap_or_else(|p| p.into_inner());
-        *meta = None;
-        debug!("VoiceSessionManager: voice worker shut down");
-    }
-
-    /// Pre-spawn the worker process without loading any model.
-    ///
-    /// Silent: failures fall back to the lazy first-press path.
-    pub fn warm_worker(&self) {
-        self.worker.warm_up();
-    }
-
-    /// Immediately unloads the speech recognition model from RAM.
-    pub fn unload_model(&self) {
-        let mut meta = self.meta.lock().unwrap_or_else(|p| p.into_inner());
-        let hold_secs = meta.as_ref().map(|m| m.hold.as_secs()).unwrap_or(0);
-        let rss_before = process_rss_mb();
-        *meta = None;
-        self.worker.unload_model();
-        let rss_after = process_rss_mb();
-        info!(
-            "VoiceSessionManager: model evicted ({hold_secs}s hold expired, RSS {} -> {} MB)",
-            format_mb(rss_before),
-            format_mb(rss_after),
-        );
-    }
-
-    /// Unloads only when a model is resident; silent no-op otherwise so
-    /// unrelated reloads never log a bogus eviction.
-    pub fn unload_model_if_resident(&self) {
-        let resident = self
-            .meta
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .is_some();
-        if resident {
-            self.unload_model();
-        }
-    }
-
-    fn ensure_model_loaded(
-        worker: &WorkerClient,
-        meta: &Arc<Mutex<Option<EngineMeta>>>,
-        target: &str,
-    ) -> Result<(), String> {
-        let fresh = {
-            let guard = meta.lock().unwrap_or_else(|p| p.into_inner());
-            match &*guard {
-                Some(meta) => meta.model_id == target && meta.last_used.elapsed() <= meta.hold,
-                None => false,
-            }
-        };
-        if fresh {
-            return Ok(());
-        }
-        debug!("taurine-voice-loader: loading voice model '{target}'");
-        let rss_before = process_rss_mb();
-        worker.ensure_worker(target)?;
-        let rss_after = process_rss_mb();
-        let file_mb = model_disk_size_mb(target, None);
-        info!(
-            "VoiceSessionManager: model '{target}' resident ({} MB on disk, RSS {} -> {} MB)",
-            format_mb(file_mb),
-            format_mb(rss_before),
-            format_mb(rss_after),
-        );
-        let mut guard = meta.lock().unwrap_or_else(|p| p.into_inner());
-        *guard = Some(EngineMeta {
-            model_id: target.to_string(),
-            last_used: Instant::now(),
-            hold: base_hold(),
-        });
-        Ok(())
-    }
-
-    /// Ensure the worker serves the single configured model.
-    ///
-    /// Only the resolved `voice_model` is ever loaded. A fresh model whose
-    /// `last_used` is inside its hold rung is reused; the client singleton keeps
-    /// concurrent triggers on one worker. A miss loads at the base rung.
-    pub fn ensure_worker_ready(&self) -> Result<(), String> {
-        Self::ensure_model_loaded(&self.worker, &self.meta, self.target_model())
-    }
-
-    /// Preload the model in the background on a dedicated thread on press /
-    /// capture start.
-    ///
-    /// Fire-and-forget: press and capture never wait for the load. If the worker is already
-    /// warm this is a millisecond ping; if cold, background load overlaps speech capture.
-    fn kick_preload(&self) {
-        let worker = self.worker.clone();
-        let meta = Arc::clone(&self.meta);
-        let target = self.target_model().to_string();
-        let builder = std::thread::Builder::new().name("tau-voice-preload".to_string());
-        if let Err(e) = builder.spawn(move || {
-            if let Err(e) = Self::ensure_model_loaded(&worker, &meta, &target) {
-                debug!("VoiceSessionManager: preload ensure_worker failed: {e}");
-            }
-        }) {
-            debug!("VoiceSessionManager: failed to spawn preload thread: {e}");
-        }
-    }
-
-    /// Snapshot-pause SMTC media on a background thread. Skipped unless the
-    /// setting is on and a real recording is starting; overlapping starts
-    /// share one guard (in-flight marker plus non-empty check) so mash/busy
-    /// never double-pauses. The marker is set synchronously before spawn so
-    /// an immediate stop waits for the token instead of draining empty.
     fn suspend_media(&self) {
         if !taurine_core::settings::get_cached_pause_media_while_dictating() {
             return;
@@ -1000,92 +581,12 @@ impl VoiceSessionManager {
             debug!("media resume: thread spawn failed");
         }
     }
-
-    /// Stream newly captured audio to the worker while the request is alive.
-    ///
-    /// Runs on its own thread; the stop path stops it, joins it, sends the
-    /// tail, and transcribes. Joining before reading progress guarantees the
-    /// tail is sent exactly once (never duplicated, never dropped).
-    fn spawn_chunk_forwarder(&self, req_id: String, target: String, timing: PttTiming) {
-        let progress = Arc::new(StreamProgress::new());
-        let buffer = self.capture.buffer().clone();
-        let worker = self.worker.clone();
-        let thread_meta = Arc::clone(&self.meta);
-        let entry_target = target.clone();
-        // Retry briefly: under parallel load thread creation can fail
-        // transiently, and without a forwarder the stop path finds no entry
-        // and silently drops the recording.
-        let mut spawn_res = Err(std::io::Error::other("forwarder spawn not attempted"));
-        for _ in 0..5 {
-            let worker = worker.clone();
-            let target = target.clone();
-            let buffer = buffer.clone();
-            let thread_progress = Arc::clone(&progress);
-            let thread_req = req_id.clone();
-            let thread_meta = Arc::clone(&thread_meta);
-            spawn_res = std::thread::Builder::new()
-                .name("taurine-voice-stream".to_string())
-                .spawn(move || {
-                    if let Err(e) = worker.ensure_worker(&target) {
-                        debug!("VoiceSessionManager: worker unavailable for '{target}': {e}");
-                        return;
-                    }
-                    loop {
-                        if !thread_progress.alive.load(Ordering::Relaxed) {
-                            break;
-                        }
-                        let len = buffer.len();
-                        let sent = thread_progress.sent.load(Ordering::Relaxed);
-                        if len > sent {
-                            let seq = thread_progress.seq.load(Ordering::Relaxed);
-                            if worker
-                                .append(&thread_req, seq, &buffer.peek_tail(len - sent))
-                                .is_err()
-                            {
-                                break;
-                            }
-                            thread_progress.sent.store(len, Ordering::Relaxed);
-                            thread_progress.seq.store(seq + 1, Ordering::Relaxed);
-                            Self::pin_stream_meta(&thread_meta, &target);
-                        }
-                        std::thread::sleep(STREAM_POLL_INTERVAL);
-                    }
-                });
-            if spawn_res.is_ok() {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        match spawn_res {
-            Ok(handle) => {
-                self.streams
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner())
-                    .insert(
-                        req_id,
-                        StreamEntry {
-                            progress,
-                            handle: Some(handle),
-                            target: entry_target,
-                            timing,
-                        },
-                    );
-            }
-            Err(e) => warn!("VoiceSessionManager: failed to spawn stream thread: {e}"),
-        }
-    }
-
     /// Return underlying audio capture handle.
     pub fn capture(&self) -> &Arc<AudioCapture> {
         &self.capture
     }
 
     /// Start a Push-To-Talk recording session.
-    ///
-    /// The cue fires on entry for every genuine press, before locks and
-    /// state checks: it acknowledges the hotkey, never the recording.
-    /// Silent only when paused. Clears any previous buffer, starts
-    /// microphone capture, and transitions to `PushToTalk`.
     pub fn start_ptt(&self) -> Result<(), String> {
         let press_at = Instant::now();
         if self.is_paused() {
@@ -1103,28 +604,19 @@ impl VoiceSessionManager {
         {
             let mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
             if *mode != VoiceMode::Idle {
-                // Busy (recording or decoding): park the press instead of
-                // dropping it. The stop path honors it when the key is held.
                 self.pending_press.store(true, Ordering::Relaxed);
                 return Ok(());
             }
         }
         if self.in_mash_window() {
-            // Bounce: acknowledged by the cue above, engine work deferred to
-            // the rescue waiter so flutter never churns the worker and mic.
             self.spawn_mash_rescue(false);
             return Ok(());
         }
         self.start_ptt_now(press_at, cue_at)
     }
 
-    /// Immediate engine start: open the device and begin recording. Callers
-    /// must have passed the mash gate (or hold an explicit continuation
-    /// like the pending-press autostart).
+    /// Immediate engine start: open the device and begin recording.
     fn start_ptt_now(&self, press_at: Instant, cue_at: Instant) -> Result<(), String> {
-        // Deferred entries (mash rescue, pending-press autostart) land here
-        // directly, so the gate lives at engine start, not just at the hotkey
-        // entries: fullscreen engaging mid-deferral must not open capture.
         if self.voice_suppressed() {
             debug!("VoiceSessionManager: deferred PTT start ignored while fullscreen app focused");
             return Ok(());
@@ -1132,14 +624,11 @@ impl VoiceSessionManager {
         {
             let mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
             if *mode != VoiceMode::Idle {
-                // Lost a race with another starter: park instead of doubling.
                 self.pending_press.store(true, Ordering::Relaxed);
                 return Ok(());
             }
         }
         self.pending_press.store(false, Ordering::Relaxed);
-        // No parked mic exists: the buffer was drained at the last stop, so
-        // every press opens cold on an empty buffer.
         self.capture.buffer().clear();
         if let Err(e) = self.start_capture() {
             warn!("Failed to start audio capture stream for PTT: {e}");
@@ -1147,7 +636,6 @@ impl VoiceSessionManager {
             return Err(e);
         }
         let recording_at = Instant::now();
-
         {
             let mut mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
             if *mode != VoiceMode::Idle {
@@ -1160,8 +648,6 @@ impl VoiceSessionManager {
                 .lock()
                 .unwrap_or_else(|p| p.into_inner()) = Some(Instant::now());
         }
-        self.touch_loaded_slot();
-        self.kick_preload();
         self.suspend_media();
         info!("VoiceSessionManager: Push-To-Talk recording started");
         self.begin_request(PttTiming {
@@ -1172,192 +658,101 @@ impl VoiceSessionManager {
         Ok(())
     }
 
-    /// Register a new streaming request and start its chunk forwarder.
+    /// Register a new streaming request.
     fn begin_request(&self, timing: PttTiming) {
-        // Clear any stale window count from a worker-error mid-loop session
-        // so it never inflates the next session's watchdog.
-        self.processing_windows.store(0, Ordering::Relaxed);
         let req_id = format!("r{}", self.req_counter.fetch_add(1, Ordering::Relaxed));
-        *self.active_req.lock().unwrap_or_else(|p| p.into_inner()) = Some(req_id.clone());
-        self.spawn_chunk_forwarder(req_id, self.target_model().to_string(), timing);
+        *self.active_req.lock().unwrap_or_else(|p| p.into_inner()) = Some((req_id, timing));
     }
 
-    /// Stop the forwarder, send the unsent tail, decode, and inject.
+    /// Finalize request, decode audio, and inject.
     fn finalize_request(&self) -> Result<Option<String>, String> {
-        let req_id = self
+        let active = self
             .active_req
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .take();
-        let Some(req_id) = req_id else {
+        let Some((_req_id, timing)) = active else {
             return Ok(None);
         };
-        if let Some(mut entry) = self
-            .streams
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .remove(&req_id)
-        {
-            // Accidental taps skip the join: the forwarder may be blocked in
-            // worker startup for seconds to transcribe nothing. Flagging off
-            // makes it self-exit; nothing is joined, nothing is sent.
-            if self.capture.buffer().len() < MIN_SAMPLES_COUNT {
-                entry.progress.alive.store(false, Ordering::Relaxed);
-                let _tapped = self.capture.buffer().drain();
-                #[cfg(test)]
-                {
-                    *self.last_drained.lock().unwrap_or_else(|p| p.into_inner()) =
-                        Some(_tapped.clone());
-                }
-                debug!("VoiceSessionManager: tap too short; skipping worker entirely");
-                return Ok(None);
-            }
-            entry.progress.alive.store(false, Ordering::Relaxed);
-            if let Some(handle) = entry.handle.take() {
-                let _ = handle.join();
-            }
-            let drained = self.capture.buffer().drain();
+
+        if self.capture.buffer().len() < MIN_SAMPLES_COUNT {
+            let _tapped = self.capture.buffer().drain();
             #[cfg(test)]
             {
-                *self.last_drained.lock().unwrap_or_else(|p| p.into_inner()) =
-                    Some(drained.clone());
+                *self.last_drained.lock().unwrap_or_else(|p| p.into_inner()) = Some(_tapped);
             }
-            let sent = entry
-                .progress
-                .sent
-                .load(Ordering::Relaxed)
-                .min(drained.len());
-            if drained.len() < MIN_SAMPLES_COUNT {
-                debug!(
-                    "VoiceSessionManager: audio buffer too short ({} samples); skipping STT",
-                    drained.len()
-                );
-                return Ok(None);
-            }
-            let energy: f32 = drained.iter().map(|s| s * s).sum::<f32>() / drained.len() as f32;
-            if energy < MIN_SPEECH_RMS_ENERGY {
-                debug!(
-                    "VoiceSessionManager: audio below RMS energy threshold ({:.6}); skipping STT",
-                    energy
-                );
-                return Ok(None);
-            }
-            // The request snapshot wins over live settings: switching models
-            // mid-record must not wipe the buffers under a live session.
-            let target = entry.target.clone();
-            let timing = entry.timing;
-            self.worker.ensure_worker(&target)?;
-            let hotwords = {
-                let dict = self.dictionary.lock().unwrap_or_else(|p| p.into_inner());
-                let active_app =
-                    crate::platform::get_active_window_info().and_then(|info| info.exec_name);
-                let triggers = if let Ok(conn) = taurine_core::db::get_conn()
-                    && let Ok(invocations) =
-                        taurine_core::db::crud::list_active_voice_invocations(&conn)
-                {
-                    invocations
-                        .into_iter()
-                        .filter(|inv| {
-                            (match (&inv.action.only_apps, &active_app) {
-                                (Some(only), Some(app)) => {
-                                    only.split(',').any(|a| a.trim().eq_ignore_ascii_case(app))
-                                }
-                                _ => true,
-                            }) && match (&inv.action.except_apps, &active_app) {
-                                (Some(except), Some(app)) => !except
-                                    .split(',')
-                                    .any(|a| a.trim().eq_ignore_ascii_case(app)),
-                                _ => true,
-                            }
-                        })
-                        .map(|inv| inv.invocation)
-                        .collect::<Vec<_>>()
-                } else {
-                    Vec::new()
-                };
-                taurine_core::voice::build_hotwords_payload(&dict, &triggers)
-            };
-            // Segmented decode: each 60s window gets its own transcribe call so arbitrary-length sessions complete; per-window timeout scales with window length.
-            let windows = segment_audio_windows(drained.len(), TRANSCRIBE_WINDOW_SAMPLES);
-            self.processing_windows
-                .store(windows.len() as u64, Ordering::Relaxed);
-            let mut parts: Vec<String> = Vec::with_capacity(windows.len());
-            if windows.len() == 1 {
-                let (offset, len) = windows[0];
-                let window = &drained[offset..offset + len];
-                if sent <= offset {
-                    let seq = entry.progress.seq.load(Ordering::Relaxed);
-                    self.worker.append(&req_id, seq, window)?;
-                } else if sent < offset + len {
-                    let seq = entry.progress.seq.load(Ordering::Relaxed);
-                    self.worker
-                        .append(&req_id, seq, &window[(sent - offset)..])?;
-                }
-                let per_window_timeout = per_window_timeout(len, true);
-                let part =
-                    self.worker
-                        .transcribe(&req_id, per_window_timeout, hotwords.as_deref())?;
-                if !part.text.trim().is_empty() {
-                    parts.push(part.text.trim().to_string());
-                }
-            } else {
-                // Window isolation: the worker drains a buffer on transcribe,
-                // so reusing one req_id would decode the whole streamed prefix
-                // on the first call. Drop it, then decode each window under a
-                // distinct req_id fed only that window's samples.
-                let _ = self.worker.discard(&req_id);
-                for (i, (offset, len)) in windows.into_iter().enumerate() {
-                    let window_req = format!("{req_id}-w{i}");
-                    let window = &drained[offset..offset + len];
-                    let seq = entry.progress.seq.load(Ordering::Relaxed);
-                    self.worker.append(&window_req, seq, window)?;
-                    let per_window_timeout = per_window_timeout(len, false);
-                    let part = self.worker.transcribe(
-                        &window_req,
-                        per_window_timeout,
-                        hotwords.as_deref(),
-                    )?;
-                    if !part.text.trim().is_empty() {
-                        parts.push(part.text.trim().to_string());
-                    }
-                }
-            }
-            let transcript_text = parts.join(" ");
-            let transcript_at = Instant::now();
-            debug!(
-                "VoiceSessionManager: voice latency press_to_cue_ms={:.2} press_to_recording_ms={:.2} press_to_transcript_ms={:.2}",
-                timing.cue_at.duration_since(timing.press_at).as_secs_f64() * 1000.0,
-                timing
-                    .recording_at
-                    .duration_since(timing.press_at)
-                    .as_secs_f64()
-                    * 1000.0,
-                transcript_at.duration_since(timing.press_at).as_secs_f64() * 1000.0
-            );
-            #[cfg(test)]
-            {
-                *self.last_latency.lock().unwrap_or_else(|p| p.into_inner()) =
-                    Some(RequestLatency {
-                        press_at: timing.press_at,
-                        cue_at: timing.cue_at,
-                        recording_at: timing.recording_at,
-                        transcript_at,
-                    });
-            }
-            self.record_use(target);
-            self.processing_windows.store(0, Ordering::Relaxed);
-            self.inject_transcript(&transcript_text)
-        } else {
-            Ok(None)
+            debug!("VoiceSessionManager: tap too short; skipping worker entirely");
+            return Ok(None);
         }
+
+        let drained = self.capture.buffer().drain();
+        #[cfg(test)]
+        {
+            *self.last_drained.lock().unwrap_or_else(|p| p.into_inner()) = Some(drained.clone());
+        }
+
+        if drained.len() < MIN_SAMPLES_COUNT {
+            debug!(
+                "VoiceSessionManager: audio buffer too short ({} samples); skipping STT",
+                drained.len()
+            );
+            return Ok(None);
+        }
+
+        let energy: f32 = drained.iter().map(|s| s * s).sum::<f32>() / drained.len() as f32;
+        if energy < MIN_SPEECH_RMS_ENERGY {
+            debug!(
+                "VoiceSessionManager: audio below RMS energy threshold ({:.6}); skipping STT",
+                energy
+            );
+            return Ok(None);
+        }
+
+        let transcript_text = {
+            #[cfg(test)]
+            {
+                if let Some(hook) = self
+                    .transcribe_hook
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .clone()
+                {
+                    hook(&drained)?
+                } else {
+                    String::new()
+                }
+            }
+            #[cfg(not(test))]
+            {
+                String::new()
+            }
+        };
+
+        let transcript_at = Instant::now();
+        debug!(
+            "VoiceSessionManager: voice latency press_to_cue_ms={:.2} press_to_recording_ms={:.2} press_to_transcript_ms={:.2}",
+            timing.cue_at.duration_since(timing.press_at).as_secs_f64() * 1000.0,
+            timing
+                .recording_at
+                .duration_since(timing.press_at)
+                .as_secs_f64()
+                * 1000.0,
+            transcript_at.duration_since(timing.press_at).as_secs_f64() * 1000.0
+        );
+        #[cfg(test)]
+        {
+            *self.last_latency.lock().unwrap_or_else(|p| p.into_inner()) = Some(RequestLatency {
+                press_at: timing.press_at,
+                cue_at: timing.cue_at,
+                recording_at: timing.recording_at,
+                transcript_at,
+            });
+        }
+
+        self.inject_transcript(&transcript_text)
     }
 
     /// Stop Push-To-Talk recording, transcribe captured speech, inject text, and return to `Idle`.
-    ///
-    /// Fires the mic-close cue first to acknowledge the key release itself,
-    /// stops the mic at once and transcribes:
-    /// feedback lines up with the hotkey, never with paste. The microphone
-    /// is closed on release, never parked.
     pub fn stop_ptt(&self) -> Result<Option<String>, String> {
         self.fire_stop_cue();
         self.resume_media();
@@ -1400,11 +795,8 @@ impl VoiceSessionManager {
         result
     }
 
-    /// Immediate hands-free start: open the device and transition to
-    /// `HandsFree`. Mash-blind like `start_ptt_now`;
-    /// the gated `toggle_handsfree` entry decides when to call it.
+    /// Immediate hands-free start.
     fn start_handsfree_now(&self) -> Result<(VoiceMode, Option<String>), String> {
-        // Same deferred-entry reasoning as start_ptt_now: gate engine start.
         if self.voice_suppressed() {
             debug!(
                 "VoiceSessionManager: deferred hands-free start ignored while fullscreen app focused"
@@ -1420,7 +812,6 @@ impl VoiceSessionManager {
             }
         }
         self.capture.buffer().clear();
-        // Already cued at entry; timestamp it here for the telemetry.
         let cue_at = Instant::now();
         if let Err(e) = self.start_capture() {
             warn!("Failed to start audio capture stream for Hands-Free: {e}");
@@ -1436,8 +827,6 @@ impl VoiceSessionManager {
             }
             *mode = VoiceMode::HandsFree;
         }
-        self.touch_loaded_slot();
-        self.kick_preload();
         self.suspend_media();
         info!("VoiceSessionManager: Hands-Free dictation activated");
         self.begin_request(PttTiming {
@@ -1447,15 +836,6 @@ impl VoiceSessionManager {
         });
         Ok((VoiceMode::HandsFree, None))
     }
-
-    /// Toggle Hands-Free continuous dictation mode.
-    ///
-    /// The cue fires on entry by direction, before locks and state checks:
-    /// it acknowledges the toggle, never the transcription. Silent when
-    /// paused, and silent when there is nothing to toggle.
-    /// If `Idle`, starts capture and transitions to `HandsFree`.
-    /// If `HandsFree`, stops capture, processes audio, injects text, and transitions to `Idle`.
-    /// The microphone is closed when Hands-Free toggles off.
     pub fn toggle_handsfree(&self) -> Result<(VoiceMode, Option<String>), String> {
         if self.is_paused() {
             debug!("VoiceSessionManager: toggle_handsfree ignored because daemon is paused");
@@ -1605,20 +985,11 @@ impl VoiceSessionManager {
         self.note_session_end();
         result
     }
-
     /// Cancel current voice recording immediately without transcribing or injecting text.
-    ///
-    /// Frees the worker-side buffer in the background so a cancelled
-    /// recording never leaks audio state into the next session.
     pub fn cancel(&self) {
-        // Acknowledge the cancel first: the forwarder join below can block,
-        // and feedback belongs to the keypress, never to teardown.
-        // A cancel voids any parked press along with the live session.
         self.pending_press.store(false, Ordering::Relaxed);
         self.fire_stop_cue();
         let mut mode = self.mode.lock().unwrap_or_else(|p| p.into_inner());
-        // Only a live session arms the mash gate; cancelling idle noise must
-        // not defer the user's next genuine press.
         let was_live = *mode != VoiceMode::Idle
             || self
                 .active_req
@@ -1641,36 +1012,13 @@ impl VoiceSessionManager {
         self.stop_capture();
         self.resume_media();
         self.capture.buffer().clear();
-        if let Some(req_id) = self
+        let _ = self
             .active_req
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .take()
-            && let Some(entry) = self
-                .streams
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .remove(&req_id)
-        {
-            entry.progress.alive.store(false, Ordering::Relaxed);
-            if let Some(handle) = entry.handle {
-                let _ = handle.join();
-            }
-            // Cancel voids the decode plan: drop the base prefix and any
-            // window buffers, and clear the count so a later watchdog
-            // never scales off this session.
-            let windows = self.processing_windows.load(Ordering::Relaxed);
-            self.processing_windows.store(0, Ordering::Relaxed);
-            self.discard_session_buffers(&req_id, windows);
-        }
+            .take();
         debug!("VoiceSessionManager: Dictation cancelled");
     }
-
-    /// Apply dictionary corrections, spoken formatting, trigger matching,
-    /// usage stats, and injection to worker-returned transcript text.
-    ///
-    /// Audio-side gating and recognition run in the `--voice-daemon`
-    /// worker; this is the unchanged text-side pipeline.
     pub fn inject_transcript(&self, text: &str) -> Result<Option<String>, String> {
         if text.trim().is_empty() {
             debug!("VoiceSessionManager: transcription returned empty text");
@@ -1799,13 +1147,13 @@ impl VoiceSessionManager {
         );
         Ok(Some(final_text.to_string()))
     }
-
     #[cfg(test)]
     pub(crate) fn active_request(&self) -> Option<String> {
         self.active_req
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .clone()
+            .as_ref()
+            .map(|(id, _)| id.clone())
     }
 
     #[cfg(test)]
@@ -1827,15 +1175,6 @@ impl VoiceSessionManager {
     }
 
     #[cfg(test)]
-    pub(crate) fn set_test_meta(&self, model_id: &str, last_used: Instant) {
-        *self.meta.lock().unwrap() = Some(EngineMeta {
-            model_id: model_id.to_string(),
-            last_used,
-            hold: base_hold(),
-        });
-    }
-
-    #[cfg(test)]
     pub(crate) fn set_ptt_started_for_test(&self, at: Instant) {
         *self
             .ptt_started_at
@@ -1851,24 +1190,13 @@ impl VoiceSessionManager {
             .unwrap_or_else(|p| p.into_inner()) = Some(at);
     }
 }
-
 #[cfg(test)]
 mod tests {
-    use super::super::worker_client::{ConnectFn, DynStream, SpawnFn, transact};
-    use super::super::worker_protocol as proto;
     use super::*;
-    use std::future::Future;
-    use std::pin::Pin;
-    use std::process::Command;
     use std::sync::atomic::AtomicBool;
     use std::sync::atomic::AtomicUsize;
     use taurine_core::voice::VoiceDictionary;
 
-    /// Poll until the session reaches `want` (or a 5 s deadline expires).
-    /// The mash-rescue waiter sleeps a fixed `RESCUE_WAIT_MS` before acting,
-    /// so a fixed test sleep leaves only a ~100 ms margin for the rescue
-    /// thread's spawn and wakeup under parallel CI load. Polling absorbs
-    /// that dilation instead of racing it.
     fn wait_for_mode(session: &VoiceSessionManager, want: VoiceMode) -> VoiceMode {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
@@ -1880,20 +1208,10 @@ mod tests {
         }
     }
 
-    /// Poll until a request is registered with its forwarder entry (or a 5 s
-    /// deadline expires). Mode flips to PushToTalk before `begin_request`
-    /// inserts the stream entry; stopping in that gap finds no request and
-    /// drops the recording, so the rescue test must wait for both.
     fn wait_for_request(session: &VoiceSessionManager) -> bool {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
-            if let Some(req) = session.active_request()
-                && session
-                    .streams
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner())
-                    .contains_key(&req)
-            {
+            if session.active_request().is_some() {
                 return true;
             }
             if Instant::now() >= deadline {
@@ -1907,12 +1225,16 @@ mod tests {
         create_ordering_session(None, None, None)
     }
 
+    fn create_latency_session() -> VoiceSessionManager {
+        let (session, _) = create_test_session();
+        session.with_transcribe_hook(Arc::new(|_| Ok("hello stub".to_string())))
+    }
+
     fn suppressed_state() -> Arc<taurine_core::engine::EngineState> {
         let state = Arc::new(taurine_core::engine::EngineState::new());
         state.is_os_fullscreen.store(true, Ordering::Relaxed);
         state
     }
-
     #[test]
     fn voice_suppressed_defaults_to_false() {
         let (session, _) = create_test_session();
@@ -2125,14 +1447,7 @@ mod tests {
         let buffer = Arc::new(super::super::capture::AudioFrameBuffer::new());
         let capture = Arc::new(AudioCapture::new(buffer));
         let paused = Arc::new(AtomicBool::new(false));
-        let spawner: super::super::worker_client::SpawnFn =
-            Arc::new(|_, _| Err(std::io::Error::other("no worker in tests")));
-        let connector: super::super::worker_client::ConnectFn = Arc::new(|_, _, _, _| {
-            Box::pin(async { Err("no worker in tests".to_string()) })
-                as std::pin::Pin<Box<dyn std::future::Future<Output = Result<_, String>> + Send>>
-        });
-        let worker = WorkerClient::with_hooks(spawner, connector).expect("test client");
-        let mut session = VoiceSessionManager::new(capture, paused.clone()).with_worker(worker);
+        let mut session = VoiceSessionManager::new(capture, paused.clone());
         if let Some(hook) = cue_hook {
             session = session.with_cue_hook(hook);
         }
@@ -2144,7 +1459,6 @@ mod tests {
         }
         (session, paused)
     }
-
     #[test]
     fn test_session_initial_state() {
         let (session, _) = create_test_session();
@@ -2210,9 +1524,6 @@ mod tests {
 
     #[test]
     fn test_handsfree_toggle_off_failure_resets_to_idle() {
-        // Regression: toggle-off used `?` on finalize, stranding the
-        // session in Processing with no owner thread. Every later press
-        // then parked silently while expansions kept working.
         let _lock = crate::hook::tests::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -2220,22 +1531,11 @@ mod tests {
         mock_keystore::use_mock_keystore();
         let (session, _) =
             create_ordering_session(Some(Arc::new(|| {})), None, Some(Arc::new(|| {})));
+        let session =
+            session.with_transcribe_hook(Arc::new(|_| Err("no worker in tests".to_string())));
         let (mode, _) = session.toggle_handsfree().expect("toggle on");
         assert_eq!(mode, VoiceMode::HandsFree);
 
-        // Wait for the chunk forwarder to register so finalize takes the
-        // worker path (which always fails: no worker in tests).
-        let req = session.active_request().expect("active request");
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while !session
-            .streams
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .contains_key(&req)
-        {
-            assert!(Instant::now() < deadline, "forwarder never registered");
-            std::thread::sleep(Duration::from_millis(5));
-        }
         session.capture.buffer().push_samples(&[0.5; 3200]);
 
         let err = session
@@ -2248,32 +1548,12 @@ mod tests {
             "failed toggle-off must not strand Processing"
         );
 
-        // The voice path is usable again without a restart.
         session.clear_last_stop_for_test();
         let (mode, _) = session.toggle_handsfree().expect("toggle on again");
         assert_eq!(mode, VoiceMode::HandsFree);
         session.cancel();
     }
 
-    /// Block until the chunk forwarder registers the live request, so
-    /// finalize takes the worker path (which always fails in tests: no
-    /// worker). Same polling shape as
-    /// test_handsfree_toggle_off_failure_resets_to_idle.
-    fn wait_for_forwarder(session: &VoiceSessionManager) {
-        let req = session.active_request().expect("active request");
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while !session
-            .streams
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .contains_key(&req)
-        {
-            assert!(Instant::now() < deadline, "forwarder never registered");
-            std::thread::sleep(Duration::from_millis(5));
-        }
-    }
-
-    /// Error-hook stub counting fires; asserts exact-once semantics.
     fn error_counter() -> (CueHook, Arc<AtomicUsize>) {
         let fired = Arc::new(AtomicUsize::new(0));
         let count = Arc::clone(&fired);
@@ -2292,10 +1572,11 @@ mod tests {
         mock_keystore::use_mock_keystore();
         let (error_hook, fired) = error_counter();
         let (session, _) = create_ordering_session(None, Some(Arc::new(|| Ok(()))), None);
-        let session = session.with_error_hook(error_hook);
+        let session = session
+            .with_error_hook(error_hook)
+            .with_transcribe_hook(Arc::new(|_| Err("no worker in tests".to_string())));
         session.start_ptt().expect("ptt start");
         assert_eq!(session.current_mode(), VoiceMode::PushToTalk);
-        wait_for_forwarder(&session);
         session.capture.buffer().push_samples(&[0.5; 3200]);
         let err = session
             .stop_ptt()
@@ -2319,10 +1600,11 @@ mod tests {
         let (error_hook, fired) = error_counter();
         let (session, _) =
             create_ordering_session(Some(Arc::new(|| {})), None, Some(Arc::new(|| {})));
-        let session = session.with_error_hook(error_hook);
+        let session = session
+            .with_error_hook(error_hook)
+            .with_transcribe_hook(Arc::new(|_| Err("no worker in tests".to_string())));
         let (mode, _) = session.toggle_handsfree().expect("toggle on");
         assert_eq!(mode, VoiceMode::HandsFree);
-        wait_for_forwarder(&session);
         session.capture.buffer().push_samples(&[0.5; 3200]);
         let err = session
             .toggle_handsfree()
@@ -2347,10 +1629,11 @@ mod tests {
         let (error_hook, fired) = error_counter();
         let (session, _) =
             create_ordering_session(Some(Arc::new(|| {})), None, Some(Arc::new(|| {})));
-        let session = session.with_error_hook(error_hook);
-        let (mode, _) = session.toggle_handsfree().expect("toggle on");
-        assert_eq!(mode, VoiceMode::HandsFree);
-        wait_for_forwarder(&session);
+        let session = session
+            .with_error_hook(error_hook)
+            .with_transcribe_hook(Arc::new(|_| Err("no worker in tests".to_string())));
+        session.start_ptt().expect("ptt start");
+        assert_eq!(session.current_mode(), VoiceMode::PushToTalk);
         session.capture.buffer().push_samples(&[0.5; 3200]);
         let err = session
             .on_escape_pressed()
@@ -2363,7 +1646,6 @@ mod tests {
             "engine failure must fire error cue exactly once"
         );
     }
-
     #[test]
     fn test_stop_ptt_tap_short_stays_silent() {
         let _lock = crate::hook::tests::TEST_LOCK
@@ -2371,88 +1653,15 @@ mod tests {
             .unwrap_or_else(|e| e.into_inner());
         let _data = TempDataDir::new();
         mock_keystore::use_mock_keystore();
-        let (error_hook, _fired) = error_counter();
+        let (error_hook, fired) = error_counter();
         let (session, _) = create_ordering_session(None, Some(Arc::new(|| Ok(()))), None);
         let session = session.with_error_hook(error_hook);
         session.start_ptt().expect("ptt start");
-        // No samples pushed: tap-too-short path returns Ok(None) with no
-        // worker contact, so no error cue may fire.
         let res = session.stop_ptt().expect("tap-short stop");
         assert_eq!(res, None);
         assert_eq!(session.current_mode(), VoiceMode::Idle);
-        assert_eq!(
-            session.processing_windows.load(Ordering::Relaxed),
-            0,
-            "window counter must reset after finalize"
-        );
+        assert_eq!(fired.load(Ordering::Relaxed), 0);
     }
-
-    #[test]
-    fn stranded_reset_discards_all_window_buffers() {
-        let _lock = crate::hook::tests::TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let _data = TempDataDir::new();
-        mock_keystore::use_mock_keystore();
-        let (session, _decodes, discards) = create_consuming_session();
-        // finalize_request ensures the worker before any discard; the
-        // stranded path assumes a live stream the same way.
-        session
-            .worker
-            .ensure_worker("parakeet-tdt-ctc-110m")
-            .expect("stub worker must bind");
-        // Stage a stranded multi-window Processing state: the owner thread
-        // is gone while two window buffers plus the base prefix live on.
-        let now = Instant::now();
-        session.processing_windows.store(2, Ordering::Relaxed);
-        *session.active_req.lock().unwrap_or_else(|p| p.into_inner()) = Some("r9".to_string());
-        session
-            .streams
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .insert(
-                "r9".to_string(),
-                StreamEntry {
-                    progress: Arc::new(StreamProgress::new()),
-                    handle: None,
-                    target: "parakeet-tdt-ctc-110m".to_string(),
-                    timing: PttTiming {
-                        press_at: now,
-                        cue_at: now,
-                        recording_at: now,
-                    },
-                },
-            );
-        *session.mode.lock().unwrap_or_else(|p| p.into_inner()) = VoiceMode::Processing;
-        session.set_processing_since_for_test(now - Duration::from_secs(9999));
-        session.clean_expired_transcriber();
-        assert_eq!(
-            session.current_mode(),
-            VoiceMode::Idle,
-            "wedged multi-window decode must reset"
-        );
-        // Discards run on a spawned thread: poll with a deadline.
-        let deadline = Instant::now() + Duration::from_secs(10);
-        loop {
-            let n = discards.lock().unwrap_or_else(|p| p.into_inner()).len();
-            if n >= 3 || Instant::now() > deadline {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        let dropped = discards.lock().unwrap_or_else(|p| p.into_inner()).clone();
-        assert_eq!(
-            dropped,
-            vec!["r9".to_string(), "r9-w0".to_string(), "r9-w1".to_string()],
-            "stranded reset must drop base plus every window buffer"
-        );
-        assert_eq!(
-            session.processing_windows.load(Ordering::Relaxed),
-            0,
-            "window counter must clear on stranded reset"
-        );
-    }
-
     #[test]
     fn test_escape_recovers_stranded_processing() {
         let (session, _) = create_test_session();
@@ -3273,7 +2482,6 @@ mod tests {
         );
         crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
     }
-
     #[test]
     fn test_pure_silence_skips_transcription() {
         let _lock = crate::hook::tests::TEST_LOCK
@@ -3758,259 +2966,6 @@ mod tests {
     }
 
     #[test]
-    fn test_meta_inactivity_eviction() {
-        let (session, _) = create_test_session();
-        // Past the 15s base rung, the stale entry evicts for 0 MB idle RAM.
-        session.set_test_meta(
-            "parakeet-tdt-ctc-110m",
-            Instant::now() - Duration::from_secs(16),
-        );
-        assert!(session.meta.lock().unwrap().is_some());
-
-        // Inactivity past the rung unloads the single voice model.
-        session.clean_expired_transcriber();
-        assert!(session.meta.lock().unwrap().is_none());
-
-        // Fresh models within the rung are retained.
-        session.set_test_meta("parakeet-tdt-ctc-110m", Instant::now());
-        session.clean_expired_transcriber();
-        assert!(session.meta.lock().unwrap().is_some());
-
-        // Explicit unload drops the model immediately.
-        session.unload_model();
-        assert!(session.meta.lock().unwrap().is_none());
-    }
-
-    #[test]
-    fn test_base_rung_holds_5s_evicts_15s() {
-        let (session, _) = create_test_session();
-        session.set_test_meta(
-            "parakeet-tdt-ctc-110m",
-            Instant::now() - Duration::from_secs(5),
-        );
-        session.clean_expired_transcriber();
-        assert!(
-            session.meta.lock().unwrap().is_some(),
-            "5s past activity is warm on the base rung"
-        );
-
-        session.set_test_meta(
-            "parakeet-tdt-ctc-110m",
-            Instant::now() - Duration::from_secs(15),
-        );
-        session.clean_expired_transcriber();
-        assert!(
-            session.meta.lock().unwrap().is_none(),
-            "15s past activity passes the base rung"
-        );
-    }
-
-    #[test]
-    fn test_active_session_never_evicts() {
-        let (session, _) = create_test_session();
-        session.set_test_meta(
-            "parakeet-tdt-ctc-110m",
-            Instant::now() - Duration::from_secs(11),
-        );
-
-        // Recording pins the model: stale metadata survives while active.
-        *session.mode.lock().unwrap() = VoiceMode::HandsFree;
-        session.clean_expired_transcriber();
-        assert!(session.meta.lock().unwrap().is_some());
-
-        // Idle with the same stale timestamp evicts.
-        *session.mode.lock().unwrap() = VoiceMode::Idle;
-        session.clean_expired_transcriber();
-        assert!(session.meta.lock().unwrap().is_none());
-    }
-
-    #[test]
-    fn test_set_model_name_clears_meta() {
-        let (session, _) = create_test_session();
-        session.set_test_meta("parakeet-tdt-ctc-110m", Instant::now());
-        assert!(session.meta.lock().unwrap().is_some());
-
-        session.set_model_name("parakeet-tdt-ctc-110m");
-        assert!(session.meta.lock().unwrap().is_none());
-    }
-
-    #[test]
-    fn test_unload_model_clears_meta() {
-        let (session, _) = create_test_session();
-        session.set_test_meta("parakeet-tdt-ctc-110m", Instant::now());
-        assert!(session.meta.lock().unwrap().is_some());
-
-        session.unload_model();
-        assert!(session.meta.lock().unwrap().is_none());
-    }
-
-    #[test]
-    fn test_keep_loaded_skips_idle_eviction() {
-        let (session, _) = create_test_session();
-        session.set_test_meta(
-            "parakeet-tdt-ctc-110m",
-            Instant::now() - Duration::from_secs(3600),
-        );
-        taurine_core::settings::set_cached_voice_keep_loaded(true);
-        session.clean_expired_transcriber();
-        assert!(
-            session.meta.lock().unwrap().is_some(),
-            "keep_loaded must skip idle eviction"
-        );
-        taurine_core::settings::set_cached_voice_keep_loaded(false);
-        session.clean_expired_transcriber();
-        assert!(
-            session.meta.lock().unwrap().is_none(),
-            "disabling keep_loaded resumes idle eviction"
-        );
-    }
-
-    #[test]
-    fn test_unload_model_if_resident_only_evicts_when_loaded() {
-        let (session, _) = create_test_session();
-        session.unload_model_if_resident();
-        assert!(session.meta.lock().unwrap().is_none());
-
-        session.set_test_meta("parakeet-tdt-ctc-110m", Instant::now());
-        session.unload_model_if_resident();
-        assert!(session.meta.lock().unwrap().is_none());
-    }
-
-    #[test]
-    fn test_ensure_worker_ready_errors_without_worker() {
-        // Hermetic: failing spawner, so no child process spawns. The error
-        // must surface instead of hanging the caller.
-        let buffer = Arc::new(super::super::capture::AudioFrameBuffer::new());
-        let capture = Arc::new(AudioCapture::new(buffer));
-        let paused = Arc::new(AtomicBool::new(false));
-        let spawner: super::super::worker_client::SpawnFn =
-            Arc::new(|_, _| Err(std::io::Error::other("no worker in tests")));
-        let connector: super::super::worker_client::ConnectFn = Arc::new(|_, _, _, _| {
-            Box::pin(async { Err("no worker in tests".to_string()) })
-                as std::pin::Pin<Box<dyn std::future::Future<Output = Result<_, String>> + Send>>
-        });
-        let worker = WorkerClient::with_hooks(spawner, connector).expect("test client");
-        let session = VoiceSessionManager::new(capture, paused).with_worker(worker);
-        assert!(session.ensure_worker_ready().is_err());
-    }
-
-    #[test]
-    fn test_warm_worker_leaves_model_unbound() {
-        // Boot-warm path: model-free handshake only, so meta stays None and
-        // no model binds. Failing spawner, no host audio/input.
-        let buffer = Arc::new(super::super::capture::AudioFrameBuffer::new());
-        let capture = Arc::new(AudioCapture::new(buffer));
-        let paused = Arc::new(AtomicBool::new(false));
-        let spawner: super::super::worker_client::SpawnFn =
-            Arc::new(|_, _| Err(std::io::Error::other("no worker in tests")));
-        let connector: super::super::worker_client::ConnectFn = Arc::new(|_, _, _, _| {
-            Box::pin(async { Err("no worker in tests".to_string()) })
-                as std::pin::Pin<Box<dyn std::future::Future<Output = Result<_, String>> + Send>>
-        });
-        let worker = WorkerClient::with_hooks(spawner, connector).expect("test client");
-        let session = VoiceSessionManager::new(capture, paused).with_worker(worker);
-        session.warm_worker();
-        assert!(session.meta.lock().unwrap().is_none());
-    }
-
-    /// Duplex stub peer answering hello/ping/append/transcribe without a process.
-    async fn latency_stub_peer(mut peer: tokio::io::DuplexStream, text: String) {
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        let mut buf = Vec::new();
-        loop {
-            let mut chunk = [0u8; 4096];
-            let n = match peer.read(&mut chunk).await {
-                Ok(n) => n,
-                Err(_) => return,
-            };
-            if n == 0 {
-                return;
-            }
-            buf.extend_from_slice(&chunk[..n]);
-            while let Some((header, _)) = proto::decode_frame(&mut buf).unwrap_or(None) {
-                let mut resp = match header.op.as_str() {
-                    proto::OP_HELLO => {
-                        let mut r = proto::Header::op(proto::OP_READY);
-                        r.version = header.version.clone();
-                        r.model = header.model.clone();
-                        r
-                    }
-                    proto::OP_PING => proto::Header::op(proto::OP_PONG),
-                    proto::OP_APPEND => {
-                        let mut r = proto::Header::op(proto::OP_ACK);
-                        r.seq = header.seq;
-                        r
-                    }
-                    proto::OP_TRANSCRIBE => {
-                        let mut r = proto::Header::op(proto::OP_RESULT);
-                        r.text = Some(text.clone());
-                        r.confidence = Some(0.9);
-                        r.duration_secs = Some(1.0);
-                        r
-                    }
-                    _ => proto::Header::op(proto::OP_ACK),
-                };
-                resp.req_id = header.req_id.clone();
-                let bytes = proto::encode_frame(&resp, &[]).expect("encode");
-                if peer.write_all(&bytes).await.is_err() {
-                    return;
-                }
-            }
-        }
-    }
-
-    /// Session with a working stub worker: short-lived spawner child plus an
-    /// in-process duplex peer, so begin/finalize transcribe hermetically.
-    fn create_latency_session() -> VoiceSessionManager {
-        let buffer = Arc::new(super::super::capture::AudioFrameBuffer::new());
-        let capture = Arc::new(AudioCapture::new(buffer));
-        let paused = Arc::new(AtomicBool::new(false));
-        let spawns = Arc::new(AtomicUsize::new(0));
-        let spawner: SpawnFn = Arc::new(move |_, _| {
-            spawns.fetch_add(1, Ordering::SeqCst);
-            #[cfg(all(unix, not(target_os = "android")))]
-            let child = Command::new("true")
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn()?;
-            #[cfg(target_os = "windows")]
-            let child = {
-                use std::os::windows::process::CommandExt;
-                Command::new("cmd")
-                    .arg("/C")
-                    .arg("exit")
-                    .arg("0")
-                    .creation_flags(0x0800_0000)
-                    .stdin(std::process::Stdio::null())
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .spawn()?
-            };
-            #[cfg(target_os = "android")]
-            let child = Command::new("true").spawn()?;
-            Ok(child)
-        });
-        let connector: ConnectFn = Arc::new(|_, model, version, _| {
-            Box::pin(async move {
-                let (client, peer) = tokio::io::duplex(256 * 1024);
-                tokio::spawn(latency_stub_peer(peer, "hello stub".to_string()));
-                let mut ready = proto::Header::op(proto::OP_HELLO);
-                ready.version = Some(version);
-                ready.model = Some(model);
-                let mut client: DynStream = Box::new(client);
-                let (resp, _) = transact(&mut client, ready, &[], Duration::from_secs(5)).await?;
-                if resp.op != proto::OP_READY {
-                    return Err("stub handshake failed".to_string());
-                }
-                Ok(client)
-            }) as Pin<Box<dyn Future<Output = Result<DynStream, String>> + Send>>
-        });
-        let worker = WorkerClient::with_hooks(spawner, connector).expect("test client");
-        VoiceSessionManager::new(capture, paused).with_worker(worker)
-    }
-
-    #[test]
     fn test_ptt_latency_spans_recorded_in_order() {
         let _lock = crate::hook::tests::TEST_LOCK
             .lock()
@@ -4034,370 +2989,6 @@ mod tests {
             "transcript must follow capture"
         );
     }
-
-    /// Consuming fake peer: appends accumulate per req_id, transcribe drains
-    /// the buffer (like the real worker), discard drops without decoding.
-    /// Decode recorder: (req_id, samples decoded) per transcribe call.
-    type DecodeLog = Arc<Mutex<Vec<(String, usize)>>>;
-    /// Discard recorder: req_id per discard call.
-    type DiscardLog = Arc<Mutex<Vec<String>>>;
-    async fn consuming_stub_peer(
-        mut peer: tokio::io::DuplexStream,
-        decodes: DecodeLog,
-        discards: DiscardLog,
-    ) {
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        let mut buf = Vec::new();
-        let mut buffers: HashMap<String, Vec<f32>> = HashMap::new();
-        let mut count: usize = 0;
-        loop {
-            let mut chunk = [0u8; 65536];
-            let n = match peer.read(&mut chunk).await {
-                Ok(n) => n,
-                Err(_) => return,
-            };
-            if n == 0 {
-                return;
-            }
-            buf.extend_from_slice(&chunk[..n]);
-            while let Some((header, body)) = proto::decode_frame(&mut buf).unwrap_or(None) {
-                let mut resp = match header.op.as_str() {
-                    proto::OP_HELLO => {
-                        let mut r = proto::Header::op(proto::OP_READY);
-                        r.version = header.version.clone();
-                        r.model = header.model.clone();
-                        r
-                    }
-                    proto::OP_PING => proto::Header::op(proto::OP_PONG),
-                    proto::OP_APPEND => {
-                        let id = header.req_id.clone().unwrap_or_default();
-                        if let Ok(samples) = proto::decode_samples(&body) {
-                            buffers.entry(id).or_default().extend(samples);
-                        }
-                        let mut r = proto::Header::op(proto::OP_ACK);
-                        r.seq = header.seq;
-                        r
-                    }
-                    proto::OP_TRANSCRIBE => {
-                        let id = header.req_id.clone().unwrap_or_default();
-                        let taken = buffers.remove(&id).unwrap_or_default();
-                        decodes
-                            .lock()
-                            .unwrap_or_else(|p| p.into_inner())
-                            .push((id, taken.len()));
-                        let word = if count == 0 { "alpha" } else { "bravo" };
-                        count += 1;
-                        let mut r = proto::Header::op(proto::OP_RESULT);
-                        r.text = Some(word.to_string());
-                        r.confidence = Some(0.9);
-                        r.duration_secs = Some(1.0);
-                        r
-                    }
-                    proto::OP_DISCARD => {
-                        let id = header.req_id.clone().unwrap_or_default();
-                        buffers.remove(&id);
-                        discards.lock().unwrap_or_else(|p| p.into_inner()).push(id);
-                        proto::Header::op(proto::OP_ACK)
-                    }
-                    _ => proto::Header::op(proto::OP_ACK),
-                };
-                resp.req_id = header.req_id.clone();
-                let bytes = proto::encode_frame(&resp, &[]).expect("encode");
-                if peer.write_all(&bytes).await.is_err() {
-                    return;
-                }
-            }
-        }
-    }
-
-    /// Session wired to the consuming fake, plus decode/discard recorders
-    /// for window-isolation assertions.
-    fn create_consuming_session() -> (VoiceSessionManager, DecodeLog, DiscardLog) {
-        let buffer = Arc::new(super::super::capture::AudioFrameBuffer::new());
-        let capture = Arc::new(AudioCapture::new(buffer));
-        let paused = Arc::new(AtomicBool::new(false));
-        let spawner: SpawnFn = Arc::new(move |_, _| {
-            #[cfg(all(unix, not(target_os = "android")))]
-            let child = Command::new("true")
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn()?;
-            #[cfg(target_os = "windows")]
-            let child = {
-                use std::os::windows::process::CommandExt;
-                Command::new("cmd")
-                    .arg("/C")
-                    .arg("exit")
-                    .arg("0")
-                    .creation_flags(0x0800_0000)
-                    .stdin(std::process::Stdio::null())
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .spawn()?
-            };
-            #[cfg(target_os = "android")]
-            let child = Command::new("true").spawn()?;
-            Ok(child)
-        });
-        let decodes = Arc::new(Mutex::new(Vec::new()));
-        let discards = Arc::new(Mutex::new(Vec::new()));
-        let decodes_connector = Arc::clone(&decodes);
-        let discards_connector = Arc::clone(&discards);
-        let connector: ConnectFn = Arc::new(move |_, model, version, _| {
-            let decodes = Arc::clone(&decodes_connector);
-            let discards = Arc::clone(&discards_connector);
-            Box::pin(async move {
-                let (client, peer) = tokio::io::duplex(256 * 1024);
-                tokio::spawn(consuming_stub_peer(peer, decodes, discards));
-                let mut ready = proto::Header::op(proto::OP_HELLO);
-                ready.version = Some(version);
-                ready.model = Some(model);
-                let mut client: DynStream = Box::new(client);
-                let (resp, _) = transact(&mut client, ready, &[], Duration::from_secs(5)).await?;
-                if resp.op != proto::OP_READY {
-                    return Err("stub handshake failed".to_string());
-                }
-                Ok(client)
-            }) as Pin<Box<dyn Future<Output = Result<DynStream, String>> + Send>>
-        });
-        let worker = WorkerClient::with_hooks(spawner, connector).expect("test client");
-        (
-            VoiceSessionManager::new(capture, paused).with_worker(worker),
-            decodes,
-            discards,
-        )
-    }
-
-    #[test]
-    fn test_segmented_finalize_isolates_windows_against_consuming_worker() {
-        let _lock = crate::hook::tests::TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let _data = TempDataDir::new();
-        mock_keystore::use_mock_keystore();
-        let (session, decodes, discards) = create_consuming_session();
-        crate::platform::test_injector().clear();
-        session.start_ptt().expect("ptt start");
-        // Two windows: one full 60s window plus a short tail.
-        let total = TRANSCRIBE_WINDOW_SAMPLES + 8000;
-        session
-            .capture()
-            .buffer()
-            .push_samples(&vec![0.5f32; total]);
-        let res = session.stop_ptt().expect("ptt stop");
-        let expected = taurine_core::voice::format_transcript("alpha bravo");
-        assert_eq!(
-            res.as_deref(),
-            Some(expected.as_str()),
-            "windows must join with a space"
-        );
-        let got = decodes.lock().unwrap_or_else(|p| p.into_inner()).clone();
-        assert_eq!(
-            got.len(),
-            2,
-            "each window must decode exactly once, got {got:?}"
-        );
-        assert_eq!(
-            got[0].1, TRANSCRIBE_WINDOW_SAMPLES,
-            "first decode must see exactly one window"
-        );
-        assert_eq!(got[1].1, 8000, "second decode must see only the tail");
-        assert_ne!(got[0].0, got[1].0, "windows must use distinct req_ids");
-        let dropped = discards.lock().unwrap_or_else(|p| p.into_inner()).clone();
-        assert_eq!(
-            dropped.len(),
-            1,
-            "streamed prefix must be discarded once, got {dropped:?}"
-        );
-        assert!(
-            got[0].0.starts_with(&format!("{}-", dropped[0]))
-                && got[1].0.starts_with(&format!("{}-", dropped[0])),
-            "window ids must derive from the discarded req_id"
-        );
-        assert_eq!(
-            session.processing_windows.load(Ordering::Relaxed),
-            0,
-            "window counter must reset after finalize"
-        );
-    }
-
-    #[test]
-    fn test_single_window_finalize_skips_discard() {
-        let _lock = crate::hook::tests::TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let _data = TempDataDir::new();
-        mock_keystore::use_mock_keystore();
-        let (session, decodes, discards) = create_consuming_session();
-        crate::platform::test_injector().clear();
-        session.start_ptt().expect("ptt start");
-        session.capture().buffer().push_samples(&[0.5; 3200]);
-        let res = session.stop_ptt().expect("ptt stop");
-        assert!(res.is_some(), "stub worker must return a transcript");
-        let got = decodes.lock().unwrap_or_else(|p| p.into_inner()).clone();
-        assert_eq!(got.len(), 1, "single window must decode once");
-        assert!(
-            discards
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .is_empty(),
-            "single window must not discard"
-        );
-        assert_eq!(
-            session.processing_windows.load(Ordering::Relaxed),
-            0,
-            "window counter must reset after finalize"
-        );
-    }
-
-    fn backdate_meta(session: &VoiceSessionManager, ago: Duration) {
-        if let Some(ref mut meta) = *session.meta.lock().unwrap() {
-            meta.last_used = Instant::now() - ago;
-        }
-    }
-
-    fn hold_secs(session: &VoiceSessionManager) -> Option<u64> {
-        session
-            .meta
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .as_ref()
-            .map(|meta| meta.hold.as_secs())
-    }
-
-    #[test]
-    fn test_ladder_escalates_and_caps() {
-        let (session, _) = create_test_session();
-        let target = session.target_model().to_string();
-        session.set_test_meta(&target, Instant::now() - Duration::from_secs(5));
-        assert_eq!(hold_secs(&session), Some(10), "fresh load starts at base");
-        for expected in [20u64, 30, 60, 60] {
-            session.record_use(target.clone());
-            assert_eq!(hold_secs(&session), Some(expected));
-        }
-    }
-
-    #[test]
-    fn test_touch_pins_without_stepping() {
-        let (session, _) = create_test_session();
-        session.set_test_meta(
-            "parakeet-tdt-ctc-110m",
-            Instant::now() - Duration::from_secs(5),
-        );
-        session.touch_loaded_slot();
-        assert_eq!(
-            hold_secs(&session),
-            Some(10),
-            "session start pins without stepping"
-        );
-        let elapsed = session
-            .meta
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .as_ref()
-            .expect("meta")
-            .last_used
-            .elapsed();
-        assert!(
-            elapsed < Duration::from_secs(2),
-            "start refreshes last_used, got {elapsed:?}"
-        );
-    }
-
-    #[test]
-    fn test_ladder_stale_touch_extends_nothing() {
-        let (session, _) = create_test_session();
-        session.set_test_meta(
-            "parakeet-tdt-ctc-110m",
-            Instant::now() - Duration::from_secs(11),
-        );
-        session.touch_loaded_slot();
-        assert_eq!(hold_secs(&session), Some(10));
-        session.clean_expired_transcriber();
-        assert_eq!(hold_secs(&session), None);
-    }
-
-    #[test]
-    fn test_ladder_silence_evicts_and_restarts_at_base() {
-        let (session, _) = create_test_session();
-        let target = session.target_model().to_string();
-        session.set_test_meta(&target, Instant::now());
-        session.record_use(target.clone());
-        session.record_use(target.clone());
-        assert_eq!(hold_secs(&session), Some(30));
-        backdate_meta(&session, Duration::from_secs(31));
-        session.clean_expired_transcriber();
-        assert_eq!(hold_secs(&session), None, "silence past deadline evicts");
-        session.set_test_meta(&target, Instant::now());
-        assert_eq!(hold_secs(&session), Some(10), "next load restarts at base");
-    }
-
-    #[test]
-    fn test_ladder_resets_on_model_switch() {
-        let (session, _) = create_test_session();
-        let target = session.target_model().to_string();
-        session.set_test_meta(&target, Instant::now());
-        session.record_use(target.clone());
-        assert_eq!(hold_secs(&session), Some(20));
-        session.set_model_name("other-model");
-        assert_eq!(hold_secs(&session), None);
-    }
-
-    #[test]
-    fn test_dictation_steps_exactly_one_rung() {
-        let _lock = crate::hook::tests::TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let _data = TempDataDir::new();
-        mock_keystore::use_mock_keystore();
-        let session = create_latency_session();
-        crate::platform::test_injector().clear();
-        let target = session.target_model().to_string();
-        session.set_test_meta(&target, Instant::now());
-        assert_eq!(hold_secs(&session), Some(10));
-        session.start_ptt().expect("ptt start");
-        assert_eq!(
-            hold_secs(&session),
-            Some(10),
-            "session start must pin without stepping"
-        );
-        session.capture().buffer().push_samples(&[0.5; 3200]);
-        let res = session.stop_ptt().expect("ptt stop");
-        assert!(res.is_some(), "stub worker must return a transcript");
-        assert_eq!(
-            hold_secs(&session),
-            Some(20),
-            "one dictation steps exactly one rung"
-        );
-    }
-
-    #[test]
-    fn test_long_recording_pin_agrees_with_worker() {
-        let _lock = crate::hook::tests::TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let _data = TempDataDir::new();
-        mock_keystore::use_mock_keystore();
-        let session = create_latency_session();
-        crate::platform::test_injector().clear();
-        let target = session.target_model().to_string();
-        session.set_test_meta(&target, Instant::now());
-        session.start_ptt().expect("ptt start");
-        // 15s of recording elapses past the 10s base rung...
-        backdate_meta(&session, Duration::from_secs(15));
-        // ...but streaming audio pins last_used, as the forwarder does.
-        VoiceSessionManager::pin_stream_meta(&session.meta, &target);
-        session.capture().buffer().push_samples(&[0.5; 3200]);
-        let res = session.stop_ptt().expect("ptt stop");
-        assert!(res.is_some(), "stub worker must return a transcript");
-        assert_eq!(
-            hold_secs(&session),
-            Some(20),
-            "streaming pin must prevent reset-while-warm"
-        );
-    }
-
     #[test]
     fn test_ptt_start_always_opens_capture() {
         let _lock = crate::hook::tests::TEST_LOCK
@@ -4451,128 +3042,6 @@ mod tests {
         );
         assert_eq!(session.current_mode(), VoiceMode::PushToTalk);
         session.cancel();
-    }
-
-    fn create_preload_test_session() -> (VoiceSessionManager, Arc<AtomicUsize>) {
-        let buffer = Arc::new(super::super::capture::AudioFrameBuffer::new());
-        let capture = Arc::new(AudioCapture::new(buffer));
-        let paused = Arc::new(AtomicBool::new(false));
-        let hellos = Arc::new(AtomicUsize::new(0));
-        let hellos_connector = Arc::clone(&hellos);
-        let spawner: SpawnFn = Arc::new(move |_, _| {
-            #[cfg(all(unix, not(target_os = "android")))]
-            let child = Command::new("true")
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn()?;
-            #[cfg(target_os = "windows")]
-            let child = {
-                use std::os::windows::process::CommandExt;
-                Command::new("cmd")
-                    .arg("/C")
-                    .arg("exit")
-                    .arg("0")
-                    .creation_flags(0x0800_0000)
-                    .stdin(std::process::Stdio::null())
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .spawn()?
-            };
-            #[cfg(target_os = "android")]
-            let child = Command::new("true").spawn()?;
-            Ok(child)
-        });
-        let connector: ConnectFn = Arc::new(move |_, model, version, _| {
-            let hellos = Arc::clone(&hellos_connector);
-            Box::pin(async move {
-                hellos.fetch_add(1, Ordering::SeqCst);
-                let (client, peer) = tokio::io::duplex(256 * 1024);
-                tokio::spawn(latency_stub_peer(peer, "hello stub".to_string()));
-                let mut ready = proto::Header::op(proto::OP_HELLO);
-                ready.version = Some(version);
-                ready.model = Some(model);
-                let mut client: DynStream = Box::new(client);
-                let (resp, _) = transact(&mut client, ready, &[], Duration::from_secs(5)).await?;
-                if resp.op != proto::OP_READY {
-                    return Err("stub handshake failed".to_string());
-                }
-                Ok(client)
-            }) as Pin<Box<dyn Future<Output = Result<DynStream, String>> + Send>>
-        });
-        let worker = WorkerClient::with_hooks(spawner, connector).expect("test client");
-        let session = VoiceSessionManager::new(capture, paused).with_worker(worker);
-        (session, hellos)
-    }
-
-    #[test]
-    fn test_preload_kicks_at_keypress_without_blocking_press() {
-        let _lock = crate::hook::tests::TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let _data = TempDataDir::new();
-        mock_keystore::use_mock_keystore();
-        let (session, hellos) = create_preload_test_session();
-        let session = session.into_test_arc();
-        crate::platform::test_injector().clear();
-
-        assert_eq!(hellos.load(Ordering::SeqCst), 0);
-        assert_eq!(hold_secs(&session), None);
-
-        let press_start = Instant::now();
-        session.start_ptt().expect("ptt start");
-        let press_duration = press_start.elapsed();
-
-        assert_eq!(session.current_mode(), VoiceMode::PushToTalk);
-        assert!(
-            press_duration < Duration::from_millis(500),
-            "press must return immediately without waiting for preload"
-        );
-
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while hold_secs(&session).is_none() && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-
-        assert_eq!(
-            hold_secs(&session),
-            Some(10),
-            "preload thread must have initialized model slot to base hold"
-        );
-        assert!(
-            hellos.load(Ordering::SeqCst) >= 1,
-            "preload hello must reach peer while recording"
-        );
-
-        session.cancel();
-    }
-
-    #[test]
-    fn test_preload_not_kicked_on_mash_bounce() {
-        let _lock = crate::hook::tests::TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let _data = TempDataDir::new();
-        mock_keystore::use_mock_keystore();
-        let (session, hellos) = create_preload_test_session();
-        let session = session.into_test_arc();
-        crate::platform::test_injector().clear();
-
-        *session.last_stop.lock().unwrap() = Some(Instant::now());
-        crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
-
-        session.start_ptt().expect("start ptt inside mash window");
-        assert_eq!(session.current_mode(), VoiceMode::Idle);
-
-        std::thread::sleep(Duration::from_millis(super::RESCUE_WAIT_MS + 50));
-
-        assert_eq!(session.current_mode(), VoiceMode::Idle);
-        assert_eq!(
-            hellos.load(Ordering::SeqCst),
-            0,
-            "preload must never fire for bounces"
-        );
-        assert_eq!(hold_secs(&session), None);
     }
 
     #[test]
@@ -4723,46 +3192,5 @@ mod tests {
             "toggle-based hands-free is exempt from the key-up net"
         );
         *session.mode.lock().unwrap() = VoiceMode::Idle;
-    }
-
-    #[test]
-    fn processing_watchdog_scales_with_windows() {
-        assert_eq!(processing_timeout_limit(0), Duration::from_secs(90));
-        assert_eq!(processing_timeout_limit(1), Duration::from_secs(90));
-        assert_eq!(processing_timeout_limit(2), Duration::from_secs(390));
-        assert_eq!(processing_timeout_limit(3), Duration::from_secs(540));
-    }
-
-    #[test]
-    fn single_window_timeout_stays_flat_60s() {
-        assert_eq!(
-            per_window_timeout(16_000 * 60, true),
-            Duration::from_secs(60)
-        );
-        assert_eq!(per_window_timeout(8000, true), Duration::from_secs(60));
-        assert_eq!(
-            per_window_timeout(16_000 * 60, false),
-            Duration::from_secs(120)
-        );
-    }
-
-    #[test]
-    fn segments_long_audio_into_60s_windows() {
-        let windows = segment_audio_windows(16_000 * 60 * 3 + 8000, 16_000 * 60);
-        assert_eq!(
-            windows,
-            vec![
-                (0, 960_000),
-                (960_000, 960_000),
-                (1_920_000, 960_000),
-                (2_880_000, 8000)
-            ]
-        );
-    }
-
-    #[test]
-    fn segments_short_audio_into_single_window() {
-        let windows = segment_audio_windows(8000, 16_000 * 60);
-        assert_eq!(windows, vec![(0, 8000)]);
     }
 }

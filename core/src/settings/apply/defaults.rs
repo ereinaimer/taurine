@@ -60,13 +60,11 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
             InlineDictionaryMode::Full => "full".to_string(),
         })),
         "notify_on_update" => Ok(Some(defaults.notify_on_update.to_string())),
-        "voice_model" => Ok(Some(defaults.voice_model)),
         "voice_always_on" | "always_on" | "voice_listen" | "voice_wake" => Ok(None),
         "voice_ptt_hotkey" => Ok(Some(defaults.voice_ptt_hotkey)),
         "voice_handsfree_hotkey" => Ok(Some(defaults.voice_handsfree_hotkey)),
         "voice_dictionary" => Ok(Some(defaults.voice_dictionary)),
         "voice_input_device" => Ok(defaults.voice_input_device),
-        "voice_keep_loaded" => Ok(Some(defaults.voice_keep_loaded.to_string())),
         "pause_media_while_dictating" => Ok(Some(defaults.pause_media_while_dictating.to_string())),
         "tui_cursor_style" => Ok(Some(match defaults.tui_cursor_style {
             TuiCursorStyle::Block => "block".to_string(),

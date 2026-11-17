@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Monetization Simplification**: Free tier now includes unlimited snippets, workspaces, and devices, gating exclusively on weekly expansion quota.
 
 ### Removed
+- **Local Voice Models**: Removed local voice models and downloader in preparation for cloud-based voice dictation.
 - **Logout Force Flag**: Removed the `--force` flag and interactive prompts from the logout command.
 - **Keystrokes Saved Metric**: Deprecated keystroke counting across all database tables, calculation models, and cloud synchronization.
 - **Trigger Display Names**: Replaced redundant trigger display names with primary trigger invocations and descriptions across the CLI and TUI.

@@ -220,7 +220,6 @@ pub fn start() -> taurine_core::error::Result<()> {
     taurine_core::settings::set_cached_audio_volume(settings.audio_volume);
 
     // Cache voice settings
-    taurine_core::settings::set_cached_voice_model(settings.voice_model.clone());
     taurine_core::settings::set_cached_voice_ptt_hotkey(settings.voice_ptt_hotkey.clone());
     taurine_core::settings::set_cached_voice_handsfree_hotkey(
         settings.voice_handsfree_hotkey.clone(),
@@ -231,7 +230,6 @@ pub fn start() -> taurine_core::error::Result<()> {
     );
     taurine_core::settings::set_cached_voice_dictionary(settings.voice_dictionary.clone());
     taurine_core::settings::set_cached_voice_input_device(settings.voice_input_device.clone());
-    taurine_core::settings::set_cached_voice_keep_loaded(settings.voice_keep_loaded);
     taurine_core::settings::set_cached_pause_media_while_dictating(
         settings.pause_media_while_dictating,
     );
@@ -419,67 +417,12 @@ pub fn start() -> taurine_core::error::Result<()> {
         let dict = VoiceDictionary::from_csv(&settings.voice_dictionary);
         let session = Arc::new(
             crate::voice::VoiceSessionManager::new(capture.clone(), paused.clone())
-                .with_model_name(settings.voice_model.clone())
                 .with_dictionary(dict)
                 .with_engine_state(state.clone()),
         );
         session.set_self_ref();
-
-        let warm = Arc::clone(&session);
         let _ = VOICE_SESSION.set(session);
-        std::thread::Builder::new()
-            .name("tau-voice-warm".to_string())
-            .spawn(move || {
-                let _ = crate::platform::panic::catch_worker_panic(
-                    "tau-voice-warm",
-                    std::panic::AssertUnwindSafe(move || {
-                        if taurine_core::settings::get_cached_voice_keep_loaded() {
-                            if let Err(e) = warm.ensure_worker_ready() {
-                                tracing::debug!(
-                                    "voice keep-loaded preload failed (lazy fallback): {e}"
-                                );
-                            }
-                        } else {
-                            warm.warm_worker();
-                        }
-                        // Park the cue output sink too, so the first press of
-                        // the process plays warm. Silent when no device exists.
-                        crate::services::audio::prewarm_voice_sink();
-                        // No model preload: the worker stays model-free until
-                        // the first PTT / hands-free press loads it via
-                        // kick_preload, keeping startup memory flat.
-                    }),
-                );
-            })
-            .ok();
-        // One-shot warm loses the logon race (audio/pipe not ready in
-        // ~1s); two delayed idempotent retries cover it, then lazy first-press
-        // path owns recovery if still cold.
-        if let Some(session) = VOICE_SESSION.get().cloned() {
-            std::thread::Builder::new()
-                .name("tau-voice-rewarm".to_string())
-                .spawn(move || {
-                    let _ = crate::platform::panic::catch_worker_panic(
-                        "tau-voice-rewarm",
-                        std::panic::AssertUnwindSafe(move || {
-                            for delay in [15, 45] {
-                                std::thread::sleep(std::time::Duration::from_secs(delay));
-                                if taurine_core::settings::get_cached_voice_keep_loaded() {
-                                    if let Err(e) = session.ensure_worker_ready() {
-                                        tracing::debug!(
-                                            "voice keep-loaded preload failed (lazy fallback): {e}"
-                                        );
-                                    }
-                                } else {
-                                    session.warm_worker();
-                                }
-                                crate::services::audio::prewarm_voice_sink();
-                            }
-                        }),
-                    );
-                })
-                .ok();
-        }
+        crate::services::audio::prewarm_voice_sink();
     }
     // OS push notifications for endpoint changes; no-op off Windows.
     crate::services::audio_notify::start();
@@ -646,12 +589,6 @@ pub fn start() -> taurine_core::error::Result<()> {
                     if let Ok(mut lock) = evaluator_for_coordinator.lock() {
                         lock.reset();
                     }
-
-                    // 4. Unload all speech recognition models from memory
-                    if let Some(session) = crate::VOICE_SESSION.get() {
-                        let session = session.clone();
-                        let _ = tokio::task::spawn_blocking(move || session.unload_model()).await;
-                    }
                 } else {
                     info!("Taurine resumed: restoring subsystems...");
                     // Pull fresh changes from cloud
@@ -667,24 +604,6 @@ pub fn start() -> taurine_core::error::Result<()> {
                     );
                     #[cfg(target_os = "linux")]
                     crate::platform::linux::toplevel::start_listener(state_for_coordinator.clone());
-                    // 3. Voice engine stays unloaded until the next
-                    // Push-to-Talk or Hands-Free session (on-demand),
-                    // unless keep-loaded restores residency in the background.
-                    if taurine_core::settings::get_cached_voice_keep_loaded()
-                        && let Some(session) = crate::VOICE_SESSION.get()
-                    {
-                        let session = session.clone();
-                        std::thread::Builder::new()
-                            .name("tau-voice-resume".to_string())
-                            .spawn(move || {
-                                if let Err(e) = session.ensure_worker_ready() {
-                                    tracing::debug!(
-                                        "voice resume preload failed (lazy fallback): {e}"
-                                    );
-                                }
-                            })
-                            .ok();
-                    }
                 }
 
                 if pause_notifications_enabled_for_coordinator.load(Ordering::Relaxed) {
@@ -1035,10 +954,9 @@ pub fn start() -> taurine_core::error::Result<()> {
         crate::platform::linux::toplevel::stop_listener();
     }
 
-    // 5. Ensure the microphone stream is closed and the voice model unloaded.
+    // 5. Ensure the microphone stream is closed.
     if let Some(session) = VOICE_SESSION.get() {
         session.capture().stop();
-        session.unload_model();
     }
 
     // 6. Flush pending quota deltas to SQLite on shutdown

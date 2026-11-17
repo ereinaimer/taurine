@@ -1,4 +1,3 @@
-use super::progress::ensure_voice_model_downloaded;
 use taurine_core::error::Error;
 
 pub fn execute_up(json: bool) -> Result<(), Error> {
@@ -6,26 +5,6 @@ pub fn execute_up(json: bool) -> Result<(), Error> {
         let conn = taurine_core::db::init::setup()?;
         taurine_core::settings::SettingsManager::new(&conn).load_all()
     };
-
-    // Single-model voice engine: download only the configured model.
-    // If downloading fails (e.g. offline or network issue), continue starting Taurine
-    // without voice capabilities instead of aborting startup.
-    let single_model = taurine_core::voice::resolve_configured_model(&settings.voice_model);
-    let models_to_ensure: Vec<&str> = vec![single_model];
-
-    for model in models_to_ensure {
-        if let Err(e) = ensure_voice_model_downloaded(model, json) {
-            tracing::warn!(
-                error = %e,
-                "Voice model '{model}' unavailable; starting Taurine without voice dictation",
-            );
-            if !json {
-                eprintln!(
-                    "Warning: Voice model '{model}' is unavailable. Starting Taurine without voice dictation.",
-                );
-            }
-        }
-    }
 
     taurine_core::service::up(settings.start_on_boot)?;
     if json {

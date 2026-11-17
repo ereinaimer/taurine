@@ -1,14 +1,9 @@
 // Licensed under the Aimer Software License (ASL)
 // See LICENSE for details.
 
-use std::io::{IsTerminal, Write};
-use taurine_core::error::{Error, Result};
+use std::io::Write;
 use taurine_core::settings::SpinnerStyle;
 use taurine_core::utils::spinner::{SpinnerRenderer, ThreadSpinnerHandle, spawn_threaded};
-use taurine_core::voice::{
-    download_model, download_model_with_status, get_model_entry, is_model_downloaded,
-    resolve_configured_model,
-};
 use tracing::info;
 
 pub(crate) struct StdoutStepRenderer {
@@ -54,19 +49,6 @@ impl Stepper {
             frame_idx: 0,
             cursor_hidden: false,
         }
-    }
-
-    pub(crate) fn start_attempt_stepper(label: &str, visual: bool) -> Self {
-        let mut stepper = Self {
-            label: label.to_string(),
-            handle: None,
-            visual,
-            progress_open: false,
-            frame_idx: 0,
-            cursor_hidden: false,
-        };
-        stepper.start_attempt(label);
-        stepper
     }
 
     pub(crate) fn stop_thread(&mut self) {
@@ -132,24 +114,6 @@ impl Stepper {
         let _ = std::io::stdout().flush();
     }
 
-    /// Redraw the open block with a status message during post-download phases (e.g. decompression).
-    pub(crate) fn draw_status(&mut self, status: &str) {
-        if !self.visual {
-            info!("{status}...");
-            return;
-        }
-        if !self.progress_open {
-            self.start_attempt(status);
-            return;
-        }
-        self.label = status.to_string();
-        print!(
-            "\x1b[1A\r{}\x1b[K\n\rDecompressing model files...\x1b[K",
-            self.label
-        );
-        let _ = std::io::stdout().flush();
-    }
-
     /// Clear the open download block (line 2, then back up to line 1).
     /// Restores the terminal cursor if hidden. No-op unless a block is open.
     pub(crate) fn clear_progress(&mut self) {
@@ -183,17 +147,6 @@ impl Stepper {
             self.cursor_hidden = false;
         }
         info!("{label}");
-    }
-
-    pub(crate) fn finish_with_label(mut self, done_label: &str) {
-        self.stop_thread();
-        self.clear_progress();
-        if self.visual && self.cursor_hidden {
-            print!("\x1b[?25h");
-            let _ = std::io::stdout().flush();
-            self.cursor_hidden = false;
-        }
-        info!("{done_label}");
     }
 }
 
@@ -284,69 +237,5 @@ pub(crate) fn download_progress_line(
             format_bytes(downloaded),
             format_speed(speed_bps)
         ),
-    }
-}
-
-/// Ensures the requested voice model is downloaded to the models directory.
-///
-/// If already present, returns immediately.
-/// If missing, downloads it and displays a live terminal progress indicator
-/// matching `taurine update`.
-pub fn ensure_voice_model_downloaded(model_id: &str, json: bool) -> Result<()> {
-    let canonical = resolve_configured_model(model_id);
-    if is_model_downloaded(canonical, None) {
-        if canonical == "parakeet-unified-en-0.6b" {
-            taurine_core::voice::ensure_unified_hotwords_asset(None);
-        }
-        return Ok(());
-    }
-
-    let entry = get_model_entry(canonical)
-        .ok_or_else(|| Error::Config(format!("Unknown voice model identifier: '{model_id}'")))?;
-
-    if json {
-        download_model(canonical, None, None)?;
-        if canonical == "parakeet-unified-en-0.6b" {
-            taurine_core::voice::ensure_unified_hotwords_asset(None);
-        }
-        return Ok(());
-    }
-
-    let visual = std::io::stdout().is_terminal();
-    let download_label = format!(
-        "Downloading voice model '{}' ({})",
-        entry.id, entry.size_display
-    );
-    let stepper = std::cell::RefCell::new(Stepper::start_attempt_stepper(&download_label, visual));
-
-    let res = download_model_with_status(
-        canonical,
-        None,
-        Some(&mut |downloaded, total, speed_bps| {
-            stepper
-                .borrow_mut()
-                .draw_download(downloaded, total, speed_bps);
-        }),
-        Some(&mut |status| {
-            stepper.borrow_mut().draw_status(status);
-        }),
-    );
-
-    let mut stepper = stepper.into_inner();
-    match res {
-        Ok(_) => {
-            if canonical == "parakeet-unified-en-0.6b" {
-                taurine_core::voice::ensure_unified_hotwords_asset(None);
-            }
-            stepper.finish_with_label(&format!(
-                "Successfully downloaded and installed '{}'",
-                entry.id
-            ));
-            Ok(())
-        }
-        Err(e) => {
-            stepper.abort_progress();
-            Err(e)
-        }
     }
 }

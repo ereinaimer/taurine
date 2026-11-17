@@ -227,11 +227,6 @@ impl<'a> SettingsManager<'a> {
         {
             settings.inline_datetime_dialect = v;
         }
-        if let Some(val) = map.get("voice_model")
-            && let Ok(v) = serde_json::from_str::<String>(val)
-        {
-            settings.voice_model = v;
-        }
         if let Some(val) = map.get("voice_ptt_hotkey")
             && let Ok(v) = serde_json::from_str::<String>(val)
         {
@@ -251,11 +246,6 @@ impl<'a> SettingsManager<'a> {
             && let Ok(v) = serde_json::from_str::<Option<String>>(val)
         {
             settings.voice_input_device = v;
-        }
-        if let Some(val) = map.get("voice_keep_loaded")
-            && let Ok(v) = serde_json::from_str::<bool>(val)
-        {
-            settings.voice_keep_loaded = v;
         }
         if let Some(val) = map.get("pause_media_while_dictating")
             && let Ok(v) = serde_json::from_str::<bool>(val)
@@ -325,23 +315,10 @@ mod tests {
     }
 
     #[test]
-    fn load_all_reads_voice_keep_loaded_from_db() {
-        let (_dir, conn) = open_test_db();
-        let manager = SettingsManager::new(&conn);
-
-        manager.update_setting("voice_keep_loaded", true).unwrap();
-
-        assert!(manager.load_all().voice_keep_loaded);
-    }
-
-    #[test]
     fn load_all_reads_voice_settings_from_db() {
         let (_dir, conn) = open_test_db();
         let manager = SettingsManager::new(&conn);
 
-        manager
-            .update_setting("voice_model", "whisper-small-en")
-            .unwrap();
         manager
             .update_setting("voice_ptt_hotkey", "ctrl+space")
             .unwrap();
@@ -353,7 +330,6 @@ mod tests {
             .unwrap();
 
         let settings = manager.load_all();
-        assert_eq!(settings.voice_model, "whisper-small-en");
         assert_eq!(settings.voice_ptt_hotkey, "ctrl+space");
         assert_eq!(settings.voice_handsfree_hotkey, "ctrl+alt+space");
         assert_eq!(settings.voice_dictionary, "Rust, Taurine, Whisper");

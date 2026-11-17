@@ -19,22 +19,18 @@ jobs:
             os: windows-latest
             archive: zip
             platform_key: windows-x86_64
-            sherpa_platform: win-x64-static-MT-Release
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-22.04
             archive: tar.xz
             platform_key: linux-x86_64
-            sherpa_platform: linux-x64-static
           - target: x86_64-apple-darwin
             os: macos-15-intel
             archive: tar.xz
             platform_key: macos-x86_64
-            sherpa_platform: osx-x64-static
           - target: aarch64-apple-darwin
             os: macos-latest
             archive: tar.xz
             platform_key: macos-aarch64
-            sherpa_platform: osx-arm64-static
 
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
@@ -60,40 +56,6 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           version: '23.4'
 
-      # sherpa-onnx-sys links a prebuilt native static lib. Its build script
-      # auto-downloads into target/sherpa-onnx-prebuilt, but that directory
-      # can be restored from cargo cache without its library files, which
-      # fails the link with "could not find native static library".
-      # Downloading explicitly and setting SHERPA_ONNX_LIB_DIR bypasses
-      # that cache path entirely. Version is read from Cargo.lock so it
-      # stays in sync with daemon/Cargo.toml.
-      - name: Download prebuilt sherpa-onnx libs
-        shell: bash
-        run: |
-          set -u -o pipefail
-          SHERPA_VERSION=$(grep -A2 'name = "sherpa-onnx-sys"' Cargo.lock | grep '^version' | head -n1 | cut -d'"' -f2)
-          ARCHIVE="sherpa-onnx-v${SHERPA_VERSION}-${{ matrix.sherpa_platform }}-lib.tar.bz2"
-          URL="https://github.com/k2-fsa/sherpa-onnx/releases/download/v${SHERPA_VERSION}/${ARCHIVE}"
-          # On Windows, RUNNER_TEMP is a native path (D:\...) whose colon
-          # makes tar treat the archive as a remote host:file address.
-          # Use the MSYS path (/d/...) for file ops, but export the native
-          # form: the Rust build script is a native process needing Win32.
-          if [[ "${RUNNER_OS}" == "Windows" ]]; then
-            DEST="$(cygpath -u "${RUNNER_TEMP}")/sherpa-prebuilt"
-            NATIVE_DEST="$(cygpath -w "${RUNNER_TEMP}")\sherpa-prebuilt"
-          else
-            DEST="${RUNNER_TEMP}/sherpa-prebuilt"
-            NATIVE_DEST="$DEST"
-          fi
-          STEM="${ARCHIVE%.tar.bz2}"
-          mkdir -p "$DEST"
-          curl --proto '=https' --tlsv1.2 --retry 5 --retry-connrefused --location --fail --show-error \
-            --output "${DEST}/${ARCHIVE}" "$URL"
-          tar -xjf "${DEST}/${ARCHIVE}" -C "$DEST"
-          LIB_DIR="${NATIVE_DEST}/${STEM}/lib"
-          echo "SHERPA_ONNX_LIB_DIR=${LIB_DIR}" >> "$GITHUB_ENV"
-          ls "${DEST}/${STEM}/lib" | grep -i "sherpa-onnx-c-api" || (echo "sherpa-onnx-c-api missing in ${DEST}/${STEM}/lib" && exit 1)
-
       - name: Disable Windows Defender real-time scanning
         if: matrix.os == 'windows-latest'
         shell: pwsh
@@ -106,7 +68,7 @@ jobs:
       - name: Restore Rust cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          shared-key: "v3-sherpa-explicit"
+          shared-key: "v4-cache"
 
       - name: Build
         run: cargo build --release --locked --target ${{ matrix.target }} -p taurine

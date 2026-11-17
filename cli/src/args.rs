@@ -42,18 +42,6 @@ pub struct Cli {
     #[arg(long, hide = true)]
     pub(crate) auto_update: bool,
 
-    /// Internal flag used to spawn the isolated voice dictation process (DO NOT RUN MANUALLY)
-    #[arg(long, hide = true)]
-    pub(crate) voice_daemon: bool,
-
-    /// Internal voice pipe name, only meaningful with --voice-daemon (DO NOT RUN MANUALLY)
-    #[arg(long, hide = true)]
-    pub(crate) voice_pipe: Option<String>,
-
-    /// Internal voice version token, only meaningful with --voice-daemon (DO NOT RUN MANUALLY)
-    #[arg(long, hide = true)]
-    pub(crate) voice_version_token: Option<String>,
-
     /// Output in JSON format
     #[arg(long, global = true)]
     pub(crate) json: bool,
@@ -530,7 +518,6 @@ pub enum ImportConflictCli {
 pub enum LaunchTarget {
     Daemon,
     AutoUpdate,
-    VoiceDaemon,
     Tui,
     Command,
 }

@@ -16,7 +16,6 @@ pub use init_log::{
 pub enum LogComponent {
     Cli,
     Daemon,
-    VoiceDaemon,
 }
 
 impl LogComponent {
@@ -25,7 +24,6 @@ impl LogComponent {
         match self {
             LogComponent::Cli => "cli",
             LogComponent::Daemon => "service",
-            LogComponent::VoiceDaemon => "voice",
         }
     }
 }

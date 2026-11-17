@@ -3225,7 +3225,7 @@ mod tests {
     }
 
     #[test]
-    fn clicking_voice_model_value_opens_the_tier_picker() {
+    fn clicking_audio_theme_value_opens_the_theme_picker() {
         use crate::widgets::settings::state::SettingKey;
 
         let mut app = library_app();
@@ -3234,8 +3234,8 @@ mod tests {
             .settings_page()
             .visible_keys()
             .iter()
-            .position(|key| *key == SettingKey::VoiceModel)
-            .expect("voice model key");
+            .position(|key| *key == SettingKey::AudioTheme)
+            .expect("audio theme key");
         app.settings_page_mut().selected = position;
         let popup = settings::overlay_popup(TEST_AREA);
         let content = settings::overlay_content(settings::overlay_body(popup));
@@ -3244,7 +3244,7 @@ mod tests {
             for column in 0..TEST_AREA.width {
                 if let Some(settings::SettingsHit::SelectValue(found)) =
                     settings::hit_test(content, app.settings_page(), column, row)
-                    && found == SettingKey::VoiceModel
+                    && found == SettingKey::AudioTheme
                 {
                     target = Some((found, column, row));
                     break;
@@ -3262,7 +3262,7 @@ mod tests {
             panic!("picker should open");
         };
         assert_eq!(modal.key(), key);
-        assert_eq!(modal.options(), ["Best", "Balanced", "Fast"]);
+        assert_eq!(modal.options().len(), 7);
         assert!(app.is_settings_overlay_open());
     }
 

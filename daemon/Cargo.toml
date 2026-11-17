@@ -13,8 +13,8 @@ publish = false
 # Fast dev loops opt out of either independently:
 #   cargo check -p taurine_daemon --no-default-features
 # Release/CI always builds with defaults, so shipped behavior is unchanged.
-default = ["voice", "vendored-openssl"]
-voice = ["dep:sherpa-onnx", "dep:shenava-ctc-beam"]
+default = ["vendored-openssl"]
+
 vendored-openssl = ["taurine_core/vendored-openssl", "rusqlite/bundled-sqlcipher-vendored-openssl"]
 
 [dependencies]
@@ -45,8 +45,8 @@ unicode-normalization = "0.1"
 reqwest = { workspace = true }
 cpal = "0.18"
 rubato = "5.0"
-sherpa-onnx = { version = "1.13.8", optional = true }
-shenava-ctc-beam = { version = "0.1.0", optional = true }
+
+
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 rdev = { version = "0.5.3", features = ["unstable_grab"] }

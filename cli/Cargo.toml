@@ -12,9 +12,9 @@ publish = false
 # Mirrors the daemon switch so the CLI fast loop matches:
 #   cargo check -p taurine --no-default-features
 # Default build is unchanged (voice + self-contained OpenSSL).
-default = ["vendored-openssl", "voice"]
+default = ["vendored-openssl"]
 vendored-openssl = ["taurine_core/vendored-openssl", "taurine_daemon/vendored-openssl", "taurine_tui/vendored-openssl", "rusqlite/bundled-sqlcipher-vendored-openssl"]
-voice = ["taurine_daemon/voice"]
+
 
 [dev-dependencies]
 tempfile = "3.10"

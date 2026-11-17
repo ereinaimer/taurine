@@ -69,9 +69,7 @@ The default build compiles a private copy of OpenSSL from source (several minute
 cargo check -p taurine_core --no-default-features
 cargo check -p taurine_daemon --no-default-features
 ```
-`--no-default-features` is what selects system crypto (plus skips voice ML on the daemon); without it you get the slow vendored build by design. Full `cargo check --workspace` / `cargo nextest run` (defaults) are for pre-push only.
-
-Optional, voice builds only: skip the ~120MB sherpa download by fetching the prebuilt lib archive matching the `sherpa-onnx-sys` version in `Cargo.lock` from the sherpa-onnx releases page, extracting it once, and setting `SHERPA_ONNX_LIB_DIR` to its `lib` folder.
+`--no-default-features` is what selects system crypto; without it you get the slow vendored build by design. Full `cargo check --workspace` / `cargo nextest run` (defaults) are for pre-push only.
 
 #### Compiler Wrapper & Linkers
 `sccache` is the recommended local compiler cache (install only, wired per-machine so CI stays untouched): set the rustc wrapper and C-compiler launcher env vars in your shell or user cargo config to reuse compiled dependencies across builds. Fastest available linker per platform: Windows (`rust-lld`, ships with the Rust toolchain), macOS (`rust-lld`), and Linux (`mold`).
