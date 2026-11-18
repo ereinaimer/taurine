@@ -81,9 +81,6 @@ fn test_inline_currency_to_words_expansion() {
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let state = Arc::new(EngineState::new());
-    state
-        .inline_currency_to_words_enabled
-        .store(true, std::sync::atomic::Ordering::Relaxed);
     crate::settings::set_cached_inline_currency_to_words_enabled(true);
     let mut eval = Evaluator::new(state);
 
@@ -150,9 +147,6 @@ fn test_inline_currency_to_words_works_unconditionally() {
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let state = Arc::new(EngineState::new());
-    state
-        .inline_currency_to_words_enabled
-        .store(false, std::sync::atomic::Ordering::Relaxed);
     crate::settings::set_cached_inline_currency_to_words_enabled(false);
     let mut eval = Evaluator::new(state);
 
@@ -219,9 +213,6 @@ fn test_evaluator_natural_unit_conversion_prefix_triggered() {
 #[test]
 fn test_inline_datetime_expansion() {
     let state = Arc::new(EngineState::new());
-    state
-        .inline_datetime_enabled
-        .store(true, std::sync::atomic::Ordering::Relaxed);
     let mut eval = Evaluator::new(state);
 
     // Test 1: "next friday"
@@ -298,9 +289,6 @@ fn test_inline_timezone_expansion() {
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let state = Arc::new(EngineState::new());
-    state
-        .inline_datetime_enabled
-        .store(true, std::sync::atomic::Ordering::Relaxed);
     let mut eval = Evaluator::new(state);
 
     // Test 1: "time in tokyo" current time query
@@ -598,12 +586,7 @@ fn completion_backspace_edits_original_query_not_selected_completion() {
 
 #[test]
 fn inline_tab_completion_works_unconditionally() {
-    use std::sync::atomic::Ordering;
-
     let state = Arc::new(EngineState::new());
-    state
-        .inline_tab_completion_enabled
-        .store(false, Ordering::Relaxed);
     state.load_actions(vec![(
         "gs".to_string(),
         crate::db::crud::TriggerAction::text("git status"),
@@ -623,12 +606,7 @@ fn inline_tab_completion_works_unconditionally() {
 
 #[test]
 fn disabling_inline_assist_does_not_break_word_expansion() {
-    use std::sync::atomic::Ordering;
-
     let state = Arc::new(EngineState::new());
-    state
-        .inline_tab_completion_enabled
-        .store(false, Ordering::Relaxed);
     state.load_actions(vec![(
         "gs".to_string(),
         crate::db::crud::TriggerAction::text("git status"),
@@ -1390,11 +1368,8 @@ fn inline_ai_tau_mid_line_partial_deletion() {
 }
 
 #[test]
-fn inline_ai_evaluates_unconditionally_regardless_of_state_flag() {
+fn inline_ai_evaluates_unconditionally() {
     let state = Arc::new(EngineState::new());
-    state
-        .inline_ai_enabled
-        .store(false, std::sync::atomic::Ordering::Relaxed);
     let mut eval = Evaluator::new(state);
 
     for c in "tau, write a poem".chars() {
@@ -2649,19 +2624,7 @@ fn test_ungated_inline_assist_features_suite() {
         .unwrap_or_else(|e| e.into_inner());
 
     let state = Arc::new(EngineState::new());
-    // Explicitly set all former feature flags to false to prove they are completely un-gated
-    state
-        .inline_currency_to_words_enabled
-        .store(false, std::sync::atomic::Ordering::Relaxed);
-    state
-        .inline_dictionary_enabled
-        .store(false, std::sync::atomic::Ordering::Relaxed);
-    state
-        .inline_tab_completion_enabled
-        .store(false, std::sync::atomic::Ordering::Relaxed);
-    state
-        .inline_case_transform_enabled
-        .store(false, std::sync::atomic::Ordering::Relaxed);
+    // Former feature flags are completely un-gated; caches are deprecated no-ops
     crate::settings::set_cached_inline_emoji_enabled(false);
     crate::settings::set_cached_inline_datetime_enabled(false);
     crate::settings::set_cached_inline_currency_to_words_enabled(false);

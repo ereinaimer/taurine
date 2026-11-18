@@ -32,13 +32,7 @@ pub fn apply_setting_input_with_manager(
             manager.update_setting(actual_key, hotkey.to_string())?;
             ApplySettingOutcome::default()
         }
-        "pause_notifications_enabled"
-        | "pause_audio_enabled"
-        | "inline_tab_completion_enabled"
-        | "inline_case_transform_enabled"
-        | "ignore_fullscreen"
-        | "scripts_enabled"
-        | "system_tray_enabled" => {
+        "ignore_fullscreen" | "system_tray_enabled" => {
             manager.update_setting(
                 actual_key,
                 parse_boolean_setting_value_with_key(
@@ -75,21 +69,6 @@ pub fn apply_setting_input_with_manager(
                 sync_boot: Some(enabled),
             }
         }
-        "wpm" => {
-            let raw_value = require_non_empty(value, actual_key)?;
-            let parsed = raw_value
-                .parse::<u32>()
-                .map_err(|_| Error::Config(format!("bad WPM value: {raw_value}")))?;
-            manager.update_setting(actual_key, Settings::sanitize_wpm(parsed))?;
-            ApplySettingOutcome::default()
-        }
-        "spinner_style" => {
-            manager.update_setting(
-                actual_key,
-                parse_spinner_style(require_non_empty(value, actual_key)?)?,
-            )?;
-            ApplySettingOutcome::default()
-        }
         "ai_provider" => {
             let provider = if let Some(provider) = value.map(str::trim).filter(|v| !v.is_empty()) {
                 Some(AiProvider::try_from(provider)?.as_str().to_string())
@@ -115,27 +94,6 @@ pub fn apply_setting_input_with_manager(
             manager.update_setting(actual_key, endpoint)?;
             ApplySettingOutcome::default()
         }
-        "inline_ai_enabled" => {
-            manager.update_setting(
-                actual_key,
-                parse_boolean_setting_value_with_key(
-                    actual_key,
-                    require_non_empty(value, actual_key)?,
-                )?,
-            )?;
-            ApplySettingOutcome::default()
-        }
-        "clipboard_restore_delay_ms" => {
-            let raw_value = require_non_empty(value, actual_key)?;
-            let parsed = raw_value
-                .parse::<u32>()
-                .map_err(|_| Error::Config(format!("bad delay value: {raw_value}")))?;
-            manager.update_setting(
-                actual_key,
-                Settings::sanitize_clipboard_restore_delay_ms(parsed),
-            )?;
-            ApplySettingOutcome::default()
-        }
         "instant_expand" => {
             manager.update_setting(
                 actual_key,
@@ -146,7 +104,7 @@ pub fn apply_setting_input_with_manager(
             )?;
             ApplySettingOutcome::default()
         }
-        "auto_update" | "notify_on_update" => {
+        "auto_update" => {
             manager.update_setting(
                 actual_key,
                 parse_boolean_setting_value_with_key(
@@ -172,148 +130,22 @@ pub fn apply_setting_input_with_manager(
             )?;
             ApplySettingOutcome::default()
         }
-        "clipboard_history_enabled" => {
-            let enabled = parse_boolean_setting_value_with_key(
-                actual_key,
-                require_non_empty(value, actual_key)?,
-            )?;
-            manager.update_setting(actual_key, enabled)?;
-            if !enabled {
-                crate::engine::variables::system::clipboard::clip_manager().clear();
-            }
-            ApplySettingOutcome::default()
-        }
-        "clipboard_history_retention_secs" => {
-            let raw_value = require_non_empty(value, actual_key)?;
-            let parsed = raw_value
-                .parse::<u32>()
-                .map_err(|_| Error::Config(format!("bad retention seconds: {raw_value}")))?;
-            manager.update_setting(
-                actual_key,
-                Settings::sanitize_clipboard_history_retention_secs(parsed),
-            )?;
-            ApplySettingOutcome::default()
-        }
-        "inline_datetime_enabled" => {
-            let enabled = parse_boolean_setting_value_with_key(
-                actual_key,
-                require_non_empty(value, actual_key)?,
-            )?;
-            crate::settings::set_cached_inline_datetime_enabled(enabled);
-            manager.update_setting(actual_key, enabled)?;
-            ApplySettingOutcome::default()
-        }
-        "inline_currency_to_words_enabled" => {
-            let enabled = parse_boolean_setting_value_with_key(
-                actual_key,
-                require_non_empty(value, actual_key)?,
-            )?;
-            crate::settings::set_cached_inline_currency_to_words_enabled(enabled);
-            manager.update_setting(actual_key, enabled)?;
-            ApplySettingOutcome::default()
-        }
-        "inline_dictionary_enabled" => {
-            let enabled = parse_boolean_setting_value_with_key(
-                actual_key,
-                require_non_empty(value, actual_key)?,
-            )?;
-            crate::settings::set_cached_inline_dictionary_enabled(enabled);
-            manager.update_setting(actual_key, enabled)?;
-            ApplySettingOutcome::default()
-        }
-        "inline_dictionary_mode" => {
-            let mode_str = require_non_empty(value, actual_key)?;
-            let mode = parse_inline_dictionary_mode(mode_str)?;
-            crate::settings::set_cached_inline_dictionary_mode(mode);
-            manager.update_setting(actual_key, mode)?;
-            ApplySettingOutcome::default()
-        }
-        "inline_datetime_date_format" => {
+        "inline_date_format" => {
             let val = require_non_empty(value, actual_key)?.to_string();
-            crate::settings::set_cached_inline_datetime_date_format(val.clone());
+            crate::settings::set_cached_inline_date_format(val.clone());
             manager.update_setting(actual_key, val)?;
             ApplySettingOutcome::default()
         }
-        "inline_datetime_time_format" => {
+        "inline_time_format" => {
             let val = require_non_empty(value, actual_key)?.to_string();
-            crate::settings::set_cached_inline_datetime_time_format(val.clone());
+            crate::settings::set_cached_inline_time_format(val.clone());
             manager.update_setting(actual_key, val)?;
             ApplySettingOutcome::default()
         }
-        "inline_datetime_datetime_format" => {
+        "inline_datetime_format" => {
             let val = require_non_empty(value, actual_key)?.to_string();
-            crate::settings::set_cached_inline_datetime_datetime_format(val.clone());
+            crate::settings::set_cached_inline_datetime_format(val.clone());
             manager.update_setting(actual_key, val)?;
-            ApplySettingOutcome::default()
-        }
-        "inline_datetime_dialect" => {
-            let val = require_non_empty(value, actual_key)?.to_lowercase();
-            if val != "uk" && val != "us" {
-                let diag =
-                    Diagnostic::problem(format!("{val} is not an available datetime dialect"))
-                        .suggest(&val, &["uk", "us"])
-                        .options("Available dialects", &["uk", "us"])
-                        .example("taurine config set inline_datetime_dialect uk")
-                        .render();
-                return Err(Error::Config(diag));
-            }
-            crate::settings::set_cached_inline_datetime_dialect(val.clone());
-            manager.update_setting(actual_key, val)?;
-            ApplySettingOutcome::default()
-        }
-        "inline_emoji_enabled" => {
-            let enabled = parse_boolean_setting_value_with_key(
-                actual_key,
-                require_non_empty(value, actual_key)?,
-            )?;
-            crate::settings::set_cached_inline_emoji_enabled(enabled);
-            manager.update_setting(actual_key, enabled)?;
-            ApplySettingOutcome::default()
-        }
-        "inline_emoji_trigger_char" => {
-            let c = parse_char_setting(value, actual_key)?;
-            crate::settings::set_cached_inline_emoji_trigger_char(c);
-            manager.update_setting(actual_key, c)?;
-            ApplySettingOutcome::default()
-        }
-        "script_timeout" => {
-            let raw_value = require_non_empty(value, actual_key)?;
-            let parsed = raw_value
-                .parse::<u32>()
-                .map_err(|_| Error::Config(format!("bad timeout value: {raw_value}")))?;
-            manager.update_setting(actual_key, parsed)?;
-            ApplySettingOutcome::default()
-        }
-        "ai_temperature" => {
-            let parsed = match value {
-                Some(v) if !v.trim().is_empty() => Some(
-                    v.trim()
-                        .parse::<f32>()
-                        .map_err(|_| Error::Config(format!("bad temperature value: {v}")))?,
-                ),
-                _ => None,
-            };
-            manager.update_setting(actual_key, parsed)?;
-            ApplySettingOutcome::default()
-        }
-        "ai_max_tokens" => {
-            let parsed = match value {
-                Some(v) if !v.trim().is_empty() => Some(
-                    v.trim()
-                        .parse::<u32>()
-                        .map_err(|_| Error::Config(format!("bad max tokens value: {v}")))?,
-                ),
-                _ => None,
-            };
-            manager.update_setting(actual_key, parsed)?;
-            ApplySettingOutcome::default()
-        }
-        "ai_system_prompt" => {
-            let parsed = match value {
-                Some(v) if !v.trim().is_empty() => Some(v.trim().to_string()),
-                _ => None,
-            };
-            manager.update_setting(actual_key, parsed)?;
             ApplySettingOutcome::default()
         }
         "voice_always_on" | "always_on" | "voice_listen" | "voice_wake" => {
@@ -455,27 +287,6 @@ pub fn parse_tui_cursor_style(value: &str) -> Result<TuiCursorStyle> {
             Err(Error::Config(diag))
         }
     }
-}
-
-pub fn parse_inline_dictionary_mode(value: &str) -> Result<super::InlineDictionaryMode> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "lite" => Ok(super::InlineDictionaryMode::Lite),
-        "full" => Ok(super::InlineDictionaryMode::Full),
-        other => {
-            let diag = Diagnostic::problem(format!("{other} is not an available dictionary mode"))
-                .suggest(other, &["lite", "full"])
-                .options("Available modes", &["lite", "full"])
-                .example("taurine config set inline_dictionary_mode lite")
-                .render();
-            Err(Error::Config(diag))
-        }
-    }
-}
-
-fn parse_char_setting(value: Option<&str>, key: &str) -> Result<char> {
-    value
-        .and_then(|value| value.chars().next())
-        .ok_or_else(|| Error::Config(format!("{key} must not be empty")))
 }
 
 fn require_non_empty<'a>(value: Option<&'a str>, key: &str) -> Result<&'a str> {

@@ -1,27 +1,45 @@
 use super::*;
-use crate::settings::{
-    AudioTheme, InlineDictionaryMode, SettingKey, Settings, SettingsManager, SpinnerStyle,
-    TuiCursorStyle,
-};
+use crate::settings::{AudioTheme, SettingKey, Settings, SettingsManager, TuiCursorStyle};
 use crate::testing::open_test_db;
 use std::collections::HashSet;
 
 #[test]
-fn invalid_wpm_is_rejected() {
+fn test_removed_settings_rejected_as_unknown() {
     let (_dir, conn) = open_test_db();
     let manager = SettingsManager::new(&conn);
 
-    assert!(apply_setting_input_with_manager(&manager, "wpm", Some("fast")).is_err());
+    for key in [
+        "wpm",
+        "spinner_style",
+        "inline_ai_enabled",
+        "inline_tab_completion_enabled",
+        "inline_case_transform_enabled",
+        "scripts_enabled",
+        "script_timeout",
+        "clipboard_history_enabled",
+        "inline_emoji_enabled",
+        "inline_datetime_enabled",
+        "inline_currency_to_words_enabled",
+        "inline_dictionary_enabled",
+        "inline_dictionary_mode",
+    ] {
+        let err = apply_setting_input_with_manager(&manager, key, Some("x")).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("is not a valid configuration setting"),
+            "expected unknown-setting diagnostic for {key}, got: {msg}"
+        );
+    }
 }
 
 #[test]
-fn valid_spinner_style_arc_is_accepted() {
+fn valid_audio_theme_arcade_is_accepted() {
     let (_dir, conn) = open_test_db();
     let manager = SettingsManager::new(&conn);
 
-    apply_setting_input_with_manager(&manager, "spinner_style", Some("arc")).unwrap();
+    apply_setting_input_with_manager(&manager, "audio_theme", Some("arcade")).unwrap();
 
-    assert_eq!(manager.load_all().spinner_style, SpinnerStyle::Arc);
+    assert_eq!(manager.load_all().audio_theme, AudioTheme::Arcade);
 }
 
 #[test]
@@ -90,92 +108,64 @@ fn default_setting_input_uses_canonical_defaults() {
         Some("Alt + `".to_string())
     );
     assert_eq!(
-        default_setting_input("inline_tab_completion_enabled").unwrap(),
+        default_setting_input("start_on_boot").unwrap(),
         Some("true".to_string())
     );
     assert_eq!(default_setting_input("ai_custom_endpoint").unwrap(), None);
 }
 
 #[test]
-fn resetting_inline_tab_completion_restores_default() {
+fn resetting_start_on_boot_restores_default() {
     let (_dir, conn) = open_test_db();
     let manager = SettingsManager::new(&conn);
-    manager
-        .update_setting("inline_tab_completion_enabled", false)
-        .unwrap();
+    manager.update_setting("start_on_boot", false).unwrap();
 
-    let default_value = default_setting_input("inline_tab_completion_enabled").unwrap();
-    apply_setting_input_with_manager(
-        &manager,
-        "inline_tab_completion_enabled",
-        default_value.as_deref(),
-    )
-    .unwrap();
+    let default_value = default_setting_input("start_on_boot").unwrap();
+    apply_setting_input_with_manager(&manager, "start_on_boot", default_value.as_deref()).unwrap();
 
-    assert!(manager.load_all().inline_tab_completion_enabled);
+    assert!(manager.load_all().start_on_boot);
 }
 
 #[test]
-fn resetting_inline_case_transform_restores_default() {
-    let (_dir, conn) = open_test_db();
-    let manager = SettingsManager::new(&conn);
-    manager
-        .update_setting("inline_case_transform_enabled", false)
-        .unwrap();
-
-    let default_value = default_setting_input("inline_case_transform_enabled").unwrap();
-    apply_setting_input_with_manager(
-        &manager,
-        "inline_case_transform_enabled",
-        default_value.as_deref(),
-    )
-    .unwrap();
-
-    assert!(manager.load_all().inline_case_transform_enabled);
-}
-
-#[test]
-fn test_apply_clipboard_restore_delay_ms() {
-    let (_dir, conn) = open_test_db();
-    let manager = SettingsManager::new(&conn);
-
-    // Apply a valid value
-    apply_setting_input_with_manager(&manager, "clipboard_restore_delay_ms", Some("1200")).unwrap();
-    assert_eq!(manager.load_all().clipboard_restore_delay_ms, 1200);
-
-    // Apply clamped value
-    apply_setting_input_with_manager(&manager, "clipboard_restore_delay_ms", Some("3000")).unwrap();
-    assert_eq!(manager.load_all().clipboard_restore_delay_ms, 2000);
-}
-
-#[test]
-fn test_inline_emoji_settings() {
+fn test_inline_date_time_formats_settings() {
     let _guard = crate::testing::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let (_dir, conn) = open_test_db();
     let manager = SettingsManager::new(&conn);
 
-    // Verify default setting input
     assert_eq!(
-        default_setting_input("inline_emoji_enabled").unwrap(),
-        Some("true".to_string())
+        default_setting_input("inline_date_format").unwrap(),
+        Some("MMMM D, YYYY".to_string())
     );
     assert_eq!(
-        default_setting_input("inline_emoji_trigger_char").unwrap(),
-        Some(":".to_string())
+        default_setting_input("inline_time_format").unwrap(),
+        Some("h:mm A".to_string())
+    );
+    assert_eq!(
+        default_setting_input("inline_datetime_format").unwrap(),
+        Some("MMMM D, YYYY 'at' h:mm A".to_string())
     );
 
-    // Apply new values
-    apply_setting_input_with_manager(&manager, "inline_emoji_enabled", Some("false")).unwrap();
-    apply_setting_input_with_manager(&manager, "inline_emoji_trigger_char", Some(";")).unwrap();
+    apply_setting_input_with_manager(&manager, "inline_date_format", Some("YYYY-MM-DD")).unwrap();
+    apply_setting_input_with_manager(&manager, "inline_time_format", Some("HH:mm")).unwrap();
+    apply_setting_input_with_manager(&manager, "inline_datetime_format", Some("YYYY-MM-DD HH:mm"))
+        .unwrap();
 
     let loaded = manager.load_all();
-    assert!(!loaded.inline_emoji_enabled);
-    assert_eq!(loaded.inline_emoji_trigger_char, ';');
+    assert_eq!(loaded.inline_date_format, "YYYY-MM-DD");
+    assert_eq!(loaded.inline_time_format, "HH:mm");
+    assert_eq!(loaded.inline_datetime_format, "YYYY-MM-DD HH:mm");
 
-    assert!(!crate::settings::get_cached_inline_emoji_enabled());
-    assert_eq!(crate::settings::get_cached_inline_emoji_trigger_char(), ';');
+    assert_eq!(
+        crate::settings::get_cached_inline_date_format(),
+        "YYYY-MM-DD"
+    );
+    assert_eq!(crate::settings::get_cached_inline_time_format(), "HH:mm");
+    assert_eq!(
+        crate::settings::get_cached_inline_datetime_format(),
+        "YYYY-MM-DD HH:mm"
+    );
 }
 
 #[test]
@@ -189,71 +179,8 @@ fn toggling_system_tray_enabled_persists_changed_value() {
 }
 
 #[test]
-fn test_inline_currency_to_words_settings() {
-    let _guard = crate::testing::TEST_LOCK
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    let (_dir, conn) = open_test_db();
-    let manager = SettingsManager::new(&conn);
-
-    assert_eq!(
-        default_setting_input("inline_currency_to_words_enabled").unwrap(),
-        Some("false".to_string())
-    );
-
-    apply_setting_input_with_manager(&manager, "inline_currency_to_words_enabled", Some("true"))
-        .unwrap();
-
-    let loaded = manager.load_all();
-    assert!(loaded.inline_currency_to_words_enabled);
-    assert!(crate::settings::get_cached_inline_currency_to_words_enabled());
-}
-
-#[test]
-fn test_inline_dictionary_settings() {
-    let (_dir, conn) = crate::testing::open_test_db();
-    let manager = SettingsManager::new(&conn);
-
-    assert_eq!(
-        default_setting_input("inline_dictionary_enabled").unwrap(),
-        Some("true".to_string())
-    );
-
-    apply_setting_input_with_manager(&manager, "inline_dictionary_enabled", Some("false")).unwrap();
-
-    let loaded = manager.load_all();
-    assert!(!loaded.inline_dictionary_enabled);
-    assert!(!crate::settings::get_cached_inline_dictionary_enabled());
-}
-
-#[test]
-fn test_inline_dictionary_mode_settings() {
-    let (_dir, conn) = crate::testing::open_test_db();
-    let manager = SettingsManager::new(&conn);
-
-    assert_eq!(
-        default_setting_input("inline_dictionary_mode").unwrap(),
-        Some("lite".to_string())
-    );
-
-    apply_setting_input_with_manager(&manager, "inline_dictionary_mode", Some("full")).unwrap();
-
-    let loaded = manager.load_all();
-    assert_eq!(loaded.inline_dictionary_mode, InlineDictionaryMode::Full);
-    assert_eq!(
-        crate::settings::get_cached_inline_dictionary_mode(),
-        InlineDictionaryMode::Full
-    );
-
-    // Test bad value rejects
-    let err =
-        apply_setting_input_with_manager(&manager, "inline_dictionary_mode", Some("invalid_mode"));
-    assert!(err.is_err());
-}
-
-#[test]
 fn setting_key_all_has_unique_storage_keys() {
-    assert_eq!(SettingKey::ALL.len(), 43);
+    assert_eq!(SettingKey::ALL.len(), 20);
 
     let mut seen = HashSet::new();
     for key in SettingKey::ALL {
@@ -286,45 +213,24 @@ fn sweep_covers_defaults_set_and_reset_for_all_keys() {
 
     let sweep: &[(&str, &str)] = &[
         ("pause_hotkey", "Ctrl + Shift + P"),
-        ("pause_notifications_enabled", "true"),
-        ("pause_audio_enabled", "false"),
+        ("start_on_boot", "false"),
+        ("auto_update", "false"),
+        ("instant_expand", "true"),
+        ("ignore_fullscreen", "false"),
+        ("system_tray_enabled", "false"),
+        ("inline_date_format", "DD/MM/YYYY"),
+        ("inline_time_format", "HH:mm"),
+        ("inline_datetime_format", "DD/MM/YYYY HH:mm"),
         ("audio_theme", "arcade"),
         ("audio_volume", "80"),
-        ("start_on_boot", "false"),
-        ("inline_tab_completion_enabled", "false"),
-        ("inline_case_transform_enabled", "false"),
-        ("wpm", "100"),
-        ("spinner_style", "arc"),
         ("ai_provider", "gemini"),
         ("ai_model", "gpt-test"),
         ("ai_custom_endpoint", "https://example.com"),
-        ("inline_ai_enabled", "false"),
-        ("clipboard_restore_delay_ms", "1000"),
-        ("instant_expand", "true"),
-        ("ignore_fullscreen", "false"),
-        ("scripts_enabled", "false"),
-        ("script_timeout", "30"),
-        ("ai_temperature", "0.5"),
-        ("ai_max_tokens", "1024"),
-        ("ai_system_prompt", "test prompt"),
-        ("clipboard_history_enabled", "false"),
-        ("clipboard_history_retention_secs", "600"),
-        ("inline_emoji_enabled", "false"),
-        ("inline_emoji_trigger_char", "!"),
-        ("system_tray_enabled", "false"),
-        ("inline_datetime_enabled", "false"),
-        ("inline_datetime_date_format", "DD/MM/YYYY"),
-        ("inline_datetime_time_format", "HH:mm"),
-        ("inline_datetime_datetime_format", "DD/MM/YYYY HH:mm"),
-        ("inline_datetime_dialect", "us"),
-        ("inline_currency_to_words_enabled", "true"),
-        ("inline_dictionary_enabled", "false"),
-        ("inline_dictionary_mode", "full"),
-        ("notify_on_update", "false"),
         ("voice_ptt_hotkey", "ctrl+space"),
         ("voice_handsfree_hotkey", "ctrl+alt+space"),
         ("voice_dictionary", "Rust, Taurine"),
         ("voice_input_device", "External Mic"),
+        ("pause_media_while_dictating", "false"),
         ("tui_cursor_style", "underscore"),
     ];
 
@@ -335,48 +241,24 @@ fn sweep_covers_defaults_set_and_reset_for_all_keys() {
 
     let expected = Settings {
         pause_hotkey: "Ctrl + Shift + P".to_string(),
-        pause_notifications_enabled: true,
-        pause_audio_enabled: false,
+        start_on_boot: false,
+        auto_update: false,
+        instant_expand: true,
+        ignore_fullscreen: false,
+        system_tray_enabled: false,
+        inline_date_format: "DD/MM/YYYY".to_string(),
+        inline_time_format: "HH:mm".to_string(),
+        inline_datetime_format: "DD/MM/YYYY HH:mm".to_string(),
         audio_theme: AudioTheme::Arcade,
         audio_volume: 80,
-        start_on_boot: false,
-        inline_tab_completion_enabled: false,
-        inline_case_transform_enabled: false,
-        wpm: 100,
-        spinner_style: SpinnerStyle::Arc,
         ai_provider: Some("gemini".to_string()),
         ai_model: Some("gpt-test".to_string()),
         ai_custom_endpoint: Some("https://example.com".to_string()),
-        inline_ai_enabled: false,
-        clipboard_restore_delay_ms: 1000,
-        instant_expand: true,
-        ignore_fullscreen: false,
-        script_timeout: 30,
-        ai_temperature: Some(0.5),
-        ai_max_tokens: Some(1024),
-        ai_system_prompt: Some("test prompt".to_string()),
-        auto_update: true,
-        clipboard_history_enabled: false,
-        clipboard_history_retention_secs: 600,
-        inline_emoji_enabled: false,
-        inline_emoji_trigger_char: '!',
-        scripts_enabled: false,
-        system_tray_enabled: false,
-        inline_datetime_enabled: false,
-        inline_datetime_date_format: "DD/MM/YYYY".to_string(),
-        inline_datetime_time_format: "HH:mm".to_string(),
-        inline_datetime_datetime_format: "DD/MM/YYYY HH:mm".to_string(),
-        inline_datetime_dialect: "us".to_string(),
-        inline_currency_to_words_enabled: true,
-        inline_dictionary_enabled: false,
-        inline_dictionary_mode: InlineDictionaryMode::Full,
-        notify_on_update: false,
-        _voice_always_on: None,
         voice_ptt_hotkey: "ctrl+space".to_string(),
         voice_handsfree_hotkey: "ctrl+alt+space".to_string(),
         voice_dictionary: "Rust, Taurine".to_string(),
         voice_input_device: Some("External Mic".to_string()),
-        pause_media_while_dictating: true,
+        pause_media_while_dictating: false,
         tui_cursor_style: TuiCursorStyle::Underscore,
     };
     assert_eq!(manager.load_all(), expected);
@@ -528,69 +410,9 @@ fn test_removed_rpc_keys_rejected_as_unknown() {
 }
 
 #[test]
-fn test_invalid_spinner_style_diagnostic() {
-    let (_dir, conn) = open_test_db();
-    let manager = SettingsManager::new(&conn);
-
-    let err = apply_setting_input_with_manager(&manager, "spinner_style", Some("dot")).unwrap_err();
-    let msg = err.to_string();
-
-    assert!(
-        msg.contains("dot is not an available spinner style"),
-        "expected problem message, got: {msg}"
-    );
-    assert!(
-        msg.contains("classic, braille, arc"),
-        "expected options listing classic, braille, arc, got: {msg}"
-    );
-    assert!(
-        msg.contains("taurine config set spinner_style"),
-        "expected example command, got: {msg}"
-    );
-}
-
-#[test]
-fn test_invalid_inline_dictionary_mode_diagnostic() {
-    let (_dir, conn) = open_test_db();
-    let manager = SettingsManager::new(&conn);
-
-    let err = apply_setting_input_with_manager(&manager, "inline_dictionary_mode", Some("ultra"))
-        .unwrap_err();
-    let msg = err.to_string();
-
-    assert!(
-        msg.contains("ultra is not an available dictionary mode"),
-        "expected problem message, got: {msg}"
-    );
-    assert!(
-        msg.contains("lite, full"),
-        "expected options listing lite, full, got: {msg}"
-    );
-}
-
-#[test]
-fn test_invalid_inline_datetime_dialect_diagnostic() {
-    let (_dir, conn) = open_test_db();
-    let manager = SettingsManager::new(&conn);
-
-    let err = apply_setting_input_with_manager(&manager, "inline_datetime_dialect", Some("au"))
-        .unwrap_err();
-    let msg = err.to_string();
-
-    assert!(
-        msg.contains("au is not an available datetime dialect"),
-        "expected problem message, got: {msg}"
-    );
-    assert!(
-        msg.contains("uk, us"),
-        "expected options listing uk, us, got: {msg}"
-    );
-}
-
-#[test]
 fn settings_version_bumps_on_cached_write() {
     let v0 = crate::settings::settings_version();
-    crate::settings::set_cached_wpm(crate::settings::get_cached_wpm());
+    crate::settings::set_cached_audio_volume(crate::settings::get_cached_audio_volume());
     assert!(
         crate::settings::settings_version() > v0,
         "cached write must bump the settings version"

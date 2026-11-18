@@ -24,18 +24,6 @@ impl<'a> SettingsManager<'a> {
             settings.pause_hotkey = v;
         }
 
-        if let Some(val) = map.get("pause_notifications_enabled")
-            && let Ok(v) = serde_json::from_str::<bool>(val)
-        {
-            settings.pause_notifications_enabled = v;
-        }
-
-        if let Some(val) = map.get("pause_audio_enabled")
-            && let Ok(v) = serde_json::from_str::<bool>(val)
-        {
-            settings.pause_audio_enabled = v;
-        }
-
         if let Some(val) = map.get("audio_theme")
             && let Ok(v) = serde_json::from_str::<super::AudioTheme>(val)
         {
@@ -54,28 +42,64 @@ impl<'a> SettingsManager<'a> {
             settings.start_on_boot = v;
         }
 
-        if let Some(val) = map.get("inline_tab_completion_enabled")
+        if let Some(val) = map.get("auto_update")
             && let Ok(v) = serde_json::from_str::<bool>(val)
         {
-            settings.inline_tab_completion_enabled = v;
+            settings.auto_update = v;
         }
 
-        if let Some(val) = map.get("inline_case_transform_enabled")
+        if let Some(val) = map.get("instant_expand")
             && let Ok(v) = serde_json::from_str::<bool>(val)
         {
-            settings.inline_case_transform_enabled = v;
+            settings.instant_expand = v;
         }
 
-        if let Some(val) = map.get("wpm")
+        if let Some(val) = map.get("ignore_fullscreen")
+            && let Ok(v) = serde_json::from_str::<bool>(val)
+        {
+            settings.ignore_fullscreen = v;
+        }
+
+        if let Some(val) = map.get("system_tray_enabled")
+            && let Ok(v) = serde_json::from_str::<bool>(val)
+        {
+            settings.system_tray_enabled = v;
+        }
+
+        if let Some(val) = map
+            .get("inline_date_format")
+            .or_else(|| map.get("inline_datetime_date_format"))
+            && let Ok(v) = serde_json::from_str::<String>(val)
+        {
+            settings.inline_date_format = v;
+        }
+
+        if let Some(val) = map
+            .get("inline_time_format")
+            .or_else(|| map.get("inline_datetime_time_format"))
+            && let Ok(v) = serde_json::from_str::<String>(val)
+        {
+            settings.inline_time_format = v;
+        }
+
+        if let Some(val) = map
+            .get("inline_datetime_format")
+            .or_else(|| map.get("inline_datetime_datetime_format"))
+            && let Ok(v) = serde_json::from_str::<String>(val)
+        {
+            settings.inline_datetime_format = v;
+        }
+
+        if let Some(val) = map.get("audio_theme")
+            && let Ok(v) = serde_json::from_str::<super::AudioTheme>(val)
+        {
+            settings.audio_theme = v;
+        }
+
+        if let Some(val) = map.get("audio_volume")
             && let Ok(v) = serde_json::from_str::<u32>(val)
         {
-            settings.wpm = Settings::sanitize_wpm(v);
-        }
-
-        if let Some(val) = map.get("spinner_style")
-            && let Ok(v) = serde_json::from_str::<super::SpinnerStyle>(val)
-        {
-            settings.spinner_style = v;
+            settings.audio_volume = Settings::sanitize_audio_volume(v);
         }
 
         if let Some(val) = map.get("ai_provider")
@@ -96,162 +120,36 @@ impl<'a> SettingsManager<'a> {
             settings.ai_custom_endpoint = v;
         }
 
-        if let Some(val) = map.get("inline_ai_enabled")
-            && let Ok(v) = serde_json::from_str::<bool>(val)
-        {
-            settings.inline_ai_enabled = v;
-        }
-
-        if let Some(val) = map.get("clipboard_restore_delay_ms")
-            && let Ok(v) = serde_json::from_str::<u32>(val)
-        {
-            settings.clipboard_restore_delay_ms = Settings::sanitize_clipboard_restore_delay_ms(v);
-        }
-
-        if let Some(val) = map.get("instant_expand")
-            && let Ok(v) = serde_json::from_str::<bool>(val)
-        {
-            settings.instant_expand = v;
-        }
-
-        if let Some(val) = map.get("ignore_fullscreen")
-            && let Ok(v) = serde_json::from_str::<bool>(val)
-        {
-            settings.ignore_fullscreen = v;
-        }
-
-        if let Some(val) = map.get("script_timeout")
-            && let Ok(v) = serde_json::from_str::<u32>(val)
-        {
-            settings.script_timeout = v;
-        }
-
-        if let Some(val) = map.get("ai_temperature")
-            && let Ok(v) = serde_json::from_str::<Option<f32>>(val)
-        {
-            settings.ai_temperature = v;
-        }
-
-        if let Some(val) = map.get("ai_max_tokens")
-            && let Ok(v) = serde_json::from_str::<Option<u32>>(val)
-        {
-            settings.ai_max_tokens = v;
-        }
-
-        if let Some(val) = map.get("ai_system_prompt")
-            && let Ok(v) = serde_json::from_str::<Option<String>>(val)
-        {
-            settings.ai_system_prompt = v;
-        }
-
-        if let Some(val) = map.get("auto_update")
-            && let Ok(v) = serde_json::from_str::<bool>(val)
-        {
-            settings.auto_update = v;
-        }
-
-        if let Some(val) = map.get("clipboard_history_enabled")
-            && let Ok(v) = serde_json::from_str::<bool>(val)
-        {
-            settings.clipboard_history_enabled = v;
-        }
-
-        if let Some(val) = map.get("clipboard_history_retention_secs")
-            && let Ok(v) = serde_json::from_str::<u32>(val)
-        {
-            settings.clipboard_history_retention_secs =
-                Settings::sanitize_clipboard_history_retention_secs(v);
-        }
-
-        if let Some(val) = map.get("inline_emoji_enabled")
-            && let Ok(v) = serde_json::from_str::<bool>(val)
-        {
-            settings.inline_emoji_enabled = v;
-        }
-
-        if let Some(val) = map.get("inline_emoji_trigger_char")
-            && let Ok(v) = serde_json::from_str::<char>(val)
-        {
-            settings.inline_emoji_trigger_char = v;
-        }
-
-        if let Some(val) = map.get("scripts_enabled")
-            && let Ok(v) = serde_json::from_str::<bool>(val)
-        {
-            settings.scripts_enabled = v;
-        }
-
-        if let Some(val) = map.get("system_tray_enabled")
-            && let Ok(v) = serde_json::from_str::<bool>(val)
-        {
-            settings.system_tray_enabled = v;
-        }
-
-        if let Some(val) = map.get("inline_datetime_enabled")
-            && let Ok(v) = serde_json::from_str::<bool>(val)
-        {
-            settings.inline_datetime_enabled = v;
-        }
-        if let Some(val) = map.get("inline_currency_to_words_enabled")
-            && let Ok(v) = serde_json::from_str::<bool>(val)
-        {
-            settings.inline_currency_to_words_enabled = v;
-        }
-        if let Some(val) = map.get("inline_dictionary_enabled")
-            && let Ok(v) = serde_json::from_str::<bool>(val)
-        {
-            settings.inline_dictionary_enabled = v;
-        }
-        if let Some(val) = map.get("inline_dictionary_mode")
-            && let Ok(v) = serde_json::from_str::<super::InlineDictionaryMode>(val)
-        {
-            settings.inline_dictionary_mode = v;
-        }
-        if let Some(val) = map.get("inline_datetime_date_format")
-            && let Ok(v) = serde_json::from_str::<String>(val)
-        {
-            settings.inline_datetime_date_format = v;
-        }
-        if let Some(val) = map.get("inline_datetime_time_format")
-            && let Ok(v) = serde_json::from_str::<String>(val)
-        {
-            settings.inline_datetime_time_format = v;
-        }
-        if let Some(val) = map.get("inline_datetime_datetime_format")
-            && let Ok(v) = serde_json::from_str::<String>(val)
-        {
-            settings.inline_datetime_datetime_format = v;
-        }
-        if let Some(val) = map.get("inline_datetime_dialect")
-            && let Ok(v) = serde_json::from_str::<String>(val)
-        {
-            settings.inline_datetime_dialect = v;
-        }
         if let Some(val) = map.get("voice_ptt_hotkey")
             && let Ok(v) = serde_json::from_str::<String>(val)
         {
             settings.voice_ptt_hotkey = v;
         }
+
         if let Some(val) = map.get("voice_handsfree_hotkey")
             && let Ok(v) = serde_json::from_str::<String>(val)
         {
             settings.voice_handsfree_hotkey = v;
         }
+
         if let Some(val) = map.get("voice_dictionary")
             && let Ok(v) = serde_json::from_str::<String>(val)
         {
             settings.voice_dictionary = v;
         }
+
         if let Some(val) = map.get("voice_input_device")
             && let Ok(v) = serde_json::from_str::<Option<String>>(val)
         {
             settings.voice_input_device = v;
         }
+
         if let Some(val) = map.get("pause_media_while_dictating")
             && let Ok(v) = serde_json::from_str::<bool>(val)
         {
             settings.pause_media_while_dictating = v;
         }
+
         if let Some(val) = map.get("tui_cursor_style")
             && let Ok(v) = serde_json::from_str::<super::TuiCursorStyle>(val)
         {
@@ -276,29 +174,24 @@ mod tests {
     use crate::testing::open_test_db;
 
     #[test]
-    fn load_all_reads_inline_trigger_assist_settings_from_db() {
+    fn load_all_reads_inline_date_time_formats_from_db() {
         let (_dir, conn) = open_test_db();
         let manager = SettingsManager::new(&conn);
 
         manager
-            .update_setting("inline_tab_completion_enabled", false)
+            .update_setting("inline_date_format", "YYYY-MM-DD")
             .unwrap();
-
-        let settings = manager.load_all();
-        assert!(!settings.inline_tab_completion_enabled);
-    }
-
-    #[test]
-    fn load_all_reads_inline_case_transform_settings_from_db() {
-        let (_dir, conn) = open_test_db();
-        let manager = SettingsManager::new(&conn);
-
         manager
-            .update_setting("inline_case_transform_enabled", false)
+            .update_setting("inline_time_format", "HH:mm")
+            .unwrap();
+        manager
+            .update_setting("inline_datetime_format", "YYYY-MM-DD HH:mm")
             .unwrap();
 
         let settings = manager.load_all();
-        assert!(!settings.inline_case_transform_enabled);
+        assert_eq!(settings.inline_date_format, "YYYY-MM-DD");
+        assert_eq!(settings.inline_time_format, "HH:mm");
+        assert_eq!(settings.inline_datetime_format, "YYYY-MM-DD HH:mm");
     }
 
     #[test]

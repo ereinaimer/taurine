@@ -10,8 +10,6 @@ use crate::keys::Hotkey;
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::sync::atomic::AtomicBool;
-
-use std::sync::atomic::AtomicU32;
 use std::time::{Duration, Instant};
 
 const UNDO_WINDOW: Duration = Duration::from_millis(5000);
@@ -38,25 +36,14 @@ impl UndoState {
 }
 
 pub struct EngineState {
-    pub inline_ai_enabled: AtomicBool,
-    pub inline_tab_completion_enabled: AtomicBool,
-    pub inline_case_transform_enabled: AtomicBool,
-    pub inline_datetime_enabled: std::sync::atomic::AtomicBool,
-    pub inline_currency_to_words_enabled: std::sync::atomic::AtomicBool,
-    pub inline_dictionary_enabled: AtomicBool,
-    inline_datetime_date_format: parking_lot::RwLock<String>,
-    inline_datetime_time_format: parking_lot::RwLock<String>,
-    inline_datetime_datetime_format: parking_lot::RwLock<String>,
-    inline_datetime_dialect: parking_lot::RwLock<String>,
+    inline_date_format: parking_lot::RwLock<String>,
+    inline_time_format: parking_lot::RwLock<String>,
+    inline_datetime_format: parking_lot::RwLock<String>,
     pub instant_expand: AtomicBool,
     pub ignore_fullscreen_enabled: AtomicBool,
     pub is_os_fullscreen: AtomicBool,
     pub completion_active: AtomicBool,
-    pub wpm: AtomicU32,
-    pub clipboard_restore_delay_ms: AtomicU32,
-    pub script_timeout: AtomicU32,
 
-    pub spinner_style: RwLock<crate::settings::SpinnerStyle>,
     undo_state: RwLock<Option<UndoState>>,
     case_cycle: RwLock<Option<CaseCycleSession>>,
     word_catalog: ExpansionCatalog,
@@ -73,30 +60,16 @@ impl Default for EngineState {
 impl EngineState {
     pub fn new() -> Self {
         Self {
-            inline_ai_enabled: AtomicBool::new(true),
-            inline_tab_completion_enabled: AtomicBool::new(true),
-            inline_case_transform_enabled: AtomicBool::new(true),
-            inline_datetime_enabled: std::sync::atomic::AtomicBool::new(true),
-            inline_currency_to_words_enabled: std::sync::atomic::AtomicBool::new(false),
-            inline_dictionary_enabled: AtomicBool::new(false),
-
-            inline_datetime_date_format: parking_lot::RwLock::new("MMMM D, YYYY".to_string()),
-            inline_datetime_time_format: parking_lot::RwLock::new("h:mm A".to_string()),
-            inline_datetime_datetime_format: parking_lot::RwLock::new(
+            inline_date_format: parking_lot::RwLock::new("MMMM D, YYYY".to_string()),
+            inline_time_format: parking_lot::RwLock::new("h:mm A".to_string()),
+            inline_datetime_format: parking_lot::RwLock::new(
                 "MMMM D, YYYY 'at' h:mm A".to_string(),
-            ),
-            inline_datetime_dialect: parking_lot::RwLock::new(
-                crate::engine::dates::detect_locale_dialect().to_string(),
             ),
             instant_expand: AtomicBool::new(false),
             ignore_fullscreen_enabled: AtomicBool::new(true),
             is_os_fullscreen: AtomicBool::new(false),
             completion_active: AtomicBool::new(false),
-            wpm: AtomicU32::new(60),
-            clipboard_restore_delay_ms: AtomicU32::new(250),
-            script_timeout: AtomicU32::new(15),
 
-            spinner_style: RwLock::new(crate::settings::SpinnerStyle::default()),
             undo_state: RwLock::new(None),
             case_cycle: RwLock::new(None),
             word_catalog: ExpansionCatalog::new(),
@@ -108,30 +81,16 @@ impl EngineState {
     /// Creates an EngineState with a custom snippet source.
     pub fn with_source(source: Arc<dyn SnippetSource>) -> Self {
         Self {
-            inline_ai_enabled: AtomicBool::new(true),
-            inline_tab_completion_enabled: AtomicBool::new(true),
-            inline_case_transform_enabled: AtomicBool::new(true),
-            inline_datetime_enabled: std::sync::atomic::AtomicBool::new(true),
-            inline_currency_to_words_enabled: std::sync::atomic::AtomicBool::new(false),
-            inline_dictionary_enabled: AtomicBool::new(false),
-
-            inline_datetime_date_format: parking_lot::RwLock::new("MMMM D, YYYY".to_string()),
-            inline_datetime_time_format: parking_lot::RwLock::new("h:mm A".to_string()),
-            inline_datetime_datetime_format: parking_lot::RwLock::new(
+            inline_date_format: parking_lot::RwLock::new("MMMM D, YYYY".to_string()),
+            inline_time_format: parking_lot::RwLock::new("h:mm A".to_string()),
+            inline_datetime_format: parking_lot::RwLock::new(
                 "MMMM D, YYYY 'at' h:mm A".to_string(),
-            ),
-            inline_datetime_dialect: parking_lot::RwLock::new(
-                crate::engine::dates::detect_locale_dialect().to_string(),
             ),
             instant_expand: AtomicBool::new(false),
             ignore_fullscreen_enabled: AtomicBool::new(true),
             is_os_fullscreen: AtomicBool::new(false),
             completion_active: AtomicBool::new(false),
-            wpm: AtomicU32::new(60),
-            clipboard_restore_delay_ms: AtomicU32::new(250),
-            script_timeout: AtomicU32::new(15),
 
-            spinner_style: RwLock::new(crate::settings::SpinnerStyle::default()),
             undo_state: RwLock::new(None),
             case_cycle: RwLock::new(None),
             word_catalog: ExpansionCatalog::with_source(source),
@@ -141,18 +100,15 @@ impl EngineState {
     }
 
     pub fn inline_ai_enabled(&self) -> bool {
-        self.inline_ai_enabled
-            .load(std::sync::atomic::Ordering::Relaxed)
+        true
     }
 
     pub fn inline_tab_completion_enabled(&self) -> bool {
-        self.inline_tab_completion_enabled
-            .load(std::sync::atomic::Ordering::Relaxed)
+        true
     }
 
     pub fn inline_case_transform_enabled(&self) -> bool {
-        self.inline_case_transform_enabled
-            .load(std::sync::atomic::Ordering::Relaxed)
+        true
     }
 
     /// True when expansions and injections must be suppressed: the user
@@ -325,35 +281,54 @@ impl EngineState {
     }
 
     pub fn inline_datetime_enabled(&self) -> bool {
-        crate::settings::get_cached_inline_datetime_enabled()
+        true
     }
     pub fn inline_currency_to_words_enabled(&self) -> bool {
-        crate::settings::get_cached_inline_currency_to_words_enabled()
+        true
+    }
+    pub fn inline_dictionary_enabled(&self) -> bool {
+        true
+    }
+    pub fn get_inline_date_format(&self) -> String {
+        self.inline_date_format.read().clone()
+    }
+    pub fn set_inline_date_format(&self, f: String) {
+        *self.inline_date_format.write() = f;
+    }
+    pub fn get_inline_time_format(&self) -> String {
+        self.inline_time_format.read().clone()
+    }
+    pub fn set_inline_time_format(&self, f: String) {
+        *self.inline_time_format.write() = f;
+    }
+    pub fn get_inline_datetime_format(&self) -> String {
+        self.inline_datetime_format.read().clone()
+    }
+    pub fn set_inline_datetime_format(&self, f: String) {
+        *self.inline_datetime_format.write() = f;
     }
     pub fn get_inline_datetime_date_format(&self) -> String {
-        self.inline_datetime_date_format.read().clone()
+        self.get_inline_date_format()
     }
     pub fn set_inline_datetime_date_format(&self, f: String) {
-        *self.inline_datetime_date_format.write() = f;
+        self.set_inline_date_format(f);
     }
     pub fn get_inline_datetime_time_format(&self) -> String {
-        self.inline_datetime_time_format.read().clone()
+        self.get_inline_time_format()
     }
     pub fn set_inline_datetime_time_format(&self, f: String) {
-        *self.inline_datetime_time_format.write() = f;
+        self.set_inline_time_format(f);
     }
     pub fn get_inline_datetime_datetime_format(&self) -> String {
-        self.inline_datetime_datetime_format.read().clone()
+        self.get_inline_datetime_format()
     }
     pub fn set_inline_datetime_datetime_format(&self, f: String) {
-        *self.inline_datetime_datetime_format.write() = f;
+        self.set_inline_datetime_format(f);
     }
     pub fn get_inline_datetime_dialect(&self) -> String {
-        self.inline_datetime_dialect.read().clone()
+        crate::engine::dates::detect_locale_dialect().to_string()
     }
-    pub fn set_inline_datetime_dialect(&self, d: String) {
-        *self.inline_datetime_dialect.write() = d;
-    }
+    pub fn set_inline_datetime_dialect(&self, _d: String) {}
 
     pub fn register_case_cycle(&self, original_text: String) {
         if let Ok(mut guard) = self.case_cycle.write() {

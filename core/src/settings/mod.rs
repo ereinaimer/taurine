@@ -1,39 +1,15 @@
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU32, Ordering};
 
-static CACHED_SCRIPT_TIMEOUT: AtomicU32 = AtomicU32::new(15);
-static CACHED_CLIPBOARD_RESTORE_DELAY: AtomicU32 = AtomicU32::new(350);
-static CACHED_WPM: AtomicU32 = AtomicU32::new(60);
-static CACHED_CLIPBOARD_HISTORY_ENABLED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(true);
-static CACHED_CLIPBOARD_HISTORY_RETENTION_SECS: AtomicU32 = AtomicU32::new(300);
-static CACHED_INLINE_EMOJI_ENABLED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(true);
-static CACHED_INLINE_EMOJI_TRIGGER_CHAR: AtomicU32 = AtomicU32::new(':' as u32);
-static CACHED_SCRIPTS_ENABLED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(true);
-static CACHED_INLINE_CASE_TRANSFORM_ENABLED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(true);
-
-static CACHED_INLINE_DATETIME_ENABLED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(true);
-static CACHED_INLINE_DICTIONARY_ENABLED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(true);
-static CACHED_INLINE_DICTIONARY_MODE: parking_lot::RwLock<InlineDictionaryMode> =
-    parking_lot::RwLock::new(InlineDictionaryMode::Lite);
-static CACHED_INLINE_DATETIME_DATE_FORMAT: parking_lot::RwLock<Option<String>> =
-    parking_lot::RwLock::new(None);
-static CACHED_INLINE_DATETIME_TIME_FORMAT: parking_lot::RwLock<Option<String>> =
-    parking_lot::RwLock::new(None);
-static CACHED_INLINE_DATETIME_DATETIME_FORMAT: parking_lot::RwLock<Option<String>> =
-    parking_lot::RwLock::new(None);
-static CACHED_INLINE_DATETIME_DIALECT: parking_lot::RwLock<Option<String>> =
-    parking_lot::RwLock::new(None);
-static CACHED_INLINE_CURRENCY_TO_WORDS_ENABLED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
 static CACHED_AUDIO_THEME: parking_lot::RwLock<AudioTheme> =
     parking_lot::RwLock::new(AudioTheme::Minimal);
 static CACHED_AUDIO_VOLUME: AtomicU32 = AtomicU32::new(50);
+static CACHED_INLINE_DATE_FORMAT: parking_lot::RwLock<Option<String>> =
+    parking_lot::RwLock::new(None);
+static CACHED_INLINE_TIME_FORMAT: parking_lot::RwLock<Option<String>> =
+    parking_lot::RwLock::new(None);
+static CACHED_INLINE_DATETIME_FORMAT: parking_lot::RwLock<Option<String>> =
+    parking_lot::RwLock::new(None);
 static CACHED_VOICE_PTT_HOTKEY: parking_lot::RwLock<Option<String>> =
     parking_lot::RwLock::new(None);
 static CACHED_VOICE_HANDSFREE_HOTKEY: parking_lot::RwLock<Option<String>> =
@@ -44,6 +20,8 @@ static CACHED_VOICE_INPUT_DEVICE: parking_lot::RwLock<Option<String>> =
     parking_lot::RwLock::new(None);
 static CACHED_PAUSE_MEDIA_WHILE_DICTATING: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(true);
+static CACHED_INLINE_DICTIONARY_MODE: parking_lot::RwLock<InlineDictionaryMode> =
+    parking_lot::RwLock::new(InlineDictionaryMode::Lite);
 
 // Bumped on every cached-settings write so background loops can poll this
 // single counter instead of re-reading the database while idle.
@@ -75,168 +53,126 @@ pub fn get_cached_audio_volume() -> u32 {
     CACHED_AUDIO_VOLUME.load(Ordering::Relaxed)
 }
 
-pub fn set_cached_inline_emoji_enabled(enabled: bool) {
-    CACHED_INLINE_EMOJI_ENABLED.store(enabled, Ordering::Relaxed);
+pub fn set_cached_inline_date_format(f: String) {
+    *CACHED_INLINE_DATE_FORMAT.write() = Some(f);
     bump_settings_version();
 }
 
-pub fn set_cached_inline_dictionary_enabled(enabled: bool) {
-    CACHED_INLINE_DICTIONARY_ENABLED.store(enabled, Ordering::Relaxed);
-    bump_settings_version();
-}
-
-pub fn get_cached_inline_dictionary_enabled() -> bool {
-    CACHED_INLINE_DICTIONARY_ENABLED.load(Ordering::Relaxed)
-}
-
-pub fn set_cached_inline_dictionary_mode(mode: InlineDictionaryMode) {
-    *CACHED_INLINE_DICTIONARY_MODE.write() = mode;
-    bump_settings_version();
-}
-
-pub fn get_cached_inline_dictionary_mode() -> InlineDictionaryMode {
-    *CACHED_INLINE_DICTIONARY_MODE.read()
-}
-
-pub fn set_cached_inline_emoji_trigger_char(c: char) {
-    CACHED_INLINE_EMOJI_TRIGGER_CHAR.store(c as u32, Ordering::Relaxed);
-    bump_settings_version();
-}
-
-pub fn get_cached_inline_emoji_enabled() -> bool {
-    CACHED_INLINE_EMOJI_ENABLED.load(Ordering::Relaxed)
-}
-
-pub fn get_cached_inline_emoji_trigger_char() -> char {
-    let u = CACHED_INLINE_EMOJI_TRIGGER_CHAR.load(Ordering::Relaxed);
-    std::char::from_u32(u).unwrap_or(':')
-}
-
-pub fn set_cached_scripts_enabled(enabled: bool) {
-    CACHED_SCRIPTS_ENABLED.store(enabled, Ordering::Relaxed);
-    bump_settings_version();
-}
-
-pub fn get_cached_scripts_enabled() -> bool {
-    CACHED_SCRIPTS_ENABLED.load(Ordering::Relaxed)
-}
-
-pub fn set_cached_inline_case_transform_enabled(enabled: bool) {
-    CACHED_INLINE_CASE_TRANSFORM_ENABLED.store(enabled, Ordering::Relaxed);
-    bump_settings_version();
-}
-
-pub fn get_cached_inline_case_transform_enabled() -> bool {
-    CACHED_INLINE_CASE_TRANSFORM_ENABLED.load(Ordering::Relaxed)
-}
-
-pub fn set_cached_script_timeout(timeout: u32) {
-    CACHED_SCRIPT_TIMEOUT.store(timeout, Ordering::Relaxed);
-    bump_settings_version();
-}
-
-pub fn set_cached_clipboard_restore_delay(delay: u32) {
-    CACHED_CLIPBOARD_RESTORE_DELAY.store(delay, Ordering::Relaxed);
-    bump_settings_version();
-}
-
-pub fn set_cached_wpm(wpm: u32) {
-    CACHED_WPM.store(wpm, Ordering::Relaxed);
-    bump_settings_version();
-}
-
-pub fn set_cached_clipboard_history_enabled(enabled: bool) {
-    CACHED_CLIPBOARD_HISTORY_ENABLED.store(enabled, Ordering::Relaxed);
-    bump_settings_version();
-}
-
-pub fn set_cached_clipboard_history_retention_secs(secs: u32) {
-    CACHED_CLIPBOARD_HISTORY_RETENTION_SECS.store(secs, Ordering::Relaxed);
-    bump_settings_version();
-}
-
-pub fn get_cached_clipboard_restore_delay() -> u32 {
-    CACHED_CLIPBOARD_RESTORE_DELAY.load(Ordering::Relaxed)
-}
-
-pub fn get_cached_wpm() -> u32 {
-    CACHED_WPM.load(Ordering::Relaxed)
-}
-
-pub fn get_cached_clipboard_history_enabled() -> bool {
-    CACHED_CLIPBOARD_HISTORY_ENABLED.load(Ordering::Relaxed)
-}
-
-pub fn get_cached_clipboard_history_retention_secs() -> u32 {
-    CACHED_CLIPBOARD_HISTORY_RETENTION_SECS.load(Ordering::Relaxed)
-}
-
-pub fn set_cached_inline_datetime_enabled(enabled: bool) {
-    CACHED_INLINE_DATETIME_ENABLED.store(enabled, Ordering::Relaxed);
-    bump_settings_version();
-}
-pub fn get_cached_inline_datetime_enabled() -> bool {
-    CACHED_INLINE_DATETIME_ENABLED.load(Ordering::Relaxed)
-}
-pub fn set_cached_inline_currency_to_words_enabled(enabled: bool) {
-    CACHED_INLINE_CURRENCY_TO_WORDS_ENABLED.store(enabled, Ordering::Relaxed);
-    bump_settings_version();
-}
-pub fn get_cached_inline_currency_to_words_enabled() -> bool {
-    CACHED_INLINE_CURRENCY_TO_WORDS_ENABLED.load(Ordering::Relaxed)
-}
-pub fn set_cached_inline_datetime_date_format(f: String) {
-    *CACHED_INLINE_DATETIME_DATE_FORMAT.write() = Some(f);
-    bump_settings_version();
-}
-pub fn get_cached_inline_datetime_date_format() -> String {
-    CACHED_INLINE_DATETIME_DATE_FORMAT
+pub fn get_cached_inline_date_format() -> String {
+    CACHED_INLINE_DATE_FORMAT
         .read()
         .clone()
         .unwrap_or_else(|| "MMMM D, YYYY".to_string())
 }
-pub fn set_cached_inline_datetime_time_format(f: String) {
-    *CACHED_INLINE_DATETIME_TIME_FORMAT.write() = Some(f);
+
+pub fn set_cached_inline_time_format(f: String) {
+    *CACHED_INLINE_TIME_FORMAT.write() = Some(f);
     bump_settings_version();
 }
-pub fn get_cached_inline_datetime_time_format() -> String {
-    CACHED_INLINE_DATETIME_TIME_FORMAT
+
+pub fn get_cached_inline_time_format() -> String {
+    CACHED_INLINE_TIME_FORMAT
         .read()
         .clone()
         .unwrap_or_else(|| "h:mm A".to_string())
 }
-pub fn set_cached_inline_datetime_datetime_format(f: String) {
-    *CACHED_INLINE_DATETIME_DATETIME_FORMAT.write() = Some(f);
+
+pub fn set_cached_inline_datetime_format(f: String) {
+    *CACHED_INLINE_DATETIME_FORMAT.write() = Some(f);
     bump_settings_version();
 }
-pub fn get_cached_inline_datetime_datetime_format() -> String {
-    CACHED_INLINE_DATETIME_DATETIME_FORMAT
+
+pub fn get_cached_inline_datetime_format() -> String {
+    CACHED_INLINE_DATETIME_FORMAT
         .read()
         .clone()
         .unwrap_or_else(|| "MMMM D, YYYY 'at' h:mm A".to_string())
 }
 
-pub fn get_cached_inline_date_format() -> String {
-    get_cached_inline_datetime_date_format()
+pub fn set_cached_inline_datetime_date_format(f: String) {
+    set_cached_inline_date_format(f);
 }
 
-pub fn get_cached_inline_time_format() -> String {
-    get_cached_inline_datetime_time_format()
+pub fn get_cached_inline_datetime_date_format() -> String {
+    get_cached_inline_date_format()
 }
 
-pub fn get_cached_inline_datetime_format() -> String {
-    get_cached_inline_datetime_datetime_format()
+pub fn set_cached_inline_datetime_time_format(f: String) {
+    set_cached_inline_time_format(f);
 }
 
-pub fn set_cached_inline_datetime_dialect(d: String) {
-    *CACHED_INLINE_DATETIME_DIALECT.write() = Some(d);
+pub fn get_cached_inline_datetime_time_format() -> String {
+    get_cached_inline_time_format()
+}
+
+pub fn set_cached_inline_datetime_datetime_format(f: String) {
+    set_cached_inline_datetime_format(f);
+}
+
+pub fn get_cached_inline_datetime_datetime_format() -> String {
+    get_cached_inline_datetime_format()
+}
+
+pub fn set_cached_inline_datetime_dialect(_d: String) {}
+
+pub fn get_cached_inline_datetime_dialect() -> String {
+    crate::engine::dates::detect_locale_dialect().to_string()
+}
+
+// Deprecated forwarders for removed settings caches
+pub fn set_cached_scripts_enabled(_enabled: bool) {}
+pub fn get_cached_scripts_enabled() -> bool {
+    true
+}
+pub fn set_cached_inline_emoji_enabled(_enabled: bool) {}
+pub fn get_cached_inline_emoji_enabled() -> bool {
+    true
+}
+pub fn set_cached_inline_emoji_trigger_char(_c: char) {}
+pub fn get_cached_inline_emoji_trigger_char() -> char {
+    ':'
+}
+pub fn set_cached_inline_case_transform_enabled(_enabled: bool) {}
+pub fn get_cached_inline_case_transform_enabled() -> bool {
+    true
+}
+pub fn set_cached_script_timeout(_timeout: u32) {}
+pub fn set_cached_clipboard_restore_delay(_delay: u32) {}
+pub fn get_cached_clipboard_restore_delay() -> u32 {
+    Settings::default_clipboard_restore_delay_ms()
+}
+pub fn set_cached_wpm(_wpm: u32) {
     bump_settings_version();
 }
-pub fn get_cached_inline_datetime_dialect() -> String {
-    CACHED_INLINE_DATETIME_DIALECT
-        .read()
-        .clone()
-        .unwrap_or_else(|| crate::engine::dates::detect_locale_dialect().to_string())
+pub fn get_cached_wpm() -> u32 {
+    Settings::default_wpm()
+}
+pub fn set_cached_clipboard_history_enabled(_enabled: bool) {}
+pub fn get_cached_clipboard_history_enabled() -> bool {
+    true
+}
+pub fn set_cached_clipboard_history_retention_secs(_secs: u32) {}
+pub fn get_cached_clipboard_history_retention_secs() -> u32 {
+    300
+}
+pub fn set_cached_inline_datetime_enabled(_enabled: bool) {}
+pub fn get_cached_inline_datetime_enabled() -> bool {
+    true
+}
+pub fn set_cached_inline_currency_to_words_enabled(_enabled: bool) {}
+pub fn get_cached_inline_currency_to_words_enabled() -> bool {
+    true
+}
+pub fn set_cached_inline_dictionary_enabled(_enabled: bool) {}
+pub fn get_cached_inline_dictionary_enabled() -> bool {
+    true
+}
+pub fn set_cached_inline_dictionary_mode(mode: InlineDictionaryMode) {
+    *CACHED_INLINE_DICTIONARY_MODE.write() = mode;
+    bump_settings_version();
+}
+pub fn get_cached_inline_dictionary_mode() -> InlineDictionaryMode {
+    *CACHED_INLINE_DICTIONARY_MODE.read()
 }
 
 pub fn set_cached_voice_ptt_hotkey(hotkey: String) {
@@ -415,42 +351,19 @@ pub enum InlineDictionaryMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingKey {
     PauseHotkey,
-    PauseNotificationsEnabled,
-    PauseAudioEnabled,
-    AudioTheme,
-    AudioVolume,
     StartOnBoot,
     AutoUpdate,
-    InlineTabCompletionEnabled,
-    InlineCaseTransformEnabled,
-    Wpm,
-    SpinnerStyle,
+    InstantExpand,
+    IgnoreFullscreen,
+    SystemTrayEnabled,
+    InlineDateFormat,
+    InlineTimeFormat,
+    InlineDatetimeFormat,
+    AudioTheme,
+    AudioVolume,
     AiProvider,
     AiModel,
     AiCustomEndpoint,
-    InlineAiEnabled,
-    ClipboardRestoreDelayMs,
-    InstantExpand,
-    IgnoreFullscreen,
-    ScriptsEnabled,
-    ScriptTimeout,
-    AiTemperature,
-    AiMaxTokens,
-    AiSystemPrompt,
-    ClipboardHistoryEnabled,
-    ClipboardHistoryRetentionSecs,
-    InlineEmojiEnabled,
-    InlineEmojiTriggerChar,
-    SystemTrayEnabled,
-    InlineDatetimeEnabled,
-    InlineDatetimeDateFormat,
-    InlineDatetimeTimeFormat,
-    InlineDatetimeDatetimeFormat,
-    InlineDatetimeDialect,
-    InlineCurrencyToWordsEnabled,
-    InlineDictionaryEnabled,
-    InlineDictionaryMode,
-    NotifyOnUpdate,
     VoicePttHotkey,
     VoiceHandsfreeHotkey,
     VoiceDictionary,
@@ -460,44 +373,21 @@ pub enum SettingKey {
 }
 
 impl SettingKey {
-    pub const ALL: [Self; 43] = [
+    pub const ALL: [Self; 20] = [
         Self::PauseHotkey,
-        Self::PauseNotificationsEnabled,
-        Self::PauseAudioEnabled,
-        Self::AudioTheme,
-        Self::AudioVolume,
         Self::StartOnBoot,
         Self::AutoUpdate,
-        Self::InlineTabCompletionEnabled,
-        Self::InlineCaseTransformEnabled,
-        Self::Wpm,
-        Self::SpinnerStyle,
+        Self::InstantExpand,
+        Self::IgnoreFullscreen,
+        Self::SystemTrayEnabled,
+        Self::InlineDateFormat,
+        Self::InlineTimeFormat,
+        Self::InlineDatetimeFormat,
+        Self::AudioTheme,
+        Self::AudioVolume,
         Self::AiProvider,
         Self::AiModel,
         Self::AiCustomEndpoint,
-        Self::InlineAiEnabled,
-        Self::ClipboardRestoreDelayMs,
-        Self::InstantExpand,
-        Self::IgnoreFullscreen,
-        Self::ScriptsEnabled,
-        Self::ScriptTimeout,
-        Self::AiTemperature,
-        Self::AiMaxTokens,
-        Self::AiSystemPrompt,
-        Self::ClipboardHistoryEnabled,
-        Self::ClipboardHistoryRetentionSecs,
-        Self::InlineEmojiEnabled,
-        Self::InlineEmojiTriggerChar,
-        Self::SystemTrayEnabled,
-        Self::InlineDatetimeEnabled,
-        Self::InlineDatetimeDateFormat,
-        Self::InlineDatetimeTimeFormat,
-        Self::InlineDatetimeDatetimeFormat,
-        Self::InlineDatetimeDialect,
-        Self::InlineCurrencyToWordsEnabled,
-        Self::InlineDictionaryEnabled,
-        Self::InlineDictionaryMode,
-        Self::NotifyOnUpdate,
         Self::VoicePttHotkey,
         Self::VoiceHandsfreeHotkey,
         Self::VoiceDictionary,
@@ -515,42 +405,19 @@ impl SettingKey {
     pub const fn storage_key(self) -> &'static str {
         match self {
             Self::PauseHotkey => "pause_hotkey",
-            Self::PauseNotificationsEnabled => "pause_notifications_enabled",
-            Self::PauseAudioEnabled => "pause_audio_enabled",
-            Self::AudioTheme => "audio_theme",
-            Self::AudioVolume => "audio_volume",
             Self::StartOnBoot => "start_on_boot",
             Self::AutoUpdate => "auto_update",
-            Self::InlineTabCompletionEnabled => "inline_tab_completion_enabled",
-            Self::InlineCaseTransformEnabled => "inline_case_transform_enabled",
-            Self::Wpm => "wpm",
-            Self::SpinnerStyle => "spinner_style",
+            Self::InstantExpand => "instant_expand",
+            Self::IgnoreFullscreen => "ignore_fullscreen",
+            Self::SystemTrayEnabled => "system_tray_enabled",
+            Self::InlineDateFormat => "inline_date_format",
+            Self::InlineTimeFormat => "inline_time_format",
+            Self::InlineDatetimeFormat => "inline_datetime_format",
+            Self::AudioTheme => "audio_theme",
+            Self::AudioVolume => "audio_volume",
             Self::AiProvider => "ai_provider",
             Self::AiModel => "ai_model",
             Self::AiCustomEndpoint => "ai_custom_endpoint",
-            Self::InlineAiEnabled => "inline_ai_enabled",
-            Self::ClipboardRestoreDelayMs => "clipboard_restore_delay_ms",
-            Self::InstantExpand => "instant_expand",
-            Self::IgnoreFullscreen => "ignore_fullscreen",
-            Self::ScriptsEnabled => "scripts_enabled",
-            Self::ScriptTimeout => "script_timeout",
-            Self::AiTemperature => "ai_temperature",
-            Self::AiMaxTokens => "ai_max_tokens",
-            Self::AiSystemPrompt => "ai_system_prompt",
-            Self::ClipboardHistoryEnabled => "clipboard_history_enabled",
-            Self::ClipboardHistoryRetentionSecs => "clipboard_history_retention_secs",
-            Self::InlineEmojiEnabled => "inline_emoji_enabled",
-            Self::InlineEmojiTriggerChar => "inline_emoji_trigger_char",
-            Self::SystemTrayEnabled => "system_tray_enabled",
-            Self::InlineDatetimeEnabled => "inline_datetime_enabled",
-            Self::InlineDatetimeDateFormat => "inline_datetime_date_format",
-            Self::InlineDatetimeTimeFormat => "inline_datetime_time_format",
-            Self::InlineDatetimeDatetimeFormat => "inline_datetime_datetime_format",
-            Self::InlineDatetimeDialect => "inline_datetime_dialect",
-            Self::InlineCurrencyToWordsEnabled => "inline_currency_to_words_enabled",
-            Self::InlineDictionaryEnabled => "inline_dictionary_enabled",
-            Self::InlineDictionaryMode => "inline_dictionary_mode",
-            Self::NotifyOnUpdate => "notify_on_update",
             Self::VoicePttHotkey => "voice_ptt_hotkey",
             Self::VoiceHandsfreeHotkey => "voice_handsfree_hotkey",
             Self::VoiceDictionary => "voice_dictionary",
@@ -564,47 +431,19 @@ impl SettingKey {
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct Settings {
     pub pause_hotkey: String,
-    pub pause_notifications_enabled: bool,
-    pub pause_audio_enabled: bool,
+    pub start_on_boot: bool,
+    pub auto_update: bool,
+    pub instant_expand: bool,
+    pub ignore_fullscreen: bool,
+    pub system_tray_enabled: bool,
+    pub inline_date_format: String,
+    pub inline_time_format: String,
+    pub inline_datetime_format: String,
     pub audio_theme: AudioTheme,
     pub audio_volume: u32,
-    pub start_on_boot: bool,
-    pub inline_tab_completion_enabled: bool,
-    pub inline_case_transform_enabled: bool,
-    pub wpm: u32,
-    pub spinner_style: SpinnerStyle,
     pub ai_provider: Option<String>,
     pub ai_model: Option<String>,
     pub ai_custom_endpoint: Option<String>,
-    pub inline_ai_enabled: bool,
-    pub clipboard_restore_delay_ms: u32,
-    pub instant_expand: bool,
-    pub ignore_fullscreen: bool,
-    pub script_timeout: u32,
-    pub ai_temperature: Option<f32>,
-    pub ai_max_tokens: Option<u32>,
-    pub ai_system_prompt: Option<String>,
-    pub auto_update: bool,
-    pub clipboard_history_enabled: bool,
-    pub clipboard_history_retention_secs: u32,
-    pub inline_emoji_enabled: bool,
-    pub inline_emoji_trigger_char: char,
-    pub scripts_enabled: bool,
-    pub system_tray_enabled: bool,
-    pub inline_datetime_enabled: bool,
-    pub inline_datetime_date_format: String,
-    pub inline_datetime_time_format: String,
-    pub inline_datetime_datetime_format: String,
-    pub inline_datetime_dialect: String,
-    pub inline_currency_to_words_enabled: bool,
-    pub inline_dictionary_enabled: bool,
-    pub inline_dictionary_mode: InlineDictionaryMode,
-    pub notify_on_update: bool,
-    /// Legacy ambient-listening flag. Deserialization keeps accepting
-    /// `voice_always_on` from older configs but the value is ignored:
-    /// always-on listening was superseded by on-demand voice hotkeys.
-    #[serde(default, skip_serializing, alias = "voice_always_on")]
-    pub _voice_always_on: Option<bool>,
     pub voice_ptt_hotkey: String,
     pub voice_handsfree_hotkey: String,
     pub voice_dictionary: String,
@@ -617,69 +456,19 @@ impl std::fmt::Debug for Settings {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Settings")
             .field("pause_hotkey", &self.pause_hotkey)
-            .field(
-                "pause_notifications_enabled",
-                &self.pause_notifications_enabled,
-            )
-            .field("pause_audio_enabled", &self.pause_audio_enabled)
+            .field("start_on_boot", &self.start_on_boot)
+            .field("auto_update", &self.auto_update)
+            .field("instant_expand", &self.instant_expand)
+            .field("ignore_fullscreen", &self.ignore_fullscreen)
+            .field("system_tray_enabled", &self.system_tray_enabled)
+            .field("inline_date_format", &self.inline_date_format)
+            .field("inline_time_format", &self.inline_time_format)
+            .field("inline_datetime_format", &self.inline_datetime_format)
             .field("audio_theme", &self.audio_theme)
             .field("audio_volume", &self.audio_volume)
-            .field("start_on_boot", &self.start_on_boot)
-            .field(
-                "inline_tab_completion_enabled",
-                &self.inline_tab_completion_enabled,
-            )
-            .field(
-                "inline_case_transform_enabled",
-                &self.inline_case_transform_enabled,
-            )
-            .field("wpm", &self.wpm)
-            .field("spinner_style", &self.spinner_style)
             .field("ai_provider", &self.ai_provider)
             .field("ai_model", &self.ai_model)
             .field("ai_custom_endpoint", &self.ai_custom_endpoint)
-            .field("inline_ai_enabled", &self.inline_ai_enabled)
-            .field(
-                "clipboard_restore_delay_ms",
-                &self.clipboard_restore_delay_ms,
-            )
-            .field("instant_expand", &self.instant_expand)
-            .field("ignore_fullscreen", &self.ignore_fullscreen)
-            .field("script_timeout", &self.script_timeout)
-            .field("ai_temperature", &self.ai_temperature)
-            .field("ai_max_tokens", &self.ai_max_tokens)
-            .field("ai_system_prompt", &self.ai_system_prompt)
-            .field("auto_update", &self.auto_update)
-            .field("clipboard_history_enabled", &self.clipboard_history_enabled)
-            .field(
-                "clipboard_history_retention_secs",
-                &self.clipboard_history_retention_secs,
-            )
-            .field("inline_emoji_enabled", &self.inline_emoji_enabled)
-            .field("inline_emoji_trigger_char", &self.inline_emoji_trigger_char)
-            .field("scripts_enabled", &self.scripts_enabled)
-            .field("system_tray_enabled", &self.system_tray_enabled)
-            .field("inline_datetime_enabled", &self.inline_datetime_enabled)
-            .field(
-                "inline_datetime_date_format",
-                &self.inline_datetime_date_format,
-            )
-            .field(
-                "inline_datetime_time_format",
-                &self.inline_datetime_time_format,
-            )
-            .field(
-                "inline_datetime_datetime_format",
-                &self.inline_datetime_datetime_format,
-            )
-            .field("inline_datetime_dialect", &self.inline_datetime_dialect)
-            .field(
-                "inline_currency_to_words_enabled",
-                &self.inline_currency_to_words_enabled,
-            )
-            .field("inline_dictionary_enabled", &self.inline_dictionary_enabled)
-            .field("inline_dictionary_mode", &self.inline_dictionary_mode)
-            .field("notify_on_update", &self.notify_on_update)
             .field("voice_ptt_hotkey", &self.voice_ptt_hotkey)
             .field("voice_handsfree_hotkey", &self.voice_handsfree_hotkey)
             .field("voice_dictionary", &self.voice_dictionary)
@@ -694,44 +483,21 @@ impl std::fmt::Debug for Settings {
 }
 
 impl Settings {
-    pub const ALL_KEYS: [&'static str; 43] = [
+    pub const ALL_KEYS: [&'static str; 20] = [
         "pause_hotkey",
-        "pause_notifications_enabled",
-        "pause_audio_enabled",
-        "audio_theme",
-        "audio_volume",
         "start_on_boot",
         "auto_update",
-        "inline_tab_completion_enabled",
-        "inline_case_transform_enabled",
-        "wpm",
-        "spinner_style",
+        "instant_expand",
+        "ignore_fullscreen",
+        "system_tray_enabled",
+        "inline_date_format",
+        "inline_time_format",
+        "inline_datetime_format",
+        "audio_theme",
+        "audio_volume",
         "ai_provider",
         "ai_model",
         "ai_custom_endpoint",
-        "inline_ai_enabled",
-        "clipboard_restore_delay_ms",
-        "instant_expand",
-        "ignore_fullscreen",
-        "scripts_enabled",
-        "script_timeout",
-        "ai_temperature",
-        "ai_max_tokens",
-        "ai_system_prompt",
-        "clipboard_history_enabled",
-        "clipboard_history_retention_secs",
-        "inline_emoji_enabled",
-        "inline_emoji_trigger_char",
-        "system_tray_enabled",
-        "inline_datetime_enabled",
-        "inline_datetime_date_format",
-        "inline_datetime_time_format",
-        "inline_datetime_datetime_format",
-        "inline_datetime_dialect",
-        "inline_currency_to_words_enabled",
-        "inline_dictionary_enabled",
-        "inline_dictionary_mode",
-        "notify_on_update",
         "voice_ptt_hotkey",
         "voice_handsfree_hotkey",
         "voice_dictionary",
@@ -743,63 +509,24 @@ impl Settings {
     pub fn resolve_key(key: &str) -> &str {
         match key {
             "hotkey" => "pause_hotkey",
-            "notifications" => "pause_notifications_enabled",
-            "pause_audio" => "pause_audio_enabled",
+            "boot" => "start_on_boot",
+            "instant" => "instant_expand",
+            "system_tray" | "tray" => "system_tray_enabled",
+            "date_format" | "inline_datetime_date_format" | "inline_date_time_date_format" => {
+                "inline_date_format"
+            }
+            "time_format" | "inline_datetime_time_format" | "inline_date_time_time_format" => {
+                "inline_time_format"
+            }
+            "datetime_format"
+            | "date_time_format"
+            | "inline_datetime_datetime_format"
+            | "inline_date_time_datetime_format" => "inline_datetime_format",
             "audio_theme" | "sound_theme" | "audio_pack" | "sound_pack" => "audio_theme",
             "audio_volume" | "sound_volume" | "volume" => "audio_volume",
-            "boot" => "start_on_boot",
-            "inline_tab_completion" => "inline_tab_completion_enabled",
-            "inline_dictionary" | "inline_dictionary_enabled" | "dictionary" => {
-                "inline_dictionary_enabled"
-            }
-            "inline_dictionary_mode" | "dictionary_mode" => "inline_dictionary_mode",
-            "inline_case_transform" | "inline_case_transform_enabled" => {
-                "inline_case_transform_enabled"
-            }
-            "wpm" => "wpm",
-            "spinner" => "spinner_style",
             "ai_provider" => "ai_provider",
             "ai_model" => "ai_model",
-            "inline_ai" | "inline_ai_enabled" | "ai" => "inline_ai_enabled",
-            "endpoint" => "ai_custom_endpoint",
-            "custom_endpoint" => "ai_custom_endpoint",
-            "ai_custom_endpoint" => "ai_custom_endpoint",
-            "clipboard_restore_delay_ms" => "clipboard_restore_delay_ms",
-            "clipboard_delay" => "clipboard_restore_delay_ms",
-            "instant_expand" => "instant_expand",
-            "instant" => "instant_expand",
-            "ignore_fullscreen" => "ignore_fullscreen",
-            "script_timeout" => "script_timeout",
-            "ai_temperature" | "temperature" => "ai_temperature",
-            "ai_max_tokens" | "max_tokens" => "ai_max_tokens",
-            "ai_system_prompt" | "system_prompt" => "ai_system_prompt",
-            "clipboard_history" | "clipboard_history_enabled" => "clipboard_history_enabled",
-            "clipboard_history_retention" | "clipboard_history_retention_secs" => {
-                "clipboard_history_retention_secs"
-            }
-            "inline_date_time"
-            | "inline_date_time_enabled"
-            | "inline_datetime"
-            | "inline_datetime_enabled" => "inline_datetime_enabled",
-            "inline_currency_to_words"
-            | "inline_currency_to_words_enabled"
-            | "inline_currency_words"
-            | "inline_currency_words_enabled" => "inline_currency_to_words_enabled",
-            "inline_date_time_date_format" | "inline_datetime_date_format" => {
-                "inline_datetime_date_format"
-            }
-            "inline_date_time_time_format" | "inline_datetime_time_format" => {
-                "inline_datetime_time_format"
-            }
-            "inline_date_time_datetime_format" | "inline_datetime_datetime_format" => {
-                "inline_datetime_datetime_format"
-            }
-            "inline_date_time_dialect" | "inline_datetime_dialect" => "inline_datetime_dialect",
-            "inline_emoji" | "inline_emoji_enabled" => "inline_emoji_enabled",
-            "inline_emoji_trigger_char" | "emoji_trigger" => "inline_emoji_trigger_char",
-            "scripts_enabled" => "scripts_enabled",
-            "system_tray" | "system_tray_enabled" | "tray" => "system_tray_enabled",
-            "notify_on_update" | "notify_update" | "update_notify" => "notify_on_update",
+            "endpoint" | "custom_endpoint" | "ai_custom_endpoint" => "ai_custom_endpoint",
             "voice_ptt_hotkey" | "voice_ptt" | "ptt_hotkey" | "ptt" => "voice_ptt_hotkey",
             "voice_handsfree_hotkey" | "voice_handsfree" | "handsfree_hotkey" | "handsfree" => {
                 "voice_handsfree_hotkey"
@@ -807,8 +534,7 @@ impl Settings {
             "voice_dictionary" | "voice_vocab" | "voice_words" => "voice_dictionary",
             "voice_input_device" | "voice_device" | "voice_mic" | "input_device" | "mic"
             | "microphone" => "voice_input_device",
-            "pause_media_while_dictating" => "pause_media_while_dictating",
-            "pause_media" => "pause_media_while_dictating",
+            "pause_media_while_dictating" | "pause_media" => "pause_media_while_dictating",
             "tui_cursor_style" | "cursor_style" | "cursor" => "tui_cursor_style",
             other => other,
         }
@@ -879,43 +605,19 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             pause_hotkey: "Alt + `".to_string(),
-            pause_notifications_enabled: false,
-            pause_audio_enabled: true,
+            start_on_boot: true,
+            auto_update: true,
+            instant_expand: false,
+            ignore_fullscreen: true,
+            system_tray_enabled: true,
+            inline_date_format: "MMMM D, YYYY".to_string(),
+            inline_time_format: "h:mm A".to_string(),
+            inline_datetime_format: "MMMM D, YYYY 'at' h:mm A".to_string(),
             audio_theme: AudioTheme::default(),
             audio_volume: Self::default_audio_volume(),
-            start_on_boot: true,
-            inline_tab_completion_enabled: true,
-            inline_case_transform_enabled: true,
-            wpm: Self::default_wpm(),
-            spinner_style: SpinnerStyle::default(),
             ai_provider: None,
             ai_model: None,
             ai_custom_endpoint: None,
-            inline_ai_enabled: true,
-            clipboard_restore_delay_ms: Self::default_clipboard_restore_delay_ms(),
-            instant_expand: false,
-            ignore_fullscreen: true,
-            script_timeout: 15,
-            ai_temperature: None,
-            ai_max_tokens: None,
-            ai_system_prompt: None,
-            auto_update: true,
-            clipboard_history_enabled: true,
-            clipboard_history_retention_secs: 300,
-            inline_emoji_enabled: true,
-            inline_emoji_trigger_char: ':',
-            scripts_enabled: true,
-            system_tray_enabled: true,
-            inline_datetime_enabled: true,
-            inline_datetime_date_format: "MMMM D, YYYY".to_string(),
-            inline_datetime_time_format: "h:mm A".to_string(),
-            inline_datetime_datetime_format: "MMMM D, YYYY 'at' h:mm A".to_string(),
-            inline_datetime_dialect: "uk".to_string(),
-            inline_currency_to_words_enabled: false,
-            inline_dictionary_enabled: true,
-            inline_dictionary_mode: InlineDictionaryMode::default(),
-            notify_on_update: false,
-            _voice_always_on: None,
             voice_ptt_hotkey: "win+lctrl".to_string(),
             voice_handsfree_hotkey: "win+lctrl+lalt".to_string(),
             voice_dictionary: String::new(),
@@ -965,71 +667,8 @@ mod tests {
     }
 
     #[test]
-    fn test_inline_currency_to_words_enabled_default_is_false() {
-        assert!(!Settings::default().inline_currency_to_words_enabled);
-    }
-
-    #[test]
-    fn test_resolve_key_inline_currency_to_words() {
-        assert_eq!(
-            Settings::resolve_key("inline_currency_to_words"),
-            "inline_currency_to_words_enabled"
-        );
-        assert_eq!(
-            Settings::resolve_key("inline_currency_to_words_enabled"),
-            "inline_currency_to_words_enabled"
-        );
-        assert_eq!(
-            Settings::resolve_key("inline_currency_words"),
-            "inline_currency_to_words_enabled"
-        );
-    }
-
-    #[test]
-    fn test_inline_dictionary_enabled_default_is_true() {
-        assert!(Settings::default().inline_dictionary_enabled);
-    }
-
-    #[test]
-    fn test_resolve_key_inline_dictionary() {
-        assert_eq!(
-            Settings::resolve_key("inline_dictionary"),
-            "inline_dictionary_enabled"
-        );
-        assert_eq!(
-            Settings::resolve_key("inline_dictionary_enabled"),
-            "inline_dictionary_enabled"
-        );
-        assert_eq!(
-            Settings::resolve_key("dictionary"),
-            "inline_dictionary_enabled"
-        );
-    }
-
-    #[test]
-    fn test_inline_dictionary_mode_default_is_lite() {
-        assert_eq!(
-            Settings::default().inline_dictionary_mode,
-            InlineDictionaryMode::Lite
-        );
-    }
-
-    #[test]
-    fn test_resolve_key_inline_dictionary_mode() {
-        assert_eq!(
-            Settings::resolve_key("inline_dictionary_mode"),
-            "inline_dictionary_mode"
-        );
-        assert_eq!(
-            Settings::resolve_key("dictionary_mode"),
-            "inline_dictionary_mode"
-        );
-    }
-
-    #[test]
     fn test_voice_settings_defaults() {
         let defaults = Settings::default();
-        assert_eq!(defaults._voice_always_on, None);
         assert_eq!(defaults.voice_ptt_hotkey, "win+lctrl");
         assert_eq!(defaults.voice_handsfree_hotkey, "win+lctrl+lalt");
         assert!(defaults.voice_dictionary.is_empty());
@@ -1037,15 +676,41 @@ mod tests {
     }
 
     #[test]
-    fn test_legacy_voice_always_on_ignored_on_deserialize() {
-        // Legacy configs containing `voice_always_on` must still load; the
-        // value is ignored and never serialized back.
-        let mut legacy = serde_json::to_value(Settings::default()).unwrap();
-        legacy["voice_always_on"] = serde_json::json!(true);
-        let settings: Settings = serde_json::from_value(legacy).expect("legacy config must load");
-        let json = serde_json::to_value(&settings).unwrap();
-        assert!(json.get("_voice_always_on").is_none());
-        assert!(json.get("voice_always_on").is_none());
+    fn test_resolve_key_date_time_formats() {
+        assert_eq!(Settings::resolve_key("date_format"), "inline_date_format");
+        assert_eq!(
+            Settings::resolve_key("inline_datetime_date_format"),
+            "inline_date_format"
+        );
+        assert_eq!(
+            Settings::resolve_key("inline_date_time_date_format"),
+            "inline_date_format"
+        );
+        assert_eq!(Settings::resolve_key("time_format"), "inline_time_format");
+        assert_eq!(
+            Settings::resolve_key("inline_datetime_time_format"),
+            "inline_time_format"
+        );
+        assert_eq!(
+            Settings::resolve_key("inline_date_time_time_format"),
+            "inline_time_format"
+        );
+        assert_eq!(
+            Settings::resolve_key("datetime_format"),
+            "inline_datetime_format"
+        );
+        assert_eq!(
+            Settings::resolve_key("date_time_format"),
+            "inline_datetime_format"
+        );
+        assert_eq!(
+            Settings::resolve_key("inline_datetime_datetime_format"),
+            "inline_datetime_format"
+        );
+        assert_eq!(
+            Settings::resolve_key("inline_date_time_datetime_format"),
+            "inline_datetime_format"
+        );
     }
 
     #[test]
