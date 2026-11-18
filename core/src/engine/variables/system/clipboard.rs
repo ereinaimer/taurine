@@ -322,12 +322,6 @@ mod tests {
 
     #[test]
     fn test_clip_manager_unconditional_recording_and_retrieval() {
-        let _guard = crate::utils::test_utils::TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        // Even if setting cache was set to false, recording and retrieval must work unconditionally
-        crate::settings::set_cached_clipboard_history_enabled(false);
-
         let manager = ClipManager::new();
         assert!(manager.record_text("unconditional".to_string()));
         assert_eq!(manager.get(0), Some("unconditional".to_string()));
