@@ -1,11 +1,76 @@
-use taurine_core::settings::{Settings, SpinnerStyle, TuiCursorStyle};
+use taurine_core::settings::{Settings, TuiCursorStyle};
 
 pub(crate) use taurine_core::settings::SettingKey;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SettingCategory {
+    General,
+    Formatting,
+    AudioAndFeedback,
+    AiCopilot,
+    VoiceDictation,
+    Appearance,
+}
+
+impl SettingCategory {
+    pub const ALL: [Self; 6] = [
+        Self::General,
+        Self::Formatting,
+        Self::AudioAndFeedback,
+        Self::AiCopilot,
+        Self::VoiceDictation,
+        Self::Appearance,
+    ];
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::General => "General",
+            Self::Formatting => "Formatting",
+            Self::AudioAndFeedback => "Audio & Feedback",
+            Self::AiCopilot => "AI Copilot",
+            Self::VoiceDictation => "Voice Dictation",
+            Self::Appearance => "Appearance",
+        }
+    }
+
+    pub const fn keys(self) -> &'static [SettingKey] {
+        match self {
+            Self::General => &[
+                SettingKey::PauseHotkey,
+                SettingKey::StartOnBoot,
+                SettingKey::InstantExpand,
+                SettingKey::IgnoreFullscreen,
+                SettingKey::SystemTrayEnabled,
+                SettingKey::AutoUpdate,
+            ],
+            Self::Formatting => &[
+                SettingKey::InlineDateFormat,
+                SettingKey::InlineTimeFormat,
+                SettingKey::InlineDatetimeFormat,
+            ],
+            Self::AudioAndFeedback => &[SettingKey::AudioTheme, SettingKey::AudioVolume],
+            Self::AiCopilot => &[
+                SettingKey::AiProvider,
+                SettingKey::AiModel,
+                SettingKey::AiCustomEndpoint,
+            ],
+            Self::VoiceDictation => &[
+                SettingKey::VoicePttHotkey,
+                SettingKey::VoiceHandsfreeHotkey,
+                SettingKey::VoiceDictionary,
+                SettingKey::VoiceInputDevice,
+                SettingKey::PauseMediaWhileDictating,
+            ],
+            Self::Appearance => &[SettingKey::TuiCursorStyle],
+        }
+    }
+}
 
 pub(crate) trait SettingKeyMeta {
     fn display_name(self) -> &'static str;
     fn description(self) -> &'static str;
     fn editor_kind(self) -> EditorKind;
+    fn category(self) -> SettingCategory;
     fn display_value(self, settings: &Settings) -> String;
     fn edit_value(self, settings: &Settings) -> String;
     fn toggle_value(self, settings: &Settings) -> Option<bool>;
@@ -18,42 +83,19 @@ impl SettingKeyMeta for SettingKey {
     fn display_name(self) -> &'static str {
         match self {
             Self::PauseHotkey => "Pause Hotkey",
-            Self::PauseNotificationsEnabled => "Pause Notifications",
-            Self::PauseAudioEnabled => "Pause Audio",
             Self::AudioTheme => "Audio Theme",
             Self::AudioVolume => "Audio Volume",
             Self::StartOnBoot => "Start on Boot",
             Self::AutoUpdate => "Auto Update",
-            Self::InlineTabCompletionEnabled => "Inline Tab Completion",
-            Self::InlineCaseTransformEnabled => "Inline Case Transform",
-            Self::Wpm => "Words Per Minute",
-            Self::SpinnerStyle => "Spinner Style",
             Self::AiProvider => "AI Provider",
             Self::AiModel => "AI Model",
             Self::AiCustomEndpoint => "AI Custom Endpoint",
-            Self::InlineAiEnabled => "Inline AI Copilot",
-            Self::ClipboardRestoreDelayMs => "Clipboard Restore Delay (ms)",
             Self::InstantExpand => "Instant Expand",
             Self::IgnoreFullscreen => "Ignore Fullscreen on Windows",
-            Self::ScriptsEnabled => "Scripts Enabled",
-            Self::ScriptTimeout => "Script Execution Timeout",
-            Self::AiTemperature => "AI Temperature",
-            Self::AiMaxTokens => "AI Max Tokens",
-            Self::AiSystemPrompt => "AI System Prompt",
-            Self::ClipboardHistoryEnabled => "Clipboard History",
-            Self::ClipboardHistoryRetentionSecs => "Clipboard History Retention (s)",
-            Self::InlineEmojiEnabled => "Inline Emoji",
-            Self::InlineEmojiTriggerChar => "Inline Emoji Trigger Character",
             Self::SystemTrayEnabled => "System Tray Icon",
-            Self::InlineDatetimeEnabled => "Inline Date & Time",
-            Self::InlineDatetimeDateFormat => "Date Format",
-            Self::InlineDatetimeTimeFormat => "Time Format",
-            Self::InlineDatetimeDatetimeFormat => "DateTime Format",
-            Self::InlineDatetimeDialect => "Dialect (uk/us)",
-            Self::InlineCurrencyToWordsEnabled => "Inline Currency to Words",
-            Self::InlineDictionaryEnabled => "Inline Dictionary",
-            Self::InlineDictionaryMode => "Inline Dictionary Mode",
-            Self::NotifyOnUpdate => "Notify on Update",
+            Self::InlineDateFormat => "Inline Date Format",
+            Self::InlineTimeFormat => "Inline Time Format",
+            Self::InlineDatetimeFormat => "Inline Date & Time Format",
             Self::VoicePttHotkey => "Voice Push-to-Talk Hotkey",
             Self::VoiceHandsfreeHotkey => "Voice Hands-free Hotkey",
             Self::VoiceDictionary => "Voice Personal Dictionary",
@@ -66,78 +108,25 @@ impl SettingKeyMeta for SettingKey {
     fn description(self) -> &'static str {
         match self {
             Self::PauseHotkey => "The keyboard shortcut used to pause Taurine globally",
-            Self::PauseNotificationsEnabled => {
-                "Show a notification when Taurine is paused or resumed"
-            }
-            Self::PauseAudioEnabled => "Play an audio cue when Taurine is paused or resumed",
             Self::AudioTheme => "Sound pack theme used for pause and resume audio cues",
             Self::AudioVolume => "Playback volume for pause and resume audio cues (0-100%)",
             Self::StartOnBoot => "Start Taurine automatically when the system starts",
             Self::AutoUpdate => {
                 "Automatically check for and install updates when the service starts"
             }
-            Self::InlineTabCompletionEnabled => {
-                "Use Tab and Shift+Tab to cycle trigger completions while typing a trigger word"
-            }
-            Self::InlineCaseTransformEnabled => {
-                "Use Left and Right arrows to cycle through capitalization cases of expanded text within the undo window"
-            }
-            Self::Wpm => "Used to estimate time saved from words expanded and spoken",
-            Self::SpinnerStyle => "Animation style used while Taurine is processing",
             Self::AiProvider => "Default AI provider used for inline AI",
             Self::AiModel => "Default AI model used for inline AI",
             Self::AiCustomEndpoint => "Optional custom API endpoint for AI requests",
-            Self::InlineAiEnabled => {
-                "Enable natural inline AI completions triggered via 'tau,' followed by Enter"
-            }
-            Self::ClipboardRestoreDelayMs => {
-                "The delay in milliseconds between pasting and restoring the clipboard"
-            }
             Self::InstantExpand => {
                 "Expand snippets instantly when typed, without needing a Space or Enter key"
             }
             Self::IgnoreFullscreen => {
                 "Pause macro evaluation when running a full-screen application (e.g. games)"
             }
-            Self::ScriptsEnabled => "Allow execution of shell scripts in triggers",
-            Self::ScriptTimeout => {
-                "Maximum script execution time before termination (0 for infinite)"
-            }
-            Self::AiTemperature => "Controls randomness (0.0 for deterministic, 1.0 for creative).",
-            Self::AiMaxTokens => "The maximum number of tokens to generate in the completion.",
-            Self::AiSystemPrompt => "Overrides the default immutable system instructions.",
-            Self::ClipboardHistoryEnabled => {
-                "Enable local clipboard history tracking and [clip] variables"
-            }
-            Self::ClipboardHistoryRetentionSecs => {
-                "Delete history items automatically after this time (in seconds)"
-            }
-            Self::InlineEmojiEnabled => "Enable inline emoji picker and completion",
-            Self::InlineEmojiTriggerChar => "The character used to trigger the inline emoji picker",
             Self::SystemTrayEnabled => "Show a system tray icon when the service is running",
-            Self::InlineDatetimeEnabled => {
-                "Enable expanding natural language dates and times on Enter"
-            }
-            Self::InlineDatetimeDateFormat => "Output format when only a date is parsed",
-            Self::InlineDatetimeTimeFormat => "Output format when only a time is parsed",
-            Self::InlineDatetimeDatetimeFormat => {
-                "Output format when both date and time are parsed"
-            }
-            Self::InlineDatetimeDialect => {
-                "Preference for ambiguous dates like 07/12 (uk = dd/mm, us = mm/dd)"
-            }
-            Self::InlineCurrencyToWordsEnabled => {
-                "Enable expanding numbers with currency symbols to their text representations on Enter"
-            }
-            Self::InlineDictionaryEnabled => {
-                "Enable expanding dictionary definitions, synonyms, and antonyms"
-            }
-            Self::InlineDictionaryMode => {
-                "The database size used for offline dictionary lookups (Lite or Full)"
-            }
-            Self::NotifyOnUpdate => {
-                "Show a system notification when Taurine successfully updates in the background"
-            }
+            Self::InlineDateFormat => "Format template for natural language date expansions",
+            Self::InlineTimeFormat => "Format template for natural language time expansions",
+            Self::InlineDatetimeFormat => "Format template for combined date and time expansions",
             Self::VoicePttHotkey => "Hold down to record speech, release to transcribe and type",
             Self::VoiceHandsfreeHotkey => {
                 "Press once to start dictation mode, press again or Escape to stop and type"
@@ -155,73 +144,59 @@ impl SettingKeyMeta for SettingKey {
         }
     }
 
-    fn editor_kind(self) -> EditorKind {
+    fn category(self) -> SettingCategory {
         match self {
-            Self::PauseNotificationsEnabled
-            | Self::PauseAudioEnabled
+            Self::PauseHotkey
             | Self::StartOnBoot
-            | Self::AutoUpdate
-            | Self::InlineTabCompletionEnabled
-            | Self::InlineCaseTransformEnabled
             | Self::InstantExpand
             | Self::IgnoreFullscreen
-            | Self::ScriptsEnabled
-            | Self::ClipboardHistoryEnabled
-            | Self::InlineEmojiEnabled
             | Self::SystemTrayEnabled
-            | Self::InlineDatetimeEnabled
-            | Self::InlineCurrencyToWordsEnabled
-            | Self::InlineDictionaryEnabled
-            | Self::InlineAiEnabled
-            | Self::NotifyOnUpdate
+            | Self::AutoUpdate => SettingCategory::General,
+            Self::InlineDateFormat | Self::InlineTimeFormat | Self::InlineDatetimeFormat => {
+                SettingCategory::Formatting
+            }
+            Self::AudioTheme | Self::AudioVolume => SettingCategory::AudioAndFeedback,
+            Self::AiProvider | Self::AiModel | Self::AiCustomEndpoint => SettingCategory::AiCopilot,
+            Self::VoicePttHotkey
+            | Self::VoiceHandsfreeHotkey
+            | Self::VoiceDictionary
+            | Self::VoiceInputDevice
+            | Self::PauseMediaWhileDictating => SettingCategory::VoiceDictation,
+            Self::TuiCursorStyle => SettingCategory::Appearance,
+        }
+    }
+
+    fn editor_kind(self) -> EditorKind {
+        match self {
+            Self::StartOnBoot
+            | Self::AutoUpdate
+            | Self::InstantExpand
+            | Self::IgnoreFullscreen
+            | Self::SystemTrayEnabled
             | Self::PauseMediaWhileDictating => EditorKind::Toggle,
-            Self::Wpm
-            | Self::ClipboardRestoreDelayMs
-            | Self::ScriptTimeout
-            | Self::AiMaxTokens
-            | Self::ClipboardHistoryRetentionSecs => EditorKind::NumberInput,
             Self::AudioVolume => EditorKind::VolumeSlider,
-            Self::SpinnerStyle => EditorKind::SpinnerSelect,
             Self::TuiCursorStyle => EditorKind::CursorStyleSelect,
             Self::AudioTheme => EditorKind::AudioThemeSelect,
             Self::AiProvider => EditorKind::AiProviderSelect,
-            Self::AiCustomEndpoint | Self::AiTemperature | Self::AiSystemPrompt => {
-                EditorKind::OptionalTextInput
-            }
-            Self::InlineDictionaryMode => EditorKind::InlineDictionaryModeSelect,
-            Self::InlineEmojiTriggerChar => EditorKind::SingleCharInput,
+            Self::AiCustomEndpoint => EditorKind::OptionalTextInput,
             Self::VoiceInputDevice => EditorKind::VoiceInputDeviceSelect,
             Self::PauseHotkey | Self::VoicePttHotkey | Self::VoiceHandsfreeHotkey => {
                 EditorKind::HotkeyCapture
             }
-            Self::AiModel
-            | Self::InlineDatetimeDateFormat
-            | Self::InlineDatetimeTimeFormat
-            | Self::InlineDatetimeDatetimeFormat
-            | Self::InlineDatetimeDialect
-            | Self::VoiceDictionary => EditorKind::TextInput,
+            Self::InlineDateFormat | Self::InlineTimeFormat | Self::InlineDatetimeFormat => {
+                EditorKind::InlineText
+            }
+            Self::AiModel | Self::VoiceDictionary => EditorKind::TextInput,
         }
     }
 
     fn toggle_value(self, settings: &Settings) -> Option<bool> {
         match self {
-            Self::PauseNotificationsEnabled => Some(settings.pause_notifications_enabled),
-            Self::PauseAudioEnabled => Some(settings.pause_audio_enabled),
             Self::StartOnBoot => Some(settings.start_on_boot),
             Self::AutoUpdate => Some(settings.auto_update),
-            Self::InlineTabCompletionEnabled => Some(settings.inline_tab_completion_enabled),
-            Self::InlineCaseTransformEnabled => Some(settings.inline_case_transform_enabled),
             Self::InstantExpand => Some(settings.instant_expand),
             Self::IgnoreFullscreen => Some(settings.ignore_fullscreen),
-            Self::ScriptsEnabled => Some(settings.scripts_enabled),
-            Self::ClipboardHistoryEnabled => Some(settings.clipboard_history_enabled),
-            Self::InlineEmojiEnabled => Some(settings.inline_emoji_enabled),
             Self::SystemTrayEnabled => Some(settings.system_tray_enabled),
-            Self::InlineDatetimeEnabled => Some(settings.inline_datetime_enabled),
-            Self::InlineCurrencyToWordsEnabled => Some(settings.inline_currency_to_words_enabled),
-            Self::InlineDictionaryEnabled => Some(settings.inline_dictionary_enabled),
-            Self::InlineAiEnabled => Some(settings.inline_ai_enabled),
-            Self::NotifyOnUpdate => Some(settings.notify_on_update),
             Self::PauseMediaWhileDictating => Some(settings.pause_media_while_dictating),
             _ => None,
         }
@@ -229,87 +204,38 @@ impl SettingKeyMeta for SettingKey {
 
     fn inline_edit(self) -> bool {
         match self.editor_kind() {
-            EditorKind::NumberInput | EditorKind::SingleCharInput => true,
-            EditorKind::TextInput => matches!(
-                self,
-                Self::AiModel
-                    | Self::InlineDatetimeDateFormat
-                    | Self::InlineDatetimeTimeFormat
-                    | Self::InlineDatetimeDatetimeFormat
-                    | Self::InlineDatetimeDialect
-            ),
-            EditorKind::OptionalTextInput => matches!(self, Self::AiTemperature),
-            EditorKind::Toggle
+            EditorKind::InlineText => true,
+            EditorKind::TextInput => matches!(self, Self::AiModel),
+            EditorKind::OptionalTextInput
+            | EditorKind::Toggle
             | EditorKind::VolumeSlider
             | EditorKind::HotkeyCapture
-            | EditorKind::SpinnerSelect
             | EditorKind::CursorStyleSelect
             | EditorKind::AudioThemeSelect
             | EditorKind::AiProviderSelect
-            | EditorKind::VoiceInputDeviceSelect
-            | EditorKind::InlineDictionaryModeSelect => false,
+            | EditorKind::VoiceInputDeviceSelect => false,
         }
     }
 
     fn display_value(self, settings: &Settings) -> String {
         match self {
             Self::PauseHotkey => settings.pause_hotkey.clone(),
-            Self::PauseNotificationsEnabled => settings.pause_notifications_enabled.to_string(),
-            Self::PauseAudioEnabled => settings.pause_audio_enabled.to_string(),
             Self::AudioTheme => settings.audio_theme.as_str().to_string(),
             Self::AudioVolume => settings.audio_volume.to_string(),
             Self::StartOnBoot => settings.start_on_boot.to_string(),
             Self::AutoUpdate => settings.auto_update.to_string(),
-            Self::InlineTabCompletionEnabled => settings.inline_tab_completion_enabled.to_string(),
-            Self::InlineCaseTransformEnabled => settings.inline_case_transform_enabled.to_string(),
-            Self::Wpm => settings.wpm.to_string(),
-            Self::SpinnerStyle => spinner_style_label(settings.spinner_style).to_string(),
             Self::TuiCursorStyle => cursor_style_label(settings.tui_cursor_style).to_string(),
             Self::AiProvider => optional_value_label(settings.ai_provider.as_deref()).to_string(),
             Self::AiModel => optional_value_label(settings.ai_model.as_deref()).to_string(),
             Self::AiCustomEndpoint => {
                 optional_value_label(settings.ai_custom_endpoint.as_deref()).to_string()
             }
-            Self::InlineAiEnabled => settings.inline_ai_enabled.to_string(),
-            Self::ClipboardRestoreDelayMs => settings.clipboard_restore_delay_ms.to_string(),
             Self::InstantExpand => settings.instant_expand.to_string(),
             Self::IgnoreFullscreen => settings.ignore_fullscreen.to_string(),
-            Self::ScriptTimeout => settings.script_timeout.to_string(),
-            Self::AiTemperature => {
-                optional_value_label(settings.ai_temperature.map(|v| v.to_string()).as_deref())
-                    .to_string()
-            }
-            Self::AiMaxTokens => {
-                optional_value_label(settings.ai_max_tokens.map(|v| v.to_string()).as_deref())
-                    .to_string()
-            }
-            Self::AiSystemPrompt => settings
-                .ai_system_prompt
-                .as_deref()
-                .unwrap_or(taurine_core::settings::DEFAULT_AI_SYSTEM_PROMPT)
-                .to_string(),
-            Self::ScriptsEnabled => settings.scripts_enabled.to_string(),
-            Self::ClipboardHistoryEnabled => settings.clipboard_history_enabled.to_string(),
-            Self::ClipboardHistoryRetentionSecs => {
-                settings.clipboard_history_retention_secs.to_string()
-            }
-            Self::InlineEmojiEnabled => settings.inline_emoji_enabled.to_string(),
-            Self::InlineEmojiTriggerChar => settings.inline_emoji_trigger_char.to_string(),
             Self::SystemTrayEnabled => settings.system_tray_enabled.to_string(),
-            Self::InlineDatetimeEnabled => settings.inline_datetime_enabled.to_string(),
-            Self::InlineDatetimeDateFormat => settings.inline_datetime_date_format.clone(),
-            Self::InlineDatetimeTimeFormat => settings.inline_datetime_time_format.clone(),
-            Self::InlineDatetimeDatetimeFormat => settings.inline_datetime_datetime_format.clone(),
-            Self::InlineDatetimeDialect => settings.inline_datetime_dialect.clone(),
-            Self::InlineCurrencyToWordsEnabled => {
-                settings.inline_currency_to_words_enabled.to_string()
-            }
-            Self::InlineDictionaryEnabled => settings.inline_dictionary_enabled.to_string(),
-            Self::InlineDictionaryMode => match settings.inline_dictionary_mode {
-                taurine_core::settings::InlineDictionaryMode::Lite => "lite".to_string(),
-                taurine_core::settings::InlineDictionaryMode::Full => "full".to_string(),
-            },
-            Self::NotifyOnUpdate => settings.notify_on_update.to_string(),
+            Self::InlineDateFormat => settings.inline_date_format.clone(),
+            Self::InlineTimeFormat => settings.inline_time_format.clone(),
+            Self::InlineDatetimeFormat => settings.inline_datetime_format.clone(),
             Self::PauseMediaWhileDictating => settings.pause_media_while_dictating.to_string(),
             Self::VoicePttHotkey => settings.voice_ptt_hotkey.clone(),
             Self::VoiceHandsfreeHotkey => settings.voice_handsfree_hotkey.clone(),
@@ -332,58 +258,25 @@ impl SettingKeyMeta for SettingKey {
     fn edit_value(self, settings: &Settings) -> String {
         match self {
             Self::PauseHotkey => settings.pause_hotkey.clone(),
-            Self::Wpm => settings.wpm.to_string(),
-            Self::InlineDatetimeDateFormat => settings.inline_datetime_date_format.clone(),
-            Self::InlineDatetimeTimeFormat => settings.inline_datetime_time_format.clone(),
-            Self::InlineDatetimeDatetimeFormat => settings.inline_datetime_datetime_format.clone(),
-            Self::InlineDatetimeDialect => settings.inline_datetime_dialect.clone(),
+            Self::InlineDateFormat => settings.inline_date_format.clone(),
+            Self::InlineTimeFormat => settings.inline_time_format.clone(),
+            Self::InlineDatetimeFormat => settings.inline_datetime_format.clone(),
             Self::AiProvider => settings.ai_provider.clone().unwrap_or_default(),
             Self::AiModel => settings.ai_model.clone().unwrap_or_default(),
             Self::AiCustomEndpoint => settings.ai_custom_endpoint.clone().unwrap_or_default(),
             Self::VoicePttHotkey => settings.voice_ptt_hotkey.clone(),
             Self::VoiceHandsfreeHotkey => settings.voice_handsfree_hotkey.clone(),
             Self::VoiceDictionary => settings.voice_dictionary.clone(),
-            Self::PauseNotificationsEnabled
-            | Self::PauseAudioEnabled
-            | Self::AudioTheme
-            | Self::AudioVolume
-            | Self::StartOnBoot
+            Self::StartOnBoot
             | Self::AutoUpdate
-            | Self::InlineTabCompletionEnabled
-            | Self::InlineCaseTransformEnabled
             | Self::InstantExpand
             | Self::IgnoreFullscreen
-            | Self::SpinnerStyle
-            | Self::InlineAiEnabled
-            | Self::ScriptsEnabled
-            | Self::ClipboardRestoreDelayMs
-            | Self::ScriptTimeout
-            | Self::ClipboardHistoryEnabled
-            | Self::ClipboardHistoryRetentionSecs
-            | Self::InlineEmojiEnabled
-            | Self::InlineEmojiTriggerChar
             | Self::SystemTrayEnabled
-            | Self::InlineDatetimeEnabled
-            | Self::InlineCurrencyToWordsEnabled
-            | Self::InlineDictionaryEnabled
-            | Self::InlineDictionaryMode
-            | Self::NotifyOnUpdate
+            | Self::AudioTheme
+            | Self::AudioVolume
             | Self::PauseMediaWhileDictating
             | Self::VoiceInputDevice
             | Self::TuiCursorStyle => self.display_value(settings),
-            Self::AiTemperature => settings
-                .ai_temperature
-                .map(|value| value.to_string())
-                .unwrap_or_default(),
-            Self::AiMaxTokens => settings
-                .ai_max_tokens
-                .map(|value| value.to_string())
-                .unwrap_or_default(),
-            Self::AiSystemPrompt => settings
-                .ai_system_prompt
-                .as_deref()
-                .unwrap_or(taurine_core::settings::DEFAULT_AI_SYSTEM_PROMPT)
-                .to_string(),
         }
     }
 }
@@ -393,16 +286,13 @@ pub(crate) enum EditorKind {
     Toggle,
     VolumeSlider,
     HotkeyCapture,
-    SingleCharInput,
+    InlineText,
     TextInput,
     OptionalTextInput,
-    NumberInput,
-    SpinnerSelect,
     CursorStyleSelect,
     AudioThemeSelect,
     AiProviderSelect,
     VoiceInputDeviceSelect,
-    InlineDictionaryModeSelect,
 }
 
 impl EditorKind {
@@ -411,21 +301,11 @@ impl EditorKind {
     pub(crate) const fn opens_select(self) -> bool {
         matches!(
             self,
-            Self::SpinnerSelect
-                | Self::CursorStyleSelect
+            Self::CursorStyleSelect
                 | Self::AudioThemeSelect
                 | Self::AiProviderSelect
                 | Self::VoiceInputDeviceSelect
-                | Self::InlineDictionaryModeSelect
         )
-    }
-}
-
-pub(crate) const fn spinner_style_label(style: SpinnerStyle) -> &'static str {
-    match style {
-        SpinnerStyle::Classic => "classic",
-        SpinnerStyle::Braille => "braille",
-        SpinnerStyle::Arc => "arc",
     }
 }
 
@@ -457,11 +337,11 @@ mod tests {
 
     #[test]
     fn short_values_edit_inline_while_choices_and_long_text_do_not() {
-        assert!(SettingKey::ClipboardHistoryRetentionSecs.inline_edit());
-        assert!(SettingKey::InlineEmojiTriggerChar.inline_edit());
-        assert!(SettingKey::InlineDatetimeDateFormat.inline_edit());
-        assert!(SettingKey::AiTemperature.inline_edit());
-        assert!(!SettingKey::AiSystemPrompt.inline_edit());
+        assert!(SettingKey::InlineDateFormat.inline_edit());
+        assert!(SettingKey::InlineTimeFormat.inline_edit());
+        assert!(SettingKey::InlineDatetimeFormat.inline_edit());
+        assert!(SettingKey::AiModel.inline_edit());
+        assert!(!SettingKey::AiCustomEndpoint.inline_edit());
         assert!(!SettingKey::VoiceDictionary.inline_edit());
         assert!(!SettingKey::VoiceInputDevice.inline_edit());
         assert!(!SettingKey::AudioTheme.inline_edit());
@@ -470,10 +350,11 @@ mod tests {
     }
 
     #[test]
-    fn unset_optional_numbers_edit_from_an_empty_field() {
+    fn unset_optional_text_edits_from_an_empty_field() {
         let settings = Settings::default();
-        assert_eq!(SettingKey::AiTemperature.edit_value(&settings), "");
-        assert_eq!(SettingKey::AiMaxTokens.edit_value(&settings), "");
+        assert_eq!(SettingKey::AiCustomEndpoint.edit_value(&settings), "");
+        assert_eq!(SettingKey::AiProvider.edit_value(&settings), "");
+        assert_eq!(SettingKey::AiModel.edit_value(&settings), "");
     }
 
     #[test]

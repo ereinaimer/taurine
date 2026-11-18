@@ -5,7 +5,9 @@ mod modals;
 pub(crate) use hotkey_capture::HotkeyCaptureModalState;
 #[cfg(test)]
 pub(crate) use keys::cursor_style_label;
-pub(crate) use keys::{EditorKind, SettingKey, SettingKeyMeta, cursor_set_cursor_style};
+pub(crate) use keys::{
+    EditorKind, SettingCategory, SettingKey, SettingKeyMeta, cursor_set_cursor_style,
+};
 pub(crate) use modals::{ConfirmResetModalState, InputModalState, SelectChoice, SelectModalState};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -15,7 +17,6 @@ use taurine_core::{
     settings::{Settings, apply_setting_input, reset_setting_to_default},
 };
 
-const SPINNER_STYLE_OPTIONS: [&str; 3] = ["classic", "braille", "arc"];
 const CURSOR_STYLE_OPTIONS: [&str; 3] = ["block", "bar", "underscore"];
 const AUDIO_THEME_OPTIONS: [&str; 7] = [
     "minimal",
@@ -82,21 +83,16 @@ impl SettingsPageState {
     }
 
     pub(crate) fn visible_keys(&self) -> Vec<SettingKey> {
-        let mut keys = SettingKey::ALL.to_vec();
-
-        if !self.settings.inline_datetime_enabled {
-            keys.retain(|k| {
-                *k != SettingKey::InlineDatetimeDateFormat
-                    && *k != SettingKey::InlineDatetimeTimeFormat
-                    && *k != SettingKey::InlineDatetimeDatetimeFormat
-                    && *k != SettingKey::InlineDatetimeDialect
-            });
-        }
+        let mut keys: Vec<SettingKey> = SettingCategory::ALL
+            .iter()
+            .flat_map(|cat| cat.keys().iter().copied())
+            .collect();
         let needle = self.search_query().trim().to_ascii_lowercase();
         if !needle.is_empty() {
             keys.retain(|k| {
                 k.display_name().to_ascii_lowercase().contains(&needle)
                     || k.description().to_ascii_lowercase().contains(&needle)
+                    || k.category().name().to_ascii_lowercase().contains(&needle)
             });
         }
         keys
@@ -493,14 +489,6 @@ impl SettingsPageState {
         let key = self.selected_key();
         self.modal = match key.editor_kind() {
             EditorKind::Toggle | EditorKind::VolumeSlider => None,
-            EditorKind::SpinnerSelect => Some(SettingsModal::Select(SelectModalState::new(
-                key,
-                SPINNER_STYLE_OPTIONS
-                    .iter()
-                    .map(|value| (*value).to_string())
-                    .collect(),
-                key.display_value(&self.settings),
-            ))),
             EditorKind::CursorStyleSelect => Some(SettingsModal::Select(SelectModalState::new(
                 key,
                 CURSOR_STYLE_OPTIONS
@@ -541,23 +529,12 @@ impl SettingsPageState {
                     current,
                 )))
             }
-            EditorKind::InlineDictionaryModeSelect => {
-                Some(SettingsModal::Select(SelectModalState::new(
-                    key,
-                    vec!["lite".to_string(), "full".to_string()],
-                    key.display_value(&self.settings),
-                )))
-            }
             EditorKind::HotkeyCapture => Some(SettingsModal::HotkeyCapture(
                 HotkeyCaptureModalState::new(key, key.edit_value(&self.settings)),
             )),
-            EditorKind::SingleCharInput
-            | EditorKind::TextInput
-            | EditorKind::OptionalTextInput
-            | EditorKind::NumberInput => Some(SettingsModal::Input(InputModalState::new(
-                key,
-                key.edit_value(&self.settings),
-            ))),
+            EditorKind::InlineText | EditorKind::TextInput | EditorKind::OptionalTextInput => Some(
+                SettingsModal::Input(InputModalState::new(key, key.edit_value(&self.settings))),
+            ),
         };
     }
 
@@ -730,42 +707,36 @@ mod tests {
         state.selected = state
             .visible_keys()
             .iter()
-            .position(|key| *key == SettingKey::ClipboardHistoryRetentionSecs)
+            .position(|key| *key == SettingKey::InlineDateFormat)
             .expect("visible inline key");
 
         let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
         assert!(state.modal().is_none());
-        assert_eq!(
-            state.inline_key(),
-            Some(SettingKey::ClipboardHistoryRetentionSecs)
-        );
+        assert_eq!(state.inline_key(), Some(SettingKey::InlineDateFormat));
         assert!(!interaction.should_close_modal());
         assert!(interaction.pending_save().is_none());
     }
 
     #[test]
-    fn inline_single_char_validation_reports_in_the_status_line() {
+    fn inline_text_editing_updates_field() {
         let mut state = SettingsPageState::default();
         state.selected = state
             .visible_keys()
             .iter()
-            .position(|key| *key == SettingKey::InlineEmojiTriggerChar)
+            .position(|key| *key == SettingKey::InlineDateFormat)
             .expect("visible inline key");
         state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
-        for ch in ['a', 'b'] {
-            state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
-        }
-        state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-
         assert!(state.inline_edit().is_some());
+        state.handle_key(KeyEvent::new(KeyCode::Char('!'), KeyModifiers::NONE));
         assert!(
             state
-                .status_message()
-                .is_some_and(|message| message.contains("exactly one character")),
-            "{:?}",
-            state.status_message()
+                .inline_edit()
+                .expect("inline edit")
+                .field()
+                .text()
+                .ends_with('!')
         );
     }
 
@@ -804,23 +775,40 @@ mod tests {
     }
 
     #[test]
-    fn test_audio_theme_is_always_visible() {
-        let mut state = SettingsPageState::default();
-        state.settings.pause_audio_enabled = true;
-        assert!(state.visible_keys().contains(&SettingKey::AudioTheme));
+    fn test_all_twenty_settings_are_always_visible() {
+        let state = SettingsPageState::default();
+        let visible = state.visible_keys();
+        assert_eq!(visible.len(), 20);
+        for key in SettingKey::ALL {
+            assert!(visible.contains(&key), "{key:?} should be visible");
+        }
+    }
 
-        state.settings.pause_audio_enabled = false;
+    #[test]
+    fn test_audio_theme_is_always_visible() {
+        let state = SettingsPageState::default();
         assert!(state.visible_keys().contains(&SettingKey::AudioTheme));
     }
 
     #[test]
     fn test_audio_volume_is_always_visible() {
-        let mut state = SettingsPageState::default();
-        state.settings.pause_audio_enabled = true;
+        let state = SettingsPageState::default();
         assert!(state.visible_keys().contains(&SettingKey::AudioVolume));
+    }
 
-        state.settings.pause_audio_enabled = false;
-        assert!(state.visible_keys().contains(&SettingKey::AudioVolume));
+    #[test]
+    fn test_setting_categories_cover_all_twenty_keys() {
+        let mut all_categorized = Vec::new();
+        for cat in SettingCategory::ALL {
+            for key in cat.keys() {
+                assert_eq!(key.category(), cat);
+                all_categorized.push(*key);
+            }
+        }
+        assert_eq!(all_categorized.len(), 20);
+        for key in SettingKey::ALL {
+            assert!(all_categorized.contains(&key));
+        }
     }
 
     #[test]

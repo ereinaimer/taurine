@@ -108,15 +108,6 @@ impl InputModalState {
         match (key.code, key.modifiers) {
             (KeyCode::Esc, KeyModifiers::NONE) => SettingsInteraction::cancel(),
             (KeyCode::Enter, KeyModifiers::NONE) => {
-                if self.key.editor_kind() == EditorKind::SingleCharInput
-                    && self.value.len_chars() != 1
-                {
-                    self.error = Some(format!(
-                        "{} must be exactly one character.",
-                        self.key.display_name()
-                    ));
-                    return SettingsInteraction::handled();
-                }
                 let value = match self.key.editor_kind() {
                     EditorKind::OptionalTextInput if self.value.text().trim().is_empty() => None,
                     _ => Some(self.value.text().to_string()),

@@ -237,7 +237,7 @@ mod tests {
             let manager = SettingsManager::new(&conn);
             manager.update_setting("auto_update", false)?;
             manager.update_setting("system_tray_enabled", false)?;
-            manager.update_setting("instant_expand", false)?;
+            manager.update_setting("ignore_fullscreen", false)?;
             execute_reset_all(false)?;
             let conn = init::setup()?;
             let manager = SettingsManager::new(&conn);
@@ -245,13 +245,13 @@ mod tests {
             Ok((
                 settings.auto_update,
                 settings.system_tray_enabled,
-                settings.instant_expand,
+                settings.ignore_fullscreen,
             ))
         });
-        let (auto_update, system_tray_enabled, instant_expand) = restored.unwrap();
+        let (auto_update, system_tray_enabled, ignore_fullscreen) = restored.unwrap();
         assert!(auto_update);
         assert!(system_tray_enabled);
-        assert!(instant_expand);
+        assert!(ignore_fullscreen);
     }
 
     #[test]

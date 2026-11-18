@@ -439,7 +439,7 @@ mod tests {
 
     #[test]
     fn inline_values_render_as_filled_fields_without_the_chevron() {
-        let key = SettingKey::ClipboardHistoryRetentionSecs;
+        let key = SettingKey::InlineDateFormat;
         let settings = taurine_core::settings::Settings::default();
         let buffer = row_buffer(key);
         let field = inline_value_rect(Rect::new(0, 0, 60, 8), 20, key, &settings, None)
@@ -458,9 +458,9 @@ mod tests {
     fn active_inline_caret_sits_at_the_text_end() {
         use ratatui::{Terminal, backend::TestBackend};
 
-        let key = SettingKey::ClipboardHistoryRetentionSecs;
+        let key = SettingKey::InlineDateFormat;
         let settings = taurine_core::settings::Settings::default();
-        let editor = InputModalState::new(key, "300".to_string());
+        let editor = InputModalState::new(key, "YYYY-MM-DD".to_string());
         let area = Rect::new(0, 0, 60, 8);
         let backend = TestBackend::new(area.width, area.height);
         let mut terminal = Terminal::new(backend).expect("test terminal");
@@ -488,7 +488,7 @@ mod tests {
         assert_eq!(cursor.y, field.y);
         assert_eq!(
             terminal.backend().buffer()[(field.right().saturating_sub(2), field.y)].symbol(),
-            "0",
+            "D",
             "the last digit should end one cell before the caret"
         );
         assert_eq!(
@@ -510,7 +510,7 @@ mod tests {
     #[test]
     fn overlay_editors_get_the_pill_chevron() {
         assert!(
-            row_line(SettingKey::SpinnerStyle)
+            row_line(SettingKey::AudioTheme)
                 .trim_end()
                 .ends_with(CHEVRON_DOWN)
         );

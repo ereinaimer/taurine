@@ -405,7 +405,10 @@ mod tests {
 
     #[test]
     fn input_modal_footer_carries_save_and_cancel() {
-        let modal = SettingsModal::Input(InputModalState::new(SettingKey::Wpm, "120".to_string()));
+        let modal = SettingsModal::Input(InputModalState::new(
+            SettingKey::VoiceDictionary,
+            "120".to_string(),
+        ));
         let popup = input_popup(Rect::new(0, 0, 100, 30));
         let rows = rendered_rows(&modal);
         let footer_row = &rows[(popup.y + popup.height - 2) as usize];
@@ -443,7 +446,7 @@ mod tests {
         };
         assert_eq!(
             modal_footer(&SettingsModal::Input(InputModalState::new(
-                SettingKey::Wpm,
+                SettingKey::VoiceDictionary,
                 "120".to_string()
             ))),
             Some(save)
@@ -457,14 +460,14 @@ mod tests {
         );
         assert_eq!(
             modal_footer(&SettingsModal::Select(SelectModalState::new(
-                SettingKey::SpinnerStyle,
-                vec!["classic".to_string()],
-                "classic".to_string()
+                SettingKey::AudioTheme,
+                vec!["minimal".to_string()],
+                "minimal".to_string()
             ))),
             None
         );
 
-        let mut reset = ConfirmResetModalState::new(SettingKey::Wpm);
+        let mut reset = ConfirmResetModalState::new(SettingKey::VoiceDictionary);
         assert_eq!(
             modal_footer(&SettingsModal::ConfirmReset(reset.clone())),
             Some(util::OverlayFooter {
@@ -483,9 +486,12 @@ mod tests {
 
     #[test]
     fn input_modal_uses_flat_overlay_chrome() {
-        let modal = SettingsModal::Input(InputModalState::new(SettingKey::Wpm, "120".to_string()));
+        let modal = SettingsModal::Input(InputModalState::new(
+            SettingKey::VoiceDictionary,
+            "test".to_string(),
+        ));
         let screen = rendered(&modal);
-        assert!(screen.contains("Words Per Minute"));
+        assert!(screen.contains("Voice Personal Dictionary"));
         assert!(screen.contains("Esc"));
         assert!(screen.contains("Enter Save"));
         // honey: shared flat chrome carries no border glyphs.
@@ -495,24 +501,25 @@ mod tests {
     #[test]
     fn select_modal_renders_through_shared_overlay_list() {
         let modal = SettingsModal::Select(SelectModalState::new(
-            SettingKey::SpinnerStyle,
+            SettingKey::AudioTheme,
             vec![
-                "classic".to_string(),
-                "braille".to_string(),
-                "arc".to_string(),
+                "minimal".to_string(),
+                "arcade".to_string(),
+                "zen".to_string(),
             ],
-            "classic".to_string(),
+            "minimal".to_string(),
         ));
         let screen = rendered(&modal);
-        assert!(screen.contains("Spinner Style"));
-        assert!(screen.contains("braille"));
+        assert!(screen.contains("Audio Theme"));
+        assert!(screen.contains("arcade"));
         // honey: shared flat chrome carries no border glyphs.
         assert!(!screen.contains('╭'));
     }
 
     #[test]
     fn confirm_reset_modal_uses_flat_overlay_chrome() {
-        let modal = SettingsModal::ConfirmReset(ConfirmResetModalState::new(SettingKey::Wpm));
+        let modal =
+            SettingsModal::ConfirmReset(ConfirmResetModalState::new(SettingKey::VoiceDictionary));
         let screen = rendered(&modal);
         assert!(screen.contains("Reset Setting"));
         assert!(screen.contains("Esc Cancel"));
@@ -525,7 +532,7 @@ mod tests {
 
     #[test]
     fn confirm_reset_defaults_to_cancel() {
-        let mut state = ConfirmResetModalState::new(SettingKey::Wpm);
+        let mut state = ConfirmResetModalState::new(SettingKey::VoiceDictionary);
         assert!(!state.selected_yes());
 
         let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
@@ -536,7 +543,7 @@ mod tests {
 
     #[test]
     fn confirm_reset_right_selects_reset_then_enter_resets() {
-        let mut state = ConfirmResetModalState::new(SettingKey::Wpm);
+        let mut state = ConfirmResetModalState::new(SettingKey::VoiceDictionary);
 
         state.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
         assert!(state.selected_yes());
@@ -549,7 +556,7 @@ mod tests {
 
     #[test]
     fn confirm_reset_left_returns_to_cancel() {
-        let mut state = ConfirmResetModalState::new(SettingKey::Wpm);
+        let mut state = ConfirmResetModalState::new(SettingKey::VoiceDictionary);
         state.select_confirm(true);
         assert!(state.selected_yes());
 
@@ -560,7 +567,7 @@ mod tests {
 
     #[test]
     fn confirm_reset_hjkl_move_the_footer_selection() {
-        let mut state = ConfirmResetModalState::new(SettingKey::Wpm);
+        let mut state = ConfirmResetModalState::new(SettingKey::VoiceDictionary);
 
         state.handle_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
         assert!(state.selected_yes());

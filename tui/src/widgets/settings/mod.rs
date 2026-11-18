@@ -704,7 +704,7 @@ mod tests {
         // honey: anchor the window on a known short field so the scan
         // is not limited to whichever rows happen to fit at default
         // selection.
-        let key = SettingKey::ClipboardHistoryRetentionSecs;
+        let key = SettingKey::InlineDateFormat;
         state.selected = state
             .visible_keys()
             .iter()
