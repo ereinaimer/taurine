@@ -198,20 +198,17 @@ impl ExpansionCatalog {
         if instant_expand {
             return None;
         }
-        if !crate::settings::get_cached_inline_datetime_enabled() {
-            return None;
-        }
-        let dialect = crate::settings::get_cached_inline_datetime_dialect();
+        let dialect = crate::engine::dates::detect_locale_dialect();
 
         // Check for countdown queries first: "how many days until christmas?"
-        if let Some(countdown) = crate::engine::dates::parse_countdown_query(keyword, &dialect) {
+        if let Some(countdown) = crate::engine::dates::parse_countdown_query(keyword, dialect) {
             let mut expansion = FinalExpansion::text(countdown);
             expansion.is_calculation = true;
             return Some(expansion);
         }
 
         // Check for date queries: "what is the date next friday?"
-        if let Some(date_str) = crate::engine::dates::parse_date_query(keyword, &dialect) {
+        if let Some(date_str) = crate::engine::dates::parse_date_query(keyword, dialect) {
             let mut expansion = FinalExpansion::text(date_str);
             expansion.is_calculation = true;
             return Some(expansion);
@@ -233,7 +230,7 @@ impl ExpansionCatalog {
             return None;
         }
 
-        let (dt, is_date, is_time) = crate::engine::dates::parse_natural_date(cleaned, &dialect)?;
+        let (dt, is_date, is_time) = crate::engine::dates::parse_natural_date(cleaned, dialect)?;
         let pattern = if is_date && is_time {
             crate::settings::get_cached_inline_datetime_datetime_format()
         } else if is_time {
@@ -254,9 +251,6 @@ impl ExpansionCatalog {
         instant_expand: bool,
     ) -> Option<FinalExpansion> {
         if instant_expand {
-            return None;
-        }
-        if !crate::settings::get_cached_inline_currency_to_words_enabled() {
             return None;
         }
 
@@ -302,13 +296,10 @@ impl ExpansionCatalog {
         if instant_expand {
             return None;
         }
-        if !crate::settings::get_cached_inline_datetime_enabled() {
-            return None;
-        }
         let time_format = crate::settings::get_cached_inline_datetime_time_format();
-        let dialect = crate::settings::get_cached_inline_datetime_dialect();
+        let dialect = crate::engine::dates::detect_locale_dialect();
         let result =
-            crate::engine::timezones::parse_timezone_expression(keyword, &time_format, &dialect)?;
+            crate::engine::timezones::parse_timezone_expression(keyword, &time_format, dialect)?;
         let mut expansion = FinalExpansion::text(result);
         expansion.is_calculation = true;
         Some(expansion)

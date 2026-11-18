@@ -39,7 +39,7 @@ impl crate::engine::evaluator::Evaluator {
 
     pub fn is_buffer_valid_for_completion(&self) -> bool {
         if self.completion.is_emoji {
-            let active_trigger = self.state.inline_emoji_trigger_char();
+            let active_trigger = ':';
             self.buffer.extract_trigger_word(active_trigger).is_some()
         } else {
             self.buffer.extract_tail_word().is_some()
@@ -120,11 +120,8 @@ impl crate::engine::evaluator::Evaluator {
         {
             return;
         }
-        let emoji_trigger = self.state.inline_emoji_trigger_char();
-        let emoji_enabled = self.state.inline_emoji_enabled();
 
-        if emoji_enabled && c == emoji_trigger && !self.completion.active && self.is_word_boundary()
-        {
+        if c == ':' && !self.completion.active && self.is_word_boundary() {
             self.completion
                 .activate(&self.state.completion_active, true);
             return;
@@ -145,7 +142,7 @@ impl crate::engine::evaluator::Evaluator {
         }
 
         let query = if self.completion.is_emoji {
-            let active_trigger = self.state.inline_emoji_trigger_char();
+            let active_trigger = ':';
             let Some(query) = self.buffer.extract_trigger_word(active_trigger) else {
                 self.completion.deactivate(&self.state.completion_active);
                 return;
@@ -172,7 +169,7 @@ impl crate::engine::evaluator::Evaluator {
 
     pub(crate) fn apply_user_query(&mut self, query: String) {
         if self.completion.is_emoji {
-            let emoji_trigger = self.state.inline_emoji_trigger_char();
+            let emoji_trigger = ':';
             let query_with_trigger = if query.starts_with(emoji_trigger) {
                 query.clone()
             } else {
@@ -196,16 +193,13 @@ impl crate::engine::evaluator::Evaluator {
     }
 
     pub(crate) fn rebuild_completion_suggestions(&mut self, query: &str) {
-        if !self.completion.active
-            || !self.state.inline_tab_completion_enabled()
-            || query.is_empty()
-        {
+        if !self.completion.active || query.is_empty() {
             self.completion.suggestions.clear();
             return;
         }
 
         if self.completion.is_emoji {
-            let emoji_trigger = self.state.inline_emoji_trigger_char();
+            let emoji_trigger = ':';
             let clean_query = query.strip_prefix(emoji_trigger).unwrap_or(query);
             let raw_suggestions = crate::engine::emoji::search_emoji_shortcodes(clean_query);
             self.completion.suggestions = raw_suggestions
@@ -256,18 +250,6 @@ impl crate::engine::evaluator::Evaluator {
     }
 
     pub(crate) fn cycle_completion(&mut self, forward: bool) -> Option<CompletionRewrite> {
-        if !self.state.inline_tab_completion_enabled() {
-            self.completion.suggestions.clear();
-            self.completion.selected_index = None;
-            if matches!(
-                self.completion.selection_mode,
-                Some(TriggerAssistSelectionMode::Completion)
-            ) {
-                self.completion.selection_mode = None;
-            }
-            return None;
-        }
-
         let is_valid = self.is_buffer_valid_for_completion();
 
         if !is_valid {
@@ -281,7 +263,7 @@ impl crate::engine::evaluator::Evaluator {
 
         let base_query = self.lookup_query().to_string();
         let suggestions = if self.completion.is_emoji {
-            let emoji_trigger = self.state.inline_emoji_trigger_char();
+            let emoji_trigger = ':';
             let clean_query = base_query
                 .strip_prefix(emoji_trigger)
                 .unwrap_or(&base_query);

@@ -674,12 +674,7 @@ fn process_frame(
                 }
             }
 
-            let cycle_dir = if state.inline_case_transform_enabled()
-                && !shift_active
-                && !ctrl_active
-                && !alt_active
-                && !meta_active
-            {
+            let cycle_dir = if !shift_active && !ctrl_active && !alt_active && !meta_active {
                 if key == KeyCode::KEY_LEFT {
                     Some(taurine_core::engine::CycleDirection::Prev)
                 } else if key == KeyCode::KEY_RIGHT {

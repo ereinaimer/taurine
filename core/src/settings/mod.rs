@@ -215,6 +215,19 @@ pub fn get_cached_inline_datetime_datetime_format() -> String {
         .clone()
         .unwrap_or_else(|| "MMMM D, YYYY 'at' h:mm A".to_string())
 }
+
+pub fn get_cached_inline_date_format() -> String {
+    get_cached_inline_datetime_date_format()
+}
+
+pub fn get_cached_inline_time_format() -> String {
+    get_cached_inline_datetime_time_format()
+}
+
+pub fn get_cached_inline_datetime_format() -> String {
+    get_cached_inline_datetime_datetime_format()
+}
+
 pub fn set_cached_inline_datetime_dialect(d: String) {
     *CACHED_INLINE_DATETIME_DIALECT.write() = Some(d);
     bump_settings_version();
@@ -223,7 +236,7 @@ pub fn get_cached_inline_datetime_dialect() -> String {
     CACHED_INLINE_DATETIME_DIALECT
         .read()
         .clone()
-        .unwrap_or_else(|| "uk".to_string())
+        .unwrap_or_else(|| crate::engine::dates::detect_locale_dialect().to_string())
 }
 
 pub fn set_cached_voice_ptt_hotkey(hotkey: String) {
@@ -928,6 +941,22 @@ mod tests {
         assert_eq!(Settings::sanitize_wpm(0), 60);
         assert_eq!(Settings::sanitize_wpm(120), 120);
         assert_eq!(Settings::sanitize_wpm(200), 150);
+    }
+
+    #[test]
+    fn test_inline_date_time_format_forwarders() {
+        assert_eq!(
+            get_cached_inline_date_format(),
+            get_cached_inline_datetime_date_format()
+        );
+        assert_eq!(
+            get_cached_inline_time_format(),
+            get_cached_inline_datetime_time_format()
+        );
+        assert_eq!(
+            get_cached_inline_datetime_format(),
+            get_cached_inline_datetime_datetime_format()
+        );
     }
 
     #[test]

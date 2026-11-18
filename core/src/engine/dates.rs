@@ -274,6 +274,23 @@ fn chrono_to_time(dt: DateTime<Local>) -> Option<OffsetDateTime> {
     .ok()
 }
 
+/// Resolves an optional OS locale identifier to either `"us"` or `"uk"`.
+pub fn resolve_locale_dialect(locale_str: Option<&str>) -> &'static str {
+    if let Some(locale) = locale_str
+        && locale.to_ascii_lowercase().contains("us")
+    {
+        "us"
+    } else {
+        "uk"
+    }
+}
+
+/// Automatically detects date/time dialect from the OS locale (`sys_locale::get_locale()`).
+/// Defaults to `"us"` if the locale string contains `"us"`, else `"uk"`.
+pub fn detect_locale_dialect() -> &'static str {
+    resolve_locale_dialect(sys_locale::get_locale().as_deref())
+}
+
 /// Parses "how many <unit> until <target>" countdown queries.
 /// Returns formatted duration string like "25 days", "3 weeks", etc.
 pub fn parse_countdown_query(expr: &str, preferred_dialect: &str) -> Option<String> {
@@ -1065,5 +1082,19 @@ mod tests {
     fn test_date_query_variations() {
         assert!(parse_date_query("what's the date today", "uk").is_some());
         assert!(parse_date_query("whats the date tomorrow", "uk").is_some());
+    }
+
+    #[test]
+    fn test_locale_dialect_detection() {
+        assert_eq!(resolve_locale_dialect(Some("en_US")), "us");
+        assert_eq!(resolve_locale_dialect(Some("en-US")), "us");
+        assert_eq!(resolve_locale_dialect(Some("es_US")), "us");
+        assert_eq!(resolve_locale_dialect(Some("en_GB")), "uk");
+        assert_eq!(resolve_locale_dialect(Some("fr_FR")), "uk");
+        assert_eq!(resolve_locale_dialect(Some("de_DE")), "uk");
+        assert_eq!(resolve_locale_dialect(None), "uk");
+
+        let detected = detect_locale_dialect();
+        assert!(detected == "us" || detected == "uk");
     }
 }

@@ -716,7 +716,7 @@ pub fn process_keyboard_event(
                 ctrl_active,
                 alt_active,
                 meta_active,
-                state.inline_case_transform_enabled(),
+                true,
             ) && let Some(rewrite) = state.advance_case_variant(direction)
             {
                 let style = spinner_style.read().map(|s| *s).unwrap_or_default();

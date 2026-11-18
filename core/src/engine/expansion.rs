@@ -27,8 +27,7 @@ impl crate::engine::evaluator::Evaluator {
         window: &crate::engine::catalog::WindowResolver,
         mut fetch_window: Option<impl FnOnce() -> Option<crate::engine::catalog::ActiveWindowInfo>>,
     ) -> Option<ExpansionResult> {
-        let emoji_trigger = self.state.inline_emoji_trigger_char();
-        let emoji_enabled = self.state.inline_emoji_enabled();
+        let emoji_trigger = ':';
         let instant_expand = self
             .state
             .instant_expand
@@ -94,7 +93,6 @@ impl crate::engine::evaluator::Evaluator {
         }
 
         if !instant_expand
-            && emoji_enabled
             && let Some(word) = self.buffer.extract_trigger_word(emoji_trigger)
             && let Some(emoji_char) = crate::engine::emoji::lookup_emoji(&word)
         {
@@ -111,13 +109,7 @@ impl crate::engine::evaluator::Evaluator {
                 follow_up: None,
             });
         }
-        if !instant_expand
-            && self
-                .state
-                .inline_dictionary_enabled
-                .load(std::sync::atomic::Ordering::Relaxed)
-            && self.buffer.has_dictionary_intent()
-        {
+        if !instant_expand && self.buffer.has_dictionary_intent() {
             let buf_str = self.buffer.buffer_string();
             let mut word_opt = None;
             let mut matched_len = 0;

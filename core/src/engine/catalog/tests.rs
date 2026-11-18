@@ -204,19 +204,15 @@ fn test_no_nl_emoji_fallback_in_catalog() {
 }
 
 #[test]
-fn currency_words_fallback_only_runs_when_enabled() {
+fn currency_words_fallback_runs_unconditionally() {
     let _guard = crate::testing::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let memory = Arc::new(MemorySource::new());
     let catalog = ExpansionCatalog::with_source(memory.clone());
 
-    // Disabled by default
+    // Currency words fallback runs unconditionally even if cached setting was false
     crate::settings::set_cached_inline_currency_to_words_enabled(false);
-    assert!(catalog.fetch_expansion("$1,200", false, None).is_none());
-
-    // Enabled
-    crate::settings::set_cached_inline_currency_to_words_enabled(true);
     let expansion = catalog.fetch_expansion("$1,200", false, None).unwrap();
     assert_eq!(
         expansion.steps[0],

@@ -43,21 +43,14 @@ pub(crate) fn completion_key_action(
 }
 
 pub(crate) fn trigger_assist_key_action(
-    state: &taurine_core::engine::EngineState,
+    _state: &taurine_core::engine::EngineState,
     key: CompletionKeyKind,
     shift_active: bool,
     ctrl_active: bool,
     alt_active: bool,
     meta_active: bool,
 ) -> CompletionKeyAction {
-    match completion_key_action(key, shift_active, ctrl_active, alt_active, meta_active) {
-        CompletionKeyAction::CycleForward | CompletionKeyAction::CycleBackward
-            if !state.inline_tab_completion_enabled() =>
-        {
-            CompletionKeyAction::PassThrough
-        }
-        action => action,
-    }
+    completion_key_action(key, shift_active, ctrl_active, alt_active, meta_active)
 }
 
 pub(crate) fn completion_key_kind_from_tab_like(
@@ -80,11 +73,11 @@ pub(crate) fn completion_key_kind_from_tab_like(
 }
 
 pub(crate) fn should_swallow_trigger_assist_key_release(
-    state: &taurine_core::engine::EngineState,
+    _state: &taurine_core::engine::EngineState,
     key: CompletionKeyKind,
 ) -> bool {
     match key {
-        CompletionKeyKind::Tab => state.inline_tab_completion_enabled(),
+        CompletionKeyKind::Tab => true,
         CompletionKeyKind::Up | CompletionKeyKind::Down => false,
         CompletionKeyKind::Escape | CompletionKeyKind::Other => false,
     }

@@ -85,7 +85,9 @@ impl EngineState {
             inline_datetime_datetime_format: parking_lot::RwLock::new(
                 "MMMM D, YYYY 'at' h:mm A".to_string(),
             ),
-            inline_datetime_dialect: parking_lot::RwLock::new("uk".to_string()),
+            inline_datetime_dialect: parking_lot::RwLock::new(
+                crate::engine::dates::detect_locale_dialect().to_string(),
+            ),
             instant_expand: AtomicBool::new(false),
             ignore_fullscreen_enabled: AtomicBool::new(true),
             is_os_fullscreen: AtomicBool::new(false),
@@ -118,7 +120,9 @@ impl EngineState {
             inline_datetime_datetime_format: parking_lot::RwLock::new(
                 "MMMM D, YYYY 'at' h:mm A".to_string(),
             ),
-            inline_datetime_dialect: parking_lot::RwLock::new("uk".to_string()),
+            inline_datetime_dialect: parking_lot::RwLock::new(
+                crate::engine::dates::detect_locale_dialect().to_string(),
+            ),
             instant_expand: AtomicBool::new(false),
             ignore_fullscreen_enabled: AtomicBool::new(true),
             is_os_fullscreen: AtomicBool::new(false),

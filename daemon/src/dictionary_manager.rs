@@ -1,27 +1,12 @@
 use std::fs::{self, File};
 use std::io::{self, Write};
-use taurine_core::settings::{
-    InlineDictionaryMode, get_cached_inline_dictionary_enabled, get_cached_inline_dictionary_mode,
-};
 use taurine_core::system::paths::get_data_dir;
 use tracing::{debug, error, info};
 
 pub async fn check_and_update_dictionary() {
-    if !get_cached_inline_dictionary_enabled() {
-        return;
-    }
-
-    let mode = get_cached_inline_dictionary_mode();
-    let (file_name, default_url) = match mode {
-        InlineDictionaryMode::Lite => (
-            "dictionary_lite.db",
-            "https://raw.githubusercontent.com/ereinaimer/taurine/dict/dictionary_lite.db.zst",
-        ),
-        InlineDictionaryMode::Full => (
-            "dictionary_full.db",
-            "https://raw.githubusercontent.com/ereinaimer/taurine/dict/dictionary_full.db.zst",
-        ),
-    };
+    let file_name = "dictionary_lite.db";
+    let default_url =
+        "https://raw.githubusercontent.com/ereinaimer/taurine/dict/dictionary_lite.db.zst";
     let url = taurine_core::paths::dev_env_var("TAURINE_DICT_URL")
         .unwrap_or_else(|| default_url.to_string());
     let url = url.as_str();
@@ -41,17 +26,11 @@ pub async fn check_and_update_dictionary() {
     let db_path = dict_dir.join(file_name);
 
     if db_path.exists() {
-        debug!(
-            "Dictionary DB for mode {:?} already exists at {:?}",
-            mode, db_path
-        );
+        debug!("Dictionary DB already exists at {:?}", db_path);
         return;
     }
 
-    info!(
-        "Dictionary DB for mode {:?} missing, starting download...",
-        mode
-    );
+    info!("Dictionary DB missing, starting download...");
 
     if let Err(e) = fs::create_dir_all(&dict_dir) {
         error!("Failed to create dictionary directory: {}", e);
@@ -70,7 +49,7 @@ pub async fn check_and_update_dictionary() {
                 return;
             }
 
-            info!("Successfully installed offline {:?} dictionary", mode);
+            info!("Successfully installed offline dictionary");
         }
         Err(e) => {
             error!("Failed to download and decompress dictionary: {}", e);
@@ -106,10 +85,6 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::thread;
-    use taurine_core::settings::{
-        InlineDictionaryMode, set_cached_inline_dictionary_enabled,
-        set_cached_inline_dictionary_mode,
-    };
     use tempfile::tempdir;
 
     #[tokio::test]
@@ -123,13 +98,7 @@ mod tests {
         // SAFETY: Setting environment variables for download manager test isolation under TEST_LOCK.
         unsafe { std::env::set_var("TAURINE_DATA_DIR", temp.path().to_str().unwrap()) };
 
-        // 1. Test disabled does not download
-        set_cached_inline_dictionary_enabled(false);
-        set_cached_inline_dictionary_mode(InlineDictionaryMode::Lite);
-        check_and_update_dictionary().await;
-
         let dict_dir = temp.path().join("dict");
-        assert!(!dict_dir.exists());
 
         // Create a synthetic SQLite database and compress it with zstd
         let sample_db_path = temp.path().join("sample_source.db");
@@ -174,8 +143,7 @@ mod tests {
         // SAFETY: Setting environment variable for download manager test isolation under TEST_LOCK.
         unsafe { std::env::set_var("TAURINE_DICT_URL", &mock_url) };
 
-        // 2. Test enabled downloads from mock loopback server and decompresses Lite DB successfully
-        set_cached_inline_dictionary_enabled(true);
+        // Test unconditionally downloads from mock loopback server and decompresses Lite DB successfully
         check_and_update_dictionary().await;
 
         let db_path = dict_dir.join("dictionary_lite.db");
@@ -190,9 +158,11 @@ mod tests {
             "Database should have valid dictionary entries"
         );
 
+        // Subsequent call returns early without errors
+        check_and_update_dictionary().await;
+
         // Cleanup
         taurine_core::engine::dictionary::offline::close_cached_connection();
-        set_cached_inline_dictionary_enabled(false);
         // SAFETY: Cleaning up environment variables under TEST_LOCK.
         unsafe {
             std::env::remove_var("TAURINE_DICT_URL");

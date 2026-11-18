@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Modern Settings Overlay**: Quick-access settings modal (`Ctrl+,`) with inline field editing, graphical animated toggles, volume sliders, and connected microphone pickers.
 
 ### Changed
+- **Inline Assist Standardization**: Enable emoji, date/time, timezone, currency words, dictionary lookup, and tab completion assist features unconditionally.
 - **Snippet Sync Batching**: Coalesce burst offline edits into single queue items and upload multiple snippets in bulk requests.
 - **Unconditional Factory Reset Logout**: Automatically flush pending changes with retries and perform a complete local wipe on logout.
 - **Login Terminal Experience**: Prevent redundant authentication flows when already signed in and format messages with account email.

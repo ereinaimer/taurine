@@ -82,6 +82,7 @@ phf = { version = "0.14", features = ["macros"] }
 num2words = "1.2"
 genai = "0.6.5"
 sysinfo = "0.39.0"
+sys-locale = "0.3"
 
 [build-dependencies]
 tonic-prost-build = "0.14"

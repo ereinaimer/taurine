@@ -145,7 +145,7 @@ fn test_inline_currency_to_words_expansion() {
 }
 
 #[test]
-fn test_inline_currency_to_words_disabled_does_not_expand() {
+fn test_inline_currency_to_words_works_unconditionally() {
     let _guard = crate::testing::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
@@ -160,7 +160,12 @@ fn test_inline_currency_to_words_disabled_does_not_expand() {
         eval.process(EngineEvent::Char(c));
     }
     let res = eval.process(EngineEvent::ActionKey);
-    assert!(res.is_none());
+    assert!(res.is_some(), "currency words expands unconditionally");
+    let val = res.unwrap();
+    assert_eq!(
+        val.steps[0],
+        ExpansionStep::Text("One thousand two hundred dollars".to_string())
+    );
 }
 
 #[test]
@@ -340,14 +345,14 @@ fn test_inline_timezone_expansion() {
 
     eval.reset();
 
-    // Test 5: disabled datetime = no timezone expansion
+    // Test 5: timezone expansion evaluates unconditionally even if cached setting was false
     crate::settings::set_cached_inline_datetime_enabled(false);
     let mut eval2 = Evaluator::new(Arc::new(EngineState::new()));
     for c in "time in tokyo".chars() {
         eval2.process(EngineEvent::Char(c));
     }
     let res5 = eval2.process(EngineEvent::ActionKey);
-    assert!(res5.is_none(), "should not expand when datetime disabled");
+    assert!(res5.is_some(), "should expand timezone unconditionally");
 
     eval2.reset();
 
@@ -356,7 +361,7 @@ fn test_inline_timezone_expansion() {
         eval2.process(EngineEvent::Char(c));
     }
     let res6 = eval2.process(EngineEvent::ActionKey);
-    assert!(res6.is_none(), "should not expand when datetime disabled");
+    assert!(res6.is_some(), "should expand timezone unconditionally");
     // Restore enabled for other tests
     crate::settings::set_cached_inline_datetime_enabled(true);
 }
@@ -592,7 +597,7 @@ fn completion_backspace_edits_original_query_not_selected_completion() {
 }
 
 #[test]
-fn inline_tab_completion_setting_disables_completion_rewrites() {
+fn inline_tab_completion_works_unconditionally() {
     use std::sync::atomic::Ordering;
 
     let state = Arc::new(EngineState::new());
@@ -610,12 +615,10 @@ fn inline_tab_completion_setting_disables_completion_rewrites() {
     }
     let _ = eval.activate_triggerless_completion_no_cycle();
 
-    assert_eq!(eval.cycle_completion_next(), None);
-    assert_eq!(eval.cycle_completion_prev(), None);
-    assert_eq!(eval.completion.current_text, "g");
+    assert!(eval.cycle_completion_next().is_some());
+    assert_eq!(eval.completion.current_text, "gs");
     assert_eq!(eval.completion.original_query, "g");
-    assert!(eval.completion.suggestions.is_empty());
-    assert_eq!(eval.buffer.extract_tail_word(), Some("g".to_string()));
+    assert!(!eval.completion.suggestions.is_empty());
 }
 
 #[test]
@@ -2632,4 +2635,129 @@ fn is_word_boundary_checks_second_to_last_char() {
     assert!(!eval.is_word_boundary());
     eval.buffer.push(' ');
     assert!(eval.is_word_boundary());
+}
+
+#[test]
+fn test_ungated_inline_assist_features_suite() {
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+
+    let state = Arc::new(EngineState::new());
+    // Explicitly set all former feature flags to false to prove they are completely un-gated
+    state
+        .inline_currency_to_words_enabled
+        .store(false, std::sync::atomic::Ordering::Relaxed);
+    state
+        .inline_dictionary_enabled
+        .store(false, std::sync::atomic::Ordering::Relaxed);
+    state
+        .inline_tab_completion_enabled
+        .store(false, std::sync::atomic::Ordering::Relaxed);
+    state
+        .inline_case_transform_enabled
+        .store(false, std::sync::atomic::Ordering::Relaxed);
+    crate::settings::set_cached_inline_emoji_enabled(false);
+    crate::settings::set_cached_inline_datetime_enabled(false);
+    crate::settings::set_cached_inline_currency_to_words_enabled(false);
+
+    let mut eval = Evaluator::new(state.clone());
+
+    // 1. Emoji shortcode with ':' trigger works unconditionally
+    for c in ":rocket".chars() {
+        eval.process(EngineEvent::Char(c));
+    }
+    let res = eval
+        .process(EngineEvent::ActionKey)
+        .expect("emoji shortcode should expand");
+    assert_eq!(res.steps, vec![ExpansionStep::Text("🚀".to_string())]);
+    eval.reset();
+
+    // 2. Natural language emoji works unconditionally
+    for c in "rocket emoji".chars() {
+        eval.process(EngineEvent::Char(c));
+    }
+    let res = eval
+        .process(EngineEvent::ActionKey)
+        .expect("natural language emoji should expand");
+    assert_eq!(res.steps, vec![ExpansionStep::Text("🚀".to_string())]);
+    eval.reset();
+
+    // 3. Natural language date works unconditionally
+    for c in "tomorrow".chars() {
+        eval.process(EngineEvent::Char(c));
+    }
+    let res = eval
+        .process(EngineEvent::ActionKey)
+        .expect("natural date should expand");
+    assert!(res.is_calculation);
+    eval.reset();
+
+    // 4. Timezone query works unconditionally
+    for c in "time in tokyo".chars() {
+        eval.process(EngineEvent::Char(c));
+    }
+    let res = eval
+        .process(EngineEvent::ActionKey)
+        .expect("timezone query should expand");
+    assert!(res.is_calculation);
+    eval.reset();
+
+    // 5. Currency to words works unconditionally
+    for c in "$1,200".chars() {
+        eval.process(EngineEvent::Char(c));
+    }
+    let res = eval
+        .process(EngineEvent::ActionKey)
+        .expect("currency words should expand");
+    assert_eq!(
+        res.steps,
+        vec![ExpansionStep::Text(
+            "One thousand two hundred dollars".to_string()
+        )]
+    );
+    eval.reset();
+
+    // 6. Dictionary intent works unconditionally
+    for c in "meaning of serendipity".chars() {
+        eval.process(EngineEvent::Char(c));
+    }
+    let res = eval
+        .process(EngineEvent::ActionKey)
+        .expect("dictionary intent should expand");
+    assert!(matches!(
+        res.follow_up,
+        Some(ExpansionFollowUp::DictionaryLookup {
+            ref word,
+            lookup_type: crate::engine::dictionary::DictionaryLookupType::Meaning,
+        }) if word == "serendipity"
+    ));
+    eval.reset();
+
+    // 7. Tab completion works unconditionally
+    state.load_actions(vec![(
+        "snippet".to_string(),
+        crate::db::crud::TriggerAction::text("expanded snippet"),
+    )]);
+    for c in "snip".chars() {
+        eval.process(EngineEvent::Char(c));
+    }
+    eval.activate_triggerless_completion_no_cycle();
+    let rewrite = eval
+        .cycle_completion_next()
+        .expect("tab completion cycle should succeed");
+    assert_eq!(rewrite.replacement, "snippet");
+    eval.reset();
+
+    // 8. Case cycling works unconditionally
+    state.register_case_cycle("hello".to_string());
+    let case_rewrite = state
+        .advance_case_variant(crate::engine::CycleDirection::Next)
+        .expect("case variant should advance unconditionally");
+    assert_eq!(case_rewrite.replacement, "Hello");
+
+    // Restore cached settings
+    crate::settings::set_cached_inline_emoji_enabled(true);
+    crate::settings::set_cached_inline_datetime_enabled(true);
+    crate::settings::set_cached_inline_currency_to_words_enabled(true);
 }
