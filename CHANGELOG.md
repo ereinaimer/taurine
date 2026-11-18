@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Modern Settings Overlay**: Quick-access settings modal (`Ctrl+,`) with inline field editing, graphical animated toggles, volume sliders, and connected microphone pickers.
 
 ### Changed
+- **Streamlined Settings Architecture**: Compacted configuration down to 19 essential user preferences, standardized date and time formatting keys, and internalized timing heuristics.
 - **Inline Assist Standardization**: Enable emoji, date/time, timezone, currency words, dictionary lookup, and tab completion assist features unconditionally.
 - **Snippet Sync Batching**: Coalesce burst offline edits into single queue items and upload multiple snippets in bulk requests.
 - **Unconditional Factory Reset Logout**: Automatically flush pending changes with retries and perform a complete local wipe on logout.
@@ -40,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Monetization Simplification**: Free tier now includes unlimited snippets, workspaces, and devices, gating exclusively on weekly expansion quota.
 
 ### Removed
+- **Feature Toggles**: Removed configuration toggles for clipboard history, script execution, inline assist features, and developer hyperparameters.
 - **Local Voice Models**: Removed local voice models and downloader in preparation for cloud-based voice dictation.
 - **Logout Force Flag**: Removed the `--force` flag and interactive prompts from the logout command.
 - **Keystrokes Saved Metric**: Deprecated keystroke counting across all database tables, calculation models, and cloud synchronization.
