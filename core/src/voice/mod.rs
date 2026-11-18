@@ -1,3 +1,4 @@
+pub mod cloud;
 pub mod devices;
 pub mod dictionary;
 pub mod format;
@@ -8,6 +9,7 @@ pub mod phonetic;
 pub mod transcriber;
 pub mod wav;
 
+pub use cloud::{DEFAULT_GROQ_API_URL, DEFAULT_GROQ_MODEL, GroqVoiceClient, build_whisper_prompt};
 pub use dictionary::{VoiceDictionary, build_hotwords_payload};
 pub use format::format_transcript;
 pub use gate::{

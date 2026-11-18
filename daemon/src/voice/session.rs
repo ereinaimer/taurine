@@ -64,6 +64,7 @@ pub struct VoiceSessionManager {
     paused: Arc<AtomicBool>,
     engine_state: Option<Arc<taurine_core::engine::EngineState>>,
     dictionary: Mutex<VoiceDictionary>,
+    cloud_client: Arc<taurine_core::voice::GroqVoiceClient>,
     active_req: Mutex<Option<(String, PttTiming)>>,
     media: Arc<dyn super::media_suspend::MediaSuspender>,
     media_paused: Arc<std::sync::Mutex<Vec<super::media_suspend::PausedSession>>>,
@@ -99,6 +100,7 @@ impl VoiceSessionManager {
             paused,
             engine_state: None,
             dictionary: Mutex::new(VoiceDictionary::default()),
+            cloud_client: Arc::new(taurine_core::voice::GroqVoiceClient::from_env_or_keyring()),
             active_req: Mutex::new(None),
             #[cfg(test)]
             media: Arc::new(super::media_suspend::NoopMediaSuspender),
@@ -138,6 +140,10 @@ impl VoiceSessionManager {
     }
     pub fn with_engine_state(mut self, state: Arc<taurine_core::engine::EngineState>) -> Self {
         self.engine_state = Some(state);
+        self
+    }
+    pub fn with_cloud_client(mut self, client: Arc<taurine_core::voice::GroqVoiceClient>) -> Self {
+        self.cloud_client = client;
         self
     }
 
@@ -665,6 +671,25 @@ impl VoiceSessionManager {
     }
 
     /// Finalize request, decode audio, and inject.
+    /// Transcribe captured audio samples using the cloud speech-to-text client,
+    /// passing personal dictionary terms and active voice triggers as prompt biasing.
+    pub fn transcribe_audio(&self, audio: &[f32]) -> Result<String, String> {
+        let dict = self.dictionary.lock().unwrap_or_else(|p| p.into_inner());
+        let triggers: Vec<String> = if let Ok(conn) = taurine_core::db::get_conn()
+            && let Ok(invocations) = taurine_core::db::crud::list_active_voice_invocations(&conn)
+        {
+            invocations.into_iter().map(|inv| inv.invocation).collect()
+        } else {
+            Vec::new()
+        };
+        let prompt = taurine_core::voice::build_whisper_prompt(&dict, &triggers);
+        drop(dict);
+
+        self.cloud_client
+            .transcribe_blocking(audio, 16000, prompt.as_deref())
+            .map_err(|e| e.to_string())
+    }
+
     fn finalize_request(&self) -> Result<Option<String>, String> {
         let active = self
             .active_req
@@ -719,12 +744,12 @@ impl VoiceSessionManager {
                 {
                     hook(&drained)?
                 } else {
-                    String::new()
+                    self.transcribe_audio(&drained)?
                 }
             }
             #[cfg(not(test))]
             {
-                String::new()
+                self.transcribe_audio(&drained)?
             }
         };
 
@@ -3192,5 +3217,126 @@ mod tests {
             "toggle-based hands-free is exempt from the key-up net"
         );
         *session.mode.lock().unwrap() = VoiceMode::Idle;
+    }
+
+    #[test]
+    fn test_cloud_voice_transcribe_and_injection_e2e() {
+        use std::io::{BufReader, Read, Write};
+
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let server_thread = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut header_bytes = Vec::new();
+            let mut byte = [0u8; 1];
+            while reader.read_exact(&mut byte).is_ok() {
+                header_bytes.push(byte[0]);
+                if header_bytes.ends_with(b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let headers = String::from_utf8_lossy(&header_bytes).to_string();
+            assert!(headers.starts_with("POST /transcribe HTTP/1.1"));
+            assert!(
+                headers
+                    .to_lowercase()
+                    .contains("authorization: bearer mock-test-key")
+            );
+
+            let mut content_length = 0usize;
+            for line in headers.lines() {
+                if let Some(val) = line.to_lowercase().strip_prefix("content-length:") {
+                    content_length = val.trim().parse().unwrap_or(0);
+                }
+            }
+
+            if content_length > 0 {
+                let mut body = vec![0u8; content_length];
+                let _ = reader.read_exact(&mut body);
+            }
+
+            let response_body = r#"{"text": "Cloud voice dictation verified"}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+            let _ = stream.flush();
+        });
+
+        let cloud_client = Arc::new(taurine_core::voice::GroqVoiceClient::with_endpoint(
+            Some("mock-test-key".to_string()),
+            format!("http://127.0.0.1:{port}/transcribe"),
+            "whisper-large-v3".to_string(),
+        ));
+
+        let (session, _) = create_test_session();
+        let session = session.with_cloud_client(cloud_client);
+
+        crate::platform::test_injector().clear();
+
+        let guard = crate::engine::quota_guard::QuotaGuard::global();
+        let original_balance = guard.balance();
+        let original_authenticated = guard.is_authenticated();
+        let original_unlimited = guard.is_unlimited();
+
+        guard.set_authenticated(true);
+        guard.set_unlimited(false);
+        guard.set_balance(100.0);
+
+        session.start_ptt().expect("ptt start");
+        session.capture().buffer().push_samples(&[0.5; 3200]);
+        let res = session.stop_ptt().expect("ptt stop");
+
+        assert_eq!(res, Some("Cloud voice dictation verified".to_string()));
+
+        // 1. Verify injection occurred via fake clipboard
+        let recorded = crate::platform::test_injector().recorded();
+        assert!(
+            !recorded.is_empty(),
+            "Recorded injection events must not be empty"
+        );
+
+        // 2. Verify quota was deducted for 4 words (4 * 0.004 = 0.016%)
+        let post_quota = guard.balance();
+        assert!(
+            post_quota < 100.0,
+            "Quota must be depleted for spoken words"
+        );
+        assert!((guard.unflushed_delta() - 0.016).abs() < 1e-4);
+
+        // 3. Verify telemetry and activity_events history in SQLite
+        let conn = taurine_core::db::get_conn().unwrap();
+        let events = taurine_core::db::crud::get_recent_activity_events(
+            &conn,
+            10,
+            0,
+            Some(taurine_core::db::crud::ActivityCategory::Voice),
+        )
+        .unwrap();
+        assert!(
+            !events.is_empty(),
+            "Dictation history must be recorded in activity_events"
+        );
+        assert_eq!(
+            events[0].content.as_deref(),
+            Some("Cloud voice dictation verified")
+        );
+
+        // Restore quota guard state
+        guard.set_balance(original_balance);
+        guard.set_unlimited(original_unlimited);
+        guard.set_authenticated(original_authenticated);
+
+        server_thread.join().unwrap();
     }
 }
