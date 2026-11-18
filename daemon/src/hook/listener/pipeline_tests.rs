@@ -806,7 +806,6 @@ mod listener_pipeline_tests {
     #[test]
     fn test_ctrl_v_inside_inline_ai_swallowed_unconditionally() {
         let h = Harness::new();
-        h.state.inline_ai_enabled.store(false, Ordering::Relaxed);
         h.type_str("tau, reformat this: ");
 
         let _ = h.send(bare_event(EventType::KeyPress(Key::ControlLeft)));

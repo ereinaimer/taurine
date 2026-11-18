@@ -1,6 +1,7 @@
 use notify_rust::Notification;
 use tracing::debug;
 
+#[allow(dead_code)]
 pub fn notify_pause_toggled(paused: bool) {
     let (summary, body) = if paused {
         ("Taurine Paused", "Triggers are currently disabled.")

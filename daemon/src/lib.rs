@@ -180,41 +180,10 @@ pub fn start() -> taurine_core::error::Result<()> {
     // Check for updates on startup when auto-update is enabled
     taurine_core::service::check_on_startup(&conn, settings.auto_update);
 
-    taurine_core::settings::set_cached_wpm(settings.wpm);
-    taurine_core::settings::set_cached_clipboard_restore_delay(settings.clipboard_restore_delay_ms);
-    taurine_core::settings::set_cached_script_timeout(settings.script_timeout);
-    taurine_core::settings::set_cached_clipboard_history_enabled(
-        settings.clipboard_history_enabled,
-    );
-    taurine_core::settings::set_cached_clipboard_history_retention_secs(
-        settings.clipboard_history_retention_secs,
-    );
-    taurine_core::settings::set_cached_inline_emoji_enabled(settings.inline_emoji_enabled);
-    taurine_core::settings::set_cached_inline_emoji_trigger_char(
-        settings.inline_emoji_trigger_char,
-    );
-    taurine_core::settings::set_cached_inline_datetime_enabled(settings.inline_datetime_enabled);
-    taurine_core::settings::set_cached_inline_datetime_date_format(
-        settings.inline_datetime_date_format.clone(),
-    );
-    taurine_core::settings::set_cached_inline_datetime_time_format(
-        settings.inline_datetime_time_format.clone(),
-    );
-    taurine_core::settings::set_cached_inline_datetime_datetime_format(
-        settings.inline_datetime_datetime_format.clone(),
-    );
-    taurine_core::settings::set_cached_inline_datetime_dialect(
-        settings.inline_datetime_dialect.clone(),
-    );
-    taurine_core::settings::set_cached_inline_currency_to_words_enabled(
-        settings.inline_currency_to_words_enabled,
-    );
-    taurine_core::settings::set_cached_scripts_enabled(settings.scripts_enabled);
-    taurine_core::settings::set_cached_inline_case_transform_enabled(
-        settings.inline_case_transform_enabled,
-    );
-    taurine_core::settings::set_cached_inline_dictionary_enabled(
-        settings.inline_dictionary_enabled,
+    taurine_core::settings::set_cached_inline_date_format(settings.inline_date_format.clone());
+    taurine_core::settings::set_cached_inline_time_format(settings.inline_time_format.clone());
+    taurine_core::settings::set_cached_inline_datetime_format(
+        settings.inline_datetime_format.clone(),
     );
     taurine_core::settings::set_cached_audio_theme(settings.audio_theme);
     taurine_core::settings::set_cached_audio_volume(settings.audio_volume);
@@ -247,33 +216,14 @@ pub fn start() -> taurine_core::error::Result<()> {
 
     let state = Arc::new(EngineState::new());
     state
-        .inline_tab_completion_enabled
-        .store(settings.inline_tab_completion_enabled, Ordering::Relaxed);
-    state
-        .inline_case_transform_enabled
-        .store(settings.inline_case_transform_enabled, Ordering::Relaxed);
-    state
-        .inline_dictionary_enabled
-        .store(settings.inline_dictionary_enabled, Ordering::Relaxed);
-    state
         .instant_expand
         .store(settings.instant_expand, Ordering::Relaxed);
     state
         .ignore_fullscreen_enabled
         .store(settings.ignore_fullscreen, Ordering::Relaxed);
-    state
-        .inline_datetime_enabled
-        .store(settings.inline_datetime_enabled, Ordering::Relaxed);
-    state
-        .inline_currency_to_words_enabled
-        .store(settings.inline_currency_to_words_enabled, Ordering::Relaxed);
-    state.set_inline_datetime_date_format(settings.inline_datetime_date_format.clone());
-    state.set_inline_datetime_time_format(settings.inline_datetime_time_format.clone());
-    state.set_inline_datetime_datetime_format(settings.inline_datetime_datetime_format.clone());
-    state.set_inline_datetime_dialect(settings.inline_datetime_dialect.clone());
-    state
-        .inline_ai_enabled
-        .store(settings.inline_ai_enabled, Ordering::Relaxed);
+    state.set_inline_date_format(settings.inline_date_format.clone());
+    state.set_inline_time_format(settings.inline_time_format.clone());
+    state.set_inline_datetime_format(settings.inline_datetime_format.clone());
 
     // Global pause toggle hotkey (display + parse).
     let pause_hotkey = Arc::new(RwLock::new(settings.pause_hotkey.clone()));
@@ -288,18 +238,12 @@ pub fn start() -> taurine_core::error::Result<()> {
         }),
     ));
 
-    let pause_notifications_enabled = settings.pause_notifications_enabled;
-    let spinner_style = Arc::new(RwLock::new(settings.spinner_style));
+    let spinner_style = Arc::new(RwLock::new(taurine_core::settings::SpinnerStyle::default()));
 
     let evaluator = Arc::new(Mutex::new(Evaluator::new(state.clone())));
 
     paused.store(false, Ordering::Relaxed);
-    let pause_notifications_enabled = Arc::new(std::sync::atomic::AtomicBool::new(
-        pause_notifications_enabled,
-    ));
-    let pause_audio_enabled = Arc::new(std::sync::atomic::AtomicBool::new(
-        settings.pause_audio_enabled,
-    ));
+    let pause_audio_enabled = Arc::new(std::sync::atomic::AtomicBool::new(true));
     system_tray_enabled.store(settings.system_tray_enabled, Ordering::Relaxed);
     let hook_health = input::hook_health::HookHealth::new();
 
@@ -327,7 +271,6 @@ pub fn start() -> taurine_core::error::Result<()> {
     let eval_clone = evaluator.clone();
     let state_clone = state.clone();
     let paused_clone = paused.clone();
-    let pause_notifications_enabled_clone = pause_notifications_enabled.clone();
     let pause_hotkey_spec_clone = pause_hotkey_spec.clone();
     let spinner_style_clone = spinner_style.clone();
     let pause_audio_enabled_clone = pause_audio_enabled.clone();
@@ -351,7 +294,6 @@ pub fn start() -> taurine_core::error::Result<()> {
                     eval_clone,
                     state_clone,
                     paused_clone,
-                    pause_notifications_enabled_clone,
                     pause_hotkey_spec_clone,
                     spinner_style_clone,
                     pause_audio_enabled_clone,
@@ -371,7 +313,6 @@ pub fn start() -> taurine_core::error::Result<()> {
                     eval_clone,
                     state_clone,
                     paused_clone,
-                    pause_notifications_enabled_clone,
                     pause_hotkey_spec_clone,
                     spinner_style_clone,
                     pause_audio_enabled_clone,
@@ -391,7 +332,6 @@ pub fn start() -> taurine_core::error::Result<()> {
                     eval_clone,
                     state_clone,
                     paused_clone,
-                    pause_notifications_enabled_clone,
                     pause_hotkey_spec_clone,
                     spinner_style_clone,
                     pause_audio_enabled_clone,
@@ -562,7 +502,6 @@ pub fn start() -> taurine_core::error::Result<()> {
         let evaluator_for_coordinator = evaluator.clone();
         #[cfg(any(windows, target_os = "linux"))]
         let state_for_coordinator = state.clone();
-        let pause_notifications_enabled_for_coordinator = pause_notifications_enabled.clone();
         let sync_notify_for_pause = sync_notify.clone();
         let pause_coordinator_handle = tokio::spawn(async move {
             while let Some(first) = pause_transition_rx.recv().await {
@@ -604,10 +543,6 @@ pub fn start() -> taurine_core::error::Result<()> {
                     );
                     #[cfg(target_os = "linux")]
                     crate::platform::linux::toplevel::start_listener(state_for_coordinator.clone());
-                }
-
-                if pause_notifications_enabled_for_coordinator.load(Ordering::Relaxed) {
-                    services::notify::notify_pause_toggled(is_paused);
                 }
             }
         });
@@ -675,7 +610,6 @@ pub fn start() -> taurine_core::error::Result<()> {
                 .shutdown_sender(shutdown_tx.clone())
                 .state(state.clone())
                 .paused(paused.clone())
-                .pause_notifications_enabled(pause_notifications_enabled.clone())
                 .pause_hotkey_spec(pause_hotkey_spec.clone())
                 .pause_hotkey_display(pause_hotkey.clone())
                 .spinner_style(spinner_style.clone())

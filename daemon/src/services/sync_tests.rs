@@ -1122,8 +1122,8 @@ async fn test_sync_settings_with_strict_allowlist_ignores_sensitive_and_hardware
     let conn = Connection::open_in_memory().unwrap();
     ensure_schema(&conn).unwrap();
 
-    // Inserts local wpm (syncable), voice_input_device (hardware), and scripts_enabled (security)
-    taurine_core::db::crud::upsert_setting(&conn, "wpm", "120").unwrap();
+    // Inserts local inline_date_format (syncable), voice_input_device (hardware), and scripts_enabled (security)
+    taurine_core::db::crud::upsert_setting(&conn, "inline_date_format", "\"YYYY-MM-DD\"").unwrap();
     taurine_core::db::crud::upsert_setting(&conn, "voice_input_device", "\"Realtek Mic\"").unwrap();
     taurine_core::db::crud::upsert_setting(&conn, "scripts_enabled", "true").unwrap();
 
@@ -1183,7 +1183,7 @@ async fn test_sync_settings_with_strict_allowlist_ignores_sensitive_and_hardware
                         stream.write_all(resp.as_bytes()).unwrap();
                     } else if req.starts_with("POST /rest/v1/user_settings") {
                         assert!(req.contains("resolution=merge-duplicates"));
-                        assert!(req.contains("\"wpm\""));
+                        assert!(req.contains("\"inline_date_format\""));
                         assert!(!req.contains("voice_input_device"));
                         assert!(!req.contains("scripts_enabled"));
 
@@ -1239,9 +1239,9 @@ async fn test_sync_settings_with_strict_allowlist_ignores_sensitive_and_hardware
         .unwrap();
     assert_eq!(vol.value, "75");
 
-    // Verify local wpm was synced and outbox drained
+    // Verify local inline_date_format was synced and outbox drained
     let unsynced = taurine_core::db::crud::get_unsynced_settings(&conn).unwrap();
-    assert!(!unsynced.iter().any(|s| s.key == "wpm"));
+    assert!(!unsynced.iter().any(|s| s.key == "inline_date_format"));
 
     let _ = server_handle.join();
     taurine_core::cloud::clear_tokens().unwrap();
@@ -1649,8 +1649,8 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
                     } else if req.starts_with("GET /rest/v1/user_settings") {
                         let remote_setting = taurine_core::db::crud::CloudSettingPayload {
                             user_id: None,
-                            key: "wpm".to_string(),
-                            value: serde_json::json!(150),
+                            key: "inline_date_format".to_string(),
+                            value: serde_json::json!("YYYY-MM-DD"),
                             version: 2,
                             updated_at: Some("2026-10-28T05:00:00Z".to_string()),
                         };
@@ -1830,12 +1830,12 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
     assert_eq!(aliases.len(), 1);
     assert_eq!(aliases[0].invocation, "hfc");
 
-    // Verify seeded factory default setting (wpm) was updated to cloud value
-    let wpm_setting = taurine_core::db::crud::get_setting(&conn, "wpm")
+    // Verify seeded factory default setting (inline_date_format) was updated to cloud value
+    let date_setting = taurine_core::db::crud::get_setting(&conn, "inline_date_format")
         .unwrap()
-        .expect("wpm setting must exist");
-    assert_eq!(wpm_setting.value, "150");
-    assert_eq!(wpm_setting.version, 2);
+        .expect("inline_date_format setting must exist");
+    assert_eq!(date_setting.value, "\"YYYY-MM-DD\"");
+    assert_eq!(date_setting.version, 2);
 
     // Verify activity event was restored
     let events = taurine_core::db::crud::get_activity_events(&conn, 10, 0).unwrap();
@@ -2307,9 +2307,6 @@ async fn test_pause_resume_and_reload_signal_sync() {
         .shutdown_sender(tx)
         .state(state)
         .paused(paused.clone())
-        .pause_notifications_enabled(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
-            false,
-        )))
         .pause_hotkey_spec(pause_hotkey_spec)
         .pause_hotkey_display(std::sync::Arc::new(std::sync::RwLock::new(pause_hotkey)))
         .spinner_style(std::sync::Arc::new(std::sync::RwLock::new(
@@ -2458,7 +2455,7 @@ async fn test_outbox_push_and_drain_all_entity_types() {
     .unwrap();
 
     // 2. Setting
-    taurine_core::db::crud::upsert_setting(&conn, "wpm", "130").unwrap();
+    taurine_core::db::crud::upsert_setting(&conn, "inline_date_format", "\"YYYY-MM-DD\"").unwrap();
 
     // 3. Quota
     let mutation_id = uuid::Uuid::new_v4().to_string();
@@ -2568,7 +2565,7 @@ async fn test_outbox_push_and_drain_all_entity_types() {
                     } else if req.starts_with("POST /rest/v1/user_settings") {
                         assert!(req.contains("on_conflict=user_id,key"));
                         assert!(req.contains("resolution=merge-duplicates"));
-                        assert!(req.contains("\"wpm\""));
+                        assert!(req.contains("\"inline_date_format\""));
                         let resp = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
                         stream.write_all(resp.as_bytes()).unwrap();
                     } else if req.starts_with("POST /rest/v1/rpc/record_quota_burn") {
@@ -2813,8 +2810,8 @@ async fn test_checkpoint_watermark_pull_does_not_create_outbox_entries() {
                     } else if req.starts_with("GET /rest/v1/user_settings") {
                         let remote_setting = taurine_core::db::crud::CloudSettingPayload {
                             user_id: None,
-                            key: "wpm".to_string(),
-                            value: serde_json::json!(160),
+                            key: "inline_date_format".to_string(),
+                            value: serde_json::json!("YYYY-MM-DD"),
                             version: 2,
                             updated_at: Some("2026-10-28T06:00:00Z".to_string()),
                         };
@@ -3269,14 +3266,14 @@ fn test_sync_setting_versioning_and_clean_json_roundtrip() {
     ensure_schema(&conn).unwrap();
 
     // 1. Initial set of syncable numeric setting: version starts at 1
-    taurine_core::db::crud::set_setting(&conn, "wpm", "120").unwrap();
+    taurine_core::db::crud::set_setting(&conn, "audio_volume", "50").unwrap();
 
     let batch = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
     assert_eq!(batch.len(), 1);
     assert_eq!(batch[0].entity_type, "setting");
-    assert_eq!(batch[0].entity_id, "wpm");
-    assert_eq!(batch[0].payload["key"], "wpm");
-    assert_eq!(batch[0].payload["value"], 120);
+    assert_eq!(batch[0].entity_id, "audio_volume");
+    assert_eq!(batch[0].payload["key"], "audio_volume");
+    assert_eq!(batch[0].payload["value"], 50);
     assert_eq!(batch[0].payload["version"], 1);
     let updated_at_str = batch[0].payload["updated_at"]
         .as_str()
@@ -3287,7 +3284,7 @@ fn test_sync_setting_versioning_and_clean_json_roundtrip() {
     );
 
     // 2. Subsequent update of same setting increments version to 2
-    taurine_core::db::crud::set_setting(&conn, "wpm", "140").unwrap();
+    taurine_core::db::crud::set_setting(&conn, "audio_volume", "70").unwrap();
 
     let batch2 = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
     assert_eq!(
@@ -3295,8 +3292,8 @@ fn test_sync_setting_versioning_and_clean_json_roundtrip() {
         1,
         "Subsequent update must coalesce into existing entry"
     );
-    assert_eq!(batch2[0].payload["key"], "wpm");
-    assert_eq!(batch2[0].payload["value"], 140);
+    assert_eq!(batch2[0].payload["key"], "audio_volume");
+    assert_eq!(batch2[0].payload["value"], 70);
     assert_eq!(batch2[0].payload["version"], 2);
 
     // 3. Set a string-typed setting: outbox payload must contain clean parsed string, not double-quoted string
@@ -3363,11 +3360,11 @@ fn test_sync_setting_versioning_and_clean_json_roundtrip() {
     let loaded2 = mgr.load_all();
     assert_eq!(loaded2.audio_theme, taurine_core::settings::AudioTheme::Zen);
 
-    // 6. Remote reconciliation with number (130 for wpm)
+    // 6. Remote reconciliation with number (80 for audio_volume)
     let remote_num = taurine_core::db::crud::CloudSettingPayload {
         user_id: None,
-        key: "wpm".to_string(),
-        value: serde_json::json!(130),
+        key: "audio_volume".to_string(),
+        value: serde_json::json!(80),
         version: 10,
         updated_at: Some("2026-10-06T14:00:00Z".to_string()),
     };
@@ -3377,14 +3374,14 @@ fn test_sync_setting_versioning_and_clean_json_roundtrip() {
         taurine_core::db::crud::SettingReconcileOutcome::UpdatedFromRemote
     );
 
-    let row3 = taurine_core::db::crud::get_setting(&conn, "wpm")
+    let row3 = taurine_core::db::crud::get_setting(&conn, "audio_volume")
         .unwrap()
         .unwrap();
-    assert_eq!(row3.value, "130");
+    assert_eq!(row3.value, "80");
     assert_eq!(row3.version, 10);
 
     let loaded3 = mgr.load_all();
-    assert_eq!(loaded3.wpm, 130);
+    assert_eq!(loaded3.audio_volume, 80);
 
     // 7. Remote reconciliation with stringified number ("95" for audio_volume)
     let remote_str_num = taurine_core::db::crud::CloudSettingPayload {

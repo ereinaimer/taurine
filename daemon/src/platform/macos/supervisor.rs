@@ -25,7 +25,6 @@ pub fn start_macos_supervisor(
     evaluator: Arc<Mutex<Evaluator>>,
     state: Arc<taurine_core::engine::EngineState>,
     paused: Arc<std::sync::atomic::AtomicBool>,
-    pause_notifications_enabled: Arc<std::sync::atomic::AtomicBool>,
     pause_hotkey: Arc<RwLock<hotkey::HotkeySpec>>,
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
@@ -52,7 +51,6 @@ pub fn start_macos_supervisor(
                     let eval = evaluator.clone();
                     let st = state.clone();
                     let p = paused.clone();
-                    let pne = pause_notifications_enabled.clone();
                     let phk = pause_hotkey.clone();
                     let ss = spinner_style.clone();
                     let pae = pause_audio_enabled.clone();
@@ -63,7 +61,7 @@ pub fn start_macos_supervisor(
                     std::thread::spawn(move || {
                         health.mark_listener_started();
                         health.mark_listener_entering_grab();
-                        crate::hook::start_listener(eval, st, p, pne, phk, ss, pae, atx, ptx);
+                        crate::hook::start_listener(eval, st, p, phk, ss, pae, atx, ptx);
                         let _ =
                             listener_tx.send(MacosSupervisorEvent::ListenerExited { error: None });
                     })

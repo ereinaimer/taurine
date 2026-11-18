@@ -912,9 +912,6 @@ mod tests {
         let settings = Settings {
             ai_provider: Some("openai".to_string()),
             ai_model: Some("gpt-4.1-mini".to_string()),
-            ai_temperature: Some(0.1),
-            ai_max_tokens: Some(100),
-            ai_system_prompt: Some("custom prompt".to_string()),
             ..Settings::default()
         };
 

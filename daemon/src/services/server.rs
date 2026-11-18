@@ -16,9 +16,9 @@ pub struct DaemonService {
     shutdown_sender: mpsc::Sender<()>,
     state: Arc<EngineState>,
     paused: Arc<AtomicBool>,
-    pause_notifications_enabled: Arc<AtomicBool>,
     pause_hotkey_spec: Arc<RwLock<crate::input::hotkey::HotkeySpec>>,
     pause_hotkey_display: Arc<RwLock<String>>,
+    #[allow(dead_code)]
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     pause_audio_enabled: Arc<AtomicBool>,
     system_tray_enabled: Arc<AtomicBool>,
@@ -58,46 +58,10 @@ impl DaemonService {
         let settings_manager = SettingsManager::new(conn);
         let settings = settings_manager.load_all();
 
-        taurine_core::settings::set_cached_wpm(settings.wpm);
-        taurine_core::settings::set_cached_clipboard_restore_delay(
-            settings.clipboard_restore_delay_ms,
-        );
-        taurine_core::settings::set_cached_script_timeout(settings.script_timeout);
-        taurine_core::settings::set_cached_clipboard_history_enabled(
-            settings.clipboard_history_enabled,
-        );
-        taurine_core::settings::set_cached_clipboard_history_retention_secs(
-            settings.clipboard_history_retention_secs,
-        );
-        taurine_core::settings::set_cached_inline_emoji_enabled(settings.inline_emoji_enabled);
-        taurine_core::settings::set_cached_inline_emoji_trigger_char(
-            settings.inline_emoji_trigger_char,
-        );
-        taurine_core::settings::set_cached_inline_datetime_enabled(
-            settings.inline_datetime_enabled,
-        );
-        taurine_core::settings::set_cached_inline_datetime_date_format(
-            settings.inline_datetime_date_format.clone(),
-        );
-        taurine_core::settings::set_cached_inline_datetime_time_format(
-            settings.inline_datetime_time_format.clone(),
-        );
-        taurine_core::settings::set_cached_inline_datetime_datetime_format(
-            settings.inline_datetime_datetime_format.clone(),
-        );
-        taurine_core::settings::set_cached_inline_datetime_dialect(
-            settings.inline_datetime_dialect.clone(),
-        );
-        taurine_core::settings::set_cached_inline_currency_to_words_enabled(
-            settings.inline_currency_to_words_enabled,
-        );
-        taurine_core::settings::set_cached_inline_dictionary_enabled(
-            settings.inline_dictionary_enabled,
-        );
-        taurine_core::settings::set_cached_inline_dictionary_mode(settings.inline_dictionary_mode);
-        taurine_core::settings::set_cached_scripts_enabled(settings.scripts_enabled);
-        taurine_core::settings::set_cached_inline_case_transform_enabled(
-            settings.inline_case_transform_enabled,
+        taurine_core::settings::set_cached_inline_date_format(settings.inline_date_format.clone());
+        taurine_core::settings::set_cached_inline_time_format(settings.inline_time_format.clone());
+        taurine_core::settings::set_cached_inline_datetime_format(
+            settings.inline_datetime_format.clone(),
         );
 
         // Update voice settings cache
@@ -130,48 +94,17 @@ impl DaemonService {
         }
 
         self.state
-            .inline_datetime_enabled
-            .store(settings.inline_datetime_enabled, Ordering::Relaxed);
+            .set_inline_date_format(settings.inline_date_format.clone());
         self.state
-            .inline_currency_to_words_enabled
-            .store(settings.inline_currency_to_words_enabled, Ordering::Relaxed);
+            .set_inline_time_format(settings.inline_time_format.clone());
         self.state
-            .set_inline_datetime_date_format(settings.inline_datetime_date_format.clone());
-        self.state
-            .set_inline_datetime_time_format(settings.inline_datetime_time_format.clone());
-        self.state
-            .set_inline_datetime_datetime_format(settings.inline_datetime_datetime_format.clone());
-        self.state
-            .set_inline_datetime_dialect(settings.inline_datetime_dialect.clone());
-
-        // Update AI setting
-        self.state
-            .inline_ai_enabled
-            .store(settings.inline_ai_enabled, Ordering::Relaxed);
-
-        self.state
-            .inline_tab_completion_enabled
-            .store(settings.inline_tab_completion_enabled, Ordering::Relaxed);
-        self.state
-            .inline_case_transform_enabled
-            .store(settings.inline_case_transform_enabled, Ordering::Relaxed);
-        self.state
-            .inline_dictionary_enabled
-            .store(settings.inline_dictionary_enabled, Ordering::Relaxed);
-
+            .set_inline_datetime_format(settings.inline_datetime_format.clone());
         self.state
             .instant_expand
             .store(settings.instant_expand, Ordering::Relaxed);
         self.state
             .ignore_fullscreen_enabled
             .store(settings.ignore_fullscreen, Ordering::Relaxed);
-
-        // Update pause notifications (atomic)
-        self.pause_notifications_enabled
-            .store(settings.pause_notifications_enabled, Ordering::Relaxed);
-
-        self.pause_audio_enabled
-            .store(settings.pause_audio_enabled, Ordering::Relaxed);
 
         self.system_tray_enabled
             .store(settings.system_tray_enabled, Ordering::Relaxed);
@@ -186,11 +119,6 @@ impl DaemonService {
         // Update pause hotkey display (RwLock)
         if let Ok(mut lock) = self.pause_hotkey_display.write() {
             *lock = settings.pause_hotkey.clone();
-        }
-
-        // Update spinner style (RwLock)
-        if let Ok(mut lock) = self.spinner_style.write() {
-            *lock = settings.spinner_style;
         }
 
         // Update auth status, user tier, and QuotaGuard unlimited status
@@ -236,7 +164,6 @@ pub struct DaemonServiceBuilder {
     shutdown_sender: Option<mpsc::Sender<()>>,
     state: Option<Arc<EngineState>>,
     paused: Option<Arc<AtomicBool>>,
-    pause_notifications_enabled: Option<Arc<AtomicBool>>,
     pause_hotkey_spec: Option<Arc<RwLock<crate::input::hotkey::HotkeySpec>>>,
     pause_hotkey_display: Option<Arc<RwLock<String>>>,
     spinner_style: Option<Arc<RwLock<taurine_core::settings::SpinnerStyle>>>,
@@ -259,7 +186,6 @@ impl DaemonServiceBuilder {
             shutdown_sender: None,
             state: None,
             paused: None,
-            pause_notifications_enabled: None,
             pause_hotkey_spec: None,
             pause_hotkey_display: None,
             spinner_style: None,
@@ -283,11 +209,6 @@ impl DaemonServiceBuilder {
 
     pub fn paused(mut self, paused: Arc<AtomicBool>) -> Self {
         self.paused = Some(paused);
-        self
-    }
-
-    pub fn pause_notifications_enabled(mut self, enabled: Arc<AtomicBool>) -> Self {
-        self.pause_notifications_enabled = Some(enabled);
         self
     }
 
@@ -342,9 +263,6 @@ impl DaemonServiceBuilder {
             shutdown_sender: self.shutdown_sender.ok_or("shutdown_sender is required")?,
             state: self.state.ok_or("state is required")?,
             paused: self.paused.ok_or("paused is required")?,
-            pause_notifications_enabled: self
-                .pause_notifications_enabled
-                .ok_or("pause_notifications_enabled is required")?,
             pause_hotkey_spec: self
                 .pause_hotkey_spec
                 .ok_or("pause_hotkey_spec is required")?,
@@ -559,7 +477,6 @@ mod tests {
             .shutdown_sender(tx)
             .state(state.clone())
             .paused(Arc::new(AtomicBool::new(false)))
-            .pause_notifications_enabled(Arc::new(AtomicBool::new(false)))
             .pause_hotkey_spec(pause_hotkey_spec)
             .pause_hotkey_display(Arc::new(std::sync::RwLock::new(pause_hotkey)))
             .spinner_style(Arc::new(std::sync::RwLock::new(
@@ -597,7 +514,7 @@ mod tests {
                 "world".to_string()
             )]
         );
-        assert!(state.inline_tab_completion_enabled.load(Ordering::Relaxed));
+        assert!(!state.instant_expand.load(Ordering::Relaxed));
         assert!(state.get_hotkey_action("ctrl+shift+g").is_none());
 
         upsert_trigger_with_type(
@@ -625,13 +542,13 @@ mod tests {
         assert!(state.fetch_expansion("ctrl+shift+g", None).is_none());
 
         taurine_core::settings::SettingsManager::new(&conn)
-            .update_setting("inline_tab_completion_enabled", false)
+            .update_setting("instant_expand", true)
             .unwrap();
 
         let req = Request::new(taurine_core::rpc::ReloadRequest { skip_sync: false });
         service.reload(req).await.expect("Reload failed");
 
-        assert!(!state.inline_tab_completion_enabled.load(Ordering::Relaxed));
+        assert!(state.instant_expand.load(Ordering::Relaxed));
 
         // Cleanup
         unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
@@ -651,7 +568,6 @@ mod tests {
             .shutdown_sender(tx)
             .state(state)
             .paused(paused.clone())
-            .pause_notifications_enabled(Arc::new(AtomicBool::new(false)))
             .pause_hotkey_spec(pause_hotkey_spec)
             .pause_hotkey_display(Arc::new(std::sync::RwLock::new(pause_hotkey)))
             .spinner_style(Arc::new(std::sync::RwLock::new(
@@ -715,7 +631,6 @@ mod tests {
             .shutdown_sender(tx)
             .state(state)
             .paused(paused.clone())
-            .pause_notifications_enabled(Arc::new(AtomicBool::new(false)))
             .pause_hotkey_spec(pause_hotkey_spec)
             .pause_hotkey_display(Arc::new(std::sync::RwLock::new(pause_hotkey)))
             .spinner_style(Arc::new(std::sync::RwLock::new(
@@ -792,7 +707,6 @@ mod tests {
             .shutdown_sender(tx)
             .state(state)
             .paused(Arc::new(AtomicBool::new(false)))
-            .pause_notifications_enabled(Arc::new(AtomicBool::new(false)))
             .pause_hotkey_spec(pause_hotkey_spec)
             .pause_hotkey_display(Arc::new(std::sync::RwLock::new(pause_hotkey)))
             .spinner_style(Arc::new(std::sync::RwLock::new(
@@ -867,7 +781,6 @@ mod tests {
             .shutdown_sender(tx)
             .state(state.clone())
             .paused(Arc::new(AtomicBool::new(false)))
-            .pause_notifications_enabled(Arc::new(AtomicBool::new(false)))
             .pause_hotkey_spec(pause_hotkey_spec)
             .pause_hotkey_display(Arc::new(std::sync::RwLock::new(pause_hotkey)))
             .spinner_style(Arc::new(std::sync::RwLock::new(

@@ -463,12 +463,7 @@ fn completion_key_kind_from_tab_like_maps_expected_keys() {
 
 #[test]
 fn trigger_assist_key_action_cycles_tab_unconditionally() {
-    use std::sync::atomic::Ordering;
-
     let state = taurine_core::engine::EngineState::new();
-    state
-        .inline_tab_completion_enabled
-        .store(false, Ordering::Relaxed);
 
     assert_eq!(
         trigger_assist_key_action(&state, CompletionKeyKind::Tab, false, false, false, false),
@@ -478,18 +473,7 @@ fn trigger_assist_key_action_cycles_tab_unconditionally() {
 
 #[test]
 fn trigger_assist_key_release_handling_swallows_tab_unconditionally() {
-    use std::sync::atomic::Ordering;
-
     let state = taurine_core::engine::EngineState::new();
-    assert!(should_swallow_trigger_assist_key_release(
-        &state,
-        CompletionKeyKind::Tab
-    ));
-
-    state
-        .inline_tab_completion_enabled
-        .store(false, Ordering::Relaxed);
-
     assert!(should_swallow_trigger_assist_key_release(
         &state,
         CompletionKeyKind::Tab
