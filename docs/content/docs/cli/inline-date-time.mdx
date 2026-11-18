@@ -52,25 +52,23 @@ The following are also excluded even when parseable, to prevent false positives 
 
 ## Configuration
 
-Customize via the TUI settings panel or using `taurine set <key> <value>` from the CLI.
+Customize via the TUI settings panel or using `taurine config set <key> <value>` from the CLI.
 
 | TUI Label | CLI Key / Aliases | Type | Default | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| **Inline Date & Time** | `inline_datetime_enabled` / `inline_date_time` | bool | `true` | Enable or disable the feature. |
-| **Date Format** | `inline_datetime_date_format` | string | `"MMMM D, YYYY"` | Output format when only a date is resolved. |
-| **Time Format** | `inline_datetime_time_format` | string | `"h:mm A"` | Output format when only a time is resolved. |
-| **DateTime Format** | `inline_datetime_datetime_format` | string | `"MMMM D, YYYY 'at' h:mm A"` | Output format when both a date and time are resolved. |
-| **Dialect** | `inline_datetime_dialect` | string | `"uk"` | Primary dialect for ambiguous numeric dates (`uk` = DD/MM, `us` = MM/DD). Automatically falls back to the other dialect when needed. |
+| **Inline Date Format** | `inline_date_format` / `date_format` | string | `"MMMM D, YYYY"` | Output format when only a date is resolved. |
+| **Inline Time Format** | `inline_time_format` / `time_format` | string | `"h:mm A"` | Output format when only a time is resolved. |
+| **Inline Date & Time Format** | `inline_datetime_format` / `datetime_format`, `date_time_format` | string | `"MMMM D, YYYY 'at' h:mm A"` | Output format when both a date and time are resolved. |
 
 ### Smart Dialect Fallback
 
-When resolving numeric dates such as `07/12`, Taurine uses your configured **Dialect** to determine whether that means July 12th or December 7th. For unambiguous values like `15/07` or `07/15`, the correct interpretation is always used regardless of your dialect setting.
+Taurine automatically detects the primary dialect (`us` for MM/DD or `uk` for DD/MM) from your operating system locale while preserving smart two-way fallback for ambiguous numeric dates. When resolving dates such as `07/12`, Taurine tests the detected dialect first and seamlessly falls back to the other dialect if needed. For unambiguous values like `15/07` or `07/15`, the correct interpretation is always used regardless of locale.
 
 ---
 
 ## Timezone Queries
 
-Taurine also resolves natural language timezone queries — both current time lookups and conversions between timezones. These use the **Time Format** (`inline_datetime_time_format`) setting for output formatting.
+Taurine also resolves natural language timezone queries — both current time lookups and conversions between timezones. These use the **Inline Time Format** (`inline_time_format`) setting for output formatting.
 
 ### Current Time Lookup
 
@@ -199,7 +197,7 @@ Bare weekday names do not expand on their own. They must be preceded by `next` o
 | `next wed` | `July 29, 2026` |
 
 <Callout title="Dialect difference for next <weekday>" type="info">
-  The meaning of `next friday` depends on your configured dialect. **UK**: the Friday of the following calendar week (always 7+ days away). **US**: the upcoming Friday (could be as soon as tomorrow). Configure this via the **Dialect** setting.
+  The meaning of `next friday` depends on your detected operating system dialect. **UK**: the Friday of the following calendar week (always 7+ days away). **US**: the upcoming Friday (could be as soon as tomorrow).
 </Callout>
 
 ### Sub-Day Time Offsets

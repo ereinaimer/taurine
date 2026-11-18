@@ -5,11 +5,11 @@ description: Comprehensive reference for Taurine configuration keys, aliases, an
 
 import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
 
-Taurine provides a set of configuration keys to customize its behavior. You can manage these settings using the [`taurine config`](/docs/cli/reference/cli-reference#configuration) command.
+Taurine provides a set of configuration keys to customize its behavior. You can manage these settings using the [`taurine config`](/docs/cli/reference/cli-reference#configuration) command or through the interactive TUI settings screen.
 
-## Core Settings
+## Core & System
 
-Manage the basic behavior and interaction of the Taurine engine.
+Manage system startup, service toggling, and core engine behavior.
 
 <Accordions>
 <Accordion title="pause_hotkey">
@@ -28,55 +28,16 @@ Manage the basic behavior and interaction of the Taurine engine.
   - **Alias**: `boot`
   - **Default**: `true`
   - **Values**: `true`, `false`
+  - **Example**: `taurine config set boot false`
 </Accordion>
 
-<Accordion title="instant_expand">
-  Expand snippets instantly when typed, without needing to press Enter.
+<Accordion title="auto_update">
+  Automatically checks for and installs updates when the Taurine service starts.
   
-  - **Key**: `instant_expand`
-  - **Alias**: `instant`
-  - **Default**: `false`
-  - **Values**: `true`, `false`
-</Accordion>
-
-<Accordion title="script_timeout">
-  Specifies the maximum time (in seconds) a script can run before being terminated. Set to `0` to disable the timeout entirely (scripts run until they finish on their own).
-  
-  - **Key**: `script_timeout`
-  - **Default**: `15`
-  - **Values**: any non-negative integer; `0` disables the timeout
-</Accordion>
-</Accordions>
-
-## User Interface
-
-Customize how Taurine interacts with your system's UI and notifications.
-
-<Accordions>
-<Accordion title="spinner_style">
-  The visual style of the loading indicator shown during AI generating or long script executions.
-  
-  - **Key**: `spinner_style`
-  - **Alias**: `spinner`
-  - **Default**: `braille`
-  - **Values**: `braille`, `arc`, `classic`
-</Accordion>
-
-<Accordion title="pause_notifications_enabled">
-  Whether to show a system notification when Taurine is paused or resumed.
-  
-  - **Key**: `pause_notifications_enabled`
-  - **Alias**: `notifications`
-  - **Default**: `false`
-  - **Values**: `true`, `false`
-</Accordion>
-
-<Accordion title="ignore_fullscreen">
-  When set to true, disables Taurine's text expansion engine, hotkeys, voice dictation, and voice triggers while a fullscreen application (like a game or presentation) is focused.
-  
-  - **Key**: `ignore_fullscreen`
+  - **Key**: `auto_update`
   - **Default**: `true`
   - **Values**: `true`, `false`
+  - **Example**: `taurine config set auto_update false`
 </Accordion>
 
 <Accordion title="system_tray_enabled">
@@ -86,24 +47,104 @@ Customize how Taurine interacts with your system's UI and notifications.
   - **Alias**: `system_tray`, `tray`
   - **Default**: `true`
   - **Values**: `true`, `false`
+  - **Example**: `taurine config set tray false`
+</Accordion>
+
+<Accordion title="instant_expand">
+  Expand snippets instantly upon typing matching keywords, without needing to press Space or Enter.
+  
+  - **Key**: `instant_expand`
+  - **Alias**: `instant`
+  - **Default**: `false`
+  - **Values**: `true`, `false`
+  - **Example**: `taurine config set instant true`
+</Accordion>
+
+<Accordion title="ignore_fullscreen">
+  Disables Taurine's text expansion engine, hotkeys, and voice dictation while a fullscreen application (such as a game or presentation) is focused.
+  
+  - **Key**: `ignore_fullscreen`
+  - **Default**: `true`
+  - **Values**: `true`, `false`
+  - **Example**: `taurine config set ignore_fullscreen false`
+</Accordion>
+</Accordions>
+
+## Formatting
+
+Configure date, time, and combined timestamp templates for inline expansion.
+
+<Accordions>
+<Accordion title="inline_date_format">
+  Output format template when only a date is resolved during natural language date expansion.
+  
+  - **Key**: `inline_date_format`
+  - **Aliases**: `date_format`, `inline_datetime_date_format`, `inline_date_time_date_format`
+  - **Default**: `MMMM D, YYYY`
+  - **Example**: `taurine config set date_format "YYYY-MM-DD"`
+</Accordion>
+
+<Accordion title="inline_time_format">
+  Output format template when only a time is resolved during natural language expansion or timezone queries.
+  
+  - **Key**: `inline_time_format`
+  - **Aliases**: `time_format`, `inline_datetime_time_format`, `inline_date_time_time_format`
+  - **Default**: `h:mm A`
+  - **Example**: `taurine config set time_format "HH:mm"`
+</Accordion>
+
+<Accordion title="inline_datetime_format">
+  Output format template when both a date and time are resolved during natural language expansion.
+  
+  - **Key**: `inline_datetime_format`
+  - **Aliases**: `datetime_format`, `date_time_format`, `inline_datetime_datetime_format`, `inline_date_time_datetime_format`
+  - **Default**: `MMMM D, YYYY 'at' h:mm A`
+  - **Example**: `taurine config set datetime_format "YYYY-MM-DD HH:mm"`
+</Accordion>
+</Accordions>
+
+## Audio & Feedback
+
+Control audio sound packs and cue volume for system feedback.
+
+<Accordions>
+<Accordion title="audio_theme">
+  Sound pack theme used for pause, resume, and voice dictation audio feedback cues.
+  
+  - **Key**: `audio_theme`
+  - **Aliases**: `sound_theme`, `audio_pack`, `sound_pack`
+  - **Default**: `minimal`
+  - **Values**: `minimal`, `arcade`, `mechanical`, `organic`, `scifi`, `rubber`, `zen`
+  - **Example**: `taurine config set audio_theme mechanical`
+</Accordion>
+
+<Accordion title="audio_volume">
+  Playback volume percentage for audio cues (clamped between 0 and 100).
+  
+  - **Key**: `audio_volume`
+  - **Aliases**: `sound_volume`, `volume`
+  - **Default**: `50`
+  - **Values**: `0` – `100`
+  - **Example**: `taurine config set volume 75`
 </Accordion>
 </Accordions>
 
 ## AI Copilot
 
-Configure your AI provider integrations and capture behavior.
+Configure AI service provider integrations and custom endpoints.
 
 <Accordions>
 <Accordion title="ai_provider">
-  The primary AI service used for the Inline AI Copilot.
+  The primary AI service provider used for inline AI queries and copilot completions.
   
   - **Key**: `ai_provider`
   - **Default**: `unset`
-  - **Values**: `openai`, `claude`, `gemini`, `deepseek`, etc. (See [AI Copilot](/docs/cli/inline-ai-copilot) for full list)
+  - **Values**: `openai`, `claude`, `gemini`, `deepseek`, `groq`, `mistral`, `ollama`, `custom`, etc. (See [AI Copilot](/docs/cli/inline-ai-copilot) for full list)
+  - **Example**: `taurine config set ai_provider openai`
 </Accordion>
 
 <Accordion title="ai_model">
-  The specific LLM used for requests. If unset, Taurine uses the provider's default model.
+  The specific LLM model used for AI requests. If unset, Taurine uses the provider's default model.
   
   - **Key**: `ai_model`
   - **Default**: `unset`
@@ -111,62 +152,63 @@ Configure your AI provider integrations and capture behavior.
 </Accordion>
 
 <Accordion title="ai_custom_endpoint">
-  The base URL for the `custom` (OpenAI-compatible) provider.
+  Custom base URL endpoint for OpenAI-compatible or local AI providers (e.g. Ollama or LocalAI).
   
   - **Key**: `ai_custom_endpoint`
   - **Aliases**: `endpoint`, `custom_endpoint`
   - **Default**: `unset`
   - **Example**: `taurine config set endpoint http://localhost:11434/v1`
 </Accordion>
-<Accordion title="inline_ai_enabled">
-  Enables or disables natural inline AI copilot completions triggered via case-insensitive `tau, <prompt>` followed by Enter.
-  
-  - **Key**: `inline_ai_enabled`
-  - **Aliases**: `inline_ai`, `ai`
-  - **Default**: `true`
-  - **Values**: `true`, `false`
-  - **Example**: `taurine config set inline_ai_enabled false`
-</Accordion>
 </Accordions>
 
-## Inline Trigger Assist
+## Voice Dictation
 
-Control the behavior of the headless assist features and inline conversion features for word triggers.
+Configure hotkeys, vocabulary, device capture, and media playback behavior for voice dictation.
 
 <Accordions>
-<Accordion title="inline_tab_completion_enabled">
-  Enables or disables the ability to cycle through matching word triggers using the `Tab` and `Shift + Tab` keys.
+<Accordion title="voice_ptt_hotkey">
+  Global push-to-talk hotkey for speech dictation. Hold down to record speech; release to transcribe and type into the focused app.
   
-  - **Key**: `inline_tab_completion_enabled`
-  - **Alias**: `inline_tab_completion`
-  - **Default**: `true`
-  - **Values**: `true`, `false`
+  - **Key**: `voice_ptt_hotkey`
+  - **Aliases**: `voice_ptt`, `ptt_hotkey`, `ptt`
+  - **Default**: `win+lctrl`
+  - **Example**: `taurine config set ptt "Ctrl + Shift + D"`
 </Accordion>
 
-<Accordion title="inline_emoji_enabled">
-  Enables or disables the ability to expand Unicode emojis by typing shortcodes (e.g. `:rocket`).
+<Accordion title="voice_handsfree_hotkey">
+  Global toggle hotkey for hands-free continuous dictation. Press once to start recording; press again or hit Escape to finish transcription and insert text.
   
-  - **Key**: `inline_emoji_enabled`
-  - **Alias**: `inline_emoji`
-  - **Default**: `true`
-  - **Values**: `true`, `false`
+  - **Key**: `voice_handsfree_hotkey`
+  - **Aliases**: `voice_handsfree`, `handsfree_hotkey`, `handsfree`
+  - **Default**: `win+lctrl+lalt`
+  - **Example**: `taurine config set handsfree "Ctrl + Shift + H"`
 </Accordion>
 
-<Accordion title="inline_datetime_enabled">
-  Enables or disables the ability to expand natural language date and time descriptions on Enter.
+<Accordion title="voice_dictionary">
+  Comma-separated custom vocabulary words or specialized terms used for phonetic boosting and fuzzy correction during speech transcription.
   
-  - **Key**: `inline_datetime_enabled`
-  - **Alias**: `inline_datetime`
-  - **Default**: `true`
-  - **Values**: `true`, `false`
+  - **Key**: `voice_dictionary`
+  - **Aliases**: `voice_vocab`, `voice_words`
+  - **Default**: `""` (empty)
+  - **Example**: `taurine config set voice_dictionary "Kubernetes, Taurine, Rust, GraphQL"`
 </Accordion>
 
-<Accordion title="inline_currency_to_words_enabled">
-  Enables or disables the ability to automatically convert currency-prefixed numbers inline into their spelled-out English word equivalents on Enter.
+<Accordion title="voice_input_device">
+  Specific audio recording input device name to use for speech capture. If unset, Taurine uses the system default recording device.
   
-  - **Key**: `inline_currency_to_words_enabled`
-  - **Alias**: `inline_currency_to_words`, `inline_currency_words`
-  - **Default**: `false`
+  - **Key**: `voice_input_device`
+  - **Aliases**: `voice_device`, `voice_mic`, `input_device`, `mic`, `microphone`
+  - **Default**: `unset`
+  - **Example**: `taurine config set mic "Yeti Nano"`
+</Accordion>
+
+<Accordion title="pause_media_while_dictating">
+  Automatically pauses active music and media playback while dictating speech, and resumes playback when dictation completes.
+  
+  - **Key**: `pause_media_while_dictating`
+  - **Alias**: `pause_media`
+  - **Default**: `true`
   - **Values**: `true`, `false`
+  - **Example**: `taurine config set pause_media false`
 </Accordion>
 </Accordions>
