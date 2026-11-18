@@ -804,7 +804,7 @@ mod listener_pipeline_tests {
     }
 
     #[test]
-    fn test_ctrl_v_when_inline_ai_disabled_passes_through() {
+    fn test_ctrl_v_inside_inline_ai_swallowed_unconditionally() {
         let h = Harness::new();
         h.state.inline_ai_enabled.store(false, Ordering::Relaxed);
         h.type_str("tau, reformat this: ");
@@ -815,8 +815,8 @@ mod listener_pipeline_tests {
         let _ = h.send(bare_event(EventType::KeyRelease(Key::ControlLeft)));
 
         assert!(
-            paste_ev.is_some(),
-            "Ctrl+V when inline AI is disabled must pass through to OS"
+            paste_ev.is_none(),
+            "Ctrl+V inside inline AI prompt must be swallowed unconditionally"
         );
     }
 

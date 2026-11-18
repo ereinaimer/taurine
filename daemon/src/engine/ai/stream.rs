@@ -18,7 +18,7 @@ use taurine_core::ai::{
     AiProvider, CredentialStore, OsKeyringStore, resolve_model_for_provider,
     resolve_provider_from_settings,
 };
-use taurine_core::settings::SettingsManager;
+use taurine_core::settings::{Settings, SettingsManager};
 
 pub const MAX_PARALLEL_AI_CALLS: usize = 4;
 
@@ -341,16 +341,12 @@ async fn run_inline_ai_stream_inner(
         resolved.provider,
         prompt.as_str(),
         system_prompt_override,
-        resolved.system_prompt,
+        Some(resolved.system_prompt),
     );
 
-    let mut chat_options = ChatOptions::default();
-    if let Some(temperature) = resolved.temperature {
-        chat_options = chat_options.with_temperature(temperature as f64);
-    }
-    if let Some(max_tokens) = resolved.max_tokens {
-        chat_options = chat_options.with_max_tokens(max_tokens);
-    }
+    let chat_options = ChatOptions::default()
+        .with_temperature(resolved.temperature as f64)
+        .with_max_tokens(resolved.max_tokens);
 
     let chat_stream_future =
         client.exec_chat_stream(resolved.model.as_str(), chat_request, Some(&chat_options));
@@ -473,9 +469,9 @@ struct ResolvedInlineAiRequest {
     model: String,
     secret: zeroize::Zeroizing<String>,
     custom_endpoint: Option<String>,
-    temperature: Option<f32>,
-    max_tokens: Option<u32>,
-    system_prompt: Option<String>,
+    temperature: f32,
+    max_tokens: u32,
+    system_prompt: String,
 }
 
 fn resolve_inline_ai_request<S>(store: &S) -> taurine_core::error::Result<ResolvedInlineAiRequest>
@@ -484,6 +480,16 @@ where
 {
     let conn = taurine_core::db::init::setup()?;
     let settings = SettingsManager::new(&conn).load_all();
+    resolve_inline_ai_request_with_settings(store, &settings)
+}
+
+fn resolve_inline_ai_request_with_settings<S>(
+    store: &S,
+    settings: &Settings,
+) -> taurine_core::error::Result<ResolvedInlineAiRequest>
+where
+    S: CredentialStore,
+{
     let provider = resolve_provider_from_settings(store, settings.ai_provider.as_deref())?;
     let model = resolve_model_for_provider(provider, settings.ai_model.as_deref());
     let secret = store.get_secret(provider)?.ok_or_else(|| {
@@ -500,10 +506,10 @@ where
         provider,
         model,
         secret,
-        custom_endpoint: settings.ai_custom_endpoint,
-        temperature: settings.ai_temperature,
-        max_tokens: settings.ai_max_tokens,
-        system_prompt: settings.ai_system_prompt,
+        custom_endpoint: settings.ai_custom_endpoint.clone(),
+        temperature: 0.7,
+        max_tokens: 2048,
+        system_prompt: taurine_core::settings::DEFAULT_AI_SYSTEM_PROMPT.to_string(),
     })
 }
 
@@ -896,6 +902,31 @@ mod tests {
 
         assert_eq!(provider, AiProvider::Openai);
         assert_eq!(model, "gpt-4.1-mini");
+    }
+
+    #[test]
+    fn resolve_inline_ai_request_uses_internalized_defaults() {
+        let store = MemoryCredentialStore::default();
+        store.set_secret(AiProvider::Openai, "sk-test").unwrap();
+
+        let settings = Settings {
+            ai_provider: Some("openai".to_string()),
+            ai_model: Some("gpt-4.1-mini".to_string()),
+            ai_temperature: Some(0.1),
+            ai_max_tokens: Some(100),
+            ai_system_prompt: Some("custom prompt".to_string()),
+            ..Settings::default()
+        };
+
+        let resolved = resolve_inline_ai_request_with_settings(&store, &settings).unwrap();
+        assert_eq!(resolved.provider, AiProvider::Openai);
+        assert_eq!(resolved.model, "gpt-4.1-mini");
+        assert_eq!(resolved.temperature, 0.7);
+        assert_eq!(resolved.max_tokens, 2048);
+        assert_eq!(
+            resolved.system_prompt,
+            taurine_core::settings::DEFAULT_AI_SYSTEM_PROMPT
+        );
     }
 
     #[test]

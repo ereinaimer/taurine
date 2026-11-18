@@ -729,7 +729,6 @@ fn process_frame(
                 && !meta_active
                 && !alt_active
                 && key == KeyCode::KEY_V
-                && state.inline_ai_enabled()
                 && evaluator
                     .lock()
                     .ok()

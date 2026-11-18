@@ -1390,7 +1390,7 @@ fn inline_ai_tau_mid_line_partial_deletion() {
 }
 
 #[test]
-fn inline_ai_disabled_setting_rejects_tau_trigger() {
+fn inline_ai_evaluates_unconditionally_regardless_of_state_flag() {
     let state = Arc::new(EngineState::new());
     state
         .inline_ai_enabled
@@ -1401,11 +1401,11 @@ fn inline_ai_disabled_setting_rejects_tau_trigger() {
         assert_eq!(eval.process(EngineEvent::Char(c)), None);
     }
 
-    assert_eq!(
-        eval.process(EngineEvent::ActionKey),
-        None,
-        "disabled inline AI must not trigger"
-    );
+    let result = eval
+        .process(EngineEvent::ActionKey)
+        .expect("inline AI must trigger unconditionally");
+    assert_eq!(result.trigger, "tau,");
+    assert_inline_ai_follow_up(&result, "write a poem", None);
 }
 
 #[test]
@@ -1413,6 +1413,11 @@ fn inline_ai_thinking_text_matches_spec() {
     let state = Arc::new(EngineState::new());
     let eval = Evaluator::new(state);
     assert_eq!(eval.get_thinking_text(), "⠋");
+    assert_eq!(eval.get_initial_spinner_text("simple"), "⠋");
+    assert_eq!(
+        eval.get_initial_spinner_text("dynamic {{shell:echo 1}}"),
+        "⠋"
+    );
 }
 
 #[test]

@@ -332,9 +332,7 @@ pub fn record_trigger_stat_with_conn(
 }
 
 fn effective_wpm(_conn: &Connection, event_wpm: Option<u32>) -> u32 {
-    event_wpm
-        .map(Settings::sanitize_wpm)
-        .unwrap_or_else(|| Settings::sanitize_wpm(crate::settings::get_cached_wpm()))
+    event_wpm.map(Settings::sanitize_wpm).unwrap_or(60)
 }
 
 /// Records stats for a completed voice dictation session.
@@ -406,6 +404,15 @@ fn voice_trigger_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_effective_wpm_uses_60_when_none() {
+        let (_dir, conn) = crate::testing::open_test_db();
+        assert_eq!(effective_wpm(&conn, None), 60);
+        assert_eq!(effective_wpm(&conn, Some(100)), 100);
+        assert_eq!(effective_wpm(&conn, Some(200)), 150);
+        assert_eq!(effective_wpm(&conn, Some(0)), 60);
+    }
 
     #[test]
     fn test_recorder_persists_trigger_daily_stats() {

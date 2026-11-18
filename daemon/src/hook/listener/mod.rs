@@ -750,7 +750,6 @@ pub fn process_keyboard_event(
             }
 
             if is_paste_key_press(key, shift_active, ctrl_active, alt_active, meta_active)
-                && state.inline_ai_enabled()
                 && with_evaluator_lock(evaluator, "check_inline_ai_prefix", |lock| {
                     lock.has_inline_ai_prefix()
                 })

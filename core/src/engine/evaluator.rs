@@ -147,30 +147,14 @@ impl Evaluator {
     }
 
     pub(crate) fn get_thinking_text(&self) -> String {
-        let style = self
-            .state
-            .spinner_style
-            .read()
-            .map(|s| *s)
-            .unwrap_or_default();
-        match style {
-            crate::settings::SpinnerStyle::Braille => "⠋".to_string(),
-            crate::settings::SpinnerStyle::Arc => "◜".to_string(),
-            crate::settings::SpinnerStyle::Classic => "|".to_string(),
-        }
+        "⠋".to_string()
     }
 
     pub(crate) fn get_initial_spinner_text(&self, template: &str) -> String {
         if crate::engine::variables::contains_non_sys_markers(template) {
             self.get_thinking_text()
         } else {
-            let style = self
-                .state
-                .spinner_style
-                .read()
-                .map(|s| *s)
-                .unwrap_or_default();
-            crate::utils::spinner::get_frames(style)[0].to_string()
+            crate::utils::spinner::get_frames(crate::settings::SpinnerStyle::Braille)[0].to_string()
         }
     }
 
@@ -254,9 +238,7 @@ impl Evaluator {
             }
             EngineEvent::ActionKey => {
                 let was_completion_active = self.completion.active;
-                let result = if self.state.inline_ai_enabled()
-                    && let Some(ai_result) = self.check_inline_ai_trigger()
-                {
+                let result = if let Some(ai_result) = self.check_inline_ai_trigger() {
                     Some(ai_result)
                 } else {
                     self.evaluate_buffer_for_expansion_lazy(window, fetch_window.take())
