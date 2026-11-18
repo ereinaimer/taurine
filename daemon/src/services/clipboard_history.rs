@@ -116,10 +116,6 @@ fn run_listener_once() {
                 }
             }
         }
-        if !taurine_core::settings::get_cached_clipboard_history_enabled() {
-            wait_while_capture_idle();
-            continue;
-        }
 
         if IS_INJECTING.load(std::sync::atomic::Ordering::Relaxed) {
             wait_while_capture_idle();
@@ -180,10 +176,6 @@ fn run_listener_once() {
                     }
                 }
             }
-        }
-        if !taurine_core::settings::get_cached_clipboard_history_enabled() {
-            wait_while_capture_idle();
-            continue;
         }
 
         if IS_INJECTING.load(std::sync::atomic::Ordering::Relaxed) {
@@ -280,10 +272,6 @@ fn run_listener_once() {
 
             // 50ms debounce
             if now.saturating_sub(last) < 50 {
-                return 0;
-            }
-
-            if !taurine_core::settings::get_cached_clipboard_history_enabled() {
                 return 0;
             }
 

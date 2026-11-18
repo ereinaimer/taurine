@@ -112,13 +112,6 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
         None => reuse_tags,
     };
 
-    let settings = taurine_core::settings::SettingsManager::new(&conn).load_all();
-    if !settings.clipboard_history_enabled && output.contains("[clip") {
-        tracing::warn!(
-            "Warning: The trigger contains '[clip]' system variables, which won't work because clipboard history is disabled in the settings."
-        );
-    }
-
     let target_ws = if let Some(ref ws_name) = args.workspace {
         let workspaces = taurine_core::db::crud::get_workspaces(&conn)?;
         let found = workspaces

@@ -36,9 +36,6 @@ impl ClipManager {
     }
 
     pub fn record_text(&self, text: String) -> bool {
-        if !crate::settings::get_cached_clipboard_history_enabled() {
-            return false;
-        }
         if text.len() > MAX_PAYLOAD_BYTES || text.is_empty() {
             return false;
         }
@@ -65,9 +62,6 @@ impl ClipManager {
     }
 
     pub fn get(&self, index: usize) -> Option<String> {
-        if !crate::settings::get_cached_clipboard_history_enabled() {
-            return None;
-        }
         self.prune_expired();
         let Ok(history) = self.history.read() else {
             tracing::warn!("clip history read lock poisoned");
@@ -84,9 +78,9 @@ impl ClipManager {
     }
 
     fn prune_expired(&self) {
-        let retention_secs = crate::settings::get_cached_clipboard_history_retention_secs();
+        const CLIPBOARD_RETENTION_SECS: u64 = 300;
         let Some(limit) = std::time::Instant::now()
-            .checked_sub(std::time::Duration::from_secs(retention_secs as u64))
+            .checked_sub(std::time::Duration::from_secs(CLIPBOARD_RETENTION_SECS))
         else {
             return;
         };
@@ -300,12 +294,6 @@ mod tests {
 
     #[test]
     fn test_clip_manager_ignores_empty_large_and_duplicate_payloads() {
-        let _guard = crate::utils::test_utils::TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        crate::settings::set_cached_clipboard_history_enabled(true);
-        crate::settings::set_cached_clipboard_history_retention_secs(300);
-
         let manager = ClipManager::new();
 
         assert!(manager.record_text("alpha".to_string()));
@@ -319,12 +307,6 @@ mod tests {
 
     #[test]
     fn test_clip_manager_keeps_three_items_in_ring_order() {
-        let _guard = crate::utils::test_utils::TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        crate::settings::set_cached_clipboard_history_enabled(true);
-        crate::settings::set_cached_clipboard_history_retention_secs(300);
-
         let manager = ClipManager::new();
 
         assert!(manager.record_text("one".to_string()));
@@ -339,31 +321,20 @@ mod tests {
     }
 
     #[test]
-    fn test_clip_manager_respects_history_toggle() {
+    fn test_clip_manager_unconditional_recording_and_retrieval() {
         let _guard = crate::utils::test_utils::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        crate::settings::set_cached_clipboard_history_retention_secs(300);
+        // Even if setting cache was set to false, recording and retrieval must work unconditionally
+        crate::settings::set_cached_clipboard_history_enabled(false);
 
         let manager = ClipManager::new();
-
-        crate::settings::set_cached_clipboard_history_enabled(false);
-        assert!(!manager.record_text("hello".to_string()));
-        assert_eq!(manager.get(0), None);
-
-        crate::settings::set_cached_clipboard_history_enabled(true);
-        assert!(manager.record_text("hello".to_string()));
-        assert_eq!(manager.get(0), Some("hello".to_string()));
+        assert!(manager.record_text("unconditional".to_string()));
+        assert_eq!(manager.get(0), Some("unconditional".to_string()));
     }
 
     #[test]
     fn test_clip_manager_clears_history() {
-        let _guard = crate::utils::test_utils::TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        crate::settings::set_cached_clipboard_history_enabled(true);
-        crate::settings::set_cached_clipboard_history_retention_secs(300);
-
         let manager = ClipManager::new();
         manager.record_text("one".to_string());
         manager.record_text("two".to_string());
@@ -374,25 +345,23 @@ mod tests {
 
     #[test]
     fn test_clip_manager_prunes_expired_entries() {
-        let _guard = crate::utils::test_utils::TEST_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        crate::settings::set_cached_clipboard_history_enabled(true);
-
         let manager = ClipManager::new();
 
-        // 0 seconds retention means everything is expired instantly
-        crate::settings::set_cached_clipboard_history_retention_secs(0);
-        manager.record_text("expired".to_string());
+        // Simulate an entry older than 300 seconds retention
+        let expired_time = std::time::Instant::now()
+            .checked_sub(std::time::Duration::from_secs(305))
+            .expect("valid instant");
+        if let Ok(mut history) = manager.history.write() {
+            history.push_front(ClipEntry {
+                text: "expired".to_string(),
+                timestamp: expired_time,
+            });
+        }
 
         assert_eq!(manager.get(0), None);
 
-        // Set to 5 seconds and test that items are kept then expired
-        crate::settings::set_cached_clipboard_history_retention_secs(5);
+        // Fresh items are retained
         manager.record_text("fresh".to_string());
         assert_eq!(manager.get(0), Some("fresh".to_string()));
-
-        // Restore default settings
-        crate::settings::set_cached_clipboard_history_retention_secs(300);
     }
 }
