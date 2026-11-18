@@ -1,10 +1,62 @@
-//! Groq Whisper Cloud Speech-to-Text inference client.
+//! Groq Whisper Cloud Speech-to-Text inference client with Llama LLM post-processing.
 
 use crate::error::{Error, Result};
 use crate::voice::VoiceDictionary;
 
 pub const DEFAULT_GROQ_API_URL: &str = "https://api.groq.com/openai/v1/audio/transcriptions";
+pub const DEFAULT_GROQ_CHAT_URL: &str = "https://api.groq.com/openai/v1/chat/completions";
 pub const DEFAULT_GROQ_MODEL: &str = "whisper-large-v3";
+pub const DEFAULT_CLEANUP_MODEL: &str = "llama-3.1-8b-instant";
+
+/// Parse a specific key from a `.env` file string without external crate dependencies.
+pub fn read_env_file_key(content: &str, target_key: &str) -> Option<String> {
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if let Some((k, v)) = trimmed.split_once('=')
+            && k.trim() == target_key
+        {
+            let unquoted = v.trim().trim_matches('"').trim_matches('\'').trim();
+            if !unquoted.is_empty() {
+                return Some(unquoted.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Discovers and loads a variable from `.env` in the current directory, parent directories, or exe dir.
+pub fn load_key_from_env_file(target_key: &str) -> Option<String> {
+    let mut check_dirs = Vec::new();
+    if let Ok(cwd) = std::env::current_dir() {
+        let mut cur = Some(cwd.as_path());
+        let mut depth = 0;
+        while let Some(d) = cur
+            && depth < 4
+        {
+            check_dirs.push(d.to_path_buf());
+            cur = d.parent();
+            depth += 1;
+        }
+    }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(parent) = exe.parent()
+    {
+        check_dirs.push(parent.to_path_buf());
+    }
+
+    for dir in check_dirs {
+        let path = dir.join(".env");
+        if let Ok(content) = std::fs::read_to_string(path)
+            && let Some(val) = read_env_file_key(&content, target_key)
+        {
+            return Some(val);
+        }
+    }
+    None
+}
 
 /// Compiles personal dictionary terms and active voice trigger phrases into a
 /// comma-separated prompt string for Whisper acoustic and language biasing.
@@ -47,13 +99,16 @@ pub fn build_whisper_prompt(
     }
 }
 
-/// Cloud speech transcription client communicating with Groq's Whisper API.
+/// Cloud speech transcription client communicating with Groq's Whisper API and Llama LLM.
 #[derive(Debug, Clone)]
 pub struct GroqVoiceClient {
     client: reqwest::Client,
     api_key: Option<String>,
     endpoint_url: String,
     model: String,
+    chat_url: String,
+    cleanup_model: String,
+    cleanup_enabled: bool,
 }
 
 impl Default for GroqVoiceClient {
@@ -74,6 +129,23 @@ impl GroqVoiceClient {
 
     /// Creates a client with custom endpoint and model (for testing or alternate endpoints).
     pub fn with_endpoint(api_key: Option<String>, endpoint_url: String, model: String) -> Self {
+        Self::with_full_endpoints(
+            api_key,
+            endpoint_url,
+            model,
+            DEFAULT_GROQ_CHAT_URL.to_string(),
+            DEFAULT_CLEANUP_MODEL.to_string(),
+        )
+    }
+
+    /// Creates a client with customized speech and cleanup LLM endpoints.
+    pub fn with_full_endpoints(
+        api_key: Option<String>,
+        endpoint_url: String,
+        model: String,
+        chat_url: String,
+        cleanup_model: String,
+    ) -> Self {
         Self {
             client: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(15))
@@ -82,15 +154,24 @@ impl GroqVoiceClient {
             api_key,
             endpoint_url,
             model,
+            chat_url,
+            cleanup_model,
+            cleanup_enabled: true,
         }
     }
 
-    /// Resolves API key from environment (`GROQ_API_KEY`) or OS Keyring (`AiProvider::Groq`).
+    /// Enable or disable the secondary Llama LLM cleanup pass.
+    pub fn with_cleanup_enabled(mut self, enabled: bool) -> Self {
+        self.cleanup_enabled = enabled;
+        self
+    }
+
+    /// Resolves API key from environment (`GROQ_API_KEY`) or workspace `.env` file.
     pub fn from_env_or_keyring() -> Self {
         Self::new(None)
     }
 
-    /// Resolves the effective API key from instance, environment, or OS keyring.
+    /// Resolves the effective API key from instance, environment, or `.env` file.
     pub fn resolve_api_key(&self) -> Option<String> {
         if let Some(key) = &self.api_key {
             let trimmed = key.trim();
@@ -106,17 +187,97 @@ impl GroqVoiceClient {
             }
         }
 
-        let store = crate::ai::OsKeyringStore;
-        if let Ok(Some(secret)) =
-            crate::ai::CredentialStore::get_secret(&store, crate::ai::AiProvider::Groq)
+        load_key_from_env_file("GROQ_API_KEY")
+    }
+
+    /// Run the raw transcript through Groq's Llama-3.1-8b cleanup agent.
+    pub async fn clean_transcript(&self, raw_transcript: &str) -> Result<String> {
+        let trimmed_raw = raw_transcript.trim();
+        if trimmed_raw.is_empty() {
+            return Ok(String::new());
+        }
+
+        let api_key = match self.resolve_api_key() {
+            Some(k) => k,
+            None => return Ok(trimmed_raw.to_string()),
+        };
+
+        let system_prompt = "You are an expert voice dictation cleanup engine. Transform the raw transcribed speech into clean, well-formatted, professional text.\nRules:\n- Correct punctuation, capitalization, and minor grammatical slips.\n- Remove conversational filler words (e.g. um, uh, ah, like, you know) and accidental stutter repetitions.\n- Format numbers, currencies, dates, email addresses, and technical terms appropriately.\n- Preserve the speaker's original intent, vocabulary, and meaning exactly.\n- Output ONLY the final cleaned text with no surrounding quotes, explanations, markdown code blocks, or notes.";
+
+        let payload = serde_json::json!({
+            "model": self.cleanup_model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": system_prompt
+                },
+                {
+                    "role": "user",
+                    "content": trimmed_raw
+                }
+            ],
+            "temperature": 0.1,
+            "max_tokens": 1024
+        });
+
+        let response = match self
+            .client
+            .post(&self.chat_url)
+            .header("Authorization", format!("Bearer {api_key}"))
+            .json(&payload)
+            .send()
+            .await
         {
-            let trimmed = secret.trim();
-            if !trimmed.is_empty() {
-                return Some(trimmed.to_string());
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(
+                    "Llama cleanup request failed ({e}); falling back to raw transcript"
+                );
+                return Ok(trimmed_raw.to_string());
+            }
+        };
+
+        if !response.status().is_success() {
+            tracing::warn!(
+                "Llama cleanup returned status {}; falling back to raw transcript",
+                response.status()
+            );
+            return Ok(trimmed_raw.to_string());
+        }
+
+        #[derive(serde::Deserialize)]
+        struct ChatChoice {
+            message: ChatMessage,
+        }
+
+        #[derive(serde::Deserialize)]
+        struct ChatMessage {
+            content: Option<String>,
+        }
+
+        #[derive(serde::Deserialize)]
+        struct ChatResponse {
+            choices: Vec<ChatChoice>,
+        }
+
+        let parsed: ChatResponse = match response.json().await {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!("Failed to parse Llama cleanup response ({e}); falling back");
+                return Ok(trimmed_raw.to_string());
+            }
+        };
+
+        if let Some(first) = parsed.choices.into_iter().next()
+            && let Some(content) = first.message.content
+        {
+            let cleaned = content.trim();
+            if !cleaned.is_empty() {
+                return Ok(cleaned.to_string());
             }
         }
 
-        None
+        Ok(trimmed_raw.to_string())
     }
 
     /// Transcribe 16-bit PCM WAV audio bytes.
@@ -125,8 +286,8 @@ impl GroqVoiceClient {
             let diag = crate::diagnostic::Diagnostic::problem(
                 "Groq API key not configured for voice dictation",
             )
-            .help("Set the GROQ_API_KEY environment variable or run 'taurine ai --provider groq' to configure your API key")
-            .example("taurine ai --provider groq --key gsk_...");
+            .help("Set GROQ_API_KEY in your .env file or environment variables")
+            .example("GROQ_API_KEY=gsk_...");
             Error::Config(diag.render())
         })?;
 
@@ -191,7 +352,12 @@ impl GroqVoiceClient {
             Error::Service(format!("Failed to parse Groq Whisper JSON response: {e}"))
         })?;
 
-        Ok(parsed.text.trim().to_string())
+        let raw_transcript = parsed.text.trim();
+        if self.cleanup_enabled && !raw_transcript.is_empty() {
+            self.clean_transcript(raw_transcript).await
+        } else {
+            Ok(raw_transcript.to_string())
+        }
     }
 
     /// Transcribe raw 16kHz mono audio samples asynchronously.
@@ -322,11 +488,13 @@ mod tests {
             let _ = stream.flush();
         });
 
+        // Disable cleanup for raw transcription mock test
         let client = GroqVoiceClient::with_endpoint(
             Some("test-groq-key".to_string()),
             format!("http://127.0.0.1:{port}/transcribe"),
             "whisper-large-v3".to_string(),
-        );
+        )
+        .with_cleanup_enabled(false);
 
         let wav = crate::voice::encode_pcm16_wav(&[0.0; 160], 16000, 1);
         let transcript = client.transcribe_wav(&wav, None).await.unwrap();
@@ -361,7 +529,8 @@ mod tests {
             Some("test-groq-key".to_string()),
             format!("http://127.0.0.1:{port}/transcribe"),
             "whisper-large-v3".to_string(),
-        );
+        )
+        .with_cleanup_enabled(false);
 
         let wav = crate::voice::encode_pcm16_wav(&[0.0; 160], 16000, 1);
         let transcript = client
@@ -437,6 +606,118 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("rate limit"));
+        server_thread.join().unwrap();
+    }
+
+    #[test]
+    fn test_read_env_file_key_parsing() {
+        let env_content = r#"
+# Comment line
+GROQ_API_KEY="gsk_quoted_value_123"
+OTHER_KEY='single_quoted'
+UNQUOTED_KEY=unquoted_value_456
+EMPTY_KEY=
+        SPACED_KEY = spaced_value
+"#;
+        assert_eq!(
+            read_env_file_key(env_content, "GROQ_API_KEY").as_deref(),
+            Some("gsk_quoted_value_123")
+        );
+        assert_eq!(
+            read_env_file_key(env_content, "OTHER_KEY").as_deref(),
+            Some("single_quoted")
+        );
+        assert_eq!(
+            read_env_file_key(env_content, "UNQUOTED_KEY").as_deref(),
+            Some("unquoted_value_456")
+        );
+        assert_eq!(
+            read_env_file_key(env_content, "SPACED_KEY").as_deref(),
+            Some("spaced_value")
+        );
+        assert_eq!(read_env_file_key(env_content, "NON_EXISTENT"), None);
+        assert_eq!(read_env_file_key(env_content, "EMPTY_KEY"), None);
+    }
+
+    #[tokio::test]
+    async fn test_clean_transcript_calls_llama_mock_endpoint() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let server_thread = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let req = read_mock_request(&mut stream);
+
+            assert!(req.starts_with("POST /chat/completions HTTP/1.1"));
+            assert!(
+                req.to_lowercase()
+                    .contains("authorization: bearer test-llama-key")
+            );
+            assert!(req.contains("llama-3.1-8b-instant"));
+            assert!(req.contains("um hello like this is a test"));
+
+            let response_body = r#"{
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": "Hello, this is a test."
+                    }
+                }]
+            }"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+            let _ = stream.flush();
+        });
+
+        let client = GroqVoiceClient::with_full_endpoints(
+            Some("test-llama-key".to_string()),
+            "http://127.0.0.1:0/transcribe".to_string(),
+            "whisper-large-v3".to_string(),
+            format!("http://127.0.0.1:{port}/chat/completions"),
+            "llama-3.1-8b-instant".to_string(),
+        );
+
+        let cleaned = client
+            .clean_transcript("um hello like this is a test")
+            .await
+            .unwrap();
+        assert_eq!(cleaned, "Hello, this is a test.");
+        server_thread.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_clean_transcript_falls_back_on_error() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let server_thread = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let _ = read_mock_request(&mut stream);
+
+            let response_body = r#"{"error":{"message":"Internal server error"}}"#;
+            let response = format!(
+                "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+            let _ = stream.flush();
+        });
+
+        let client = GroqVoiceClient::with_full_endpoints(
+            Some("test-llama-key".to_string()),
+            "http://127.0.0.1:0/transcribe".to_string(),
+            "whisper-large-v3".to_string(),
+            format!("http://127.0.0.1:{port}/chat/completions"),
+            "llama-3.1-8b-instant".to_string(),
+        );
+
+        let result = client.clean_transcript("raw text fallback").await.unwrap();
+        assert_eq!(result, "raw text fallback");
         server_thread.join().unwrap();
     }
 }
