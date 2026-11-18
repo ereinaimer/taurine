@@ -408,18 +408,13 @@ fn execute_inner(silent: bool, json: bool) -> Result<()> {
         info!("✓ taurine updated to v{}", manifest.version);
     }
 
-    if let Ok(conn) = taurine_core::db::init::setup() {
-        let settings = taurine_core::settings::SettingsManager::new(&conn).load_all();
-        if settings.notify_on_update {
-            let _ = notify_rust::Notification::new()
-                .summary("Taurine Updated")
-                .body(&format!(
-                    "Taurine has been updated to v{}",
-                    manifest.version
-                ))
-                .show();
-        }
-    }
+    let _ = notify_rust::Notification::new()
+        .summary("Taurine Updated")
+        .body(&format!(
+            "Taurine has been updated to v{}",
+            manifest.version
+        ))
+        .show();
 
     let mut up_cmd = std::process::Command::new(&canonical);
     up_cmd.arg("up");

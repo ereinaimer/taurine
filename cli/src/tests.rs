@@ -244,14 +244,14 @@ fn global_json_flag_on_status() {
 
 #[test]
 fn global_json_flag_on_config_set() {
-    let cli = Cli::try_parse_from(["taurine", "config", "set", "wpm", "100", "--json"])
+    let cli = Cli::try_parse_from(["taurine", "config", "set", "audio_volume", "100", "--json"])
         .expect("config set --json should parse");
     assert!(cli.json);
 }
 
 #[test]
 fn global_json_flag_on_config_reset() {
-    let cli = Cli::try_parse_from(["taurine", "config", "reset", "wpm", "--json"])
+    let cli = Cli::try_parse_from(["taurine", "config", "reset", "audio_volume", "--json"])
         .expect("config reset --json should parse");
     assert!(cli.json);
 }
@@ -431,11 +431,11 @@ fn action_command_json_script_format() {
 fn action_command_json_config_format() {
     use serde_json::json;
 
-    let updated = json!({"status": "updated", "key": "wpm"});
+    let updated = json!({"status": "updated", "key": "audio_volume"});
     assert_eq!(updated["status"], "updated");
-    assert_eq!(updated["key"], "wpm");
+    assert_eq!(updated["key"], "audio_volume");
 
-    let reset = json!({"status": "reset", "key": "wpm"});
+    let reset = json!({"status": "reset", "key": "audio_volume"});
     assert_eq!(reset["status"], "reset");
 
     let reset_all = json!({"status": "reset_all"});

@@ -16,36 +16,22 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
     // Helper to build each line as (key, value) pair
     let pairs: Vec<(&str, String)> = vec![
         ("pause_hotkey", settings.pause_hotkey.clone()),
-        (
-            "pause_notifications_enabled",
-            settings.pause_notifications_enabled.to_string(),
-        ),
-        (
-            "pause_audio_enabled",
-            settings.pause_audio_enabled.to_string(),
-        ),
-        ("audio_theme", settings.audio_theme.as_str().to_string()),
-        ("audio_volume", settings.audio_volume.to_string()),
         ("start_on_boot", settings.start_on_boot.to_string()),
         ("auto_update", settings.auto_update.to_string()),
-        ("notify_on_update", settings.notify_on_update.to_string()),
         (
             "system_tray_enabled",
             settings.system_tray_enabled.to_string(),
         ),
+        ("instant_expand", settings.instant_expand.to_string()),
+        ("ignore_fullscreen", settings.ignore_fullscreen.to_string()),
+        ("inline_date_format", settings.inline_date_format.clone()),
+        ("inline_time_format", settings.inline_time_format.clone()),
         (
-            "inline_tab_completion_enabled",
-            settings.inline_tab_completion_enabled.to_string(),
+            "inline_datetime_format",
+            settings.inline_datetime_format.clone(),
         ),
-        (
-            "inline_case_transform_enabled",
-            settings.inline_case_transform_enabled.to_string(),
-        ),
-        ("wpm", settings.wpm.to_string()),
-        (
-            "spinner_style",
-            format!("{:?}", settings.spinner_style).to_lowercase(),
-        ),
+        ("audio_theme", settings.audio_theme.as_str().to_string()),
+        ("audio_volume", settings.audio_volume.to_string()),
         (
             "ai_provider",
             render_optional_setting(settings.ai_provider.as_deref()).to_string(),
@@ -55,82 +41,8 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
             render_optional_setting(settings.ai_model.as_deref()).to_string(),
         ),
         (
-            "ai_temperature",
-            render_optional_setting(settings.ai_temperature.map(|v| v.to_string()).as_deref())
-                .to_string(),
-        ),
-        (
-            "ai_max_tokens",
-            render_optional_setting(settings.ai_max_tokens.map(|v| v.to_string()).as_deref())
-                .to_string(),
-        ),
-        (
-            "ai_system_prompt",
-            render_optional_setting(settings.ai_system_prompt.as_deref()).to_string(),
-        ),
-        (
             "ai_custom_endpoint",
             render_optional_setting(settings.ai_custom_endpoint.as_deref()).to_string(),
-        ),
-        ("inline_ai_enabled", settings.inline_ai_enabled.to_string()),
-        (
-            "clipboard_restore_delay_ms",
-            settings.clipboard_restore_delay_ms.to_string(),
-        ),
-        (
-            "clipboard_history_enabled",
-            settings.clipboard_history_enabled.to_string(),
-        ),
-        (
-            "clipboard_history_retention_secs",
-            settings.clipboard_history_retention_secs.to_string(),
-        ),
-        ("scripts_enabled", settings.scripts_enabled.to_string()),
-        ("instant_expand", settings.instant_expand.to_string()),
-        ("ignore_fullscreen", settings.ignore_fullscreen.to_string()),
-        (
-            "inline_emoji_enabled",
-            settings.inline_emoji_enabled.to_string(),
-        ),
-        (
-            "inline_emoji_trigger_char",
-            settings.inline_emoji_trigger_char.to_string(),
-        ),
-        (
-            "inline_datetime_enabled",
-            settings.inline_datetime_enabled.to_string(),
-        ),
-        (
-            "inline_datetime_date_format",
-            settings.inline_datetime_date_format.clone(),
-        ),
-        (
-            "inline_datetime_time_format",
-            settings.inline_datetime_time_format.clone(),
-        ),
-        (
-            "inline_datetime_datetime_format",
-            settings.inline_datetime_datetime_format.clone(),
-        ),
-        (
-            "inline_datetime_dialect",
-            settings.inline_datetime_dialect.clone(),
-        ),
-        (
-            "inline_currency_to_words_enabled",
-            settings.inline_currency_to_words_enabled.to_string(),
-        ),
-        (
-            "inline_dictionary_enabled",
-            settings.inline_dictionary_enabled.to_string(),
-        ),
-        (
-            "inline_dictionary_mode",
-            format!("{:?}", settings.inline_dictionary_mode).to_lowercase(),
-        ),
-        (
-            "voice_input_device",
-            render_optional_setting(settings.voice_input_device.as_deref()).to_string(),
         ),
         ("voice_ptt_hotkey", settings.voice_ptt_hotkey.clone()),
         (
@@ -138,6 +50,10 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
             settings.voice_handsfree_hotkey.clone(),
         ),
         ("voice_dictionary", settings.voice_dictionary.clone()),
+        (
+            "voice_input_device",
+            render_optional_setting(settings.voice_input_device.as_deref()).to_string(),
+        ),
         (
             "pause_media_while_dictating",
             settings.pause_media_while_dictating.to_string(),
@@ -158,14 +74,6 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
             pad = pad
         );
     }
-    println!(
-        "{:<kw$}{:pad$}{}",
-        "script_timeout",
-        "",
-        settings.script_timeout,
-        kw = max_key_len,
-        pad = pad
-    );
 
     Ok(())
 }
@@ -202,7 +110,7 @@ pub fn execute_set(
                 taurine_core::diagnostic::Diagnostic::problem("Missing setting key and value")
                     .help("Specify both the setting key and the new value to set:")
                     .example("taurine config set audio_theme minimal")
-                    .example("taurine config set wpm 80");
+                    .example("taurine config set audio_volume 80");
             return Err(taurine_core::error::Error::Config(diag.render()));
         }
     };
@@ -328,22 +236,22 @@ mod tests {
             let conn = init::setup()?;
             let manager = SettingsManager::new(&conn);
             manager.update_setting("auto_update", false)?;
-            manager.update_setting("inline_emoji_trigger_char", '!')?;
-            manager.update_setting("scripts_enabled", false)?;
+            manager.update_setting("system_tray_enabled", false)?;
+            manager.update_setting("instant_expand", false)?;
             execute_reset_all(false)?;
             let conn = init::setup()?;
             let manager = SettingsManager::new(&conn);
             let settings = manager.load_all();
             Ok((
                 settings.auto_update,
-                settings.inline_emoji_trigger_char == ':',
-                settings.scripts_enabled,
+                settings.system_tray_enabled,
+                settings.instant_expand,
             ))
         });
-        let (auto_update, emoji_trigger_char, scripts_enabled) = restored.unwrap();
+        let (auto_update, system_tray_enabled, instant_expand) = restored.unwrap();
         assert!(auto_update);
-        assert!(emoji_trigger_char);
-        assert!(scripts_enabled);
+        assert!(system_tray_enabled);
+        assert!(instant_expand);
     }
 
     #[test]
@@ -409,17 +317,17 @@ mod tests {
     }
 
     #[test]
-    fn set_inline_ai_enabled_persists() {
+    fn set_instant_expand_persists() {
         let persisted = with_test_db(|| -> taurine_core::error::Result<bool> {
             execute_set(
-                Some("inline_ai_enabled".to_string()),
+                Some("instant_expand".to_string()),
                 Some("false".to_string()),
                 false,
             )?;
             let conn = init::setup()?;
             let manager = SettingsManager::new(&conn);
             let settings = manager.load_all();
-            Ok(settings.inline_ai_enabled)
+            Ok(settings.instant_expand)
         });
         assert!(!persisted.unwrap());
     }
@@ -521,13 +429,15 @@ mod tests {
         let map = value.as_object().unwrap();
 
         assert!(map.contains_key("pause_hotkey"));
-        assert!(map.contains_key("wpm"));
-        assert!(map.contains_key("spinner_style"));
-        assert!(map.contains_key("script_timeout"));
+        assert!(map.contains_key("inline_date_format"));
+        assert!(map.contains_key("inline_time_format"));
+        assert!(map.contains_key("inline_datetime_format"));
         assert!(map.contains_key("system_tray_enabled"));
+        assert!(!map.contains_key("wpm"));
+        assert!(!map.contains_key("spinner_style"));
+        assert!(!map.contains_key("script_timeout"));
         assert!(!map.contains_key("rpc_mode"));
 
-        assert_eq!(map["wpm"], 60);
         assert_eq!(map["system_tray_enabled"], true);
     }
 
@@ -536,9 +446,8 @@ mod tests {
         let settings = Settings {
             ai_provider: Some("openai".to_string()),
             ai_model: Some("gpt-4".to_string()),
-            ai_temperature: Some(0.7),
-            ai_max_tokens: Some(2048),
             ai_custom_endpoint: None,
+            voice_input_device: Some("External Microphone".to_string()),
             ..Settings::default()
         };
         let json = serde_json::to_string(&settings).unwrap();
@@ -547,6 +456,7 @@ mod tests {
         assert_eq!(value["ai_provider"], "openai");
         assert_eq!(value["ai_model"], "gpt-4");
         assert_eq!(value["ai_custom_endpoint"], serde_json::Value::Null);
+        assert_eq!(value["voice_input_device"], "External Microphone");
     }
 
     #[test]
@@ -554,10 +464,8 @@ mod tests {
         let settings = Settings {
             ai_provider: None,
             ai_model: None,
-            ai_temperature: None,
-            ai_max_tokens: None,
-            ai_system_prompt: None,
             ai_custom_endpoint: None,
+            voice_input_device: None,
             ..Settings::default()
         };
         let json = serde_json::to_string(&settings).unwrap();
@@ -565,19 +473,20 @@ mod tests {
 
         assert_eq!(value["ai_provider"], serde_json::Value::Null);
         assert_eq!(value["ai_model"], serde_json::Value::Null);
-        assert_eq!(value["ai_temperature"], serde_json::Value::Null);
+        assert_eq!(value["ai_custom_endpoint"], serde_json::Value::Null);
+        assert_eq!(value["voice_input_device"], serde_json::Value::Null);
     }
 
     #[test]
     fn test_settings_all_enum_variants_serialize() {
         let settings = Settings {
-            spinner_style: taurine_core::settings::SpinnerStyle::Arc,
+            audio_theme: taurine_core::settings::AudioTheme::Arcade,
             ..Settings::default()
         };
         let json = serde_json::to_string(&settings).unwrap();
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(value["spinner_style"], "arc");
+        assert_eq!(value["audio_theme"], "arcade");
     }
 
     #[test]
