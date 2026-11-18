@@ -9,10 +9,10 @@ license-file.workspace = true
 publish = false
 
 [features]
-# Default build ships the full product (voice ML + self-contained OpenSSL).
-# Fast dev loops opt out of either independently:
+# Default build links a self-contained OpenSSL.
+# Fast dev loops link system libcrypto instead:
 #   cargo check -p taurine_daemon --no-default-features
-# Release/CI always builds with defaults, so shipped behavior is unchanged.
+
 default = ["vendored-openssl"]
 
 vendored-openssl = ["taurine_core/vendored-openssl", "rusqlite/bundled-sqlcipher-vendored-openssl"]

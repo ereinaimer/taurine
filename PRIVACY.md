@@ -22,7 +22,7 @@ To deliver low-latency text expansion, the Taurine background service requires o
 
 ## 4. Activity History & Voice Dictations
 Taurine offers optional activity logging to help you review recent expansions and dictate text:
-- **Local Speech Recognition**: Voice dictation runs entirely on-device using local machine learning inference models (Sherpa-ONNX / Whisper). Raw microphone audio is processed in memory and never leaves your computer; audio recordings are never saved to disk or transmitted to the cloud.
+- **Speech Recognition**: Voice dictation processes audio captured via microphone in memory. Audio recordings are never saved to disk.
 - **Encrypted Activity History**: Voice transcripts and snippet expansion events are retained in your local database with a 30-day retention window. When cloud sync is active, transcripts are synchronized solely as end-to-end encrypted ciphertexts.
 
 ## 5. Usage & Quota Telemetry
