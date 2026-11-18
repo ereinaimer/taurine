@@ -816,12 +816,7 @@ impl Settings {
     }
 
     pub fn get_script_timeout() -> Option<std::time::Duration> {
-        let timeout = CACHED_SCRIPT_TIMEOUT.load(Ordering::Relaxed);
-        if timeout == 0 {
-            None
-        } else {
-            Some(std::time::Duration::from_secs(timeout as u64))
-        }
+        Some(std::time::Duration::from_secs(15))
     }
 
     pub fn default_clipboard_restore_delay_ms() -> u32 {
@@ -1077,5 +1072,19 @@ mod tests {
         assert_eq!(Settings::resolve_key("voice_device"), "voice_input_device");
         assert_eq!(Settings::resolve_key("mic"), "voice_input_device");
         assert_eq!(Settings::resolve_key("microphone"), "voice_input_device");
+    }
+
+    #[test]
+    fn test_script_timeout_returns_constant_15_seconds() {
+        set_cached_script_timeout(0);
+        assert_eq!(
+            Settings::get_script_timeout(),
+            Some(std::time::Duration::from_secs(15))
+        );
+        set_cached_script_timeout(60);
+        assert_eq!(
+            Settings::get_script_timeout(),
+            Some(std::time::Duration::from_secs(15))
+        );
     }
 }

@@ -224,6 +224,16 @@ fn test_finalize_missing_run_file_emits_error_text() {
 }
 
 #[test]
+fn test_finalize_inline_run_unconditional_regardless_of_cached_setting() {
+    crate::settings::set_cached_scripts_enabled(false);
+    let res = finalize("echo [execute(bash, echo hi)]", None);
+    crate::settings::set_cached_scripts_enabled(true);
+
+    assert_eq!(res.steps.len(), 2);
+    assert!(matches!(res.steps[1], ExpansionStep::InlineRun(_, _)));
+}
+
+#[test]
 fn test_finalize_cursor_suppressed_when_key_directives_present() {
     let res = finalize("name[cursor][key(tab)]email", None);
     // [cursor] should be kept as literal text, not processed as a directive.

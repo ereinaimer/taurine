@@ -131,6 +131,38 @@ fn script_interpolation_with_named_args_matches_current_behavior() {
 }
 
 #[test]
+fn script_trigger_expands_unconditionally_regardless_of_cached_setting() {
+    crate::settings::set_cached_scripts_enabled(false);
+    let memory = Arc::new(MemorySource::new());
+    let catalog = ExpansionCatalog::with_source(memory.clone());
+
+    let script = "echo test";
+    let compressed = compress(script).unwrap();
+
+    let action = TriggerAction {
+        output: String::new(),
+        action_type: "script".to_string(),
+        only_apps: None,
+        except_apps: None,
+        auto_case: false,
+        parent_id: String::new(),
+        interpreter: Some(ScriptInterpreter::Bash),
+        behavior: Some(ScriptBehavior::Silent),
+        script_binary: Some(compressed),
+    };
+
+    memory.load_actions(vec![("test_script".to_string(), action)]);
+
+    let expansion = catalog
+        .fetch_expansion("test_script", false, None)
+        .expect("expansion fetched");
+    crate::settings::set_cached_scripts_enabled(true);
+
+    assert_eq!(expansion.steps.len(), 1);
+    assert!(matches!(expansion.steps[0], ExpansionStep::Script(_)));
+}
+
+#[test]
 fn math_fallback_only_runs_after_snippet_tiers_miss() {
     let memory = Arc::new(MemorySource::new());
     let catalog = ExpansionCatalog::with_source(memory.clone());

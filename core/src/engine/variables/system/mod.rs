@@ -461,22 +461,10 @@ fn split_into_steps_with_origin(text: &str, origin: ExpansionOrigin) -> Vec<Expa
 
             if execute::strip_execute_args(base_expr).is_some() {
                 flush_text(&mut steps, &mut current_text);
-                if !crate::settings::get_cached_scripts_enabled() {
-                    tracing::warn!(
-                        "Blocked execution of [execute.*] block because scripts are disabled globally."
-                    );
-                } else {
-                    match execute::to_script_metadata(base_expr) {
-                        Ok(metadata) => {
-                            steps.push(ExpansionStep::InlineRun(metadata, transformers))
-                        }
-                        Err(error) => {
-                            tracing::warn!(
-                                "Failed to prepare exec script '{}': {}",
-                                base_expr,
-                                error
-                            );
-                        }
+                match execute::to_script_metadata(base_expr) {
+                    Ok(metadata) => steps.push(ExpansionStep::InlineRun(metadata, transformers)),
+                    Err(error) => {
+                        tracing::warn!("Failed to prepare exec script '{}': {}", base_expr, error);
                     }
                 }
             } else if let Some(alias) = parse_key_directive(inner) {

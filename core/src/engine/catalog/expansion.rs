@@ -675,20 +675,9 @@ fn interpolate_script_action(action: TriggerAction, args: &ArgMap) -> Option<Fin
         compressed_content: recompressed,
     };
 
-    if !crate::settings::get_cached_scripts_enabled() {
-        tracing::warn!(
-            "Blocked execution of Script trigger because scripts are disabled globally."
-        );
-        Some(FinalExpansion {
-            steps: Vec::new(),
-            is_calculation: false,
-            ai_transformer_template: None,
-        })
-    } else {
-        Some(FinalExpansion {
-            steps: vec![ExpansionStep::Script(md)],
-            is_calculation: false,
-            ai_transformer_template: None,
-        })
-    }
+    Some(FinalExpansion {
+        steps: vec![ExpansionStep::Script(md)],
+        is_calculation: false,
+        ai_transformer_template: None,
+    })
 }

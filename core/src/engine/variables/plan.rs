@@ -211,22 +211,16 @@ impl ExecutionPlan {
                         transformers: trs,
                     } => {
                         flush_text(&mut steps, &mut current_text);
-                        if !crate::settings::get_cached_scripts_enabled() {
-                            tracing::warn!(
-                                "Blocked execution of [execute.*] block because scripts are disabled globally."
-                            );
-                        } else {
-                            match system::execute::to_script_metadata(raw_cmd) {
-                                Ok(metadata) => {
-                                    steps.push(ExpansionStep::InlineRun(metadata, trs.clone()))
-                                }
-                                Err(error) => {
-                                    tracing::warn!(
-                                        "Failed to prepare exec script '{}': {}",
-                                        raw_cmd,
-                                        error
-                                    );
-                                }
+                        match system::execute::to_script_metadata(raw_cmd) {
+                            Ok(metadata) => {
+                                steps.push(ExpansionStep::InlineRun(metadata, trs.clone()))
+                            }
+                            Err(error) => {
+                                tracing::warn!(
+                                    "Failed to prepare exec script '{}': {}",
+                                    raw_cmd,
+                                    error
+                                );
                             }
                         }
                     }
@@ -1013,5 +1007,16 @@ mod tests {
 
             assert_eq!(actual, expected, "Mismatch for template: {}", tpl);
         }
+    }
+
+    #[test]
+    fn test_plan_inline_run_unconditional_regardless_of_cached_setting() {
+        crate::settings::set_cached_scripts_enabled(false);
+        let plan = ExecutionPlan::compile("run [execute(bash, echo hi)]");
+        let actual = plan.evaluate(&ArgMap::default(), None, ExpansionOrigin::User);
+        crate::settings::set_cached_scripts_enabled(true);
+
+        assert_eq!(actual.steps.len(), 2);
+        assert!(matches!(actual.steps[1], ExpansionStep::InlineRun(_, _)));
     }
 }

@@ -124,13 +124,6 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
         None => reuse_tags,
     };
 
-    let settings = taurine_core::settings::SettingsManager::new(&conn).load_all();
-    if !settings.scripts_enabled {
-        tracing::warn!(
-            "Warning: Global script execution is currently disabled. This script trigger will not trigger until `scripts_enabled` is set to true."
-        );
-    }
-
     let target_ws = if let Some(ref ws_name) = workspace {
         let workspaces = taurine_core::db::crud::get_workspaces(&conn)?;
         let found = workspaces
@@ -241,13 +234,6 @@ pub fn execute(
         include_apps.as_deref(),
         exclude_apps.as_deref(),
     )?;
-
-    let settings = taurine_core::settings::SettingsManager::new(&conn).load_all();
-    if !settings.scripts_enabled {
-        tracing::warn!(
-            "Warning: Global script execution is currently disabled. This script trigger will not trigger until `scripts_enabled` is set to true."
-        );
-    }
 
     let outcome = upsert_entry_full(
         &conn,
