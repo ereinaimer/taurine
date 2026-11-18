@@ -683,10 +683,11 @@ impl VoiceSessionManager {
             Vec::new()
         };
         let prompt = taurine_core::voice::build_whisper_prompt(&dict, &triggers);
+        let terms = dict.terms().to_vec();
         drop(dict);
 
         self.cloud_client
-            .transcribe_blocking(audio, 16000, prompt.as_deref())
+            .transcribe_blocking(audio, 16000, prompt.as_deref(), Some(&terms))
             .map_err(|e| e.to_string())
     }
 

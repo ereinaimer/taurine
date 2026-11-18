@@ -58,36 +58,85 @@ pub fn load_key_from_env_file(target_key: &str) -> Option<String> {
     None
 }
 
+/// Sanitizes the cleaned transcript returned by the LLM by stripping spurious wrapper quotes
+/// and markdown code fences.
+pub fn sanitize_cleaned_text(raw_input: &str, cleaned: &str) -> String {
+    let mut text = cleaned.trim();
+
+    // Strip markdown code fence if present (handles multi-line, single-line, or unclosed fences)
+    if let Some(rest) = text.strip_prefix("```") {
+        text = if let Some(first_newline) = rest.find('\n') {
+            &rest[first_newline + 1..]
+        } else {
+            rest
+        };
+        if let Some(last_fence) = text.rfind("```") {
+            text = &text[..last_fence];
+        }
+        text = text.trim();
+    }
+
+    let raw_trimmed = raw_input.trim_start();
+    // Strip surrounding double quotes or single quotes if the raw input did not start with them
+    if ((text.starts_with('"') && text.ends_with('"'))
+        || (text.starts_with('\'') && text.ends_with('\'')))
+        && text.len() >= 2
+        && !raw_trimmed.starts_with('"')
+        && !raw_trimmed.starts_with('\'')
+    {
+        text = text[1..text.len() - 1].trim();
+    } else if text.starts_with('“') && text.ends_with('”') && !raw_trimmed.starts_with('“') {
+        text = text.trim_start_matches('“').trim_end_matches('”').trim();
+    } else if text.starts_with('‘') && text.ends_with('’') && !raw_trimmed.starts_with('‘') {
+        text = text.trim_start_matches('‘').trim_end_matches('’').trim();
+    }
+
+    text.to_string()
+}
+
 /// Compiles personal dictionary terms and active voice trigger phrases into a
-/// comma-separated prompt string for Whisper acoustic and language biasing.
+/// concise comma-separated prompt string for Whisper acoustic and language biasing.
+///
+/// Bounded strictly within Whisper's 224-token prompt context window to prevent
+/// silent front-truncation and acoustic hallucination.
 pub fn build_whisper_prompt(
     dict: &VoiceDictionary,
     trigger_phrases: &[impl AsRef<str>],
 ) -> Option<String> {
-    const PROMPT_CAP: usize = 100;
+    const MAX_ITEMS: usize = 40;
+    const MAX_CHARS: usize = 500;
     let mut collected: Vec<String> = Vec::new();
+    let mut total_chars = 0;
     let mut seen = std::collections::HashSet::new();
 
     // 1. Personal dictionary first (highest priority)
     for term in dict.terms() {
+        if collected.len() >= MAX_ITEMS {
+            break;
+        }
         let trimmed = term.trim();
         if !trimmed.is_empty() && seen.insert(trimmed.to_lowercase()) {
-            collected.push(trimmed.to_string());
-            if collected.len() >= PROMPT_CAP {
-                break;
+            if total_chars + trimmed.len() + 2 > MAX_CHARS {
+                continue;
             }
+            total_chars += trimmed.len() + 2;
+            collected.push(trimmed.to_string());
         }
     }
 
     // 2. Voice triggers second
-    if collected.len() < PROMPT_CAP {
+    if collected.len() < MAX_ITEMS && total_chars < MAX_CHARS {
         for trigger in trigger_phrases {
+            if collected.len() >= MAX_ITEMS {
+                break;
+            }
             let trimmed = trigger.as_ref().trim();
             if !trimmed.is_empty() && seen.insert(trimmed.to_lowercase()) {
-                collected.push(trimmed.to_string());
-                if collected.len() >= PROMPT_CAP {
-                    break;
+                if total_chars + trimmed.len() + 2 > MAX_CHARS {
+                    continue;
                 }
+                total_chars += trimmed.len() + 2;
+                collected.push(trimmed.to_string());
             }
         }
     }
@@ -191,7 +240,11 @@ impl GroqVoiceClient {
     }
 
     /// Run the raw transcript through Groq's Llama-3.1-8b cleanup agent.
-    pub async fn clean_transcript(&self, raw_transcript: &str) -> Result<String> {
+    pub async fn clean_transcript(
+        &self,
+        raw_transcript: &str,
+        custom_terms: Option<&[String]>,
+    ) -> Result<String> {
         let trimmed_raw = raw_transcript.trim();
         if trimmed_raw.is_empty() {
             return Ok(String::new());
@@ -202,7 +255,35 @@ impl GroqVoiceClient {
             None => return Ok(trimmed_raw.to_string()),
         };
 
-        let system_prompt = "You are an expert voice dictation cleanup engine. Transform the raw transcribed speech into clean, well-formatted, professional text.\nRules:\n- Correct punctuation, capitalization, and minor grammatical slips.\n- Remove conversational filler words (e.g. um, uh, ah, like, you know) and accidental stutter repetitions.\n- Format numbers, currencies, dates, email addresses, and technical terms appropriately.\n- Preserve the speaker's original intent, vocabulary, and meaning exactly.\n- Output ONLY the final cleaned text with no surrounding quotes, explanations, markdown code blocks, or notes.";
+        let mut system_prompt = "You are an expert voice dictation cleanup engine. Transform the raw transcribed speech into clean, well-formatted, professional text.\nRules:\n- Correct punctuation, capitalization, and minor grammatical slips.\n- Remove conversational filler words (e.g. um, uh, ah, like, you know) and accidental stutter repetitions.\n- Format numbers, currencies, dates, email addresses, and technical terms appropriately.\n- Preserve the speaker's original intent, vocabulary, and meaning exactly.\n- If the speech contains only conversational filler words, stuttering, or ambient noise with no substantive content, output an empty string.\n- Output ONLY the final cleaned text with no surrounding quotes, explanations, markdown code blocks, or notes.".to_string();
+
+        if let Some(terms) = custom_terms
+            && !terms.is_empty()
+        {
+            const MAX_CUSTOM_TERMS: usize = 50;
+            const MAX_CUSTOM_CHARS: usize = 1000;
+            let mut bounded_terms = Vec::new();
+            let mut total_chars = 0;
+            for term in terms.iter() {
+                if bounded_terms.len() >= MAX_CUSTOM_TERMS {
+                    break;
+                }
+                let trimmed = term.trim();
+                if !trimmed.is_empty() {
+                    if total_chars + trimmed.len() + 2 > MAX_CUSTOM_CHARS {
+                        continue;
+                    }
+                    total_chars += trimmed.len() + 2;
+                    bounded_terms.push(trimmed);
+                }
+            }
+            if !bounded_terms.is_empty() {
+                let terms_list = bounded_terms.join(", ");
+                system_prompt.push_str(&format!(
+                    "\n- Domain vocabulary to preserve and format verbatim if phonetically spoken: {terms_list}."
+                ));
+            }
+        }
 
         let payload = serde_json::json!({
             "model": self.cleanup_model,
@@ -271,17 +352,20 @@ impl GroqVoiceClient {
         if let Some(first) = parsed.choices.into_iter().next()
             && let Some(content) = first.message.content
         {
-            let cleaned = content.trim();
-            if !cleaned.is_empty() {
-                return Ok(cleaned.to_string());
-            }
+            let sanitized = sanitize_cleaned_text(trimmed_raw, &content);
+            return Ok(sanitized);
         }
 
         Ok(trimmed_raw.to_string())
     }
 
     /// Transcribe 16-bit PCM WAV audio bytes.
-    pub async fn transcribe_wav(&self, wav_bytes: &[u8], prompt: Option<&str>) -> Result<String> {
+    pub async fn transcribe_wav(
+        &self,
+        wav_bytes: &[u8],
+        prompt: Option<&str>,
+        custom_terms: Option<&[String]>,
+    ) -> Result<String> {
         let api_key = self.resolve_api_key().ok_or_else(|| {
             let diag = crate::diagnostic::Diagnostic::problem(
                 "Groq API key not configured for voice dictation",
@@ -354,7 +438,7 @@ impl GroqVoiceClient {
 
         let raw_transcript = parsed.text.trim();
         if self.cleanup_enabled && !raw_transcript.is_empty() {
-            self.clean_transcript(raw_transcript).await
+            self.clean_transcript(raw_transcript, custom_terms).await
         } else {
             Ok(raw_transcript.to_string())
         }
@@ -366,9 +450,10 @@ impl GroqVoiceClient {
         samples: &[f32],
         sample_rate: u32,
         prompt: Option<&str>,
+        custom_terms: Option<&[String]>,
     ) -> Result<String> {
         let wav = crate::voice::encode_pcm16_wav(samples, sample_rate, 1);
-        self.transcribe_wav(&wav, prompt).await
+        self.transcribe_wav(&wav, prompt, custom_terms).await
     }
 
     /// Synchronous transcription entry point for session manager threads.
@@ -377,20 +462,42 @@ impl GroqVoiceClient {
         samples: &[f32],
         sample_rate: u32,
         prompt: Option<&str>,
+        custom_terms: Option<&[String]>,
     ) -> Result<String> {
         let wav = crate::voice::encode_pcm16_wav(samples, sample_rate, 1);
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            tokio::task::block_in_place(|| handle.block_on(self.transcribe_wav(&wav, prompt)))
+            if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread {
+                tokio::task::block_in_place(|| {
+                    handle.block_on(self.transcribe_wav(&wav, prompt, custom_terms))
+                })
+            } else {
+                let this = self.clone();
+                let prompt = prompt.map(str::to_string);
+                let custom_terms = custom_terms.map(|t| t.to_vec());
+                std::thread::spawn(move || {
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .map_err(|e| {
+                            Error::Service(format!("Failed to create async runtime: {e}"))
+                        })?;
+                    rt.block_on(this.transcribe_wav(
+                        &wav,
+                        prompt.as_deref(),
+                        custom_terms.as_deref(),
+                    ))
+                })
+                .join()
+                .map_err(|_| {
+                    Error::Service("Voice transcription worker thread panicked".to_string())
+                })?
+            }
         } else {
-            match tokio::runtime::Builder::new_current_thread()
+            let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
-            {
-                Ok(rt) => rt.block_on(self.transcribe_wav(&wav, prompt)),
-                Err(e) => Err(Error::Service(format!(
-                    "Failed to create async runtime: {e}"
-                ))),
-            }
+                .map_err(|e| Error::Service(format!("Failed to create async runtime: {e}")))?;
+            rt.block_on(self.transcribe_wav(&wav, prompt, custom_terms))
         }
     }
 }
@@ -450,7 +557,7 @@ mod tests {
     async fn test_missing_api_key_returns_config_error() {
         let client = GroqVoiceClient::new(None);
         let wav = crate::voice::encode_pcm16_wav(&[0.0; 160], 16000, 1);
-        let result = client.transcribe_wav(&wav, None).await;
+        let result = client.transcribe_wav(&wav, None, None).await;
 
         if std::env::var("GROQ_API_KEY").is_err() {
             assert!(result.is_err());
@@ -497,7 +604,7 @@ mod tests {
         .with_cleanup_enabled(false);
 
         let wav = crate::voice::encode_pcm16_wav(&[0.0; 160], 16000, 1);
-        let transcript = client.transcribe_wav(&wav, None).await.unwrap();
+        let transcript = client.transcribe_wav(&wav, None, None).await.unwrap();
 
         assert_eq!(transcript, "Hello world, this is Taurine cloud voice.");
         server_thread.join().unwrap();
@@ -534,7 +641,7 @@ mod tests {
 
         let wav = crate::voice::encode_pcm16_wav(&[0.0; 160], 16000, 1);
         let transcript = client
-            .transcribe_wav(&wav, Some("Taurine, Whisper, Rust"))
+            .transcribe_wav(&wav, Some("Taurine, Whisper, Rust"), None)
             .await
             .unwrap();
 
@@ -568,7 +675,7 @@ mod tests {
         );
 
         let wav = crate::voice::encode_pcm16_wav(&[0.0; 160], 16000, 1);
-        let result = client.transcribe_wav(&wav, None).await;
+        let result = client.transcribe_wav(&wav, None, None).await;
 
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
@@ -601,7 +708,7 @@ mod tests {
         );
 
         let wav = crate::voice::encode_pcm16_wav(&[0.0; 160], 16000, 1);
-        let result = client.transcribe_wav(&wav, None).await;
+        let result = client.transcribe_wav(&wav, None, None).await;
 
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
@@ -639,6 +746,65 @@ EMPTY_KEY=
         assert_eq!(read_env_file_key(env_content, "EMPTY_KEY"), None);
     }
 
+    #[test]
+    fn test_sanitize_cleaned_text_strips_fences_and_wrapper_quotes() {
+        // Multi-line code fence
+        assert_eq!(
+            sanitize_cleaned_text("hello", "```text\nHello world.\n```"),
+            "Hello world."
+        );
+        assert_eq!(
+            sanitize_cleaned_text("hello", "```\nHello world.\n```"),
+            "Hello world."
+        );
+        // Single-line code fence
+        assert_eq!(
+            sanitize_cleaned_text("hello", "```Hello world```"),
+            "Hello world"
+        );
+        // Unclosed code fence without newline
+        assert_eq!(
+            sanitize_cleaned_text("hello", "```Hello world"),
+            "Hello world"
+        );
+        // Double quotes
+        assert_eq!(
+            sanitize_cleaned_text("hello", "\"Hello world.\""),
+            "Hello world."
+        );
+        // Single quotes
+        assert_eq!(
+            sanitize_cleaned_text("hello", "'Hello world.'"),
+            "Hello world."
+        );
+        // Typographic curly quotes
+        assert_eq!(
+            sanitize_cleaned_text("hello", "“Hello world.”"),
+            "Hello world."
+        );
+        assert_eq!(
+            sanitize_cleaned_text("hello", "‘Hello world.’"),
+            "Hello world."
+        );
+        // Preserves quotes if original input explicitly contained quotes
+        assert_eq!(
+            sanitize_cleaned_text("\"hello\"", "\"Hello world.\""),
+            "\"Hello world.\""
+        );
+    }
+
+    #[test]
+    fn test_build_whisper_prompt_character_cap() {
+        let long_terms: Vec<String> = (0..50).map(|i| format!("term_number_{i}")).collect();
+        let dict = VoiceDictionary::from_csv(&long_terms.join(", "));
+        let prompt = build_whisper_prompt(&dict, &["trigger 1", "trigger 2"]).unwrap();
+        assert!(
+            prompt.len() <= 500,
+            "Prompt must be bounded below 500 characters, got {}",
+            prompt.len()
+        );
+    }
+
     #[tokio::test]
     async fn test_clean_transcript_calls_llama_mock_endpoint() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -655,12 +821,13 @@ EMPTY_KEY=
             );
             assert!(req.contains("llama-3.1-8b-instant"));
             assert!(req.contains("um hello like this is a test"));
+            assert!(req.contains("Taurine, Rust"));
 
             let response_body = r#"{
                 "choices": [{
                     "message": {
                         "role": "assistant",
-                        "content": "Hello, this is a test."
+                        "content": "\"Hello, this is a test.\""
                     }
                 }]
             }"#;
@@ -681,10 +848,12 @@ EMPTY_KEY=
             "llama-3.1-8b-instant".to_string(),
         );
 
+        let custom_terms = vec!["Taurine".to_string(), "Rust".to_string()];
         let cleaned = client
-            .clean_transcript("um hello like this is a test")
+            .clean_transcript("um hello like this is a test", Some(&custom_terms))
             .await
             .unwrap();
+        // Wrapper quotes stripped by sanitize_cleaned_text
         assert_eq!(cleaned, "Hello, this is a test.");
         server_thread.join().unwrap();
     }
@@ -716,8 +885,127 @@ EMPTY_KEY=
             "llama-3.1-8b-instant".to_string(),
         );
 
-        let result = client.clean_transcript("raw text fallback").await.unwrap();
+        let result = client
+            .clean_transcript("raw text fallback", None)
+            .await
+            .unwrap();
         assert_eq!(result, "raw text fallback");
+        server_thread.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_clean_transcript_strips_filler_only_utterances() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let server_thread = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let _ = read_mock_request(&mut stream);
+
+            let response_body = r#"{
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": ""
+                    }
+                }]
+            }"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+            let _ = stream.flush();
+        });
+
+        let client = GroqVoiceClient::with_full_endpoints(
+            Some("test-llama-key".to_string()),
+            "http://127.0.0.1:0/transcribe".to_string(),
+            "whisper-large-v3".to_string(),
+            format!("http://127.0.0.1:{port}/chat/completions"),
+            "llama-3.1-8b-instant".to_string(),
+        );
+
+        let cleaned = client.clean_transcript("um uh", None).await.unwrap();
+        assert_eq!(cleaned, "");
+        server_thread.join().unwrap();
+    }
+
+    #[test]
+    fn test_transcribe_blocking_current_thread_runtime_safety() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let server_thread = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let _ = read_mock_request(&mut stream);
+            let response_body = r#"{"text": "blocking test"}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+            let _ = stream.flush();
+        });
+
+        let client = GroqVoiceClient::with_endpoint(
+            Some("test-key".to_string()),
+            format!("http://127.0.0.1:{port}/transcribe"),
+            "whisper-large-v3".to_string(),
+        )
+        .with_cleanup_enabled(false);
+
+        // Execute transcribe_blocking from inside a single-threaded runtime to ensure no panics
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        let result =
+            rt.block_on(async { client.transcribe_blocking(&[0.0; 160], 16000, None, None) });
+
+        assert_eq!(result.unwrap(), "blocking test");
+        server_thread.join().unwrap();
+    }
+
+    #[test]
+    fn test_transcribe_blocking_multi_thread_runtime_safety() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let server_thread = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let _ = read_mock_request(&mut stream);
+            let response_body = r#"{"text": "multithread blocking test"}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+            let _ = stream.flush();
+        });
+
+        let client = GroqVoiceClient::with_endpoint(
+            Some("test-key".to_string()),
+            format!("http://127.0.0.1:{port}/transcribe"),
+            "whisper-large-v3".to_string(),
+        )
+        .with_cleanup_enabled(false);
+
+        // Execute transcribe_blocking from inside a multi-threaded runtime
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
+
+        let result =
+            rt.block_on(async { client.transcribe_blocking(&[0.0; 160], 16000, None, None) });
+
+        assert_eq!(result.unwrap(), "multithread blocking test");
         server_thread.join().unwrap();
     }
 }
