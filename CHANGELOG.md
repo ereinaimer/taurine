@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Modern Settings Overlay**: Quick-access settings modal (`Ctrl+,`) with inline field editing, graphical animated toggles, volume sliders, and connected microphone pickers.
 
 ### Changed
+- **Voice Gateway Architecture**: Routed voice dictation through an authenticated cloud gateway, eliminating manual API key configuration.
 - **Shell and Network Simplification**: Replaced language-specific script tags with native shell execution and synchronous local network IP resolution.
 - **Streamlined Settings Architecture**: Compacted configuration down to 19 essential user preferences, standardized date and time formatting keys, and internalized timing heuristics.
 - **Inline Assist Standardization**: Enable emoji, date/time, timezone, currency words, dictionary lookup, and tab completion assist features unconditionally.
@@ -45,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Monetization Simplification**: Free tier now includes unlimited snippets, workspaces, and devices, gating exclusively on weekly expansion quota.
 
 ### Removed
+- **Voice BYOK Configuration**: Removed manual API key settings and local environment lookups for voice dictation.
 - **Feature Toggles**: Removed configuration toggles for clipboard history, script execution, inline assist features, and developer hyperparameters.
 - **Local Voice Models**: Removed local voice models and downloader in preparation for cloud-based voice dictation.
 - **Logout Force Flag**: Removed the `--force` flag and interactive prompts from the logout command.

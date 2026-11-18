@@ -1,61 +1,25 @@
-//! Groq Whisper Cloud Speech-to-Text inference client with Llama LLM post-processing.
+//! Cloud Speech-to-Text inference client communicating through Taurine's Supabase Edge Function gateway.
+//!
+//! Authenticates requests via the user's Supabase session access token and delegates Whisper transcription
+//! and Llama post-processing to the server-side edge function.
 
 use crate::error::{Error, Result};
 use crate::voice::VoiceDictionary;
 
-pub const DEFAULT_GROQ_API_URL: &str = "https://api.groq.com/openai/v1/audio/transcriptions";
-pub const DEFAULT_GROQ_CHAT_URL: &str = "https://api.groq.com/openai/v1/chat/completions";
+pub const DEFAULT_VOICE_FUNCTION_PATH: &str = "/functions/v1/voice-transcribe";
+pub const DEFAULT_GROQ_API_URL: &str = DEFAULT_VOICE_FUNCTION_PATH;
+pub const DEFAULT_GROQ_CHAT_URL: &str = DEFAULT_VOICE_FUNCTION_PATH;
 pub const DEFAULT_GROQ_MODEL: &str = "whisper-large-v3";
 pub const DEFAULT_CLEANUP_MODEL: &str = "llama-3.1-8b-instant";
 
-/// Parse a specific key from a `.env` file string without external crate dependencies.
-pub fn read_env_file_key(content: &str, target_key: &str) -> Option<String> {
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-        if let Some((k, v)) = trimmed.split_once('=')
-            && k.trim() == target_key
-        {
-            let unquoted = v.trim().trim_matches('"').trim_matches('\'').trim();
-            if !unquoted.is_empty() {
-                return Some(unquoted.to_string());
-            }
-        }
-    }
-    None
-}
-
-/// Discovers and loads a variable from `.env` in the current directory, parent directories, or exe dir.
-pub fn load_key_from_env_file(target_key: &str) -> Option<String> {
-    let mut check_dirs = Vec::new();
-    if let Ok(cwd) = std::env::current_dir() {
-        let mut cur = Some(cwd.as_path());
-        let mut depth = 0;
-        while let Some(d) = cur
-            && depth < 4
-        {
-            check_dirs.push(d.to_path_buf());
-            cur = d.parent();
-            depth += 1;
-        }
-    }
-    if let Ok(exe) = std::env::current_exe()
-        && let Some(parent) = exe.parent()
-    {
-        check_dirs.push(parent.to_path_buf());
-    }
-
-    for dir in check_dirs {
-        let path = dir.join(".env");
-        if let Ok(content) = std::fs::read_to_string(path)
-            && let Some(val) = read_env_file_key(&content, target_key)
-        {
-            return Some(val);
-        }
-    }
-    None
+/// Returns the default Supabase Edge Function URL for voice dictation.
+pub fn default_voice_gateway_url() -> String {
+    let config = crate::cloud::CloudConfig::default_or_from_env();
+    format!(
+        "{}{}",
+        config.supabase_url.trim_end_matches('/'),
+        DEFAULT_VOICE_FUNCTION_PATH
+    )
 }
 
 /// Sanitizes the cleaned transcript returned by the LLM by stripping spurious wrapper quotes
@@ -148,65 +112,64 @@ pub fn build_whisper_prompt(
     }
 }
 
-/// Cloud speech transcription client communicating with Groq's Whisper API and Llama LLM.
+/// Cloud speech transcription client communicating with Taurine's Supabase Edge Function gateway.
 #[derive(Debug, Clone)]
-pub struct GroqVoiceClient {
+pub struct CloudVoiceClient {
     client: reqwest::Client,
-    api_key: Option<String>,
+    auth_token: Option<String>,
     endpoint_url: String,
-    model: String,
-    chat_url: String,
-    cleanup_model: String,
+    anon_key: String,
     cleanup_enabled: bool,
 }
 
-impl Default for GroqVoiceClient {
+pub type GroqVoiceClient = CloudVoiceClient;
+
+impl Default for CloudVoiceClient {
     fn default() -> Self {
         Self::from_env_or_keyring()
     }
 }
 
-impl GroqVoiceClient {
-    /// Creates a client with an explicitly supplied API key.
-    pub fn new(api_key: Option<String>) -> Self {
-        Self::with_endpoint(
-            api_key,
-            DEFAULT_GROQ_API_URL.to_string(),
-            DEFAULT_GROQ_MODEL.to_string(),
-        )
-    }
-
-    /// Creates a client with custom endpoint and model (for testing or alternate endpoints).
-    pub fn with_endpoint(api_key: Option<String>, endpoint_url: String, model: String) -> Self {
-        Self::with_full_endpoints(
-            api_key,
-            endpoint_url,
-            model,
-            DEFAULT_GROQ_CHAT_URL.to_string(),
-            DEFAULT_CLEANUP_MODEL.to_string(),
-        )
-    }
-
-    /// Creates a client with customized speech and cleanup LLM endpoints.
-    pub fn with_full_endpoints(
-        api_key: Option<String>,
-        endpoint_url: String,
-        model: String,
-        chat_url: String,
-        cleanup_model: String,
-    ) -> Self {
+impl CloudVoiceClient {
+    /// Creates a client with an optionally supplied session auth token.
+    pub fn new(auth_token: Option<String>) -> Self {
+        let config = crate::cloud::CloudConfig::default_or_from_env();
         Self {
             client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(15))
+                .timeout(std::time::Duration::from_secs(20))
                 .build()
                 .unwrap_or_else(|_| reqwest::Client::new()),
-            api_key,
-            endpoint_url,
-            model,
-            chat_url,
-            cleanup_model,
+            auth_token,
+            endpoint_url: default_voice_gateway_url(),
+            anon_key: config.anon_key,
             cleanup_enabled: true,
         }
+    }
+
+    /// Creates a client with custom endpoint and model (for testing against mock servers).
+    pub fn with_endpoint(auth_token: Option<String>, endpoint_url: String, _model: String) -> Self {
+        let config = crate::cloud::CloudConfig::default_or_from_env();
+        Self {
+            client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(20))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new()),
+            auth_token,
+            endpoint_url,
+            anon_key: config.anon_key,
+            cleanup_enabled: true,
+        }
+    }
+
+    /// Creates a client with customized endpoints (signature retained for compatibility).
+    pub fn with_full_endpoints(
+        auth_token: Option<String>,
+        endpoint_url: String,
+        model: String,
+        _chat_url: String,
+        _cleanup_model: String,
+    ) -> Self {
+        Self::with_endpoint(auth_token, endpoint_url, model)
     }
 
     /// Enable or disable the secondary Llama LLM cleanup pass.
@@ -215,31 +178,31 @@ impl GroqVoiceClient {
         self
     }
 
-    /// Resolves API key from environment (`GROQ_API_KEY`) or workspace `.env` file.
+    /// Default constructor that automatically resolves authentication from the user's stored session.
     pub fn from_env_or_keyring() -> Self {
         Self::new(None)
     }
 
-    /// Resolves the effective API key from instance, environment, or `.env` file.
-    pub fn resolve_api_key(&self) -> Option<String> {
-        if let Some(key) = &self.api_key {
-            let trimmed = key.trim();
+    /// Resolves the user's Supabase session access token from instance or local keyring.
+    pub fn resolve_auth_token(&self) -> Option<String> {
+        if let Some(token) = &self.auth_token {
+            let trimmed = token.trim();
             if !trimmed.is_empty() {
                 return Some(trimmed.to_string());
             }
         }
 
-        if let Ok(key) = std::env::var("GROQ_API_KEY") {
-            let trimmed = key.trim();
+        if let Ok(Some(tokens)) = crate::cloud::keyring::get_tokens() {
+            let trimmed = tokens.access_token.trim();
             if !trimmed.is_empty() {
                 return Some(trimmed.to_string());
             }
         }
 
-        load_key_from_env_file("GROQ_API_KEY")
+        None
     }
 
-    /// Run the raw transcript through Groq's Llama-3.1-8b cleanup agent.
+    /// Run the raw transcript through the edge function's Llama-3.1-8b cleanup agent.
     pub async fn clean_transcript(
         &self,
         raw_transcript: &str,
@@ -250,75 +213,27 @@ impl GroqVoiceClient {
             return Ok(String::new());
         }
 
-        let api_key = match self.resolve_api_key() {
-            Some(k) => k,
-            None => return Ok(trimmed_raw.to_string()),
+        let auth_token = match self.resolve_auth_token() {
+            Some(t) => t,
+            None => {
+                tracing::warn!(
+                    "User not authenticated; skipping cleanup pass and returning raw transcript"
+                );
+                return Ok(trimmed_raw.to_string());
+            }
         };
 
-        let mut system_prompt = "You are an expert voice dictation cleanup engine. Transform the raw transcribed speech into clean, well-formatted, professional text.\n\
-Rules:\n\
-- Correct punctuation, capitalization, and minor grammatical slips.\n\
-- Remove conversational filler words (e.g. um, uh, ah, like, you know) and accidental stutter repetitions.\n\
-- Format numbers, currencies, dates, email addresses, and technical terms appropriately.\n\
-- Structure continuous speech into natural, readable paragraphs separated by blank lines (\\n\\n) at major topic transitions or thought shifts (typically every 3 to 6 sentences), or whenever the speaker dictates a new paragraph or new line.\n\
-- Format sequences of numbered items, chronologies, rankings, or sequential instructions as numbered lists (e.g. 1., 2., 3.) when dictated or naturally itemized.\n\
-- Format itemized features, options, components, or bullet points as clean bulleted lists (using hyphen \"- \") when dictated or naturally itemized.\n\
-- For standard continuous thoughts, explanations, and narratives, preserve regular flowing prose in paragraphs rather than forcing lists.\n\
-- Preserve the speaker's original intent, vocabulary, tone, and meaning exactly.\n\
-- If the speech contains only conversational filler words, stuttering, or ambient noise with no substantive content, output an empty string.\n\
-- Output ONLY the final cleaned text with no surrounding quotes, conversational preamble, explanations, markdown code blocks, or notes.".to_string();
-
-        if let Some(terms) = custom_terms
-            && !terms.is_empty()
-        {
-            const MAX_CUSTOM_TERMS: usize = 50;
-            const MAX_CUSTOM_CHARS: usize = 1000;
-            let mut bounded_terms = Vec::new();
-            let mut total_chars = 0;
-            for term in terms.iter() {
-                if bounded_terms.len() >= MAX_CUSTOM_TERMS {
-                    break;
-                }
-                let trimmed = term.trim();
-                if !trimmed.is_empty() {
-                    if total_chars + trimmed.len() + 2 > MAX_CUSTOM_CHARS {
-                        continue;
-                    }
-                    total_chars += trimmed.len() + 2;
-                    bounded_terms.push(trimmed);
-                }
-            }
-            if !bounded_terms.is_empty() {
-                let terms_list = bounded_terms.join(", ");
-                system_prompt.push_str(&format!(
-                    "\n- Domain vocabulary to preserve and format verbatim if phonetically spoken: {terms_list}."
-                ));
-            }
-        }
-
-        let estimated_tokens = (trimmed_raw.split_whitespace().count() * 4 / 3) + 64;
-        let dynamic_max_tokens = (estimated_tokens * 2 + 512).clamp(1024, 8192);
-
         let payload = serde_json::json!({
-            "model": self.cleanup_model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": system_prompt
-                },
-                {
-                    "role": "user",
-                    "content": trimmed_raw
-                }
-            ],
-            "temperature": 0.1,
-            "max_tokens": dynamic_max_tokens
+            "raw_text": trimmed_raw,
+            "custom_terms": custom_terms,
         });
 
         let response = match self
             .client
-            .post(&self.chat_url)
-            .header("Authorization", format!("Bearer {api_key}"))
+            .post(&self.endpoint_url)
+            .header("Authorization", format!("Bearer {auth_token}"))
+            .header("apikey", &self.anon_key)
+            .header("Content-Type", "application/json")
             .json(&payload)
             .send()
             .await
@@ -326,7 +241,7 @@ Rules:\n\
             Ok(r) => r,
             Err(e) => {
                 tracing::warn!(
-                    "Llama cleanup request failed ({e}); falling back to raw transcript"
+                    "Voice cleanup gateway request failed ({e}); falling back to raw transcript"
                 );
                 return Ok(trimmed_raw.to_string());
             }
@@ -334,38 +249,26 @@ Rules:\n\
 
         if !response.status().is_success() {
             tracing::warn!(
-                "Llama cleanup returned status {}; falling back to raw transcript",
+                "Voice cleanup gateway returned status {}; falling back to raw transcript",
                 response.status()
             );
             return Ok(trimmed_raw.to_string());
         }
 
         #[derive(serde::Deserialize)]
-        struct ChatChoice {
-            message: ChatMessage,
+        struct CleanupResponse {
+            text: Option<String>,
         }
 
-        #[derive(serde::Deserialize)]
-        struct ChatMessage {
-            content: Option<String>,
-        }
-
-        #[derive(serde::Deserialize)]
-        struct ChatResponse {
-            choices: Vec<ChatChoice>,
-        }
-
-        let parsed: ChatResponse = match response.json().await {
+        let parsed: CleanupResponse = match response.json().await {
             Ok(p) => p,
             Err(e) => {
-                tracing::warn!("Failed to parse Llama cleanup response ({e}); falling back");
+                tracing::warn!("Failed to parse voice cleanup JSON response ({e}); falling back");
                 return Ok(trimmed_raw.to_string());
             }
         };
 
-        if let Some(first) = parsed.choices.into_iter().next()
-            && let Some(content) = first.message.content
-        {
+        if let Some(content) = parsed.text {
             let sanitized = sanitize_cleaned_text(trimmed_raw, &content);
             return Ok(sanitized);
         }
@@ -373,31 +276,42 @@ Rules:\n\
         Ok(trimmed_raw.to_string())
     }
 
-    /// Transcribe 16-bit PCM WAV audio bytes.
+    /// Transcribe 16-bit PCM WAV audio bytes via the Supabase Edge Function gateway.
     pub async fn transcribe_wav(
         &self,
         wav_bytes: &[u8],
         prompt: Option<&str>,
         custom_terms: Option<&[String]>,
     ) -> Result<String> {
-        let api_key = self.resolve_api_key().ok_or_else(|| {
+        let auth_token = self.resolve_auth_token().ok_or_else(|| {
             let diag = crate::diagnostic::Diagnostic::problem(
-                "Groq API key not configured for voice dictation",
+                "Taurine account authentication required for cloud voice dictation",
             )
-            .help("Set GROQ_API_KEY in your .env file or environment variables")
-            .example("GROQ_API_KEY=gsk_...");
+            .help("Please log in to your Taurine account to activate voice dictation")
+            .example("taurine login");
             Error::Config(diag.render())
         })?;
 
-        let mut form = reqwest::multipart::Form::new()
-            .text("model", self.model.clone())
-            .text("response_format", "json")
-            .text("temperature", "0");
+        let mut form = reqwest::multipart::Form::new().text(
+            "cleanup",
+            if self.cleanup_enabled {
+                "true"
+            } else {
+                "false"
+            },
+        );
 
         if let Some(p) = prompt
             && !p.trim().is_empty()
         {
             form = form.text("prompt", p.trim().to_string());
+        }
+
+        if let Some(terms) = custom_terms
+            && !terms.is_empty()
+            && let Ok(terms_json) = serde_json::to_string(terms)
+        {
+            form = form.text("custom_terms", terms_json);
         }
 
         form = form.part(
@@ -413,49 +327,49 @@ Rules:\n\
         let response = self
             .client
             .post(&self.endpoint_url)
-            .header("Authorization", format!("Bearer {api_key}"))
+            .header("Authorization", format!("Bearer {auth_token}"))
+            .header("apikey", &self.anon_key)
             .multipart(form)
             .send()
             .await
             .map_err(|e| {
-                Error::Service(format!("Failed to send transcription request to Groq: {e}"))
+                Error::Service(format!(
+                    "Failed to send transcription request to voice gateway: {e}"
+                ))
             })?;
 
         let status = response.status();
         if status.as_u16() == 401 {
             return Err(Error::Config(
-                "Groq API authentication failed: invalid or unauthorized API key".to_string(),
+                "Voice gateway authentication failed: please sign in again with 'taurine login'"
+                    .to_string(),
             ));
         }
 
         if status.as_u16() == 429 {
             return Err(Error::Service(
-                "Groq rate limit exceeded: please wait a moment before dictating again".to_string(),
+                "Voice dictation rate limit exceeded: please wait a moment before dictating again"
+                    .to_string(),
             ));
         }
 
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
             return Err(Error::Service(format!(
-                "Groq transcription request failed with HTTP {status}: {body}"
+                "Voice gateway request failed with HTTP {status}: {body}"
             )));
         }
 
         #[derive(serde::Deserialize)]
-        struct WhisperResponse {
+        struct GatewayResponse {
             text: String,
         }
 
-        let parsed: WhisperResponse = response.json().await.map_err(|e| {
-            Error::Service(format!("Failed to parse Groq Whisper JSON response: {e}"))
+        let parsed: GatewayResponse = response.json().await.map_err(|e| {
+            Error::Service(format!("Failed to parse voice gateway JSON response: {e}"))
         })?;
 
-        let raw_transcript = parsed.text.trim();
-        if self.cleanup_enabled && !raw_transcript.is_empty() {
-            self.clean_transcript(raw_transcript, custom_terms).await
-        } else {
-            Ok(raw_transcript.to_string())
-        }
+        Ok(parsed.text)
     }
 
     /// Transcribe raw 16kHz mono audio samples asynchronously, automatically splitting
@@ -686,19 +600,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_missing_api_key_returns_config_error() {
+    async fn test_unauthenticated_client_returns_diagnostic_error() {
+        {
+            let _lock = crate::testing::TEST_LOCK.lock().unwrap();
+            crate::testing::use_shared_test_keyring();
+            let _ = crate::cloud::keyring::clear_tokens();
+        }
+
         let client = GroqVoiceClient::new(None);
         let wav = crate::voice::encode_pcm16_wav(&[0.0; 160], 16000, 1);
         let result = client.transcribe_wav(&wav, None, None).await;
 
-        if std::env::var("GROQ_API_KEY").is_err() {
-            assert!(result.is_err());
-            let err = result.unwrap_err().to_string();
-            assert!(
-                err.contains("Groq API key not configured"),
-                "Error was: {err}"
-            );
-        }
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("authentication required")
+                || err.contains("log in to your Taurine account"),
+            "Error was: {err}"
+        );
     }
 
     #[tokio::test]
@@ -849,36 +768,6 @@ mod tests {
     }
 
     #[test]
-    fn test_read_env_file_key_parsing() {
-        let env_content = r#"
-# Comment line
-GROQ_API_KEY="gsk_quoted_value_123"
-OTHER_KEY='single_quoted'
-UNQUOTED_KEY=unquoted_value_456
-EMPTY_KEY=
-        SPACED_KEY = spaced_value
-"#;
-        assert_eq!(
-            read_env_file_key(env_content, "GROQ_API_KEY").as_deref(),
-            Some("gsk_quoted_value_123")
-        );
-        assert_eq!(
-            read_env_file_key(env_content, "OTHER_KEY").as_deref(),
-            Some("single_quoted")
-        );
-        assert_eq!(
-            read_env_file_key(env_content, "UNQUOTED_KEY").as_deref(),
-            Some("unquoted_value_456")
-        );
-        assert_eq!(
-            read_env_file_key(env_content, "SPACED_KEY").as_deref(),
-            Some("spaced_value")
-        );
-        assert_eq!(read_env_file_key(env_content, "NON_EXISTENT"), None);
-        assert_eq!(read_env_file_key(env_content, "EMPTY_KEY"), None);
-    }
-
-    #[test]
     fn test_sanitize_cleaned_text_strips_fences_and_wrapper_quotes() {
         // Multi-line code fence
         assert_eq!(
@@ -938,7 +827,7 @@ EMPTY_KEY=
     }
 
     #[tokio::test]
-    async fn test_clean_transcript_calls_llama_mock_endpoint() {
+    async fn test_clean_transcript_calls_edge_gateway() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
 
@@ -946,23 +835,16 @@ EMPTY_KEY=
             let (mut stream, _) = listener.accept().unwrap();
             let req = read_mock_request(&mut stream);
 
-            assert!(req.starts_with("POST /chat/completions HTTP/1.1"));
+            assert!(req.starts_with("POST /voice-transcribe HTTP/1.1"));
             assert!(
                 req.to_lowercase()
                     .contains("authorization: bearer test-llama-key")
             );
-            assert!(req.contains("llama-3.1-8b-instant"));
+            assert!(req.contains("raw_text"));
             assert!(req.contains("um hello like this is a test"));
-            assert!(req.contains("Taurine, Rust"));
+            assert!(req.contains("Taurine"));
 
-            let response_body = r#"{
-                "choices": [{
-                    "message": {
-                        "role": "assistant",
-                        "content": "\"Hello, this is a test.\""
-                    }
-                }]
-            }"#;
+            let response_body = r#"{"text": "Hello, this is a test."}"#;
             let response = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                 response_body.len(),
@@ -972,12 +854,10 @@ EMPTY_KEY=
             let _ = stream.flush();
         });
 
-        let client = GroqVoiceClient::with_full_endpoints(
+        let client = GroqVoiceClient::with_endpoint(
             Some("test-llama-key".to_string()),
-            "http://127.0.0.1:0/transcribe".to_string(),
+            format!("http://127.0.0.1:{port}/voice-transcribe"),
             "whisper-large-v3".to_string(),
-            format!("http://127.0.0.1:{port}/chat/completions"),
-            "llama-3.1-8b-instant".to_string(),
         );
 
         let custom_terms = vec!["Taurine".to_string(), "Rust".to_string()];
@@ -985,7 +865,6 @@ EMPTY_KEY=
             .clean_transcript("um hello like this is a test", Some(&custom_terms))
             .await
             .unwrap();
-        // Wrapper quotes stripped by sanitize_cleaned_text
         assert_eq!(cleaned, "Hello, this is a test.");
         server_thread.join().unwrap();
     }
@@ -1009,12 +888,10 @@ EMPTY_KEY=
             let _ = stream.flush();
         });
 
-        let client = GroqVoiceClient::with_full_endpoints(
+        let client = GroqVoiceClient::with_endpoint(
             Some("test-llama-key".to_string()),
-            "http://127.0.0.1:0/transcribe".to_string(),
+            format!("http://127.0.0.1:{port}/voice-transcribe"),
             "whisper-large-v3".to_string(),
-            format!("http://127.0.0.1:{port}/chat/completions"),
-            "llama-3.1-8b-instant".to_string(),
         );
 
         let result = client
@@ -1034,14 +911,7 @@ EMPTY_KEY=
             let (mut stream, _) = listener.accept().unwrap();
             let _ = read_mock_request(&mut stream);
 
-            let response_body = r#"{
-                "choices": [{
-                    "message": {
-                        "role": "assistant",
-                        "content": ""
-                    }
-                }]
-            }"#;
+            let response_body = r#"{"text": ""}"#;
             let response = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                 response_body.len(),
@@ -1051,12 +921,10 @@ EMPTY_KEY=
             let _ = stream.flush();
         });
 
-        let client = GroqVoiceClient::with_full_endpoints(
+        let client = GroqVoiceClient::with_endpoint(
             Some("test-llama-key".to_string()),
-            "http://127.0.0.1:0/transcribe".to_string(),
+            format!("http://127.0.0.1:{port}/voice-transcribe"),
             "whisper-large-v3".to_string(),
-            format!("http://127.0.0.1:{port}/chat/completions"),
-            "llama-3.1-8b-instant".to_string(),
         );
 
         let cleaned = client.clean_transcript("um uh", None).await.unwrap();
@@ -1149,10 +1017,10 @@ EMPTY_KEY=
         let server_thread = thread::spawn(move || {
             let mut streams = Vec::new();
 
-            // First chunk request (Whisper)
+            // First chunk request (raw chunk)
             let (mut stream1, _) = listener.accept().unwrap();
             let req1 = read_mock_request(&mut stream1);
-            assert!(req1.contains("/transcribe"));
+            assert!(req1.contains("/voice-transcribe"));
             let body1 = r#"{"text": "First paragraph intro"}"#;
             let resp1 = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
@@ -1163,10 +1031,10 @@ EMPTY_KEY=
             let _ = stream1.flush();
             streams.push(stream1);
 
-            // Second chunk request (Whisper)
+            // Second chunk request (raw chunk)
             let (mut stream2, _) = listener.accept().unwrap();
             let req2 = read_mock_request(&mut stream2);
-            assert!(req2.contains("/transcribe"));
+            assert!(req2.contains("/voice-transcribe"));
             assert!(req2.contains("First paragraph intro"));
             let body2 = r#"{"text": "item one and item two"}"#;
             let resp2 = format!(
@@ -1178,12 +1046,12 @@ EMPTY_KEY=
             let _ = stream2.flush();
             streams.push(stream2);
 
-            // Unified cleanup request (Llama)
+            // Unified cleanup request (JSON cleanup)
             let (mut stream3, _) = listener.accept().unwrap();
             let req3 = read_mock_request(&mut stream3);
-            assert!(req3.contains("/chat/completions"));
+            assert!(req3.contains("/voice-transcribe"));
             assert!(req3.contains("First paragraph intro item one and item two"));
-            let body3 = r#"{"choices":[{"message":{"role":"assistant","content":"First paragraph intro.\n\n1. Item one\n2. Item two"}}]}"#;
+            let body3 = r#"{"text": "First paragraph intro.\n\n1. Item one\n2. Item two"}"#;
             let resp3 = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                 body3.len(),
@@ -1196,12 +1064,10 @@ EMPTY_KEY=
             std::thread::sleep(std::time::Duration::from_millis(50));
         });
 
-        let client = GroqVoiceClient::with_full_endpoints(
+        let client = GroqVoiceClient::with_endpoint(
             Some("test-key".to_string()),
-            format!("http://127.0.0.1:{port}/transcribe"),
+            format!("http://127.0.0.1:{port}/voice-transcribe"),
             "whisper-large-v3".to_string(),
-            format!("http://127.0.0.1:{port}/chat/completions"),
-            "llama-3.1-8b-instant".to_string(),
         );
 
         // Create 2 chunks with voice activity separated by silence valley
@@ -1270,7 +1136,7 @@ EMPTY_KEY=
             let (mut stream4, _) = listener.accept().unwrap();
             let req4 = read_mock_request(&mut stream4);
             assert!(req4.contains("First chunk succeeded"));
-            let body4 = r#"{"choices":[{"message":{"role":"assistant","content":"First chunk succeeded."}}]}"#;
+            let body4 = r#"{"text": "First chunk succeeded."}"#;
             let resp4 = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                 body4.len(),
@@ -1283,12 +1149,10 @@ EMPTY_KEY=
             std::thread::sleep(std::time::Duration::from_millis(50));
         });
 
-        let client = GroqVoiceClient::with_full_endpoints(
+        let client = GroqVoiceClient::with_endpoint(
             Some("test-key".to_string()),
-            format!("http://127.0.0.1:{port}/transcribe"),
+            format!("http://127.0.0.1:{port}/voice-transcribe"),
             "whisper-large-v3".to_string(),
-            format!("http://127.0.0.1:{port}/chat/completions"),
-            "llama-3.1-8b-instant".to_string(),
         );
 
         // 2 chunks separated by silence valley

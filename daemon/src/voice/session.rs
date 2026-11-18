@@ -1475,7 +1475,7 @@ mod tests {
             &conn,
             taurine_core::db::crud::NewEntry {
                 description: None,
-                content: "Hello, [person=there]!".to_string(),
+                content: "Hello, [$person=\"there\"]!".to_string(),
                 action_type: "text".to_string(),
                 target_os: "all".to_string(),
                 only_apps: None,
@@ -2834,7 +2834,7 @@ mod tests {
             &conn,
             taurine_core::db::crud::NewEntry {
                 description: None,
-                content: "Hello, [person=there]!".to_string(),
+                content: "Hello, [$person=\"there\"]!".to_string(),
                 action_type: "text".to_string(),
                 target_os: "all".to_string(),
                 only_apps: None,
