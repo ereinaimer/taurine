@@ -14,38 +14,11 @@ pub fn ensure_defaults(conn: &Connection) -> Result<()> {
         seed_default_setting(conn, "start_on_boot", "true")?;
     }
 
-    if !existing.contains_key("inline_tab_completion_enabled") {
-        debug!("Default 'inline_tab_completion_enabled' missing. Seeding database with 'true'.");
-        seed_default_setting(conn, "inline_tab_completion_enabled", "true")?;
-    }
-
-    if !existing.contains_key("inline_case_transform_enabled") {
-        debug!("Default 'inline_case_transform_enabled' missing. Seeding database with 'true'.");
-        seed_default_setting(conn, "inline_case_transform_enabled", "true")?;
-    }
-
-    if !existing.contains_key("wpm") {
-        debug!("Default 'wpm' missing. Seeding database with '60'.");
-        seed_default_setting(conn, "wpm", "60")?;
-    }
-
     // Global daemon pause toggle hotkey.
     // Stored as a JSON string literal. Default: Alt + ` (Alt + Backtick).
     if !existing.contains_key("pause_hotkey") {
         debug!("Default 'pause_hotkey' missing. Seeding database with 'Alt + `'.");
         seed_default_setting(conn, "pause_hotkey", r#""Alt + `""#)?;
-    }
-
-    if !existing.contains_key("pause_notifications_enabled") {
-        debug!("Default 'pause_notifications_enabled' missing. Seeding database with 'false'.");
-        // Stored as a JSON boolean literal.
-        seed_default_setting(conn, "pause_notifications_enabled", "false")?;
-    }
-
-    if !existing.contains_key("spinner_style") {
-        debug!("Default 'spinner_style' missing. Seeding database with 'braille'.");
-        // Stored as a JSON string literal.
-        seed_default_setting(conn, "spinner_style", r#""braille""#)?;
     }
 
     if !existing.contains_key("ignore_fullscreen") {
@@ -68,35 +41,42 @@ mod tests {
     use crate::testing::open_test_db;
 
     #[test]
-    fn ensure_defaults_seeds_inline_trigger_assist_settings_for_new_databases() {
+    fn ensure_defaults_seeds_active_settings_for_new_databases() {
         let (_dir, conn) = open_test_db();
 
         assert_eq!(
-            get_setting_value(&conn, "inline_tab_completion_enabled").unwrap(),
+            get_setting_value(&conn, "start_on_boot").unwrap(),
+            Some("true".to_string())
+        );
+        assert_eq!(
+            get_setting_value(&conn, "pause_hotkey").unwrap(),
+            Some(r#""Alt + `""#.to_string())
+        );
+        assert_eq!(
+            get_setting_value(&conn, "ignore_fullscreen").unwrap(),
+            Some("true".to_string())
+        );
+        assert_eq!(
+            get_setting_value(&conn, "system_tray_enabled").unwrap(),
             Some("true".to_string())
         );
     }
 
     #[test]
-    fn ensure_defaults_seeds_inline_case_transform_settings_for_new_databases() {
+    fn ensure_defaults_reconciles_missing_settings() {
         let (_dir, conn) = open_test_db();
 
-        assert_eq!(
-            get_setting_value(&conn, "inline_case_transform_enabled").unwrap(),
-            Some("true".to_string())
-        );
-    }
-
-    #[test]
-    fn ensure_defaults_reconciles_missing_inline_trigger_assist_settings() {
-        let (_dir, conn) = open_test_db();
-
-        delete_setting(&conn, "inline_tab_completion_enabled").unwrap();
+        delete_setting(&conn, "pause_hotkey").unwrap();
+        delete_setting(&conn, "system_tray_enabled").unwrap();
 
         ensure_defaults(&conn).unwrap();
 
         assert_eq!(
-            get_setting_value(&conn, "inline_tab_completion_enabled").unwrap(),
+            get_setting_value(&conn, "pause_hotkey").unwrap(),
+            Some(r#""Alt + `""#.to_string())
+        );
+        assert_eq!(
+            get_setting_value(&conn, "system_tray_enabled").unwrap(),
             Some("true".to_string())
         );
     }

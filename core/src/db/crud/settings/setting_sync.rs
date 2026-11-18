@@ -8,34 +8,17 @@ use super::{SettingRow, get_setting};
 /// and execution security gates are strictly forbidden from syncing.
 pub const SYNCABLE_SETTINGS: &[&str] = &[
     "ai_custom_endpoint",
-    "ai_max_tokens",
     "ai_model",
     "ai_provider",
-    "ai_system_prompt",
-    "ai_temperature",
     "audio_theme",
     "audio_volume",
-    "inline_ai_enabled",
-    "inline_case_transform_enabled",
-    "inline_currency_to_words_enabled",
-    "inline_datetime_date_format",
-    "inline_datetime_datetime_format",
-    "inline_datetime_dialect",
-    "inline_datetime_enabled",
-    "inline_datetime_time_format",
-    "inline_dictionary_enabled",
-    "inline_dictionary_mode",
-    "inline_emoji_enabled",
-    "inline_emoji_trigger_char",
-    "inline_tab_completion_enabled",
-    "pause_audio_enabled",
+    "inline_date_format",
+    "inline_datetime_format",
+    "inline_time_format",
     "pause_hotkey",
     "pause_media_while_dictating",
-    "pause_notifications_enabled",
-    "spinner_style",
     "voice_dictionary",
     "workspace_map",
-    "wpm",
 ];
 
 /// Checks whether a setting key is allowed to be synchronized to the cloud.
@@ -190,16 +173,23 @@ mod tests {
 
     #[test]
     fn test_syncable_allowlist_filtering() {
-        assert!(is_setting_syncable("wpm"));
         assert!(is_setting_syncable("audio_theme"));
+        assert!(is_setting_syncable("audio_volume"));
         assert!(is_setting_syncable("voice_dictionary"));
-        assert!(is_setting_syncable("inline_emoji_enabled"));
+        assert!(is_setting_syncable("inline_date_format"));
+        assert!(is_setting_syncable("inline_time_format"));
+        assert!(is_setting_syncable("inline_datetime_format"));
+        assert!(is_setting_syncable("pause_hotkey"));
 
         // Crucial security and device-specific keys MUST NOT be syncable
+        assert!(!is_setting_syncable("wpm"));
+        assert!(!is_setting_syncable("inline_emoji_enabled"));
         assert!(!is_setting_syncable("voice_input_device"));
         assert!(!is_setting_syncable("start_on_boot"));
         assert!(!is_setting_syncable("scripts_enabled"));
         assert!(!is_setting_syncable("auto_update"));
+        assert!(!is_setting_syncable("ignore_fullscreen"));
+        assert!(!is_setting_syncable("system_tray_enabled"));
         assert!(!is_setting_syncable("user_tier"));
         assert!(!is_setting_syncable("last_update_check"));
     }
@@ -209,25 +199,25 @@ mod tests {
         let conn = setup_test_db();
 
         // Insert allowed setting (dirty: is_synced = 0)
-        upsert_setting(&conn, "wpm", "120").unwrap();
+        upsert_setting(&conn, "audio_volume", "80").unwrap();
         // Insert device-specific setting (dirty: is_synced = 0)
         upsert_setting(&conn, "voice_input_device", "\"Realtek Mic\"").unwrap();
-        upsert_setting(&conn, "scripts_enabled", "true").unwrap();
+        upsert_setting(&conn, "start_on_boot", "true").unwrap();
 
         let unsynced = get_unsynced_settings(&conn).unwrap();
         assert_eq!(unsynced.len(), 1);
-        assert_eq!(unsynced[0].key, "wpm");
+        assert_eq!(unsynced[0].key, "audio_volume");
     }
 
     #[test]
     fn test_reconcile_cloud_setting_lww() {
         let conn = setup_test_db();
-        upsert_setting(&conn, "wpm", "60").unwrap(); // local version = 1
+        upsert_setting(&conn, "audio_volume", "50").unwrap(); // local version = 1
 
         // Remote has version 2: should update local
         let remote = CloudSettingPayload {
             user_id: None,
-            key: "wpm".to_string(),
+            key: "audio_volume".to_string(),
             value: serde_json::json!(85),
             version: 2,
             updated_at: Some("2026-10-05T10:00:00Z".to_string()),
@@ -236,14 +226,16 @@ mod tests {
         let outcome = reconcile_cloud_setting(&conn, &remote).unwrap();
         assert_eq!(outcome, SettingReconcileOutcome::UpdatedFromRemote);
 
-        let row = crate::db::crud::get_setting(&conn, "wpm").unwrap().unwrap();
+        let row = crate::db::crud::get_setting(&conn, "audio_volume")
+            .unwrap()
+            .unwrap();
         assert_eq!(row.value, "85");
         assert_eq!(row.version, 2);
 
         // Remote with older or equal version should be ignored
         let older_remote = CloudSettingPayload {
             user_id: None,
-            key: "wpm".to_string(),
+            key: "audio_volume".to_string(),
             value: serde_json::json!(40),
             version: 1,
             updated_at: Some("2026-10-05T09:00:00Z".to_string()),
@@ -254,8 +246,8 @@ mod tests {
         // Attempting to reconcile a non-syncable setting from remote MUST be rejected
         let forbidden_remote = CloudSettingPayload {
             user_id: None,
-            key: "scripts_enabled".to_string(),
-            value: serde_json::json!(true),
+            key: "voice_input_device".to_string(),
+            value: serde_json::json!("USB Headset"),
             version: 10,
             updated_at: Some("2026-10-05T10:00:00Z".to_string()),
         };
@@ -266,17 +258,19 @@ mod tests {
     #[test]
     fn test_reconcile_overwrites_seeded_default_setting() {
         let conn = setup_test_db();
-        crate::db::crud::seed_default_setting(&conn, "wpm", "60").unwrap();
+        crate::db::crud::seed_default_setting(&conn, "pause_hotkey", r#""Alt + `""#).unwrap();
 
         // Seeded setting must have version 0
-        let row = crate::db::crud::get_setting(&conn, "wpm").unwrap().unwrap();
+        let row = crate::db::crud::get_setting(&conn, "pause_hotkey")
+            .unwrap()
+            .unwrap();
         assert_eq!(row.version, 0);
 
         // Remote has version 1: must overwrite seeded default version 0
         let remote = CloudSettingPayload {
             user_id: None,
-            key: "wpm".to_string(),
-            value: serde_json::json!(110),
+            key: "pause_hotkey".to_string(),
+            value: serde_json::json!("Ctrl + Shift + P"),
             version: 1,
             updated_at: Some("2026-10-05T10:00:00Z".to_string()),
         };
@@ -284,8 +278,10 @@ mod tests {
         let outcome = reconcile_cloud_setting(&conn, &remote).unwrap();
         assert_eq!(outcome, SettingReconcileOutcome::UpdatedFromRemote);
 
-        let row_after = crate::db::crud::get_setting(&conn, "wpm").unwrap().unwrap();
-        assert_eq!(row_after.value, "110");
+        let row_after = crate::db::crud::get_setting(&conn, "pause_hotkey")
+            .unwrap()
+            .unwrap();
+        assert_eq!(row_after.value, "\"Ctrl + Shift + P\"");
         assert_eq!(row_after.version, 1);
     }
 
@@ -293,15 +289,15 @@ mod tests {
     fn test_set_setting_appends_to_sync_outbox() {
         let conn = setup_test_db();
 
-        super::super::set_setting(&conn, "wpm", "120").unwrap();
+        super::super::set_setting(&conn, "audio_volume", "80").unwrap();
 
         let batch = crate::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
         assert_eq!(batch.len(), 1);
         assert_eq!(batch[0].entity_type, "setting");
-        assert_eq!(batch[0].entity_id, "wpm");
+        assert_eq!(batch[0].entity_id, "audio_volume");
         assert_eq!(batch[0].operation, "upsert");
-        assert_eq!(batch[0].payload["key"], "wpm");
-        assert_eq!(batch[0].payload["value"], 120);
+        assert_eq!(batch[0].payload["key"], "audio_volume");
+        assert_eq!(batch[0].payload["value"], 80);
         assert_eq!(batch[0].payload["version"], 1);
         let updated_at = batch[0].payload["updated_at"].as_str().unwrap();
         assert!(chrono::DateTime::parse_from_rfc3339(updated_at).is_ok());
