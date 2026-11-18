@@ -367,18 +367,25 @@ pub fn start() -> taurine_core::error::Result<()> {
         let _ = VOICE_SESSION.set(session.clone());
         crate::services::audio::prewarm_voice_sink();
 
-        // Recover orphaned audio sessions from unexpected crashes/exits in the background
-        let session_for_recovery = session.clone();
-        let _ = std::thread::Builder::new()
-            .name("tau-voice-recover".to_string())
-            .spawn(move || {
-                let _ = crate::platform::panic::catch_worker_panic(
-                    "tau-voice-recover",
-                    std::panic::AssertUnwindSafe(move || {
-                        let _ = session_for_recovery.recover_orphaned_sessions();
-                    }),
-                );
-            });
+        // Snapshot existing orphaned files from previous run before hooks or active dictation can begin
+        let files_to_recover = crate::voice::recovery::recovery_dir()
+            .ok()
+            .and_then(|d| taurine_core::voice::list_orphaned_sessions(&d).ok())
+            .unwrap_or_default();
+
+        if !files_to_recover.is_empty() {
+            let session_for_recovery = session.clone();
+            let _ = std::thread::Builder::new()
+                .name("tau-voice-recover".to_string())
+                .spawn(move || {
+                    let _ = crate::platform::panic::catch_worker_panic(
+                        "tau-voice-recover",
+                        std::panic::AssertUnwindSafe(move || {
+                            let _ = session_for_recovery.recover_orphaned_files(files_to_recover);
+                        }),
+                    );
+                });
+        }
     }
     // OS push notifications for endpoint changes; no-op off Windows.
     crate::services::audio_notify::start();

@@ -78,16 +78,10 @@ impl AudioFrameBuffer {
         }
     }
 
-    /// Drain and return all stored samples, cleanly discarding the recovery journal.
+    /// Drain and return all stored samples.
     pub fn drain(&self) -> Vec<f32> {
         let mut lock = self.samples.lock().unwrap_or_else(|p| p.into_inner());
-        let res = std::mem::take(&mut *lock);
-        if let Ok(mut spooler_guard) = self.spooler.lock()
-            && let Some(spooler) = spooler_guard.take()
-        {
-            let _ = spooler.discard();
-        }
-        res
+        std::mem::take(&mut *lock)
     }
 
     /// Clear all stored samples and cleanly discard the recovery journal.

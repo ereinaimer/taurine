@@ -67,7 +67,6 @@ pub trait Injector {
 /// In-memory clipboard used only in tests so the default suite never
 /// reads or overwrites the host clipboard.
 #[cfg(test)]
-#[cfg(test)]
 static SHARED_CLIPBOARD: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 
 #[cfg(test)]

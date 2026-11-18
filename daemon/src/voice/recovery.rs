@@ -26,22 +26,26 @@ pub fn copy_to_clipboard(text: &str) {
 
 /// Updates the in-flight transcript snapshot for emergency crash recovery.
 pub fn update_active_transcript_dump(text: &str) {
-    if let Ok(mut lock) = ACTIVE_TRANSCRIPT_DUMP.lock() {
-        *lock = Some(text.to_string());
-    }
+    let mut lock = ACTIVE_TRANSCRIPT_DUMP
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    *lock = Some(text.to_string());
 }
 
 /// Clears the in-flight transcript snapshot once dictation successfully finishes.
 pub fn clear_active_transcript_dump() {
-    if let Ok(mut lock) = ACTIVE_TRANSCRIPT_DUMP.lock() {
-        *lock = None;
-    }
+    let mut lock = ACTIVE_TRANSCRIPT_DUMP
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    *lock = None;
 }
 
 /// Performs an emergency dump of any active transcript to disk and the system clipboard.
 pub fn emergency_dump_to_disk_and_clipboard(data_dir: &Path) -> Option<String> {
     let text = {
-        let lock = ACTIVE_TRANSCRIPT_DUMP.lock().ok()?;
+        let lock = ACTIVE_TRANSCRIPT_DUMP
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         lock.clone()?
     };
 
@@ -90,12 +94,21 @@ pub fn recover_orphaned_audio_sessions(
         Err(e) => return Err(format!("Failed to list orphaned voice sessions: {e}")),
     };
 
+    recover_orphaned_files(cloud_client, dict, orphaned_files)
+}
+
+/// Recovers specific orphaned audio session files from disk.
+pub fn recover_orphaned_files(
+    cloud_client: &taurine_core::voice::GroqVoiceClient,
+    dict: &taurine_core::voice::VoiceDictionary,
+    orphaned_files: Vec<PathBuf>,
+) -> Result<Vec<String>, String> {
     if orphaned_files.is_empty() {
         return Ok(Vec::new());
     }
 
     info!(
-        "VoiceRecovery: found {} orphaned voice session journal(s) from previous run",
+        "VoiceRecovery: processing {} orphaned voice session journal(s)",
         orphaned_files.len()
     );
 
@@ -152,13 +165,15 @@ pub fn recover_orphaned_audio_sessions(
 
                     recovered_texts.push(trimmed.to_string());
                 }
+                let _ = std::fs::remove_file(&file);
             }
             Err(e) => {
-                warn!("VoiceRecovery: transcription failed for {:?}: {e}", file);
+                warn!(
+                    "VoiceRecovery: transcription failed for {:?}: {e}; preserving journal for future retry",
+                    file
+                );
             }
         }
-
-        let _ = std::fs::remove_file(&file);
     }
 
     Ok(recovered_texts)
@@ -170,6 +185,9 @@ mod tests {
 
     #[test]
     fn test_emergency_dump_writes_file_and_clipboard() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let temp_dir = tempfile::tempdir().unwrap();
         crate::platform::test_injector().clear();
 

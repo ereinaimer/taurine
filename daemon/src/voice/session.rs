@@ -347,8 +347,21 @@ impl VoiceSessionManager {
 
     /// Discovers and recovers any orphaned voice sessions from a previous crash or unexpected exit.
     pub fn recover_orphaned_sessions(&self) -> Result<Vec<String>, String> {
+        let dir = match crate::voice::recovery::recovery_dir() {
+            Ok(d) => d,
+            Err(e) => return Err(e.to_string()),
+        };
+        let files = taurine_core::voice::list_orphaned_sessions(&dir).map_err(|e| e.to_string())?;
+        self.recover_orphaned_files(files)
+    }
+
+    /// Recovers specific orphaned audio session files from disk.
+    pub fn recover_orphaned_files(
+        &self,
+        files: Vec<std::path::PathBuf>,
+    ) -> Result<Vec<String>, String> {
         let dict = self.dictionary.lock().unwrap_or_else(|p| p.into_inner());
-        crate::voice::recovery::recover_orphaned_audio_sessions(&self.cloud_client, &dict)
+        crate::voice::recovery::recover_orphaned_files(&self.cloud_client, &dict, files)
     }
 
     /// Clean expired transcription state and recover capture devices.
@@ -718,6 +731,9 @@ impl VoiceSessionManager {
 
         if self.capture.buffer().len() < MIN_SAMPLES_COUNT {
             let _tapped = self.capture.buffer().drain();
+            if let Some(spooler) = self.capture.buffer().take_spooler() {
+                let _ = spooler.discard();
+            }
             #[cfg(test)]
             {
                 *self.last_drained.lock().unwrap_or_else(|p| p.into_inner()) = Some(_tapped);
@@ -733,6 +749,9 @@ impl VoiceSessionManager {
         }
 
         if drained.len() < MIN_SAMPLES_COUNT {
+            if let Some(spooler) = self.capture.buffer().take_spooler() {
+                let _ = spooler.discard();
+            }
             debug!(
                 "VoiceSessionManager: audio buffer too short ({} samples); skipping STT",
                 drained.len()
@@ -741,6 +760,9 @@ impl VoiceSessionManager {
         }
 
         if !taurine_core::voice::has_voice_activity(&drained) {
+            if let Some(spooler) = self.capture.buffer().take_spooler() {
+                let _ = spooler.discard();
+            }
             info!("VoiceSessionManager: no speech detected in audio (VAD gate); skipping STT");
             return Ok(None);
         }
@@ -789,6 +811,9 @@ impl VoiceSessionManager {
         crate::voice::recovery::update_active_transcript_dump(&transcript_text);
         let res = self.inject_transcript(&transcript_text);
         crate::voice::recovery::clear_active_transcript_dump();
+        if let Some(spooler) = self.capture.buffer().take_spooler() {
+            let _ = spooler.discard();
+        }
         res
     }
 
