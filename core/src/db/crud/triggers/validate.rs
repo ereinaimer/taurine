@@ -51,10 +51,16 @@ pub(crate) fn collect_defined_variables(payload: &str) -> std::collections::Hash
             let pipeline = crate::engine::variables::system::transformers::split_pipeline(inner);
             let base_expr = pipeline[0];
             let (key, default_value) = split_key_default(base_expr);
-            if default_value.is_some() && parse_system_call(key).is_none() {
+            if default_value.is_some()
+                && parse_system_call(key).is_none()
+                && crate::engine::variables::system::parse_key_action(key).is_none()
+            {
                 let key_unquoted =
                     crate::engine::variables::system::strip_quotes(key).unwrap_or(key);
                 defined.insert(key_unquoted.to_string());
+                let without_dollar = key_unquoted.strip_prefix('$').unwrap_or(key_unquoted);
+                defined.insert(without_dollar.to_string());
+                defined.insert(format!("${without_dollar}"));
             }
         }
         ptr = tag.end + 1;
@@ -158,7 +164,7 @@ pub(crate) fn audit_payload_tags_impl_opt(
                     }
                 }
 
-                if matches!(ns, "key" | "delay" | "mouse") {
+                if matches!(ns, "key" | "delay" | "wait" | "mouse" | "run") {
                     has_key_or_delay = true;
                 }
 
@@ -178,10 +184,20 @@ pub(crate) fn audit_payload_tags_impl_opt(
                         &error,
                     )));
                 }
+            } else if crate::engine::variables::system::parse_key_action(key).is_some() {
+                has_key_or_delay = true;
+                if default_value.is_some() {
+                    return Err(crate::Error::Config(format!(
+                        "[{inner}]: key directives cannot have default values"
+                    )));
+                }
             } else {
                 let key_unquoted =
                     crate::engine::variables::system::strip_quotes(key).unwrap_or(key);
-                let is_user_var = default_value.is_some() || defined_vars.contains(key_unquoted);
+                let is_user_var = default_value.is_some()
+                    || defined_vars.contains(key_unquoted)
+                    || defined_vars
+                        .contains(key_unquoted.strip_prefix('$').unwrap_or(key_unquoted));
 
                 if (!is_script || is_user_var) && key_unquoted.contains('.') {
                     return Err(crate::Error::Config(format!(
@@ -193,14 +209,22 @@ pub(crate) fn audit_payload_tags_impl_opt(
                 if !is_script || is_user_var {
                     match default_value {
                         None => {
-                            let is_positional = !key_unquoted.is_empty()
-                                && key_unquoted.chars().all(|c| c.is_ascii_digit());
+                            let var_ident = key_unquoted.strip_prefix('$').unwrap_or(key_unquoted);
+                            let is_positional = !var_ident.is_empty()
+                                && var_ident.chars().all(|c| c.is_ascii_digit());
+                            if is_positional && var_ident == "0" {
+                                return Err(crate::Error::Config(format!(
+                                    "[{inner}]: $0 is not a valid capture group argument"
+                                )));
+                            }
                             let is_allowed_regex_positional =
                                 matches!(trigger_type, TriggerType::Regex) && is_positional;
-                            if !defined_vars.contains(key_unquoted) && !is_allowed_regex_positional
+                            if !defined_vars.contains(key_unquoted)
+                                && !defined_vars.contains(var_ident)
+                                && !is_allowed_regex_positional
                             {
                                 let mut diag = crate::diagnostic::Diagnostic::problem(format!(
-                                    "[{inner}]: dynamic variables need a default (e.g., [name=default]); fill inline like trigger;value or trigger;name=value"
+                                    "[{inner}]: dynamic variables need a default (e.g., [name=default] or [${var_ident}=\"default\"]); fill inline like trigger;value or trigger;name=value"
                                 ));
                                 if let Some(suggestion) =
                                     crate::diagnostic::matcher::find_best_match(
@@ -214,9 +238,11 @@ pub(crate) fn audit_payload_tags_impl_opt(
                             }
                         }
                         Some(val) => {
+                            let is_explicit_empty_quotes =
+                                val.trim() == "\"\"" || val.trim() == "''";
                             let unquoted =
                                 crate::engine::variables::system::strip_quotes(val).unwrap_or(val);
-                            if unquoted.trim().is_empty() {
+                            if !is_explicit_empty_quotes && unquoted.trim().is_empty() {
                                 return Err(crate::Error::Config(format!(
                                     "[{}]: default value cannot be empty",
                                     inner
@@ -322,7 +348,12 @@ pub(crate) fn count_directives_in_template(payload: &str) -> (usize, bool) {
         let (key, _) = split_key_default(inner);
         if key == "cursor" {
             cursor_count += 1;
-        } else if key.starts_with("key(") || key.starts_with("delay(") || key.starts_with("mouse(")
+        } else if key.starts_with("key(")
+            || key.starts_with("delay(")
+            || key.starts_with("wait")
+            || key.starts_with("mouse")
+            || key.starts_with("run")
+            || crate::engine::variables::system::parse_key_action(key).is_some()
         {
             has_key_or_delay = true;
         }
@@ -361,6 +392,14 @@ pub(crate) fn get_referenced_triggers(payload: &str) -> Vec<String> {
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| inner_key.trim().to_string());
             refs.push(unquoted);
+        } else if key == "use" || key.starts_with("use ") {
+            let rest = key.strip_prefix("use").unwrap_or("").trim();
+            let unquoted = crate::engine::variables::system::strip_quotes(rest)
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| rest.to_string());
+            if !unquoted.is_empty() {
+                refs.push(unquoted);
+            }
         }
         ptr = tag.end + 1;
     }

@@ -12,7 +12,7 @@ mod interpolate_tests;
 pub use interpolate::{
     contains_ai_markers, contains_non_sys_markers, extract_ai_markers, interpolate,
 };
-pub use parser::{parse_tokens, tokenize};
+pub use parser::{parse_tokens, tokenize, tokenize_words};
 pub use plan::{ExecutionPlan, PlanOp};
 pub use registry::{
     ValidationError, is_valid_transformer, parse_system_call, strip_global_transformers,

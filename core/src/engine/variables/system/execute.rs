@@ -45,11 +45,38 @@ pub(crate) fn strip_execute_args(key: &str) -> Option<&str> {
     None
 }
 
+fn execute_param_spec() -> crate::engine::variables::parser::ParamSpec<'static> {
+    use crate::engine::variables::parser::Param;
+    crate::engine::variables::parser::ParamSpec {
+        params: &[
+            Param {
+                name: "lang",
+                required: true,
+                default: "",
+            },
+            Param {
+                name: "subject",
+                required: true,
+                default: "",
+            },
+            Param {
+                name: "file",
+                required: false,
+                default: "false",
+            },
+            Param {
+                name: "silent",
+                required: false,
+                default: "false",
+            },
+        ],
+    }
+}
+
 fn parse_unified_invocation(raw: &str) -> Result<ExecuteInvocation, ExecuteParseError> {
     use crate::engine::variables::parser::BindError;
 
-    let spec = crate::engine::variables::registry::param_spec("execute")
-        .ok_or(ExecuteParseError::InvalidLanguage)?;
+    let spec = execute_param_spec();
     // Variadic argv overflows into the flag slots, so a trailing
     // `file=`/`silent=` collides (Duplicate). Peel trailing flags, bind the
     // positional skeleton, then apply the flags.
@@ -166,7 +193,54 @@ fn parse_bool_flag(value: &str) -> Result<bool, ExecuteParseError> {
     }
 }
 
+pub fn parse_run_invocation(raw: &str) -> Result<(bool, String), String> {
+    let raw = raw.strip_prefix("run").unwrap_or(raw).trim();
+    let tokens = crate::engine::variables::parser::tokenize_words(raw);
+    if tokens.is_empty() {
+        return Err("missing command for run".to_string());
+    }
+
+    let mut silent = false;
+    let mut cmd_parts = Vec::new();
+
+    for token in tokens {
+        if token.eq_ignore_ascii_case("silent") {
+            silent = true;
+        } else {
+            cmd_parts.push(token);
+        }
+    }
+
+    let command = cmd_parts.join(" ");
+    if cmd_parts.is_empty() || command.trim().is_empty() {
+        return Err("missing command for run".to_string());
+    }
+
+    Ok((silent, command))
+}
+
+pub(crate) fn to_run_script_metadata(key: &str) -> Result<ScriptMetadata, String> {
+    let (silent, command) = parse_run_invocation(key)?;
+    let interpreter = ScriptInterpreter::default_for_target_os(crate::db::TargetOs::All);
+    let behavior = if silent {
+        ScriptBehavior::Silent
+    } else {
+        ScriptBehavior::Inline
+    };
+    let compressed_content =
+        compress(&command).map_err(|e| format!("failed to prepare run script: {e}"))?;
+    Ok(ScriptMetadata {
+        interpreter,
+        behavior,
+        compressed_content,
+    })
+}
+
 pub(crate) fn to_script_metadata(key: &str) -> Result<ScriptMetadata, String> {
+    let key_trimmed = key.trim();
+    if key_trimmed.starts_with("run") {
+        return to_run_script_metadata(key_trimmed);
+    }
     let raw = strip_execute_args(key).unwrap_or(key);
     let mut invocation = parse_invocation(raw).map_err(|_| "invalid exec syntax".to_string())?;
 

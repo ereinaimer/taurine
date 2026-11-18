@@ -7,6 +7,7 @@ pub mod pattern;
 pub mod pattern_matcher;
 pub mod phonetic;
 pub mod transcriber;
+pub mod vad;
 pub mod wav;
 
 pub use cloud::{DEFAULT_GROQ_API_URL, DEFAULT_GROQ_MODEL, GroqVoiceClient, build_whisper_prompt};
@@ -19,4 +20,5 @@ pub use pattern::{VoicePattern, VoicePatternPart};
 pub use pattern_matcher::match_voice_pattern;
 pub use phonetic::{double_metaphone, primary_key};
 pub use transcriber::{Transcriber, Transcription};
+pub use vad::{has_voice_activity, split_audio_into_chunks};
 pub use wav::encode_pcm16_wav;

@@ -1,0 +1,27 @@
+---
+title: Time
+description: System variable for current time formatting, offsets, and timezones.
+---
+
+The `time` system variable produces current clock time with flexible, order-independent arguments.
+
+### Syntax
+
+```text
+[time [offset] [format] [tz]]
+```
+
+Arguments can be passed in any order:
+- **Offset**: Signed duration offset (e.g., `+1h`, `-30m`, `+45s`).
+- **Timezone**: `local` (default) or `utc`.
+- **Format**: Custom LDML time format string (e.g., `HH:mm`, `hh:mm A`, `HH:mm:ss`). Default is `HH:mm`.
+
+### Examples
+
+| Expression | Example Output | Description |
+|---|---|---|
+| `[time]` | `14:30` | Current 24-hour time |
+| `[time utc]` | `09:00` | Current UTC time |
+| `[time +1h]` | `15:30` | One hour from now |
+| `[time "hh:mm A"]` | `02:30 PM` | 12-hour format with AM/PM |
+| `[time utc +30m "HH:mm:ss"]` | `09:30:00` | Mixed order with seconds |

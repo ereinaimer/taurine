@@ -1,0 +1,27 @@
+---
+title: Shell Run
+description: Execute terminal commands and shell scripts inside your snippet expansions.
+---
+
+The `run` system variable executes native operating system shell commands inline or silently in the background.
+
+### Syntax
+
+```text
+[run "command" [silent]]
+```
+
+- **`command`** (required): Command string or script invocation executed via the platform's native shell (`cmd.exe` on Windows, `sh` on Unix/macOS).
+- **`silent`** (optional): When specified, runs asynchronously in the background without capturing or injecting stdout into the expansion. When omitted, runs inline and injects standard output into your snippet.
+
+Pipeline transformers can be applied directly to inline run outputs.
+
+### Examples
+
+| Expression | Description |
+|---|---|
+| `[run "git rev-parse --short HEAD"]` | Executes command inline and injects stdout |
+| `[run "git branch --show-current" | trim]` | Executes inline and trims output whitespace |
+| `[run "curl -s https://api.ipify.org"]` | Makes an HTTP request and injects response |
+| `[run "code ." silent]` | Launches editor in background silently |
+| `[run silent "npm test"]` | Order-independent argument support |

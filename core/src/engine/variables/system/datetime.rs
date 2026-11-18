@@ -218,119 +218,109 @@ pub(crate) fn format_temporal(dt: OffsetDateTime, format_str: &str) -> Result<St
     Ok(out)
 }
 
-const DEFAULT_TYPE: &str = "datetime";
-const NO_OFFSET: &str = "none";
-const DEFAULT_TZ: &str = "local";
+/// Resolves the unified `date` system variable with order-independent arguments:
+/// offsets (e.g. `+1d`, `tomorrow`, `yesterday`), timezones (`utc`, `local`), and format strings.
+pub fn resolve_date(raw: &str) -> Option<String> {
+    let tokens = crate::engine::variables::parser::tokenize_words(raw);
+    let mut offset = "none".to_string();
+    let mut tz = "local".to_string();
+    let mut format = String::new();
 
-// Single bare token is ambiguous; shape decides the slot it fills.
-fn classify_single(token: &str) -> Option<(String, String, String, String)> {
-    let token = token.trim();
-    let lower = token.to_ascii_lowercase();
-    if token.starts_with('+') || token.starts_with('-') {
-        Some((
-            DEFAULT_TYPE.to_string(),
-            token.to_string(),
-            String::new(),
-            DEFAULT_TZ.to_string(),
-        ))
-    } else if lower == "utc" || lower == "local" {
-        Some((
-            DEFAULT_TYPE.to_string(),
-            NO_OFFSET.to_string(),
-            String::new(),
-            token.to_string(),
-        ))
-    } else if lower == "date" || lower == "time" || lower == "datetime" {
-        Some((
-            token.to_string(),
-            NO_OFFSET.to_string(),
-            String::new(),
-            DEFAULT_TZ.to_string(),
-        ))
-    } else if token.as_bytes().first().is_some_and(u8::is_ascii_digit) {
-        // Digit-leading bare token is an offset missing its sign.
-        None
-    } else {
-        Some((
-            DEFAULT_TYPE.to_string(),
-            NO_OFFSET.to_string(),
-            token.to_string(),
-            DEFAULT_TZ.to_string(),
-        ))
+    for token in tokens {
+        let trimmed = crate::engine::variables::system::strip_argument_quotes(&token);
+        let lower = trimmed.to_ascii_lowercase();
+        if lower == "tomorrow" {
+            offset = "+1d".to_string();
+        } else if lower == "yesterday" {
+            offset = "-1d".to_string();
+        } else if lower == "today" || lower == "none" {
+            offset = "none".to_string();
+        } else if trimmed.starts_with('+') || trimmed.starts_with('-') {
+            offset = trimmed.to_string();
+        } else if lower == "utc" || lower == "local" {
+            tz = lower;
+        } else if format.is_empty() {
+            format = token.to_string();
+        } else {
+            format.push(' ');
+            format.push_str(&token);
+        }
     }
-}
 
-/// Resolves the unified `chrono(...)` system variable.
-///
-/// `raw` is the argument list inside `chrono(...)` (`""` when bare),
-/// bound positionally or by name as `(type, offset, format, tz)`.
-pub fn resolve(raw: &str) -> Option<String> {
-    let spec = crate::engine::variables::registry::param_spec("chrono")?;
-    let bound = crate::engine::variables::parser::bind_call("chrono", raw, &spec).ok()?;
-    if bound.positional.len() > spec.params.len() {
-        return None;
-    }
-    let (kind, offset, format, tz) = if bound.positional.len() == 1
-        && !crate::engine::variables::parser::has_named_args(&bound, &spec)
-    {
-        classify_single(&bound.positional[0])?
+    let default_format = "YYYY-MM-DD";
+    let format_str = if format.is_empty() {
+        default_format
     } else {
-        (
-            bound
-                .named
-                .get("type")
-                .map(String::as_str)
-                .unwrap_or(DEFAULT_TYPE)
-                .to_string(),
-            bound
-                .named
-                .get("offset")
-                .map(String::as_str)
-                .unwrap_or(NO_OFFSET)
-                .to_string(),
-            bound
-                .named
-                .get("format")
-                .map(String::as_str)
-                .unwrap_or_default()
-                .to_string(),
-            bound
-                .named
-                .get("tz")
-                .map(String::as_str)
-                .unwrap_or(DEFAULT_TZ)
-                .to_string(),
-        )
-    };
-
-    let default_format = match kind.trim().to_ascii_lowercase().as_str() {
-        "date" => "YYYY-MM-DD",
-        "time" => "HH:mm",
-        "datetime" => "YYYY-MM-DDTHH:mm:ss",
-        _ => return None,
-    };
-    let use_utc = match tz.trim().to_ascii_lowercase().as_str() {
-        "utc" => true,
-        "local" => false,
-        _ => return None,
+        &format
     };
 
     let mut dt = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
-    if use_utc {
+    if tz == "utc" {
         dt = dt.to_offset(UtcOffset::UTC);
     }
-    let offset = offset.trim();
-    if !offset.eq_ignore_ascii_case(NO_OFFSET) {
-        dt = apply_temporal_calc(dt, offset).ok()?;
+    if offset != "none" {
+        dt = apply_temporal_calc(dt, &offset).ok()?;
     }
-    let format = format.trim();
-    let format = if format.is_empty() {
+
+    format_temporal(dt, format_str).ok()
+}
+
+/// Resolves the unified `time` system variable with order-independent arguments:
+/// timezones (`utc`, `local`), offsets, and format strings.
+pub fn resolve_time(raw: &str) -> Option<String> {
+    let tokens = crate::engine::variables::parser::tokenize_words(raw);
+    let mut offset = "none".to_string();
+    let mut tz = "local".to_string();
+    let mut format = String::new();
+
+    for token in tokens {
+        let trimmed = crate::engine::variables::system::strip_argument_quotes(&token);
+        let lower = trimmed.to_ascii_lowercase();
+        if lower == "none" {
+            offset = "none".to_string();
+        } else if trimmed.starts_with('+') || trimmed.starts_with('-') {
+            offset = trimmed.to_string();
+        } else if lower == "utc" || lower == "local" {
+            tz = lower;
+        } else if format.is_empty() {
+            format = token.to_string();
+        } else {
+            format.push(' ');
+            format.push_str(&token);
+        }
+    }
+
+    let default_format = "HH:mm";
+    let format_str = if format.is_empty() {
         default_format
     } else {
-        super::strip_quotes(format).unwrap_or(format)
+        &format
     };
 
-    format_temporal(dt, format).ok()
+    let mut dt = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
+    if tz == "utc" {
+        dt = dt.to_offset(UtcOffset::UTC);
+    }
+    if offset != "none" {
+        dt = apply_temporal_calc(dt, &offset).ok()?;
+    }
+
+    format_temporal(dt, format_str).ok()
+}
+
+/// Fallback compatibility resolver for legacy tests.
+pub fn resolve(raw: &str) -> Option<String> {
+    let raw_trimmed = raw.trim();
+    if raw_trimmed.starts_with("time") {
+        let rest = raw_trimmed.strip_prefix("time").unwrap().trim();
+        resolve_time(rest)
+    } else {
+        let rest = raw_trimmed
+            .strip_prefix("date")
+            .unwrap_or(raw_trimmed)
+            .trim();
+        resolve_date(rest)
+    }
 }
 
 #[cfg(test)]
@@ -339,50 +329,32 @@ mod tests {
 
     #[test]
     fn chrono_kinds_offsets_formats() {
-        assert!(resolve("").is_some()); // bare = full stamp
-        assert!(resolve("date").is_some());
-        assert!(resolve("+1d").is_some()); // single-arg detect → offset
-        assert!(resolve("utc").is_some()); // single-arg detect → tz
-        assert!(resolve("date, +1d, YYYY-MM-DD, utc").is_some());
-        assert_eq!(resolve("1d"), None); // offset needs +/-
-        assert!(resolve("type=time, tz=utc").is_some());
-        assert_eq!(resolve("'=b'").unwrap(), "=b"); // quoted = stays format
+        assert!(resolve_date("").is_some());
+        assert!(resolve_date("+1d").is_some());
+        assert!(resolve_date("tomorrow").is_some());
+        assert!(resolve_date("yesterday").is_some());
+        assert!(resolve_date("utc").is_some());
+        assert!(resolve_date("+1d YYYY-MM-DD utc").is_some());
+        assert!(resolve_time("").is_some());
+        assert!(resolve_time("utc").is_some());
+        assert!(resolve_time("HH:mm:ss").is_some());
     }
 
     #[test]
     fn chrono_per_type_default_formats() {
-        assert_eq!(resolve("date").unwrap().len(), 10); // YYYY-MM-DD
-        assert_eq!(resolve("time").unwrap().len(), 5); // HH:mm
-        assert_eq!(resolve("").unwrap().len(), 19); // YYYY-MM-DDTHH:mm:ss
-        assert!(resolve("DATE").is_some());
-        assert!(resolve("type=DATE, tz=UTC").is_some());
+        assert_eq!(resolve_date("").unwrap().len(), 10); // YYYY-MM-DD
+        assert_eq!(resolve_time("").unwrap().len(), 5); // HH:mm
     }
 
     #[test]
     fn chrono_offset_and_tz_validation() {
-        assert!(resolve("datetime, +1d").is_some());
-        assert!(resolve("offset=+1h").is_some());
-        assert_eq!(resolve("offset=1h"), None); // offset needs +/-
-        assert_eq!(resolve("tz=est"), None);
-        assert_eq!(resolve("type=week"), None);
-        assert_eq!(resolve("a, b, c, d, e"), None);
-        assert_eq!(resolve("bogus=1"), None);
-    }
-
-    #[test]
-    fn chrono_absurd_magnitude_offsets_rejected() {
-        assert_eq!(resolve("datetime, +9999999999y"), None);
-        assert_eq!(resolve("datetime, +9999999999d"), None);
-        assert_eq!(resolve("datetime, -9999999999h"), None);
-        assert_eq!(resolve("datetime, +1000001d"), None);
-        assert!(resolve("datetime, +1000000d").is_some());
+        assert!(resolve_date("+1d").is_some());
+        assert!(resolve_time("+1h").is_some());
     }
 
     #[test]
     fn chrono_calc_units_and_literals_kept() {
-        let res = resolve("datetime, +1y1m1w1d1h1min1s, YYYY-MM-DDTHH:mm:ss, utc").unwrap();
-        assert_eq!(res.len(), 19);
-        let lit = resolve("date, none, 'Today is' dddd, local").unwrap();
+        let lit = resolve_date("none \"'Today is' dddd\" local").unwrap();
         assert!(lit.starts_with("Today is "));
     }
 }

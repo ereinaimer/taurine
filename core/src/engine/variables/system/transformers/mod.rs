@@ -10,9 +10,10 @@ mod lines;
 mod text;
 
 pub const TRANSFORMERS: &[&str] = &[
-    "case", "lines", "count", "truncate", "repeat", "replace", "slice", "filter", "strip",
-    "encode", "decode", "clean", "hash", "extract", "wrap", "unwrap", "color", "json", "html",
-    "xml", "toml", "yaml", "regex", "calc", "ai",
+    "upper", "lower", "title", "snake", "kebab", "pascal", "camel", "slug", "trim", "case",
+    "lines", "count", "truncate", "repeat", "replace", "slice", "filter", "strip", "encode",
+    "decode", "clean", "hash", "extract", "wrap", "unwrap", "color", "json", "html", "xml", "toml",
+    "yaml", "regex", "calc", "ai",
 ];
 
 /// Accepted argument counts per transformer as (min, max), mirroring each
@@ -20,6 +21,9 @@ pub const TRANSFORMERS: &[&str] = &[
 /// save-time validation fails closed.
 pub fn transformer_arity(name: &str) -> Option<(usize, usize)> {
     let arity = match name {
+        "upper" | "lower" | "title" | "snake" | "kebab" | "pascal" | "camel" | "slug" | "trim" => {
+            (0, 0)
+        }
         "case" | "count" | "truncate" | "repeat" | "filter" | "strip" | "encode" | "decode"
         | "clean" | "hash" | "wrap" | "unwrap" | "color" | "json" | "html" | "xml" | "toml"
         | "yaml" | "ai" => (1, 1),
@@ -253,6 +257,19 @@ pub use ai::{extract_ai_prompt, is_ai_transformer};
 pub fn apply(transformer: &str, content: &str) -> Option<String> {
     let parsed = parse_transformer(transformer)?;
 
+    match parsed.name {
+        "upper" => return Some(content.to_uppercase()),
+        "lower" => return Some(content.to_lowercase()),
+        "trim" => return Some(content.trim().to_string()),
+        "title" => return case::apply("case", &["title"], content),
+        "snake" => return case::apply("case", &["snake"], content),
+        "kebab" => return case::apply("case", &["kebab"], content),
+        "pascal" => return case::apply("case", &["pascal"], content),
+        "camel" => return case::apply("case", &["camel"], content),
+        "slug" => return case::apply("case", &["slug"], content),
+        _ => {}
+    }
+
     case::apply(parsed.name, &parsed.args, content)
         .or_else(|| text::apply(parsed.name, &parsed.args, content))
         .or_else(|| encoding::apply(parsed.name, &parsed.args, content))
@@ -284,11 +301,71 @@ fn parse_transformer(input: &str) -> Option<ParsedTransformer<'_>> {
             .contains(&name)
             .then_some(ParsedTransformer { name, args })
     } else {
-        TRANSFORMERS.contains(&input).then_some(ParsedTransformer {
-            name: input,
-            args: Vec::new(),
-        })
+        let (name, rest) = match input.split_once(|c: char| c.is_whitespace()) {
+            Some((n, r)) => (n.trim(), r.trim()),
+            None => (input, ""),
+        };
+
+        if TRANSFORMERS.contains(&name) {
+            let args = if rest.is_empty() {
+                Vec::new()
+            } else {
+                split_space_arguments(rest)
+            };
+            Some(ParsedTransformer { name, args })
+        } else {
+            None
+        }
     }
+}
+
+fn split_space_arguments(input: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut start = None;
+    let mut quote = None;
+    let mut escaped = false;
+
+    for (idx, ch) in input.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+
+        if let Some(q) = quote {
+            if ch == q {
+                quote = None;
+            }
+            continue;
+        }
+
+        if ch == '"' || ch == '\'' {
+            quote = Some(ch);
+            if start.is_none() {
+                start = Some(idx);
+            }
+            continue;
+        }
+
+        if ch.is_whitespace() {
+            if let Some(s) = start {
+                parts.push(&input[s..idx]);
+                start = None;
+            }
+        } else if start.is_none() {
+            start = Some(idx);
+        }
+    }
+
+    if let Some(s) = start {
+        parts.push(&input[s..]);
+    }
+
+    parts
 }
 
 fn find_call_open(input: &str) -> Option<usize> {

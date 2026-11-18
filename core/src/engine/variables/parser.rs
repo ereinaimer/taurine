@@ -197,7 +197,7 @@ pub fn has_named_args(bound: &BoundArgs, spec: &ParamSpec) -> bool {
     })
 }
 
-fn strip_quotes(s: &str) -> &str {
+pub fn strip_quotes(s: &str) -> &str {
     let s = s.trim();
     if s.len() >= 2 {
         let first = match s.chars().next() {
@@ -213,6 +213,71 @@ fn strip_quotes(s: &str) -> &str {
         }
     }
     s
+}
+
+/// Tokenizes a space-separated command/argument string, preserving quoted strings
+/// and unescaping characters within quotes.
+pub fn tokenize_words(raw: &str) -> Vec<String> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Vec::new();
+    }
+
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    let mut in_token = false;
+
+    for ch in raw.chars() {
+        if escaped {
+            current.push(ch);
+            in_token = true;
+            escaped = false;
+            continue;
+        }
+
+        if ch == '\\' {
+            escaped = true;
+            in_token = true;
+            continue;
+        }
+
+        if let Some(q) = quote {
+            if ch == q {
+                quote = None;
+            } else {
+                current.push(ch);
+            }
+            continue;
+        }
+
+        if ch == '"' || ch == '\'' {
+            quote = Some(ch);
+            in_token = true;
+            continue;
+        }
+
+        if ch.is_whitespace() {
+            if in_token {
+                tokens.push(std::mem::take(&mut current));
+                in_token = false;
+            }
+        } else {
+            current.push(ch);
+            in_token = true;
+        }
+    }
+
+    if escaped {
+        current.push('\\');
+    }
+
+    if in_token {
+        tokens.push(current);
+    }
+
+    tokens
 }
 
 pub fn tokenize(raw: &str, delimiter: char) -> Vec<String> {

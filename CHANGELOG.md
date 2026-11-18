@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Unified Snippet Syntax**: Streamlined template syntax with bare key directives, direct filters, direct arithmetic, and order-independent date and time parameters.
+- **Long-Form Voice Dictation & Structuring**: Support multi-minute continuous dictation with silence-aware audio chunking, paragraph breaks, and itemized lists.
 - **Cloud Voice Dictation**: Real-time speech-to-text dictation and formatting cleanup powered by Groq cloud models.
 - **Confirmation Footer Bar**: Create, save, import, export, delete, and reset dialogs now end in a shared footer bar with Cancel on the left and the confirming action on the right; destructive confirms start focused on Cancel so a stray Enter never deletes anything.
 - **In-TUI Account Gates**: Sign in with Google from the TUI and see a dismissible weekly-quota notice without losing access to the library.
@@ -30,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Modern Settings Overlay**: Quick-access settings modal (`Ctrl+,`) with inline field editing, graphical animated toggles, volume sliders, and connected microphone pickers.
 
 ### Changed
+- **Shell and Network Simplification**: Replaced language-specific script tags with native shell execution and synchronous local network IP resolution.
 - **Streamlined Settings Architecture**: Compacted configuration down to 19 essential user preferences, standardized date and time formatting keys, and internalized timing heuristics.
 - **Inline Assist Standardization**: Enable emoji, date/time, timezone, currency words, dictionary lookup, and tab completion assist features unconditionally.
 - **Snippet Sync Batching**: Coalesce burst offline edits into single queue items and upload multiple snippets in bulk requests.

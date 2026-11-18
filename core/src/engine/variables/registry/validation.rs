@@ -1,6 +1,5 @@
 use super::super::parser::{BindError, BoundArgs, Param, ParamSpec, bind_call, has_named_args};
 use super::super::system::datetime::apply_temporal_calc;
-use super::super::system::execute::{ExecuteParseError, parse_invocation};
 use super::super::system::file::check_args as check_file_args;
 use super::super::system::{parse_delay_ms, strip_argument_quotes, strip_quotes};
 use crate::keys::{LogicalKey, Modifier};
@@ -38,31 +37,16 @@ struct NsSpec {
 // this table only shapes positional/named binding.
 const NS_SPECS: &[NsSpec] = &[
     NsSpec {
-        name: "chrono",
-        params: &[
-            Param {
-                name: "type",
-                required: false,
-                default: "datetime",
-            },
-            Param {
-                name: "offset",
-                required: false,
-                default: "none",
-            },
-            Param {
-                name: "format",
-                required: false,
-                default: "",
-            },
-            Param {
-                name: "tz",
-                required: false,
-                default: "local",
-            },
-        ],
-        names: &["type", "offset", "format", "tz"],
-        variadic: false,
+        name: "date",
+        params: &[],
+        names: &["tomorrow", "yesterday", "+offset", "utc", "format"],
+        variadic: true,
+    },
+    NsSpec {
+        name: "time",
+        params: &[],
+        names: &["utc", "local", "+offset", "format"],
+        variadic: true,
     },
     NsSpec {
         name: "clip",
@@ -152,29 +136,8 @@ const NS_SPECS: &[NsSpec] = &[
     },
     NsSpec {
         name: "ip",
-        params: &[Param {
-            name: "type",
-            required: false,
-            default: "public",
-        }],
-        names: &["type"],
-        variadic: false,
-    },
-    NsSpec {
-        name: "http",
-        params: &[
-            Param {
-                name: "op",
-                required: true,
-                default: "",
-            },
-            Param {
-                name: "url",
-                required: true,
-                default: "",
-            },
-        ],
-        names: &["op", "url"],
+        params: &[],
+        names: &[],
         variadic: false,
     },
     NsSpec {
@@ -195,22 +158,12 @@ const NS_SPECS: &[NsSpec] = &[
         variadic: false,
     },
     NsSpec {
-        name: "execute",
+        name: "run",
         params: &[
             Param {
-                name: "lang",
+                name: "command",
                 required: true,
                 default: "",
-            },
-            Param {
-                name: "subject",
-                required: true,
-                default: "",
-            },
-            Param {
-                name: "file",
-                required: false,
-                default: "false",
             },
             Param {
                 name: "silent",
@@ -218,7 +171,7 @@ const NS_SPECS: &[NsSpec] = &[
                 default: "false",
             },
         ],
-        names: &["lang", "subject", "file", "silent"],
+        names: &["command", "silent"],
         variadic: true,
     },
     NsSpec {
@@ -244,23 +197,13 @@ const NS_SPECS: &[NsSpec] = &[
         variadic: false,
     },
     NsSpec {
-        name: "key",
+        name: "wait",
         params: &[Param {
-            name: "token",
+            name: "duration",
             required: true,
             default: "",
         }],
-        names: &["token"],
-        variadic: false,
-    },
-    NsSpec {
-        name: "delay",
-        params: &[Param {
-            name: "ms",
-            required: true,
-            default: "",
-        }],
-        names: &["ms"],
+        names: &["duration"],
         variadic: false,
     },
     NsSpec {
@@ -295,6 +238,16 @@ const NS_SPECS: &[NsSpec] = &[
         names: &[],
         variadic: false,
     },
+    NsSpec {
+        name: "calc",
+        params: &[Param {
+            name: "expression",
+            required: true,
+            default: "",
+        }],
+        names: &["expression"],
+        variadic: true,
+    },
 ];
 
 /// Binder spec for a unified namespace (keys are case-insensitive).
@@ -310,7 +263,12 @@ pub fn param_spec(ns: &str) -> Option<ParamSpec<'static>> {
 pub fn deleted_root_hint(ns: &str) -> Option<&'static str> {
     match ns.trim().to_ascii_lowercase().as_str() {
         "clipboard" => Some("clip"),
-        "date" | "time" | "datetime" => Some("chrono(...)"),
+        "chrono" => Some("date or time"),
+        "datetime" => Some("date or time"),
+        "execute" => Some("run \"cmd\""),
+        "http" => Some("run \"curl ...\""),
+        "delay" => Some("wait ..."),
+        "key" => Some("enter], [tab], [ctrl+s"),
         "net" => Some("ip"),
         _ => None,
     }
@@ -324,33 +282,33 @@ fn dot_hint(ns: &str) -> String {
     let sub_base = sub.split('(').next().unwrap_or(sub);
     match root {
         "mouse" => match sub_base {
-            "rclick" => "mouse(click, m2)",
-            "mclick" => "mouse(click, m3)",
-            "m4" => "mouse(click, m4)",
-            "m5" => "mouse(click, m5)",
-            "dblclick" => "mouse(click, m1, 2)",
-            "down" | "hold" => "mouse(hold, m1)",
-            "up" | "release" => "mouse(release, m1)",
-            "move" => "mouse(move, x, y)",
-            "scroll" => "mouse(scroll, delta)",
-            "pos" => "mouse(pos)",
-            "click" => "mouse(click, m1)",
-            _ => "mouse(click, mN[, n])",
+            "rclick" => "mouse click m2",
+            "mclick" => "mouse click m3",
+            "m4" => "mouse click m4",
+            "m5" => "mouse click m5",
+            "dblclick" => "mouse click m1 2",
+            "down" | "hold" => "mouse hold m1",
+            "up" | "release" => "mouse release m1",
+            "move" => "mouse move x y",
+            "scroll" => "mouse scroll delta",
+            "pos" => "mouse pos",
+            "click" => "mouse click m1",
+            _ => "mouse click mN [n]",
         }
         .to_string(),
-        "date" | "time" | "datetime" => match sub_base {
-            "utc" | "local" => format!("chrono({root}, tz={sub_base})"),
-            _ => format!("chrono({root})"),
+        "date" => match sub_base {
+            "utc" | "local" => format!("date {sub_base}"),
+            _ => "date".to_string(),
         },
+        "time" => match sub_base {
+            "utc" | "local" => format!("time {sub_base}"),
+            _ => "time".to_string(),
+        },
+        "datetime" => "date] [time".to_string(),
+        "chrono" => "date] or [time".to_string(),
         "clipboard" => "clip".to_string(),
-        "net" => match sub_base {
-            "publicip" => "ip(public)",
-            "localip" => "ip(local)",
-            "online" => "http(status, url)",
-            _ => "ip",
-        }
-        .to_string(),
-        _ => format!("{root}(...)"),
+        "net" => "ip".to_string(),
+        _ => format!("{root} ..."),
     }
 }
 
@@ -363,12 +321,9 @@ fn is_strict_mouse_button(s: &str) -> bool {
 const CLIP_INDEXES: &[&str] = &["0", "1", "2"];
 const UUID_VERSIONS: &[&str] = &["v4", "v7"];
 const IP_TYPES: &[&str] = &["public", "local"];
-const CHRONO_KINDS: &[&str] = &["date", "time", "datetime"];
-const CHRONO_ZONES: &[&str] = &["utc", "local"];
 const RANDOM_KINDS: &[&str] = &["int", "choice", "str", "pass"];
 const LOREM_KINDS: &[&str] = &["words", "sentences", "paragraphs"];
 const HTTP_OPS: &[&str] = &["get", "status"];
-const EXECUTE_LANGS: &[&str] = &["bash", "powershell", "python", "node", "cmd"];
 const KEY_EXAMPLES: &[&str] = &["enter", "tab", "f5", "ctrl+s"];
 
 fn invalid(
@@ -397,49 +352,6 @@ const FILE_HINT: &[&str] = &[
 ];
 const HTTP_HINT: &[&str] = &["http(get, url)", "http(status, url)"];
 const DELAY_HINT: &[&str] = &["delay(200ms)", "delay(1.5s)"];
-
-fn validate_chrono_args(bound: &BoundArgs, spec: &NsSpec) -> Result<(), ValidationError> {
-    let pspec = ParamSpec {
-        params: spec.params,
-    };
-    let named = |key: &str| bound.named.get(key).map(String::as_str).unwrap_or("");
-    if bound.positional.len() == 1 && !has_named_args(bound, &pspec) {
-        let token = bound.positional[0].trim();
-        let lower = token.to_ascii_lowercase();
-        if token.starts_with('+') || token.starts_with('-') {
-            return Ok(());
-        }
-        if matches!(
-            lower.as_str(),
-            "utc" | "local" | "date" | "time" | "datetime"
-        ) {
-            return Ok(());
-        }
-        if token.as_bytes().first().is_some_and(u8::is_ascii_digit) {
-            return Err(invalid(
-                "chrono",
-                token.to_string(),
-                &[
-                    "date", "time", "datetime", "utc", "local", "+offset", "format",
-                ],
-            ));
-        }
-        return Ok(());
-    }
-    if !CHRONO_KINDS.contains(&named("type").to_ascii_lowercase().as_str()) {
-        return Err(invalid("chrono", named("type").to_string(), CHRONO_KINDS));
-    }
-    if !CHRONO_ZONES.contains(&named("tz").to_ascii_lowercase().as_str()) {
-        return Err(invalid("chrono", named("tz").to_string(), CHRONO_ZONES));
-    }
-    let offset = named("offset");
-    if !offset.eq_ignore_ascii_case("none")
-        && apply_temporal_calc(time::OffsetDateTime::now_utc(), offset).is_err()
-    {
-        return Err(invalid("chrono", offset.to_string(), &["none", "+offset"]));
-    }
-    Ok(())
-}
 
 fn validate_value_args(
     ns: &str,
@@ -792,7 +704,68 @@ fn map_bind_error(spec: &NsSpec, raw: &str, err: BindError) -> ValidationError {
     }
 }
 
-/// Validates a unified `namespace(args)` call: namespace from
+fn validate_date_args(raw: &str) -> Result<(), ValidationError> {
+    if raw.is_empty() {
+        return Ok(());
+    }
+    let tokens = crate::engine::variables::parser::tokenize_words(raw);
+    for token in tokens {
+        let trimmed = crate::engine::variables::system::strip_argument_quotes(&token);
+        let lower = trimmed.to_ascii_lowercase();
+        if lower == "tomorrow"
+            || lower == "yesterday"
+            || lower == "today"
+            || lower == "utc"
+            || lower == "local"
+        {
+            continue;
+        }
+        if trimmed.starts_with('+') || trimmed.starts_with('-') {
+            if apply_temporal_calc(time::OffsetDateTime::now_utc(), trimmed).is_err() {
+                return Err(invalid(
+                    "date",
+                    token,
+                    &["+1d", "-2w", "tomorrow", "yesterday", "utc"],
+                ));
+            }
+            continue;
+        }
+        if trimmed.as_bytes().first().is_some_and(u8::is_ascii_digit) {
+            return Err(invalid(
+                "date",
+                token,
+                &["+1d", "-1d", "tomorrow", "yesterday", "utc"],
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_time_args(raw: &str) -> Result<(), ValidationError> {
+    if raw.is_empty() {
+        return Ok(());
+    }
+    let tokens = crate::engine::variables::parser::tokenize_words(raw);
+    for token in tokens {
+        let trimmed = crate::engine::variables::system::strip_argument_quotes(&token);
+        let lower = trimmed.to_ascii_lowercase();
+        if lower == "utc" || lower == "local" {
+            continue;
+        }
+        if trimmed.starts_with('+') || trimmed.starts_with('-') {
+            if apply_temporal_calc(time::OffsetDateTime::now_utc(), trimmed).is_err() {
+                return Err(invalid("time", token, &["+1h", "-30min", "utc"]));
+            }
+            continue;
+        }
+        if trimmed.as_bytes().first().is_some_and(u8::is_ascii_digit) {
+            return Err(invalid("time", token, &["+1h", "-1h", "utc"]));
+        }
+    }
+    Ok(())
+}
+
+/// Validates a system call: namespace from
 /// `parse_system_call`, raw args (None when bare). Namespace keys are
 /// case-insensitive, values are case-sensitive.
 pub fn validate_system_call(ns: &str, raw: Option<&str>) -> Result<(), ValidationError> {
@@ -803,67 +776,124 @@ pub fn validate_system_call(ns: &str, raw: Option<&str>) -> Result<(), Validatio
         let got = if raw.is_empty() {
             ns.to_string()
         } else {
-            format!("{ns}({raw})")
+            format!("{ns} {raw}")
         };
         return Err(ValidationError::DotChain {
             got,
             hint: dot_hint(&lower),
         });
     }
-    match lower.as_str() {
-        "clipboard" => Err(ValidationError::UnknownRoot(ns.to_string())),
-        "date" | "time" | "datetime" if !raw.is_empty() => Err(ValidationError::DotChain {
-            got: format!("{ns}.{raw}"),
-            hint: "chrono(...)".to_string(),
-        }),
-        "date" | "time" | "datetime" => Err(ValidationError::UnknownRoot(ns.to_string())),
-        _ => {
-            let Some(spec) = NS_SPECS.iter().find(|s| s.name == lower) else {
-                return Err(ValidationError::UnknownRoot(ns.to_string()));
-            };
-            // Execute parses through its own peel-then-bind cycle (variadic argv
-            // overflows the flag slots, which the generic binder below would
-            // misread as duplicates). Missing subjects keep the binder error shape.
-            if spec.name == "execute" {
-                return match parse_invocation(raw) {
-                    Ok(_) => Ok(()),
-                    Err(ExecuteParseError::MissingSubject) => {
-                        Err(ValidationError::MissingModifier { root: spec.name })
-                    }
-                    Err(_) => Err(invalid("execute", raw.to_string(), EXECUTE_LANGS)),
-                };
-            }
-            let bound = match bind_call(
-                spec.name,
-                raw,
-                &ParamSpec {
-                    params: spec.params,
-                },
-            ) {
-                Ok(bound) => bound,
-                Err(err) => return Err(map_bind_error(spec, raw, err)),
-            };
-            if (spec.name == "cursor" || spec.name == "newline") && !bound.positional.is_empty() {
-                return Err(ValidationError::UnexpectedModifier {
-                    root: spec.name,
-                    modifier: raw.to_string(),
-                });
-            }
-            if !spec.variadic && bound.positional.len() > spec.params.len() {
-                return Err(ValidationError::InvalidModifier {
-                    root: spec.name,
-                    modifier: raw.to_string(),
-                    allowed: spec.names,
-                });
-            }
-            if spec.name == "chrono" {
-                validate_chrono_args(&bound, spec)?;
-            }
-            if spec.name == "mouse" {
-                validate_mouse_args(&bound, raw)
-            } else {
-                validate_value_args(spec.name, &bound, spec, raw)
-            }
+
+    if let Some(_hint) = deleted_root_hint(&lower) {
+        return Err(ValidationError::UnknownRoot(ns.to_string()));
+    }
+
+    let Some(spec) = NS_SPECS.iter().find(|s| s.name == lower) else {
+        return Err(ValidationError::UnknownRoot(ns.to_string()));
+    };
+
+    if spec.name == "ip" {
+        if !raw.is_empty() {
+            return Err(ValidationError::UnexpectedModifier {
+                root: "ip",
+                modifier: raw.to_string(),
+            });
         }
+        return Ok(());
+    }
+
+    if spec.name == "cursor" {
+        if !raw.is_empty() {
+            return Err(ValidationError::UnexpectedModifier {
+                root: "cursor",
+                modifier: raw.to_string(),
+            });
+        }
+        return Ok(());
+    }
+
+    if spec.name == "newline" {
+        if !raw.is_empty() && raw.parse::<usize>().is_err() {
+            return Err(ValidationError::InvalidModifier {
+                root: "newline",
+                modifier: raw.to_string(),
+                allowed: &["newline", "newline 2"],
+            });
+        }
+        return Ok(());
+    }
+
+    if spec.name == "date" {
+        return validate_date_args(raw);
+    }
+
+    if spec.name == "time" {
+        return validate_time_args(raw);
+    }
+
+    if spec.name == "run" {
+        if raw.is_empty() {
+            return Err(ValidationError::MissingModifier { root: "run" });
+        }
+        return match crate::engine::variables::system::execute::parse_run_invocation(raw) {
+            Ok(_) => Ok(()),
+            Err(_) => Err(invalid(
+                "run",
+                raw.to_string(),
+                &["run \"cmd\"", "run silent \"cmd\""],
+            )),
+        };
+    }
+
+    if spec.name == "wait" {
+        if raw.is_empty() {
+            return Err(ValidationError::MissingModifier { root: "wait" });
+        }
+        if crate::engine::variables::system::parse_wait_directive(raw).is_none()
+            && crate::engine::variables::system::parse_delay_ms(raw).is_none()
+            && raw.parse::<u64>().is_err()
+        {
+            return Err(invalid(
+                "wait",
+                raw.to_string(),
+                &["wait 200", "wait 200ms", "wait 1.5s"],
+            ));
+        }
+        return Ok(());
+    }
+
+    if spec.name == "calc" {
+        if raw.is_empty() {
+            return Err(ValidationError::MissingModifier { root: "calc" });
+        }
+        if crate::engine::math::evaluate(raw).is_none() {
+            return Err(invalid("calc", raw.to_string(), &["calc 10 * 5"]));
+        }
+        return Ok(());
+    }
+
+    let bound = match bind_call(
+        spec.name,
+        raw,
+        &ParamSpec {
+            params: spec.params,
+        },
+    ) {
+        Ok(bound) => bound,
+        Err(err) => return Err(map_bind_error(spec, raw, err)),
+    };
+
+    if !spec.variadic && bound.positional.len() > spec.params.len() {
+        return Err(ValidationError::InvalidModifier {
+            root: spec.name,
+            modifier: raw.to_string(),
+            allowed: spec.names,
+        });
+    }
+
+    if spec.name == "mouse" {
+        validate_mouse_args(&bound, raw)
+    } else {
+        validate_value_args(spec.name, &bound, spec, raw)
     }
 }

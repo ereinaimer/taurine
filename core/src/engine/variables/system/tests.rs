@@ -6,22 +6,15 @@ fn test_is_reserved() {
     assert!(is_reserved("cursor"));
     assert!(is_reserved("uuid"));
     assert!(is_reserved("clip"));
-    assert!(!is_reserved("uuid.v4"));
-    assert!(!is_reserved("net.localip"));
-    assert!(!is_reserved("net.publicip"));
+    assert!(is_reserved("date"));
+    assert!(is_reserved("time"));
     assert!(is_reserved("ip"));
-    assert!(is_reserved("ip(public)"));
-    assert!(is_reserved("execute(bash, echo hi)"));
-    assert!(!is_reserved("random.int(1, 9)"));
+    assert!(is_reserved("run"));
+    assert!(is_reserved("run \"echo hi\""));
     assert!(is_reserved("lorem"));
-    assert!(!is_reserved("lorem.words(3)"));
-    assert!(is_reserved("chrono(date)"));
     // Deleted roots and dotted chains are never reserved.
     assert!(!is_reserved("clipboard"));
-    assert!(!is_reserved("clipboard(1)"));
-    assert!(!is_reserved("clipboard.truncate(5)"));
-    assert!(!is_reserved("clipboard(2).upper"));
-    assert!(!is_reserved("time"));
+    assert!(!is_reserved("chrono"));
     assert!(!is_reserved("time.utc"));
     assert!(!is_reserved("date.utc"));
 
@@ -31,7 +24,8 @@ fn test_is_reserved() {
 
 #[test]
 fn reserves_unified_roots_only() {
-    assert!(is_reserved("chrono(date)"));
+    assert!(is_reserved("date"));
+    assert!(is_reserved("time"));
     assert!(is_reserved("clip"));
     assert!(!is_reserved("date.utc"));
     assert_eq!(resolve("clipboard"), None);
@@ -39,26 +33,19 @@ fn reserves_unified_roots_only() {
 
 #[test]
 fn test_is_deferred_ip_forms() {
-    assert!(is_deferred("ip"));
-    assert!(is_deferred("ip()"));
-    assert!(is_deferred("ip(public)"));
-    assert!(is_deferred("ip(type=public)"));
-    assert!(is_deferred("ip(\"public\")"));
-    assert!(!is_deferred("ip(local)"));
-    assert!(!is_deferred("ip(type=local)"));
-    assert!(!is_deferred("ip(public, extra)")); // arity-failing calls never defer
+    // ip is zero-variant synchronous local interface gathering, not deferred
+    assert!(!is_deferred("ip"));
 }
 
 #[test]
 fn test_is_directive() {
     assert!(is_directive("cursor"));
-    assert!(is_directive("key(tab)"));
-    assert!(is_directive("key(ctrl+a)"));
-    assert!(is_directive("delay(200ms)"));
-    assert!(is_directive("delay(200)"));
-    assert!(!is_directive("key.tab"));
-    assert!(!is_directive("delay.200ms"));
-    assert!(!is_directive("time.utc"));
+    assert!(is_directive("tab"));
+    assert!(is_directive("ctrl+a"));
+    assert!(is_directive("wait 200ms"));
+    assert!(is_directive("wait 200"));
+    assert!(is_directive("run \"echo hi\""));
+    assert!(!is_directive("date"));
 }
 
 #[test]
@@ -625,7 +612,7 @@ mod compatibility_finalize_tests {
         // Test Case 3: testdatetime
         {
             let res = evaluate_template(
-                "Local: [chrono(date)] [chrono(time)] | UTC +1w: [chrono(date, +1w, \"'Today is' dddd, MMMM D, YYYY\", utc)] | UTC Time -2h: [chrono(time, -2h, hh:mm A, utc)] | Cased AM/PM: [chrono(time, none, A) | case(lower)]",
+                "Local: [date] [time] | UTC +1w: [date +1w \"'Today is' dddd, MMMM D, YYYY\" utc] | UTC Time -2h: [time -2h hh:mm A utc] | Cased AM/PM: [time A | case(lower)]",
                 None,
             );
             assert_eq!(res.steps.len(), 1);
@@ -753,17 +740,14 @@ mod compatibility_finalize_tests {
             }
         }
 
-        // Test Case 8: testhttp
+        // Test Case 8: testdeferred (mouse pos)
         {
-            let res = evaluate_template(
-                "Status: [http(status, https://httpbin.org/status/200)] | UA: [http(get, https://httpbin.org/headers) | json('headers.User-Agent') | truncate(15)]",
-                None,
-            );
+            let res = evaluate_template("Pos: [mouse pos] | Pos Upper: [mouse pos | upper]", None);
             assert_eq!(res.steps.len(), 1);
             if let ExpansionStep::Text(ref text) = res.steps[0] {
                 assert_eq!(
                     text,
-                    "Status: \x03\x1Fsys:http(status, https://httpbin.org/status/200)\x04 | UA: \x03\x1Fsys:http(get, https://httpbin.org/headers) | json('headers.User-Agent') | truncate(15)\x04"
+                    "Pos: \x03\x1Fsys:mouse pos\x04 | Pos Upper: \x03\x1Fsys:mouse pos | upper\x04"
                 );
             } else {
                 panic!("Expected Text step");
@@ -829,13 +813,13 @@ mod compatibility_finalize_tests {
         // Test Case 12: testcombo
         {
             let res = evaluate_template(
-                "User [name='Developer'] checked [url='httpbin.org/json'] at [chrono(time, none, HH:mm, utc)] UTC. Title of JSON: [http(get, [url]) | json('slideshow.title') | case(upper)]",
+                "User [$name='Developer'] checked [$url='httpbin.org/json'] at [time HH:mm utc] UTC.",
                 None,
             );
             assert_eq!(res.steps.len(), 1);
             if let ExpansionStep::Text(ref text) = res.steps[0] {
                 assert!(text.contains("User Developer checked httpbin.org/json at "));
-                assert!(text.contains(" UTC. Title of JSON: \x03\x1Fsys:http(get, httpbin.org/json) | json('slideshow.title') | case(upper)\x04"));
+                assert!(text.contains(" UTC."));
             } else {
                 panic!("Expected Text step");
             }
@@ -1010,7 +994,7 @@ fn test_mouse_deleted_forms_hint_canonical_save_time() {
 
     assert!(matches!(
         validate_system_call("mouse.click", None),
-        Err(ValidationError::DotChain { hint, .. }) if hint == "mouse(click, m1)"
+        Err(ValidationError::DotChain { hint, .. }) if hint == "mouse click m1"
     ));
     assert!(matches!(
         validate_system_call("mouse", Some("click, left")),

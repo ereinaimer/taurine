@@ -1,23 +1,21 @@
 ---
 title: IP Address
-description: Fetch public WAN or local LAN IP addresses.
+description: Fetch local machine network interface IP addresses synchronously.
 ---
 
-The `ip` system variable retrieves network IP addresses for the current machine.
+The `ip` system variable retrieves local IP addresses directly from system network interfaces without making external network calls.
 
-### Syntax & Parameters
+### Syntax
 
 ```text
-[ip(type=public)]
+[ip]
 ```
 
-- **`type`**: IP target scope. Accepted values: `public` (default WAN IP), `local` (local LAN IP address).
+Returns comma-separated IPv4 and IPv6 addresses of all active local network interfaces. If no active network interfaces are found, it falls back to `127.0.0.1`.
 
 ### Examples
 
-| Expression | Description |
-|---|---|
-| `[ip]` | Public WAN IP address (default) |
-| `[ip(public)]` | Explicit public WAN IP address |
-| `[ip(local)]` | Local LAN IP address |
-| `[ip(type=local)]` | Named parameter for local IP |
+| Expression | Example Output | Description |
+|---|---|---|
+| `[ip]` | `192.168.1.5, 10.0.0.12` | Local network interface addresses |
+| `[ip | split(',') | trim]` | Extracts and trims individual interface IPs |

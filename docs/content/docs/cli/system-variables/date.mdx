@@ -1,0 +1,28 @@
+---
+title: Date
+description: System variable for formatting calendar dates, natural offsets, and timezones.
+---
+
+The `date` system variable produces formatted calendar dates with flexible, order-independent arguments.
+
+### Syntax
+
+```text
+[date [offset] [format] [tz]]
+```
+
+Arguments can be passed in any order:
+- **Offset**: Natural identifiers (`today`, `tomorrow`, `yesterday`) or signed increments (`+1d`, `-2w`, `+1m`, `-1y`).
+- **Timezone**: `local` (default) or `utc`.
+- **Format**: Custom LDML date format string (e.g., `YYYY-MM-DD`, `dddd, MMMM D, YYYY`, `"MM/DD/YYYY"`). Default is `YYYY-MM-DD`.
+
+### Examples
+
+| Expression | Example Output | Description |
+|---|---|---|
+| `[date]` | `2026-11-18` | Current date (ISO-8601 default) |
+| `[date tomorrow]` | `2026-11-19` | Tomorrow's date |
+| `[date yesterday]` | `2026-11-17` | Yesterday's date |
+| `[date +1w]` | `2026-11-25` | One week from now |
+| `[date utc]` | `2026-11-18` | Current UTC date |
+| `[date tomorrow utc "dddd, MMMM D"]` | `Thursday, November 19` | Mixed order with custom format |

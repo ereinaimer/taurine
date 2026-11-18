@@ -50,8 +50,7 @@ fn truncate(content: &str, arg: &str) -> Option<String> {
 const MAX_REPEAT_BUFFER_BYTES: usize = 200_000;
 
 fn repeat(content: &str, arg: &str) -> Option<String> {
-    let raw_count = strip_argument_quotes(arg).parse::<usize>().ok()?;
-    let count = raw_count.min(100);
+    let count = strip_argument_quotes(arg).parse::<usize>().ok()?;
     if content.len().saturating_mul(count) > MAX_REPEAT_BUFFER_BYTES {
         warn!(
             transformer = "repeat",
@@ -162,7 +161,7 @@ mod tests {
         assert_eq!(apply("truncate", &["2"], "aßc"), Some("aß".to_string()));
         assert_eq!(apply("repeat", &["3"], "hi"), Some("hihihi".to_string()));
         assert_eq!(apply("repeat", &["0"], "hi"), Some("".to_string()));
-        assert_eq!(apply("repeat", &["150"], "a"), Some("a".repeat(100)));
+        assert_eq!(apply("repeat", &["150"], "a"), Some("a".repeat(150)));
         assert_eq!(apply("repeat", &["100"], &"x".repeat(3000)), None);
         assert_eq!(
             apply("replace", &["\"a\"", "\"o\""], "banana"),

@@ -1946,7 +1946,7 @@ fn test_colon_is_literal_text_after_separator_switch() {
     let state = Arc::new(EngineState::new());
     state.load_actions(vec![(
         "meet".to_string(),
-        crate::db::crud::TriggerAction::text("At [time=now] in [place=here]"),
+        crate::db::crud::TriggerAction::text("At [hour=now] in [place=here]"),
     )]);
     let mut eval = Evaluator::new(state);
     for c in "meet:2pm".chars() {
@@ -1970,7 +1970,7 @@ fn test_plan_path_ordered_bare_fallback() {
     let mut args = ArgMap::default();
     args.positional.push("2pm".to_string());
     args.positional.push("lobby".to_string());
-    let plan = ExecutionPlan::compile("Meet at [time=now] in [place=here]");
+    let plan = ExecutionPlan::compile("Meet at [hour=now] in [place=here]");
     let expansion = plan.evaluate(&args, None, ExpansionOrigin::User);
     assert_eq!(
         expansion.steps,

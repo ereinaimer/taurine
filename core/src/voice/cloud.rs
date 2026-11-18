@@ -255,7 +255,18 @@ impl GroqVoiceClient {
             None => return Ok(trimmed_raw.to_string()),
         };
 
-        let mut system_prompt = "You are an expert voice dictation cleanup engine. Transform the raw transcribed speech into clean, well-formatted, professional text.\nRules:\n- Correct punctuation, capitalization, and minor grammatical slips.\n- Remove conversational filler words (e.g. um, uh, ah, like, you know) and accidental stutter repetitions.\n- Format numbers, currencies, dates, email addresses, and technical terms appropriately.\n- Preserve the speaker's original intent, vocabulary, and meaning exactly.\n- If the speech contains only conversational filler words, stuttering, or ambient noise with no substantive content, output an empty string.\n- Output ONLY the final cleaned text with no surrounding quotes, explanations, markdown code blocks, or notes.".to_string();
+        let mut system_prompt = "You are an expert voice dictation cleanup engine. Transform the raw transcribed speech into clean, well-formatted, professional text.\n\
+Rules:\n\
+- Correct punctuation, capitalization, and minor grammatical slips.\n\
+- Remove conversational filler words (e.g. um, uh, ah, like, you know) and accidental stutter repetitions.\n\
+- Format numbers, currencies, dates, email addresses, and technical terms appropriately.\n\
+- Structure continuous speech into natural, readable paragraphs separated by blank lines (\\n\\n) at major topic transitions or thought shifts (typically every 3 to 6 sentences), or whenever the speaker dictates a new paragraph or new line.\n\
+- Format sequences of numbered items, chronologies, rankings, or sequential instructions as numbered lists (e.g. 1., 2., 3.) when dictated or naturally itemized.\n\
+- Format itemized features, options, components, or bullet points as clean bulleted lists (using hyphen \"- \") when dictated or naturally itemized.\n\
+- For standard continuous thoughts, explanations, and narratives, preserve regular flowing prose in paragraphs rather than forcing lists.\n\
+- Preserve the speaker's original intent, vocabulary, tone, and meaning exactly.\n\
+- If the speech contains only conversational filler words, stuttering, or ambient noise with no substantive content, output an empty string.\n\
+- Output ONLY the final cleaned text with no surrounding quotes, conversational preamble, explanations, markdown code blocks, or notes.".to_string();
 
         if let Some(terms) = custom_terms
             && !terms.is_empty()
@@ -285,6 +296,9 @@ impl GroqVoiceClient {
             }
         }
 
+        let estimated_tokens = (trimmed_raw.split_whitespace().count() * 4 / 3) + 64;
+        let dynamic_max_tokens = (estimated_tokens * 2 + 512).clamp(1024, 8192);
+
         let payload = serde_json::json!({
             "model": self.cleanup_model,
             "messages": [
@@ -298,7 +312,7 @@ impl GroqVoiceClient {
                 }
             ],
             "temperature": 0.1,
-            "max_tokens": 1024
+            "max_tokens": dynamic_max_tokens
         });
 
         let response = match self
@@ -444,7 +458,8 @@ impl GroqVoiceClient {
         }
     }
 
-    /// Transcribe raw 16kHz mono audio samples asynchronously.
+    /// Transcribe raw 16kHz mono audio samples asynchronously, automatically splitting
+    /// long-form recordings into silence-aware chunks and running a single unified cleanup pass.
     pub async fn transcribe_samples(
         &self,
         samples: &[f32],
@@ -452,8 +467,88 @@ impl GroqVoiceClient {
         prompt: Option<&str>,
         custom_terms: Option<&[String]>,
     ) -> Result<String> {
-        let wav = crate::voice::encode_pcm16_wav(samples, sample_rate, 1);
-        self.transcribe_wav(&wav, prompt, custom_terms).await
+        self.transcribe_samples_bounded(
+            samples,
+            sample_rate,
+            prompt,
+            custom_terms,
+            crate::voice::vad::DEFAULT_CHUNK_MAX_SAMPLES,
+            crate::voice::vad::DEFAULT_CHUNK_MIN_SAMPLES,
+        )
+        .await
+    }
+
+    /// Transcribe raw audio samples with customizable chunk limits.
+    pub async fn transcribe_samples_bounded(
+        &self,
+        samples: &[f32],
+        sample_rate: u32,
+        prompt: Option<&str>,
+        custom_terms: Option<&[String]>,
+        max_chunk_samples: usize,
+        min_split_samples: usize,
+    ) -> Result<String> {
+        if samples.len() > max_chunk_samples {
+            let chunks = crate::voice::split_audio_into_chunks(
+                samples,
+                max_chunk_samples,
+                min_split_samples,
+            );
+            tracing::debug!(
+                "Splitting long-form audio ({} samples) into {} silence-aware chunks",
+                samples.len(),
+                chunks.len()
+            );
+
+            // To avoid redundant per-chunk Llama cleanup passes and preserve long-form context,
+            // individual chunks are transcribed with raw Whisper, then unified and cleaned once.
+            let raw_client = self.clone().with_cleanup_enabled(false);
+            let mut chunk_texts = Vec::new();
+            let mut dynamic_prompt = prompt.map(str::to_string);
+
+            for (idx, chunk) in chunks.iter().enumerate() {
+                if !crate::voice::has_voice_activity(chunk) {
+                    tracing::debug!(
+                        "Skipping chunk {}/{} due to lack of voice activity",
+                        idx + 1,
+                        chunks.len()
+                    );
+                    continue;
+                }
+                let wav = crate::voice::encode_pcm16_wav(chunk, sample_rate, 1);
+                let text = raw_client
+                    .transcribe_wav(&wav, dynamic_prompt.as_deref(), custom_terms)
+                    .await?;
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    let tail = match trimmed.char_indices().rev().nth(99) {
+                        Some((idx, _)) => &trimmed[idx..],
+                        None => trimmed,
+                    };
+                    if let Some(base) = prompt {
+                        dynamic_prompt = Some(format!("{base} {tail}"));
+                    } else {
+                        dynamic_prompt = Some(tail.to_string());
+                    }
+                    chunk_texts.push(trimmed.to_string());
+                }
+            }
+
+            let full_raw = chunk_texts.join(" ");
+            let trimmed_full = full_raw.trim();
+            if trimmed_full.is_empty() {
+                return Ok(String::new());
+            }
+
+            if self.cleanup_enabled {
+                self.clean_transcript(trimmed_full, custom_terms).await
+            } else {
+                Ok(trimmed_full.to_string())
+            }
+        } else {
+            let wav = crate::voice::encode_pcm16_wav(samples, sample_rate, 1);
+            self.transcribe_wav(&wav, prompt, custom_terms).await
+        }
     }
 
     /// Synchronous transcription entry point for session manager threads.
@@ -464,14 +559,20 @@ impl GroqVoiceClient {
         prompt: Option<&str>,
         custom_terms: Option<&[String]>,
     ) -> Result<String> {
-        let wav = crate::voice::encode_pcm16_wav(samples, sample_rate, 1);
-        if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread {
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
                 tokio::task::block_in_place(|| {
-                    handle.block_on(self.transcribe_wav(&wav, prompt, custom_terms))
+                    handle.block_on(self.transcribe_samples(
+                        samples,
+                        sample_rate,
+                        prompt,
+                        custom_terms,
+                    ))
                 })
-            } else {
+            }
+            Ok(_) => {
                 let this = self.clone();
+                let samples_vec = samples.to_vec();
                 let prompt = prompt.map(str::to_string);
                 let custom_terms = custom_terms.map(|t| t.to_vec());
                 std::thread::spawn(move || {
@@ -481,8 +582,9 @@ impl GroqVoiceClient {
                         .map_err(|e| {
                             Error::Service(format!("Failed to create async runtime: {e}"))
                         })?;
-                    rt.block_on(this.transcribe_wav(
-                        &wav,
+                    rt.block_on(this.transcribe_samples(
+                        &samples_vec,
+                        sample_rate,
                         prompt.as_deref(),
                         custom_terms.as_deref(),
                     ))
@@ -492,12 +594,13 @@ impl GroqVoiceClient {
                     Error::Service("Voice transcription worker thread panicked".to_string())
                 })?
             }
-        } else {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|e| Error::Service(format!("Failed to create async runtime: {e}")))?;
-            rt.block_on(self.transcribe_wav(&wav, prompt, custom_terms))
+            Err(_) => {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .map_err(|e| Error::Service(format!("Failed to create async runtime: {e}")))?;
+                rt.block_on(self.transcribe_samples(samples, sample_rate, prompt, custom_terms))
+            }
         }
     }
 }
@@ -1006,6 +1109,85 @@ EMPTY_KEY=
             rt.block_on(async { client.transcribe_blocking(&[0.0; 160], 16000, None, None) });
 
         assert_eq!(result.unwrap(), "multithread blocking test");
+        server_thread.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_transcribe_samples_multi_chunk_stitching_and_cleanup() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let server_thread = thread::spawn(move || {
+            let mut streams = Vec::new();
+
+            // First chunk request (Whisper)
+            let (mut stream1, _) = listener.accept().unwrap();
+            let req1 = read_mock_request(&mut stream1);
+            assert!(req1.contains("/transcribe"));
+            let body1 = r#"{"text": "First paragraph intro"}"#;
+            let resp1 = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body1.len(),
+                body1
+            );
+            stream1.write_all(resp1.as_bytes()).unwrap();
+            let _ = stream1.flush();
+            streams.push(stream1);
+
+            // Second chunk request (Whisper)
+            let (mut stream2, _) = listener.accept().unwrap();
+            let req2 = read_mock_request(&mut stream2);
+            assert!(req2.contains("/transcribe"));
+            assert!(req2.contains("First paragraph intro"));
+            let body2 = r#"{"text": "item one and item two"}"#;
+            let resp2 = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body2.len(),
+                body2
+            );
+            stream2.write_all(resp2.as_bytes()).unwrap();
+            let _ = stream2.flush();
+            streams.push(stream2);
+
+            // Unified cleanup request (Llama)
+            let (mut stream3, _) = listener.accept().unwrap();
+            let req3 = read_mock_request(&mut stream3);
+            assert!(req3.contains("/chat/completions"));
+            assert!(req3.contains("First paragraph intro item one and item two"));
+            let body3 = r#"{"choices":[{"message":{"role":"assistant","content":"First paragraph intro.\n\n1. Item one\n2. Item two"}}]}"#;
+            let resp3 = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body3.len(),
+                body3
+            );
+            stream3.write_all(resp3.as_bytes()).unwrap();
+            let _ = stream3.flush();
+            streams.push(stream3);
+
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        });
+
+        let client = GroqVoiceClient::with_full_endpoints(
+            Some("test-key".to_string()),
+            format!("http://127.0.0.1:{port}/transcribe"),
+            "whisper-large-v3".to_string(),
+            format!("http://127.0.0.1:{port}/chat/completions"),
+            "llama-3.1-8b-instant".to_string(),
+        );
+
+        // Create 2 chunks with voice activity separated by silence valley
+        // Chunk size: max 6000 samples, min split 3000 samples
+        let mut samples = vec![0.05f32; 10000];
+        for sample in &mut samples[4000..4600] {
+            *sample = 0.0001; // Silence valley
+        }
+
+        let result = client
+            .transcribe_samples_bounded(&samples, 16000, None, None, 6000, 3000)
+            .await
+            .unwrap();
+
+        assert_eq!(result, "First paragraph intro.\n\n1. Item one\n2. Item two");
         server_thread.join().unwrap();
     }
 }

@@ -231,6 +231,7 @@ fn interpolate_with_depth(template: &str, args: &ArgMap, depth: usize) -> String
                     resolve_user_placeholder(key, default_value, args, depth, usize::MAX)
                 } else if !transformers.is_empty()
                     && !system::is_reserved(key_unquoted)
+                    && !system::is_directive(key_unquoted)
                     && (key.contains(' ') || key.contains(SENTINEL_OPEN))
                 {
                     Some(key.to_string())

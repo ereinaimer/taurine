@@ -464,7 +464,7 @@ impl LogicalKey {
             "m5" | "thumb2" | "xbutton2" | "x2" | "forward" => {
                 Some(Self::Mouse(MouseButton::Button5))
             }
-            "enter" | "return" => Some(Self::Enter),
+            "enter" | "return" | "num_enter" => Some(Self::Enter),
             "esc" | "escape" => Some(Self::Escape),
             "tab" => Some(Self::Tab),
             "space" => Some(Self::Space),
@@ -480,14 +480,15 @@ impl LogicalKey {
             "pgdown" | "pagedown" => Some(Self::PageDown),
             "insert" | "ins" => Some(Self::Insert),
             "`" | "backtick" | "grave" | "~" | "tilde" => Some(Self::Backquote),
-            "-" | "minus" | "dash" => Some(Self::Minus),
-            "=" | "equal" | "equals" => Some(Self::Equal),
+            "-" | "minus" | "dash" | "num_sub" => Some(Self::Minus),
+            "=" | "equal" | "equals" | "num_add" => Some(Self::Equal),
             "\\" | "backslash" => Some(Self::Backslash),
             ";" | "semicolon" => Some(Self::Semicolon),
             "'" | "quote" | "apostrophe" => Some(Self::Quote),
             "," | "comma" => Some(Self::Comma),
-            "." | "dot" | "period" => Some(Self::Period),
-            "/" | "slash" => Some(Self::Slash),
+            "." | "dot" | "period" | "num_dec" => Some(Self::Period),
+            "/" | "slash" | "num_div" => Some(Self::Slash),
+            "num_mul" => Some(Self::Equal), // multiplier placeholder
             "[" | "lbracket" | "leftbracket" => Some(Self::LeftBracket),
             "]" | "rbracket" | "rightbracket" => Some(Self::RightBracket),
             "capslock" => Some(Self::CapsLock),

@@ -1,8 +1,6 @@
 use crate::engine::variables::interpolate::{contains_ai_markers, interpolate};
 use crate::engine::variables::registry::{parse_system_call, validate_system_call};
-use crate::engine::variables::system::{
-    self, image, parse_delay_directive, parse_key_directive, parse_mouse_directive, transformers,
-};
+use crate::engine::variables::system::{self, image, transformers};
 use crate::engine::variables::tags::{
     TAG_CLOSE, TAG_OPEN, find_next_tag, split_key_default, tag_inner,
 };
@@ -381,19 +379,21 @@ fn compile_ops(expr: &str) -> (Vec<PlanOp>, bool, bool) {
         if inner == "cursor" {
             has_cursor = true;
             ops.push(PlanOp::Cursor);
-        } else if let Some(alias) = parse_key_directive(inner) {
+        } else if let Some((alias, count)) = system::parse_key_action(inner) {
             has_directive_steps = true;
-            ops.push(PlanOp::KeyPress(alias.to_lowercase()));
-        } else if let Some(ms) = parse_delay_directive(inner) {
+            for _ in 0..count {
+                ops.push(PlanOp::KeyPress(alias.to_lowercase()));
+            }
+        } else if let Some(ms) = system::parse_wait_directive(inner) {
             has_directive_steps = true;
             ops.push(PlanOp::Delay(ms));
-        } else if let Some(step) = parse_mouse_directive(inner) {
+        } else if let Some(step) = system::parse_mouse_directive(inner) {
             has_directive_steps = true;
             ops.push(PlanOp::Mouse(step));
         } else if let Some(step) = image::parse_img_directive(inner) {
             has_directive_steps = true;
             ops.push(PlanOp::Image(step));
-        } else if inner.starts_with("execute(") {
+        } else if inner.starts_with("run") || inner.starts_with("execute(") {
             has_directive_steps = true;
             let pipeline = transformers::split_pipeline(inner);
             let base = pipeline[0];
@@ -402,13 +402,27 @@ fn compile_ops(expr: &str) -> (Vec<PlanOp>, bool, bool) {
                 raw_cmd: base.to_string(),
                 transformers: trs,
             });
+        } else if inner.starts_with("calc ") || inner == "calc" {
+            let calc_expr = inner.strip_prefix("calc").unwrap_or("").trim();
+            if let Some(res) = crate::engine::math::evaluate(calc_expr) {
+                ops.push(PlanOp::Literal(res));
+            } else {
+                ops.push(PlanOp::Literal(format!("[{inner}]")));
+            }
         } else if inner.contains('[') {
             ops.push(PlanOp::Dynamic(format!("[{inner}]")));
-        } else if inner.starts_with("use(") && inner.ends_with(')') {
+        } else if (inner.starts_with("use(") && inner.ends_with(')')) || inner.starts_with("use ") {
             let pipeline = transformers::split_pipeline(inner);
             let base = pipeline[0];
             let trs = pipeline[1..].iter().map(|s| s.to_string()).collect();
-            let snip = parse_use_key(base).unwrap_or_else(|| base.to_string());
+            let snip = parse_use_key(base).unwrap_or_else(|| {
+                base.strip_prefix("use")
+                    .unwrap_or(base)
+                    .trim()
+                    .trim_matches('"')
+                    .trim_matches('\'')
+                    .to_string()
+            });
             ops.push(PlanOp::Use {
                 snippet_name: snip,
                 transformers: trs,
@@ -426,6 +440,12 @@ fn compile_ops(expr: &str) -> (Vec<PlanOp>, bool, bool) {
             {
                 ops.push(PlanOp::QuotedLiteral {
                     value: unquoted.to_string(),
+                    transformers,
+                });
+            } else if key_unquoted.starts_with('$') {
+                ops.push(PlanOp::NamedArg {
+                    name: key_unquoted.to_string(),
+                    default_value,
                     transformers,
                 });
             } else if system::is_reserved(key_unquoted)
@@ -463,6 +483,34 @@ fn compile_ops(expr: &str) -> (Vec<PlanOp>, bool, bool) {
     let unescaped_trailing = unescape_literal_segment(trailing);
     if !unescaped_trailing.is_empty() {
         push_literal(&mut ops, unescaped_trailing);
+    }
+
+    let mut known_defaults: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    for op in &ops {
+        if let PlanOp::NamedArg {
+            name,
+            default_value: Some(def),
+            ..
+        } = op
+        {
+            let clean = name.trim_start_matches('$').to_lowercase();
+            known_defaults.entry(clean).or_insert_with(|| def.clone());
+        }
+    }
+    for op in &mut ops {
+        if let PlanOp::NamedArg {
+            name,
+            default_value,
+            ..
+        } = op
+            && default_value.is_none()
+        {
+            let clean = name.trim_start_matches('$').to_lowercase();
+            if let Some(def) = known_defaults.get(&clean) {
+                *default_value = Some(def.clone());
+            }
+        }
     }
 
     (ops, has_directive_steps, has_cursor)
@@ -511,9 +559,10 @@ fn unescape_literal_segment(segment: &str) -> String {
 }
 
 fn find_named(args: &ArgMap, name: &str) -> Option<String> {
+    let clean_name = name.trim_start_matches('$');
     args.named
         .iter()
-        .find(|(k, _)| k.eq_ignore_ascii_case(name))
+        .find(|(k, _)| k.trim_start_matches('$').eq_ignore_ascii_case(clean_name))
         .map(|(_, v)| v.clone())
 }
 
@@ -684,12 +733,7 @@ fn apply_transformers(mut text: String, transformers: &[String]) -> (String, boo
 }
 
 fn has_valid_default_value(default_value: Option<&str>) -> bool {
-    if let Some(dv) = default_value {
-        let unquoted = system::strip_quotes(dv).unwrap_or(dv);
-        !unquoted.trim().is_empty()
-    } else {
-        false
-    }
+    default_value.is_some()
 }
 
 fn format_raw_positional_tag(

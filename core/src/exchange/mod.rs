@@ -517,20 +517,22 @@ mod tests {
         let img_path = dir.path().join("logo.png");
         std::fs::write(&img_path, TINY_PNG).unwrap();
 
-        let script_path = dir.path().join("script.sh");
-        std::fs::write(&script_path, "echo Hello from Script!").unwrap();
+        let banner_path = dir.path().join("banner.png");
+        let mut banner_bytes = TINY_PNG.to_vec();
+        banner_bytes.push(0xFF);
+        std::fs::write(&banner_path, &banner_bytes).unwrap();
 
         let trigger = "asset_test";
         let output = format!(
-            "Img: [image({})] Script: [execute(bash, {}, file=true)]",
+            "Img1: [image({})] Img2: [image({})]",
             img_path.to_string_lossy(),
-            script_path.to_string_lossy()
+            banner_path.to_string_lossy()
         );
 
         upsert_trigger_with_type(
             &conn,
             "uuid-asset-test",
-            Some("Testing img and script file compilation"),
+            Some("Testing img file compilation"),
             TriggerType::Word,
             trigger,
             &output,
@@ -554,8 +556,8 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert!(rewritten_output.contains("[image(asset("));
-        assert!(rewritten_output.contains("[execute(bash, asset("));
+        assert!(rewritten_output.contains("Img1: [image(asset("));
+        assert!(rewritten_output.contains("Img2: [image(asset("));
 
         let payload = export_triggers(&conn).unwrap();
         assert_eq!(payload.triggers.len(), 1);
@@ -578,7 +580,7 @@ mod tests {
         let restored_output: String = conn
             .query_row("SELECT output FROM triggers", [], |row| row.get(0))
             .unwrap();
-        assert!(restored_output.contains("[image(asset("));
-        assert!(restored_output.contains("[execute(bash, asset("));
+        assert!(restored_output.contains("Img1: [image(asset("));
+        assert!(restored_output.contains("Img2: [image(asset("));
     }
 }

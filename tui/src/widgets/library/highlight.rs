@@ -463,28 +463,54 @@ fn paint_base_segment(
     runs: &mut Vec<Run>,
     to_char: &dyn Fn(usize) -> usize,
 ) {
-    let Some((namespace, _)) = parse_system_call(segment) else {
-        paint_user_or_invalid(segment, offset, styles, theme, runs, to_char);
+    if let Some((namespace, _)) = parse_system_call(segment)
+        && let Some(relative) = segment.find(namespace)
+    {
+        runs.push(Run {
+            start: to_char(offset + relative),
+            end: to_char(offset + relative + namespace.len()),
+            style: styles.name,
+        });
+        paint_args(
+            &segment[relative + namespace.len()..],
+            offset + relative + namespace.len(),
+            styles,
+            runs,
+            to_char,
+        );
         return;
-    };
-    let Some(relative) = segment.find(namespace) else {
-        return;
-    };
-    runs.push(Run {
-        start: to_char(offset + relative),
-        end: to_char(offset + relative + namespace.len()),
-        style: styles.name,
-    });
-    paint_args(
-        &segment[relative + namespace.len()..],
-        offset + relative + namespace.len(),
-        styles,
-        runs,
-        to_char,
-    );
+    }
+
+    if let Some((_key_code, _count)) =
+        taurine_core::engine::variables::system::parse_key_action(segment)
+    {
+        let tokens: Vec<&str> = segment.split_whitespace().collect();
+        if let Some(first) = tokens.first()
+            && let Some(relative) = segment.find(first)
+        {
+            runs.push(Run {
+                start: to_char(offset + relative),
+                end: to_char(offset + relative + first.len()),
+                style: styles.name,
+            });
+            if tokens.len() > 1 {
+                let rest_str = &segment[relative + first.len()..];
+                paint_args(
+                    rest_str,
+                    offset + relative + first.len(),
+                    styles,
+                    runs,
+                    to_char,
+                );
+            }
+            return;
+        }
+    }
+
+    paint_user_or_invalid(segment, offset, styles, theme, runs, to_char);
 }
 
-/// Bare `[name]` / `[name=default]` user variables; anything else errors.
+/// Bare `[$name = "default"]` / `[name=default]` user variables; anything else errors.
 fn paint_user_or_invalid(
     segment: &str,
     offset: usize,
@@ -496,8 +522,9 @@ fn paint_user_or_invalid(
     let error = Style::default().fg(theme.error);
     let (key, default) = tags::split_key_default(segment);
     let key = key.trim();
-    let valid = !key.is_empty()
-        && key
+    let stripped = key.strip_prefix('$').unwrap_or(key);
+    let valid = !stripped.is_empty()
+        && stripped
             .chars()
             .enumerate()
             .all(|(index, ch)| ch == '_' || ch.is_alphabetic() || (index > 0 && ch.is_numeric()));

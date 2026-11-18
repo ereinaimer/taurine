@@ -1,57 +1,50 @@
 ---
-title: Keyboard Triggers
-description: Simulating key presses and pauses in your snippets.
+title: Keyboard Directives
+description: Simulating key presses, key repeats, and pauses in your snippets.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Taurine can do more than just expand text; it can automate your keyboard. By using `[key(...)]` and `[delay(...)]` directives, you can create powerful sequences that navigate forms, trigger IDE shortcuts, or wait for UI transitions.
+Taurine can do more than expand text; it automates your keyboard directly with bare key directives and pauses.
 
-## Key Directives
+## Bare Key Directives
 
-The `[key(...)]` variable simulates a hardware key press. You can use standard key names or complex combinations inside the parentheses.
+Directives simulate hardware key presses. In unified syntax, standard key names do not require enclosing parentheses:
+
+```text
+[enter]
+[tab]
+[esc]
+[backspace]
+[ctrl+a]
+[ctrl+shift+end]
+```
+
+### Key Repeats
+
+To repeat a key press multiple times, pass a count after the key name:
+
+```text
+[tab 5]
+[down 3]
+[backspace 10]
+```
 
 ### Supported Keys
 
 - **Navigation**: `tab`, `enter`/`return`, `esc`/`escape`, `up`, `down`, `left`, `right`, `home`, `end`, `pgup`/`pageup`, `pgdown`/`pagedown`, `insert`/`ins`, `delete`/`del`.
+- **Numpad**: `num_enter`, `num_add`, `num_sub`, `num_mul`, `num_div`, `num_dec`, `num_0` through `num_9`.
 - **Modifiers**: `ctrl`/`control`, `alt`/`option`/`opt`, `shift`, `win`/`mod`/`super`/`meta`/`cmd`/`command`.
-- **Special Characters**: `backtick`, `grave`, `tilde`, `minus`, `dash`, `equal`, `equals`, `backslash`, `semicolon`, `quote`, `apostrophe`, `comma`, `dot`, `period`, `slash`, `lbracket`, `rbracket`.
+- **Special Characters**: `backtick`, `grave`, `tilde`, `minus`, `dash`, `equal`, `equals`, `backslash`, `semicolon`, `quote`, `apostrophe`, `comma`, `dot`, `period`, `slash`, `lbracket`, `rbracket`, `space`.
 - **Function Keys**: `f1` through `f12`.
-- **Alphanumeric**: Any single letter (`a`-`z`) or number (`0`-`9`).
+- **Alphanumeric**: Any single letter (`a`-`z`).
 
-### Key Combinations
+## Wait Directives
 
-Combine keys using the `+` symbol. Modifiers should come first. You can chain multiple modifiers for complex shortcuts.
-
-```text
-[key(ctrl+a)]            // Select All
-[key(ctrl+shift+end)]    // Select to end of document
-[key(mod+space)]         // Open Launcher (Spotlight/Start Menu)
-[key(alt+f4)]            // Close Window (Windows/Linux)
-```
-
-## Delay Directives
-
-Use `[delay(...)]` to pause the execution of a snippet for a specific duration. This is essential when a snippet performs an action (like tabbing) that requires the UI to catch up. You can pass a millisecond count, include the `ms` suffix, or specify seconds using the `s` suffix (which also supports decimals).
+Use `[wait ...]` to pause snippet execution for a specific duration. This is essential when a snippet performs an action (like tabbing) that requires the target application UI to update.
 
 ```text
-[key(tab)][delay(100ms)][key(tab)]
-[key(tab)][delay(1.5s)][key(tab)]
-[key(tab)][delay(2s)][key(tab)]
+[enter] [wait 200ms] [tab]
+[ctrl+s] [wait 1.5s] [ctrl+w]
+[wait 500] // defaults to milliseconds
 ```
-
-## Advanced Example: Form Auto-Fill
-
-Combine text, keys, and delays to fill out a structured form with a single trigger.
-
-<Transformation
-  template="[name=guest][key(tab)][delay(50ms)][role=user][key(tab)][delay(50ms)][level=1][key(enter)]"
-  input="fill;erein;aimer;admin "
-  result="erein[TAB]aimer[TAB]admin[ENTER]"
-/>
-
----
-
-<Callout title="Note on Cursor Interaction" type="info">
-  Remember that adding keys or delays to a snippet will disable the `[cursor]` directive. See the [Cursor](/docs/cli/system-variables/cursor) section for details.
-</Callout>

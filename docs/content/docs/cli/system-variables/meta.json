@@ -2,7 +2,8 @@
   "title": "System Variables",
   "pages": [
     "index",
-    "chrono",
+    "date",
+    "time",
     "clip",
     "env",
     "file",
@@ -11,10 +12,9 @@
     "uuid",
     "cursor",
     "newline",
-    "execute",
+    "run",
     "random",
     "lorem",
-    "http",
     "mouse",
     "keyboard-triggers"
   ]

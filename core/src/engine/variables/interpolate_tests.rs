@@ -473,7 +473,7 @@ fn ordered_bare_values_fill_in_template_order() {
     args.positional.push("2pm".to_string());
     args.positional.push("lobby".to_string());
     assert_eq!(
-        interpolate("Meet at [time=now] in [place=here]", &args),
+        interpolate("Meet at [hour=now] in [place=here]", &args),
         "Meet at 2pm in lobby"
     );
 }
@@ -674,15 +674,10 @@ mod compatibility_interpolation_tests {
 
     #[test]
     fn test_nested_deferred_pipelines() {
-        let mut args = ArgMap::default();
-        args.named
-            .insert("url".to_string(), "httpbin.org/json".to_string());
-        let tpl = "[http(get, [url]) | json('slideshow.title') | case(upper)]";
+        let args = ArgMap::default();
+        let tpl = "[mouse pos]";
         let result = interpolate(tpl, &args);
-        assert_eq!(
-            result,
-            "\x03\x1Fsys:http(get, httpbin.org/json) | json('slideshow.title') | case(upper)\x04"
-        );
+        assert_eq!(result, "\x03\x1Fsys:mouse pos\x04");
     }
 
     #[test]

@@ -8,9 +8,6 @@ use taurine_core::voice::{VoiceDictionary, format_transcript};
 use super::capture::AudioCapture;
 use super::modes::VoiceMode;
 
-/// Minimal energy threshold to consider audio frames as containing speech.
-pub(crate) const MIN_SPEECH_RMS_ENERGY: f32 = 1e-7;
-
 /// Minimum audio samples required for transcription (100ms at 16kHz = 1600 samples).
 pub(crate) const MIN_SAMPLES_COUNT: usize = 1600;
 
@@ -725,12 +722,8 @@ impl VoiceSessionManager {
             return Ok(None);
         }
 
-        let energy: f32 = drained.iter().map(|s| s * s).sum::<f32>() / drained.len() as f32;
-        if energy < MIN_SPEECH_RMS_ENERGY {
-            debug!(
-                "VoiceSessionManager: audio below RMS energy threshold ({:.6}); skipping STT",
-                energy
-            );
+        if !taurine_core::voice::has_voice_activity(&drained) {
+            info!("VoiceSessionManager: no speech detected in audio (VAD gate); skipping STT");
             return Ok(None);
         }
 
