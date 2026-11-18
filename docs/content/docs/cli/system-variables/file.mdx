@@ -5,24 +5,27 @@ description: Read local file contents directly inside system templates.
 
 The `file` system variable reads local UTF-8 file contents into expanding trigger templates.
 
-### Syntax & Parameters
+### Syntax
 
 ```text
-[file(op, path, ...)]
+[file read path]
+[file line path line_number]
+[file lines path start_line [end_line]]
 ```
 
-- **`read`**: Read full file contents: `[file(read, path)]`
-- **`line`**: Read a single 1-indexed line: `[file(line, path, n)]`
-- **`lines`**: Read a range of 1-indexed lines: `[file(lines, path, start, [end])]`
+- **`read`**: Read full file contents: `[file read path]` (or bare `[file path]`)
+- **`line`**: Read a single 1-indexed line: `[file line path n]` (or `[file path n]`)
+- **`lines`**: Read a range of 1-indexed lines: `[file lines path start end]` (or `[file path start..end]`)
 
 > [!NOTE]
-> File paths containing commas must be wrapped in quotes (e.g., `[file(read, "path,with,commas.txt")]`). Path `~` expands to the user home directory. File size cap is 5 MB.
+> File paths containing spaces must be wrapped in quotes (e.g., `[file "~/my notes/notes.txt"]`). Path `~` expands to the user home directory. File size cap is 5 MB.
 
 ### Examples
 
 | Expression | Description |
 |---|---|
-| `[file(read, ~/notes.txt)]` | Read full file content |
-| `[file(line, ~/log.txt, 10)]` | Read line 10 of file |
-| `[file(lines, ~/data.txt, 1, 5)]` | Read lines 1 through 5 |
-| `[file(read, "~/my,file.txt")]` | Quoted path containing commas |
+| `[file ~/notes.txt]` | Read full file content |
+| `[file read ~/notes.txt]` | Explicit full read |
+| `[file ~/log.txt 10]` | Read line 10 of file |
+| `[file ~/data.txt 1..5]` | Read lines 1 through 5 |
+| `[file "~/my project/config.json" | json "version"]` | Quoted path with piped JSON filter |

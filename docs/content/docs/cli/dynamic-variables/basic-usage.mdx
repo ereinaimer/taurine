@@ -1,33 +1,29 @@
 ---
 title: Basic Variables
-description: Use simple placeholders to drop values directly into your text.
+description: Use dynamic placeholders to drop values directly into your text.
 ---
 
-Dynamic variables are the secret sauce that makes your Taurine snippets truly flexible. Instead of static text, they allow you to create templates that react to the context of your input—turning simple macros into powerful trigger tools.
+Dynamic variables make your Taurine snippets truly flexible. Instead of static text, they allow you to create templates that react to the context of your input—turning simple macros into powerful trigger tools.
 
-The core syntax uses square brackets with a mandatory `=` to define the variable and its fallback value: `[variable_name=default]`.
+The core syntax uses square brackets with a leading `$` symbol and a mandatory `=` to declare the variable and its fallback value: `[$variable_name = "default"]`.
 
-If you omit the `=`, Taurine will treat the bracket contents as literal text and leave it unchanged.
+Once declared, a variable can be re-used anywhere in the template without re-specifying the default: `[$variable_name]`.
 
 ### Escaping Brackets
 If you need a literal square bracket in your output that is **not** a variable at all, prefix it with a backslash: `\[` outputs `[`, and `\]` outputs `]`.
 
-This is useful when writing code snippets or documentation where you want the brackets to remain visible in the expanded text instead of being replaced.
-
 ```text
-Result: \[0\] + 1 = [value=1]
+Result: \[0\] + 1 = [$value = "1"]
 → Result: [0] + 1 = 1
 ```
 
-When Taurine encounters a bracketed word, it converts it into an **input mapping**. Anything you type after the semicolon (`;`) in your trigger is captured and injected directly into that placeholder at the moment of expansion.
-
-No prefix character is needed — type the trigger word, append your argument after a semicolon (e.g., `hello;Erein`), and press **Enter** to expand.
+When Taurine encounters a bracketed dynamic variable, it converts it into an **input mapping**. Anything you type after the semicolon (`;`) in your trigger is captured and injected directly into that placeholder at the moment of expansion.
 
 ### Basic Mapping
-If your snippet has a single variable, Taurine maps the entirety of your terminal argument to that specific placeholder.
+If your snippet has a single variable, Taurine maps your terminal argument to that specific placeholder.
 
 <Transformation
-  template="Hello, [name=stranger]!"
+  template='Hello, [$name = "stranger"]!'
   input="hello;Erein"
   result="Hello, Erein!"
 />
@@ -36,39 +32,9 @@ If your snippet has a single variable, Taurine maps the entirety of your termina
 You aren't limited to just one variable. You can scatter placeholders throughout your text to build sophisticated templates.
 
 <Transformation
-  template="GRANT ACCESS TO [user=guest] ON [environment=sandbox]"
+  template='GRANT ACCESS TO [$user = "guest"] ON [$environment = "sandbox"]'
   input="access;admin;staging"
   result="GRANT ACCESS TO admin ON staging"
 />
 
-By adding more semicolons to your trigger, you can pipe multiple arguments into your snippet in one go.
-
-## Real-World Examples
-Dynamic variables are perfect for structural templates that you use every day—whether you are writing code or managing your inbox. 
-
-<Accordions>
-  <Accordion title="Show Productivity Examples">
-    <div className="text-lg font-bold mt-4 mb-1">Quick Email Replies</div>
-    Speed up your correspondence with snippets that adapt to the recipient and topic.
-    
-    **Trigger:** `reply;Erein;the redesign project`
-    
-    <Callout type="info">
-      **Pro Tip:** You can skip an argument by leaving it empty between semicolons: `reply;;the redesign project`. The skipped field keeps its default value.
-    </Callout>
-    
-    ```text trigger="reply;Erein;the redesign project "
-    Hi [name=there], thanks for the update! I'll take a look at [subject="your email"] today and get back to you.
-    ```
-  </Accordion>
-  <Accordion title="Show Developer Examples">
-    <div className="text-lg font-bold mt-4 mb-1">GitHub Repository Shortcuts</div>
-    Quickly navigate to any repository by mapping the organization and project name into a URL.
-    
-    **Trigger:** `gh;ereinaimer;taurine`
-    
-    ```text trigger="gh;ereinaimer;taurine "
-    https://github.com/[org=github]/[repo=home]
-    ```
-  </Accordion>
-</Accordions>
+By adding more semicolons to your trigger, you can supply multiple arguments into your snippet in one go.

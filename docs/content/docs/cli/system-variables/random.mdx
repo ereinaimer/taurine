@@ -3,30 +3,29 @@ title: Random Generator
 description: Generate random integers, strings, passwords, or choose from a list of values.
 ---
 
-The `random` system variable generates random numbers, strings, passwords, or picks choices.
+The `random` system variable generates random numbers, strings, passwords, or picks random items.
 
-### Syntax & Parameters
+### Syntax
 
 ```text
-[random(type=int, ...)]
+[random [min max]]
+[random str [len]]
+[random pass [len]]
+[random choice item1 item2 ...]
 ```
 
-- **`int`**: `[random(int, min, max)]` (defaults: `min=0, max=100`). Single-arg number $\rightarrow$ `(1, max)` (e.g. `[random(6)]` $\rightarrow$ `1..6`).
-- **`str`**: `[random(str, len)]` (default length 16).
-- **`pass`**: `[random(pass, len)]` (default length 20, includes symbols).
-- **`choice`**: `[random(choice, item1, item2, ...)]` (picks randomly from $\ge 1$ choices).
-
-### Single-Argument Auto-Detection
-
-A bare number automatically binds as `type=int, max=N` (e.g., `[random(6)]` generates an integer from 1 to 6).
+- **`int`**: `[random min max]` (default: 0 to 100). A single bare number `[random 6]` generates an integer from 1 to 6.
+- **`str`**: `[random str [len]]` (default length: 16).
+- **`pass`**: `[random pass [len]]` (default length: 20, includes symbols).
+- **`choice`**: `[random choice item1 item2 ...]` (picks randomly from candidate choices).
 
 ### Examples
 
 | Expression | Description |
 |---|---|
 | `[random]` | Random integer between 0 and 100 |
-| `[random(6)]` | Bare number $\rightarrow$ random integer between 1 and 6 |
-| `[random(int, 1, 10)]` | Explicit range 1 to 10 |
-| `[random(str, 16)]` | Random alphanumeric string of length 16 |
-| `[random(pass, 20)]` | Secure password of length 20 |
-| `[random(choice, heads, tails)]` | Random choice from list |
+| `[random 6]` | Bare number $\rightarrow$ random integer between 1 and 6 |
+| `[random 1 10]` | Explicit range 1 to 10 |
+| `[random str 16]` | Random alphanumeric string of length 16 |
+| `[random pass 20]` | Secure password of length 20 |
+| `[random choice heads tails]` | Random choice from list |

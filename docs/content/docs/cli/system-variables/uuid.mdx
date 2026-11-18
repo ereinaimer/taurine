@@ -5,13 +5,13 @@ description: Generate unique v4 and v7 identifiers.
 
 The `uuid` system variable generates Universally Unique Identifiers (UUIDs).
 
-### Syntax & Parameters
+### Syntax
 
 ```text
-[uuid(version=v4)]
+[uuid [version]]
 ```
 
-- **`version`**: UUID version. Accepted values: `v4` (random, default), `v7` (time-ordered).
+- **`version`** (optional): UUID version. Accepted values: `v4` (random, default), `v7` (time-ordered).
 
 > [!NOTE]
 > Bare numbers like `4` or `7` are rejected with a save-time diagnostic directing to `v4` or `v7`.
@@ -21,6 +21,5 @@ The `uuid` system variable generates Universally Unique Identifiers (UUIDs).
 | Expression | Description |
 |---|---|
 | `[uuid]` | Default random UUID v4 |
-| `[uuid(v4)]` | Explicit UUID v4 |
-| `[uuid(v7)]` | Time-ordered UUID v7 |
-| `[uuid(version=v7)]` | Named parameter syntax |
+| `[uuid v4]` | Explicit UUID v4 |
+| `[uuid v7]` | Time-ordered UUID v7 |

@@ -5,23 +5,23 @@ description: Access recent text clipboard entries using the clip system variable
 
 The `clip` system variable injects contents from your local system clipboard history.
 
-### Syntax & Parameters
+### Syntax
 
 ```text
-[clip(index=0)]
+[clip [index]]
 ```
 
-- **`index`**: Clipboard history depth (0 = current clipboard, 1 = previous item, 2 = item before that). Default is `0`. Accepted values: `0`, `1`, `2`.
+- **`index`** (optional): Clipboard history depth (default is `0` for the active clipboard item, `1` for the previous item, `2` for the item before that).
 
 ### Examples
 
 | Expression | Description |
 |---|---|
 | `[clip]` | Current clipboard content (index 0) |
-| `[clip(0)]` | Explicit current clipboard content |
-| `[clip(1)]` | Previous clipboard item |
-| `[clip(2)]` | Second previous clipboard item |
-| `[clip(index=1)]` | Named index argument |
+| `[clip 0]` | Explicit current clipboard content |
+| `[clip 1]` | Previous clipboard item |
+| `[clip 2]` | Second previous clipboard item |
+| `[clip | upper]` | Direct pipeline filter on clipboard content |
 
 > [!NOTE]
 > Clipboard history stores up to 3 text items in memory. History is cleared on restart and ignores sensitive clipboard entries (such as items copied from password managers).

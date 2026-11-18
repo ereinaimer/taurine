@@ -3,40 +3,41 @@ title: Casing
 description: Transform text between different naming conventions and capitalization styles.
 ---
 
-Casing transformers ensure user-provided arguments fit the exact style requirements of your code, commit messages, URLs, or documentation.
+Casing transformers ensure user-provided arguments and variable outputs fit the exact style requirements of your code, commit messages, URLs, or documentation.
 
-All casing transformations follow the uniform `case(style)` call syntax.
+In Taurine's unified syntax, common casing transformers can be chained directly as pipeline filters:
+
+```text
+[clip | upper]
+[clip | lower]
+[clip | title]
+[clip | snake]
+[clip | kebab]
+[clip | pascal]
+[clip | camel]
+[clip | slug]
+```
 
 ### Reference Table
 
-| Modifier | Description | Example |
-| :--- | :--- | :--- |
-| `case(upper)` | ALL UPPERCASE | `hello` → `HELLO` |
-| `case(lower)` | all lowercase | `HELLO` → `hello` |
-| `case(sentence)` | Capitalize first char | `hello world` → `Hello world` |
-| `case(title)` | Title Case | `hello world` → `Hello World` |
-| `case(snake)` | snake_case | `HelloWorld` → `hello_world` |
-| `case(kebab)` | kebab-case | `HelloWorld` → `hello-world` |
-| `case(pascal)` | PascalCase | `hello_world` → `HelloWorld` |
-| `case(camel)` | camelCase | `hello_world` → `helloWorld` |
-| `case(slug)` | URL slug | `Hello World 2026! 🌴` → `hello-world-2026` |
-
-### Sentence Case
-
-Unlike `case(title)`, `case(sentence)` only capitalizes the very first character of the string, leaving the rest of the text as-is.
-
-<Transformation
-  template="[text=sample | case(sentence)]"
-  input="text;'hello from taurine'"
-  result="Hello from taurine"
-/>
+| Direct Filter | Legacy Form | Description | Example |
+| :--- | :--- | :--- | :--- |
+| `upper` | `case(upper)` | ALL UPPERCASE | `hello` → `HELLO` |
+| `lower` | `case(lower)` | all lowercase | `HELLO` → `hello` |
+| `title` | `case(title)` | Title Case | `hello world` → `Hello World` |
+| `snake` | `case(snake)` | snake_case | `HelloWorld` → `hello_world` |
+| `kebab` | `case(kebab)` | kebab-case | `HelloWorld` → `hello-world` |
+| `pascal` | `case(pascal)` | PascalCase | `hello_world` → `HelloWorld` |
+| `camel` | `case(camel)` | camelCase | `hello_world` → `helloWorld` |
+| `slug` | `case(slug)` | URL slug | `Hello World 2026! 🌴` → `hello-world-2026` |
+| — | `case(sentence)` | Capitalize first char | `hello world` → `Hello world` |
 
 ### Consistency in Code
 
-Use `case(camel)` for variables and `case(pascal)` for classes or types when generating code snippets.
+Use `| camel` for variables and `| pascal` for classes or types when generating code snippets:
 
 <Transformation
-  template="class [name=sample | case(pascal)] { const [name=sample | case(camel)] = true; }"
+  template='class [$name = "sample" | pascal] { const [$name = "sample" | camel] = true; }'
   input="name;'user_service'"
   result="class UserService { const userService = true; }"
 />

@@ -5,24 +5,27 @@ description: Generate placeholder text and mock paragraphs.
 
 The `lorem` system variable generates placeholder text.
 
-### Syntax & Parameters
+### Syntax
 
 ```text
-[lorem(type=paragraphs, count=1)]
+[lorem [count]]
+[lorem words [count]]
+[lorem sentences [count]]
+[lorem paragraphs [count]]
 ```
 
 - **`type`**: Target text unit (`paragraphs`, `sentences`, `words`). Default is `paragraphs`.
-- **`count`**: Number of units to generate (1 to 100,000, total output capped at 1 MB; larger requests are rejected at save time). Default defaults: 15 for `words`, 1 for `sentences`, 1 for `paragraphs`.
+- **`count`**: Number of units to generate (1 to 100,000, total output capped at 1 MB). Defaults: 15 for `words`, 1 for `sentences`, 1 for `paragraphs`.
 
 ### Single-Argument Auto-Detection
 
-Passing a single bare number auto-detects as `count` (e.g., `[lorem(3)]` generates 3 paragraphs).
+Passing a single bare number auto-detects as paragraph count (e.g., `[lorem 3]` generates 3 paragraphs).
 
 ### Examples
 
 | Expression | Description |
 |---|---|
 | `[lorem]` | Default 1 paragraph of placeholder text |
-| `[lorem(3)]` | Single-arg numeric count $\rightarrow$ 3 paragraphs |
-| `[lorem(words, 5)]` | 5 words of placeholder text |
-| `[lorem(type=sentences, count=2)]` | Named parameter syntax |
+| `[lorem 3]` | Single-arg numeric count $\rightarrow$ 3 paragraphs |
+| `[lorem words 5]` | 5 words of placeholder text |
+| `[lorem sentences 2]` | 2 sentences of placeholder text |

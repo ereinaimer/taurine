@@ -3,19 +3,19 @@ title: Image Injection
 description: Inject inline images directly into documents or chat applications.
 ---
 
-The `[image(path)]` system variable allows you to dynamically embed images into your snippet expansions.
+The `image` system variable allows you to dynamically embed images into your snippet expansions.
 
 ## Usage
 
 Provide the file path to an image as the argument:
 
 ```text
-[image(C:\images\logo.png)]
-[image(~/pictures/screenshot.png)]
-[image("~/my photos/shot.png")]
+[image C:\images\logo.png]
+[image ~/pictures/screenshot.png]
+[image "~/my photos/shot.png"]
 ```
 
-Paths may be quoted. Files over 10 MB are refused with an error — images are always passed through byte-identical, never resized or recompressed.
+Paths with spaces must be quoted. Files over 10 MB are refused with an error — images are always passed through byte-identical, never resized or recompressed.
 
 ### Supported Formats
 - PNG (`image/png`)

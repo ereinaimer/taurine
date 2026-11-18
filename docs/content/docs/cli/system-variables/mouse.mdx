@@ -8,28 +8,28 @@ The `mouse` system variable provides hardware mouse automation directives and po
 ### Syntax & Actions
 
 ```text
-[mouse(action, ...)]
+[mouse action ...]
 ```
 
-- **`click`**: `[mouse(click, btn, [count=1])]` — Click specified button `mN` (`m1` = left, `m2` = right, `m3` = middle, `m4`, `m5`). `count=0` clicks infinitely until a physical key or mouse button is pressed.
-- **`hold`**: `[mouse(hold, btn)]` — Press and hold mouse button `mN`.
-- **`release`**: `[mouse(release, btn)]` — Release mouse button `mN`.
-- **`move`**: `[mouse(move, x, y)]` — Move cursor to screen coordinates `x, y`.
-- **`scroll`**: `[mouse(scroll, delta)]` — Scroll wheel (`+` up, `-` down).
-- **`pos`**: `[mouse(pos)]` — Query current mouse cursor coordinates `x,y`.
+- **`click`**: `[mouse click btn [count=1]]` — Click specified button `mN` (`m1` = left, `m2` = right, `m3` = middle, `m4`, `m5`). `count=0` clicks infinitely until a physical key or mouse button is pressed.
+- **`hold`**: `[mouse hold btn]` — Press and hold mouse button `mN`.
+- **`release`**: `[mouse release btn]` — Release mouse button `mN`.
+- **`move`**: `[mouse move x y]` — Move cursor to screen coordinates `x, y`.
+- **`scroll`**: `[mouse scroll delta]` — Scroll wheel (`+` up, `-` down).
+- **`pos`**: `[mouse pos]` — Query current mouse cursor coordinates `x,y`.
 
 > [!IMPORTANT]
-> Button names must strictly use `mN` notation (`m1`..`mN`). Legacy aliases like `left`, `right`, `middle`, `dblclick`, `down`, `up` are rejected at save time with diagnostic hints. `btn` is always required for `click`/`hold`/`release`.
+> Button names must strictly use `mN` notation (`m1`..`mN`). Legacy aliases like `left`, `right`, `middle`, `dblclick`, `down`, `up` are rejected at save time with diagnostic hints. `btn` is always required for `click`, `hold`, and `release`.
 
 ### Examples
 
 | Expression | Description |
 |---|---|
-| `[mouse(click, m1)]` | Left click once (default `count=1`) |
-| `[mouse(click, m2, 2)]` | Right double-click |
-| `[mouse(click, m1, 0)]` | Infinite left clicks until a physical key or button is pressed |
-| `[mouse(hold, m1)]` | Press and hold left button |
-| `[mouse(release, m1)]` | Release left button |
-| `[mouse(move, 100, 200)]` | Move mouse pointer to (100, 200) |
-| `[mouse(scroll, -100)]` | Scroll down by 100 units |
-| `[mouse(pos)]` | Query current mouse pointer position |
+| `[mouse click m1]` | Left click once (default `count=1`) |
+| `[mouse click m2 2]` | Right double-click |
+| `[mouse click m1 0]` | Infinite left clicks until a physical key or button is pressed |
+| `[mouse hold m1]` | Press and hold left button |
+| `[mouse release m1]` | Release left button |
+| `[mouse move 100 200]` | Move mouse pointer to (100, 200) |
+| `[mouse scroll -100]` | Scroll down by 100 units |
+| `[mouse pos]` | Query current mouse pointer position |

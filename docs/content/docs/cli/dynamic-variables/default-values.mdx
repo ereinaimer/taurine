@@ -1,68 +1,34 @@
 ---
 title: Default Values
-description: Provide fallbacks in case an argument isn't specified.
+description: Provide fallbacks in case an argument is not specified.
 ---
 
 ## Mandatory Default Values
 
-To ensure that variables always have a predictable fallback, Taurine strictly requires that every unique dynamic variable defines a default value using the `=` symbol.
+To ensure that variables always have a predictable fallback, Taurine requires that every unique dynamic variable defines a default value using the `=` symbol on its first appearance: `[$name = "there"]`.
 
-### Optional vs Required Quotes (Hybrid Syntax)
+Subsequent occurrences of the same variable in the template automatically inherit the default and do not require repeating it:
 
-Taurine uses a smart parser that makes your life easier:
-- **Optional:** You don't need quotes for simple alphanumeric defaults. E.g., `[name=there]`
-- **Required:** You **must** wrap your default value in quotes (`"` or `'`) if it contains spaces, commas, or closing brackets. E.g., `[message="No content provided"]`
+```text
+[$first = "John"] [$last = "Doe"] (Welcome, [$first]!)
+```
+
+### Quoting Rules
+
+- **Unquoted:** Simple single-word alphanumeric defaults do not require quotes: `[$name = there]`.
+- **Quoted:** If your default contains spaces, punctuation, or special characters, wrap it in double quotes (`"`) or single quotes (`'`): `[$message = "No content provided"]`.
+- **Empty Defaults:** Explicit empty string defaults are permitted when wrapped in quotes: `[$notes = ""]`.
 
 <Transformation
-  template='Message: [content="No content provided"]'
+  template='Message: [$content = "No content provided"]'
   cases={[
     { input: "msg", result: "Message: No content provided" },
-    { input: "msg;\"Hello World\"", result: "Message: Hello World" },
+    { input: 'msg;"Hello World"', result: "Message: Hello World" },
   ]}
 />
 
-If no value is provided via input, Taurine will use the assigned default. 
+If no value is provided via input, Taurine will use the assigned default.
 
-<Callout type="warning" title="Strict Parsing Rule">
-  Taurine will **reject** your template and prevent saving if a dynamic variable lacks a default value (e.g., `[name]`) or if the default value is empty (e.g., `[name=]`). 
-  
-  If you intend to write literal text that includes brackets without it being treated as a variable, you must escape it with a backslash like `\\[name\\]`.
-</Callout>
-
-## Real-World Examples
-Default values turn templates into smart tools that work out of the box while remaining fully customizable. 
-
-<Accordions>
-  <Accordion title="Show Productivity Examples">
-    <div className="text-lg font-bold mt-4 mb-1">Friendly Greetings</div>
-    Keep your communications professional even when you're in a rush by using a fallback for names.
-    
-    **Trigger:** `hi`
-    
-    ```text trigger="hi "
-    Hi [name=there], thanks for reaching out!
-    ```
-
-    <Callout type="info">
-      **Try it:** Type `hi` for the default greeting, or `hi;Erein` to personalize it.
-    </Callout>
-  </Accordion>
-  <Accordion title="Show Developer Examples">
-    <div className="text-lg font-bold mt-4 mb-1">Standardized Git Commits</div>
-    Maintain a consistent commit style by defaulting to your most common commit type.
-    
-    **Trigger:** `gc;;;'Initial commit'`
-    
-    <Callout type="info">
-      **Pro Tip:** Use an empty segment (`;;`) to skip a placeholder and use its default value. In this example, we skip `type` and `scope` to use their defaults.
-    </Callout>
-    
-    ```text trigger="gc;;;'Initial commit' "
-    [type=feat]([scope=cli]): [message="default message"]
-    ```
-  </Accordion>
-</Accordions>
-
-<Callout type="info" title="Experiment!">
-  Click the **Play** button on any of the code blocks above to test these out. Defaults are especially powerful when combined with multiple variables—try skipping arguments with `;;` to see the logic in action!
+<Callout type="warning" title="Strict Declaration Rule">
+  Taurine will reject your template at save time if a dynamic variable lacks a default value on its declaration (e.g., `[$name]` with no prior definition) or if an unquoted empty default is provided (e.g., `[$name=]`).
 </Callout>

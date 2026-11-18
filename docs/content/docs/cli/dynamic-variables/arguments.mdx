@@ -5,10 +5,10 @@ description: Fill named fields inline with bare or labeled values.
 
 ## Bare Values Fill in Order
 
-Write one template with named fields, then fill values inline separated by semicolons (`;`). Bare values fill named fields in template definition order, followed by Enter.
+Write one template with named fields, then fill values inline separated by semicolons (`;`). Bare values fill named fields in template definition order.
 
 <Transformation
-  template="Meet at [time=now] in [place=here]"
+  template='Meet at [$time = "now"] in [$place = "here"]'
   input="meet;2pm;the lobby"
   result="Meet at 2pm in the lobby"
 />
@@ -18,67 +18,31 @@ Write one template with named fields, then fill values inline separated by semic
 Explicitly assign a value to a label using the `key=value` format when typing your trigger. Explicit names always win regardless of position, and matching is case-insensitive.
 
 <Transformation
-  template="Repo: [repo=default_repo] by [name=default_name]"
+  template='Repo: [$repo = "default_repo"] by [$name = "default_name"]'
   input="gh;name=ereinaimer;repo=taurine"
   result="Repo: taurine by ereinaimer"
 />
 
-Named arguments override position. Even though `name` was typed first, it correctly filled the `[name=default_name]` placeholder at the end of the template. Order in the template does not matter either: with `Repo: [repo=x] by [name=y]`, `gh;name=erein;repo=taurine` still fills each field by name.
+Named arguments override position. Even though `name` was typed first, it correctly filled the `[$name = "default_name"]` placeholder.
 
 ## Quoted Arguments
 
-Quotes allow arguments to contain spaces or semicolons without breaking the trigger parsing. Taurine supports both double quotes (`"`) and single quotes (`'`), which allows you to nest quotes or include apostrophes easily.
+Quotes allow arguments to contain spaces or semicolons without breaking the trigger parsing. Taurine supports both double quotes (`"`) and single quotes (`'`).
 
 <Transformation
-  template="Quote: [message=empty]"
+  template='Quote: [$message = "empty"]'
   cases={[
     { input: "quote;'\"One small step for man\"'", result: 'Quote: "One small step for man"' },
     { input: "quote;\"How're you?\"", result: "Quote: How're you?" },
   ]}
 />
 
-By wrapping the text in quotes, you can preserve complex strings, including those that contain other quote characters or punctuation, as a single argument.
-
-Arguments can contain unquoted spaces without needing quotes (e.g. `hi;erein aimer; how was your day`). Colons (`:`) are ordinary text and need no quoting (e.g. `meet;12:30;the lobby`).
-
 ## Ordered Fallback & Skipping
 
-Bare values fill named fields in the order the fields appear in the template, skipping fields already satisfied by an explicit `key=value`. Missing values use their defaults. An empty segment (`;;`) never fills empty text — it always keeps the default, so you can skip a field.
+Bare values fill named fields in the order the fields appear in the template, skipping fields already satisfied by an explicit `key=value`. Missing values use their defaults. An empty segment (`;;`) keeps the default value, allowing you to skip a placeholder.
 
 <Transformation
-  template='Repo: [repo="taurine"] / User: [user="erein"]'
+  template='Repo: [$repo = "taurine"] / User: [$user = "erein"]'
   input="gh;;aimer"
   result="Repo: taurine / User: aimer"
 />
-
-Taurine skips `[repo="taurine"]` via the empty segment and fills `[user="erein"]` with `aimer`, leaving anything unfilled on its default value.
-
-## Real-World Examples
-Mastering arguments allows you to build templates that are both structured and highly reusable.
-
-<Accordions>
-  <Accordion title="Show Productivity Examples">
-    <div className="text-lg font-bold mt-4 mb-1">Appointment Details</div>
-    Quickly fill out a meeting reminder by passing the time and the place as arguments.
-    
-    **Trigger:** `meet;2pm;the lobby`
-    
-    ```text trigger="meet;2pm;the lobby "
-    Let's meet at [time="time"] in [place="place"]. See you then!
-    ```
-  </Accordion>
-  <Accordion title="Show Developer Examples">
-    <div className="text-lg font-bold mt-4 mb-1">GitHub Quick Links</div>
-    Navigate to repos within a specific organization by filling fields in order.
-    
-    **Trigger:** `gh;ereinaimer;taurine`
-    
-    ```text trigger="gh;ereinaimer;taurine "
-    https://github.com/[org=github]/[repo=taurine]
-    ```
-  </Accordion>
-</Accordions>
-
-<Callout type="info" title="Previously colons">
-  Older guides separated arguments with `:` (e.g. `gh:taurine`). That syntax is retired: `:` is now ordinary text, so `meet:2pm` no longer passes arguments — type `meet;2pm` instead.
-</Callout>
