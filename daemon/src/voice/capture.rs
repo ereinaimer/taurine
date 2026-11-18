@@ -9,6 +9,7 @@ use tracing::{debug, error, info, trace, warn};
 #[derive(Debug, Default)]
 pub struct AudioFrameBuffer {
     samples: Mutex<Vec<f32>>,
+    spooler: Mutex<Option<taurine_core::voice::AudioSpooler>>,
 }
 
 impl AudioFrameBuffer {
@@ -16,13 +17,31 @@ impl AudioFrameBuffer {
     pub fn new() -> Self {
         Self {
             samples: Mutex::new(Vec::with_capacity(32000)), // 2 seconds initial capacity
+            spooler: Mutex::new(None),
         }
+    }
+
+    /// Attach an active disk audio spooler for crash recovery journaling.
+    pub fn set_spooler(&self, spooler: taurine_core::voice::AudioSpooler) {
+        let mut lock = self.spooler.lock().unwrap_or_else(|p| p.into_inner());
+        *lock = Some(spooler);
+    }
+
+    /// Detaches and returns the active spooler, if any.
+    pub fn take_spooler(&self) -> Option<taurine_core::voice::AudioSpooler> {
+        let mut lock = self.spooler.lock().unwrap_or_else(|p| p.into_inner());
+        lock.take()
     }
 
     /// Append 16kHz mono samples into the buffer. The buffer is unbounded; long sessions are drained and segmented at transcribe time.
     pub fn push_samples(&self, incoming: &[f32]) {
         let mut lock = self.samples.lock().unwrap_or_else(|p| p.into_inner());
         lock.extend_from_slice(incoming);
+        if let Ok(mut spooler_guard) = self.spooler.lock()
+            && let Some(spooler) = spooler_guard.as_mut()
+        {
+            let _ = spooler.append_samples(incoming);
+        }
     }
 
     /// Prepend 16kHz mono samples to the front of the buffer (e.g. to restore boundary audio context). The buffer is unbounded; prepended audio is drained and segmented at transcribe time.
@@ -59,16 +78,27 @@ impl AudioFrameBuffer {
         }
     }
 
-    /// Drain and return all stored samples.
+    /// Drain and return all stored samples, cleanly discarding the recovery journal.
     pub fn drain(&self) -> Vec<f32> {
         let mut lock = self.samples.lock().unwrap_or_else(|p| p.into_inner());
-        std::mem::take(&mut *lock)
+        let res = std::mem::take(&mut *lock);
+        if let Ok(mut spooler_guard) = self.spooler.lock()
+            && let Some(spooler) = spooler_guard.take()
+        {
+            let _ = spooler.discard();
+        }
+        res
     }
 
-    /// Clear all stored samples.
+    /// Clear all stored samples and cleanly discard the recovery journal.
     pub fn clear(&self) {
         let mut lock = self.samples.lock().unwrap_or_else(|p| p.into_inner());
         lock.clear();
+        if let Ok(mut spooler_guard) = self.spooler.lock()
+            && let Some(spooler) = spooler_guard.take()
+        {
+            let _ = spooler.discard();
+        }
     }
 
     /// Return the number of buffered samples.

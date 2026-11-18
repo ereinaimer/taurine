@@ -141,6 +141,13 @@ impl VoiceSessionManager {
     }
     pub fn with_cloud_client(mut self, client: Arc<taurine_core::voice::GroqVoiceClient>) -> Self {
         self.cloud_client = client;
+        #[cfg(test)]
+        {
+            *self
+                .transcribe_hook
+                .lock()
+                .unwrap_or_else(|p| p.into_inner()) = None;
+        }
         self
     }
 
@@ -336,6 +343,12 @@ impl VoiceSessionManager {
 
     pub fn set_dictionary(&self, dict: VoiceDictionary) {
         *self.dictionary.lock().unwrap_or_else(|p| p.into_inner()) = dict;
+    }
+
+    /// Discovers and recovers any orphaned voice sessions from a previous crash or unexpected exit.
+    pub fn recover_orphaned_sessions(&self) -> Result<Vec<String>, String> {
+        let dict = self.dictionary.lock().unwrap_or_else(|p| p.into_inner());
+        crate::voice::recovery::recover_orphaned_audio_sessions(&self.cloud_client, &dict)
     }
 
     /// Clean expired transcription state and recover capture devices.
@@ -664,6 +677,11 @@ impl VoiceSessionManager {
     /// Register a new streaming request.
     fn begin_request(&self, timing: PttTiming) {
         let req_id = format!("r{}", self.req_counter.fetch_add(1, Ordering::Relaxed));
+        if let Ok(rec_dir) = crate::voice::recovery::recovery_dir()
+            && let Ok(spooler) = taurine_core::voice::AudioSpooler::new(&rec_dir, &req_id)
+        {
+            self.capture.buffer().set_spooler(spooler);
+        }
         *self.active_req.lock().unwrap_or_else(|p| p.into_inner()) = Some((req_id, timing));
     }
 
@@ -768,7 +786,10 @@ impl VoiceSessionManager {
             });
         }
 
-        self.inject_transcript(&transcript_text)
+        crate::voice::recovery::update_active_transcript_dump(&transcript_text);
+        let res = self.inject_transcript(&transcript_text);
+        crate::voice::recovery::clear_active_transcript_dump();
+        res
     }
 
     /// Stop Push-To-Talk recording, transcribe captured speech, inject text, and return to `Idle`.
@@ -1467,6 +1488,7 @@ mod tests {
         let capture = Arc::new(AudioCapture::new(buffer));
         let paused = Arc::new(AtomicBool::new(false));
         let mut session = VoiceSessionManager::new(capture, paused.clone());
+        session = session.with_transcribe_hook(Arc::new(|_| Ok("Mock transcription".to_string())));
         if let Some(hook) = cue_hook {
             session = session.with_cue_hook(hook);
         }
@@ -3215,7 +3237,7 @@ mod tests {
 
     #[test]
     fn test_cloud_voice_transcribe_and_injection_e2e() {
-        use std::io::{BufReader, Read, Write};
+        use std::io::BufReader;
 
         let _lock = crate::hook::tests::TEST_LOCK
             .lock()
@@ -3227,6 +3249,7 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
 
         let server_thread = std::thread::spawn(move || {
+            use std::io::{Read, Write};
             let (mut stream, _) = listener.accept().unwrap();
             let mut reader = BufReader::new(stream.try_clone().unwrap());
             let mut header_bytes = Vec::new();
@@ -3330,6 +3353,130 @@ mod tests {
         guard.set_balance(original_balance);
         guard.set_unlimited(original_unlimited);
         guard.set_authenticated(original_authenticated);
+
+        server_thread.join().unwrap();
+    }
+
+    #[test]
+    fn test_live_spooler_deleted_on_clean_stop() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+        let (session, _) = create_ordering_session(None, Some(Arc::new(move || Ok(()))), None);
+
+        session.start_ptt().expect("start");
+        // Spooler attached and file created
+        let rec_dir = crate::voice::recovery::recovery_dir().unwrap();
+        let files_during = taurine_core::voice::list_orphaned_sessions(&rec_dir).unwrap();
+        assert_eq!(
+            files_during.len(),
+            1,
+            "Spooler journal must exist while recording"
+        );
+
+        session.capture().buffer().push_samples(&[0.5; 3200]);
+        let _ = session.stop_ptt().expect("stop");
+
+        // After clean stop, spooler is discarded and file is deleted
+        let files_after = taurine_core::voice::list_orphaned_sessions(&rec_dir).unwrap();
+        assert!(
+            files_after.is_empty(),
+            "Spooler journal must be discarded on clean stop"
+        );
+    }
+
+    #[test]
+    fn test_orphaned_audio_session_recovered_on_startup() {
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _data = TempDataDir::new();
+        mock_keystore::use_mock_keystore();
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let server_thread = std::thread::spawn(move || {
+            use std::io::{BufRead, Read, Write};
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut reader = std::io::BufReader::new(&mut stream);
+            let mut line = String::new();
+            let mut content_length = 0;
+            while let Ok(n) = reader.read_line(&mut line) {
+                if n == 0 || line == "\r\n" {
+                    break;
+                }
+                if line.to_lowercase().starts_with("content-length:")
+                    && let Some(val) = line.split(':').nth(1)
+                {
+                    content_length = val.trim().parse::<usize>().unwrap_or(0);
+                }
+                line.clear();
+            }
+            if content_length > 0 {
+                let mut body = vec![0u8; content_length];
+                let _ = reader.read_exact(&mut body);
+            }
+
+            let response_body = r#"{"text": "Rescued speech from crash"}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+            let _ = stream.flush();
+        });
+
+        let cloud_client = Arc::new(taurine_core::voice::GroqVoiceClient::with_endpoint(
+            Some("mock-test-key".to_string()),
+            format!("http://127.0.0.1:{port}/transcribe"),
+            "whisper-large-v3".to_string(),
+        ));
+
+        let (session, _) = create_test_session();
+        let session = session.with_cloud_client(cloud_client);
+
+        crate::platform::test_injector().clear();
+
+        // Create an orphaned recovery file on disk
+        let rec_dir = crate::voice::recovery::recovery_dir().unwrap();
+        let mut spooler =
+            taurine_core::voice::AudioSpooler::new(&rec_dir, "crashed_session_42").unwrap();
+        spooler.append_samples(&[0.5; 3200]).unwrap();
+        let journal_path = spooler.finish().unwrap();
+        assert!(journal_path.exists());
+
+        // Call startup recovery
+        let recovered = session.recover_orphaned_sessions().unwrap();
+        assert_eq!(recovered, vec!["Rescued speech from crash".to_string()]);
+
+        // Verify the file was cleaned up
+        assert!(
+            !journal_path.exists(),
+            "Orphaned journal must be deleted after recovery"
+        );
+
+        // Verify clipboard got the rescued text
+        let clip_text = crate::platform::read_clipboard_text().unwrap();
+        assert_eq!(clip_text, "Rescued speech from crash");
+
+        // Verify activity events contains the recovered text
+        let conn = taurine_core::db::get_conn().unwrap();
+        let events = taurine_core::db::crud::get_recent_activity_events(
+            &conn,
+            10,
+            0,
+            Some(taurine_core::db::crud::ActivityCategory::Voice),
+        )
+        .unwrap();
+        assert!(!events.is_empty());
+        assert_eq!(
+            events[0].content.as_deref(),
+            Some("Rescued speech from crash")
+        );
 
         server_thread.join().unwrap();
     }

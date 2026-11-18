@@ -6,6 +6,7 @@ pub mod gate;
 pub mod pattern;
 pub mod pattern_matcher;
 pub mod phonetic;
+pub mod spooler;
 pub mod transcriber;
 pub mod vad;
 pub mod wav;
@@ -19,6 +20,7 @@ pub use gate::{
 pub use pattern::{VoicePattern, VoicePatternPart};
 pub use pattern_matcher::match_voice_pattern;
 pub use phonetic::{double_metaphone, primary_key};
+pub use spooler::{AudioSpooler, list_orphaned_sessions, read_spooled_samples};
 pub use transcriber::{Transcriber, Transcription};
 pub use vad::{has_voice_activity, split_audio_into_chunks};
 pub use wav::encode_pcm16_wav;

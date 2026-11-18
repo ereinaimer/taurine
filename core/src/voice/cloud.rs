@@ -516,9 +516,38 @@ Rules:\n\
                     continue;
                 }
                 let wav = crate::voice::encode_pcm16_wav(chunk, sample_rate, 1);
-                let text = raw_client
+                let text = match raw_client
                     .transcribe_wav(&wav, dynamic_prompt.as_deref(), custom_terms)
-                    .await?;
+                    .await
+                {
+                    Ok(t) => t,
+                    Err(first_err) => {
+                        tracing::warn!(
+                            "Transcription of chunk {}/{} failed ({first_err}); retrying once",
+                            idx + 1,
+                            chunks.len()
+                        );
+                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        match raw_client
+                            .transcribe_wav(&wav, dynamic_prompt.as_deref(), custom_terms)
+                            .await
+                        {
+                            Ok(t) => t,
+                            Err(retry_err) => {
+                                if !chunk_texts.is_empty() {
+                                    tracing::warn!(
+                                        "Chunk {}/{} failed permanently ({retry_err}); salvaging {} earlier chunk(s)",
+                                        idx + 1,
+                                        chunks.len(),
+                                        chunk_texts.len()
+                                    );
+                                    break;
+                                }
+                                return Err(retry_err);
+                            }
+                        }
+                    }
+                };
                 let trimmed = text.trim();
                 if !trimmed.is_empty() {
                     let tail = match trimmed.char_indices().rev().nth(99) {
@@ -1188,6 +1217,96 @@ EMPTY_KEY=
             .unwrap();
 
         assert_eq!(result, "First paragraph intro.\n\n1. Item one\n2. Item two");
+        server_thread.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_transcribe_samples_salvages_partial_chunks_on_subsequent_failure() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let server_thread = thread::spawn(move || {
+            let mut streams = Vec::new();
+
+            // First chunk request: succeeds
+            let (mut stream1, _) = listener.accept().unwrap();
+            let _ = read_mock_request(&mut stream1);
+            let body1 = r#"{"text": "First chunk succeeded"}"#;
+            let resp1 = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body1.len(),
+                body1
+            );
+            stream1.write_all(resp1.as_bytes()).unwrap();
+            let _ = stream1.flush();
+            streams.push(stream1);
+
+            // Second chunk request: fails with 500 Internal Server Error
+            let (mut stream2, _) = listener.accept().unwrap();
+            let _ = read_mock_request(&mut stream2);
+            let body2 = r#"{"error": {"message": "Service unavailable"}}"#;
+            let resp2 = format!(
+                "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body2.len(),
+                body2
+            );
+            stream2.write_all(resp2.as_bytes()).unwrap();
+            let _ = stream2.flush();
+            streams.push(stream2);
+
+            // Retry for second chunk request: fails again with 500
+            let (mut stream3, _) = listener.accept().unwrap();
+            let _ = read_mock_request(&mut stream3);
+            let resp3 = format!(
+                "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body2.len(),
+                body2
+            );
+            stream3.write_all(resp3.as_bytes()).unwrap();
+            let _ = stream3.flush();
+            streams.push(stream3);
+
+            // Unified cleanup request for salvaged chunk 1
+            let (mut stream4, _) = listener.accept().unwrap();
+            let req4 = read_mock_request(&mut stream4);
+            assert!(req4.contains("First chunk succeeded"));
+            let body4 = r#"{"choices":[{"message":{"role":"assistant","content":"First chunk succeeded."}}]}"#;
+            let resp4 = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body4.len(),
+                body4
+            );
+            stream4.write_all(resp4.as_bytes()).unwrap();
+            let _ = stream4.flush();
+            streams.push(stream4);
+
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        });
+
+        let client = GroqVoiceClient::with_full_endpoints(
+            Some("test-key".to_string()),
+            format!("http://127.0.0.1:{port}/transcribe"),
+            "whisper-large-v3".to_string(),
+            format!("http://127.0.0.1:{port}/chat/completions"),
+            "llama-3.1-8b-instant".to_string(),
+        );
+
+        // 2 chunks separated by silence valley
+        let mut samples = vec![0.05f32; 10000];
+        for sample in &mut samples[4000..4600] {
+            *sample = 0.0001;
+        }
+
+        let result = client
+            .transcribe_samples_bounded(&samples, 16000, None, None, 6000, 3000)
+            .await;
+
+        // Must salvage the successfully transcribed first chunk instead of failing!
+        assert!(
+            result.is_ok(),
+            "Expected salvaged partial result, got {result:?}"
+        );
+        assert_eq!(result.unwrap(), "First chunk succeeded.");
         server_thread.join().unwrap();
     }
 }

@@ -67,9 +67,12 @@ pub trait Injector {
 /// In-memory clipboard used only in tests so the default suite never
 /// reads or overwrites the host clipboard.
 #[cfg(test)]
+#[cfg(test)]
+static SHARED_CLIPBOARD: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+#[cfg(test)]
 #[derive(Debug, Default)]
 pub struct FakeClipboard {
-    text: std::sync::Mutex<String>,
     ops: std::sync::Mutex<Vec<&'static str>>,
 }
 
@@ -86,18 +89,29 @@ impl FakeClipboard {
     pub fn ops_snapshot(&self) -> Vec<&'static str> {
         self.ops.lock().map(|ops| ops.clone()).unwrap_or_default()
     }
+
+    /// Clear the shared fake clipboard (test helper).
+    #[allow(dead_code)]
+    pub fn clear_shared() {
+        if let Ok(mut lock) = SHARED_CLIPBOARD.lock() {
+            lock.clear();
+        }
+    }
 }
 
 #[cfg(test)]
 impl ClipboardManager for FakeClipboard {
     fn get_text(&mut self) -> Result<String, String> {
         self.record_op("get_text");
-        Ok(self.text.lock().map(|t| t.clone()).unwrap_or_default())
+        Ok(SHARED_CLIPBOARD
+            .lock()
+            .map(|t| t.clone())
+            .unwrap_or_default())
     }
 
     fn set_text(&mut self, text: &str) -> Result<(), String> {
         self.record_op("set_text");
-        if let Ok(mut guard) = self.text.lock() {
+        if let Ok(mut guard) = SHARED_CLIPBOARD.lock() {
             *guard = text.to_string();
         }
         Ok(())
@@ -110,7 +124,7 @@ impl ClipboardManager for FakeClipboard {
 
     fn set_html(&mut self, _html: &str, plaintext: &str) -> Result<(), String> {
         self.record_op("set_html");
-        if let Ok(mut guard) = self.text.lock() {
+        if let Ok(mut guard) = SHARED_CLIPBOARD.lock() {
             *guard = plaintext.to_string();
         }
         Ok(())

@@ -174,6 +174,9 @@ pub fn start() -> taurine_core::error::Result<()> {
     #[cfg(windows)]
     crate::platform::windows::veh::init_veh_handler();
 
+    // Emergency crash dump handler for in-flight voice dictation
+    crate::voice::recovery::install_emergency_panic_handler();
+
     let settings_manager = SettingsManager::new(&conn);
     let settings = settings_manager.load_all();
 
@@ -361,8 +364,21 @@ pub fn start() -> taurine_core::error::Result<()> {
                 .with_engine_state(state.clone()),
         );
         session.set_self_ref();
-        let _ = VOICE_SESSION.set(session);
+        let _ = VOICE_SESSION.set(session.clone());
         crate::services::audio::prewarm_voice_sink();
+
+        // Recover orphaned audio sessions from unexpected crashes/exits in the background
+        let session_for_recovery = session.clone();
+        let _ = std::thread::Builder::new()
+            .name("tau-voice-recover".to_string())
+            .spawn(move || {
+                let _ = crate::platform::panic::catch_worker_panic(
+                    "tau-voice-recover",
+                    std::panic::AssertUnwindSafe(move || {
+                        let _ = session_for_recovery.recover_orphaned_sessions();
+                    }),
+                );
+            });
     }
     // OS push notifications for endpoint changes; no-op off Windows.
     crate::services::audio_notify::start();

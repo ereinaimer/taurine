@@ -2,6 +2,7 @@ pub mod capture;
 pub mod device_monitor;
 pub mod media_suspend;
 pub mod modes;
+pub mod recovery;
 pub mod session;
 pub mod trigger_dispatch;
 
