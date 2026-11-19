@@ -678,6 +678,7 @@ impl VoiceSessionManager {
                 .unwrap_or_else(|p| p.into_inner()) = Some(Instant::now());
         }
         self.suspend_media();
+        self.trigger_prewarm();
         info!("VoiceSessionManager: Push-To-Talk recording started");
         self.begin_request(PttTiming {
             press_at,
@@ -685,6 +686,41 @@ impl VoiceSessionManager {
             recording_at,
         });
         Ok(())
+    }
+
+    /// Dispatches an asynchronous HTTP connection pre-warm ping in the background
+    /// so the cloud gateway TLS handshake is completed before the user finishes dictating.
+    fn trigger_prewarm(&self) {
+        #[cfg(test)]
+        if self
+            .transcribe_hook
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .is_some()
+        {
+            return;
+        }
+
+        let client = self.cloud_client.clone();
+        if let Some(handle) = tokio::runtime::Handle::try_current()
+            .ok()
+            .or_else(|| crate::TOKIO_HANDLE.get().cloned())
+        {
+            handle.spawn(async move {
+                client.prewarm().await;
+            });
+        } else {
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build();
+                if let Ok(rt) = rt {
+                    rt.block_on(async move {
+                        client.prewarm().await;
+                    });
+                }
+            });
+        }
     }
 
     /// Register a new streaming request.
@@ -893,6 +929,7 @@ impl VoiceSessionManager {
             *mode = VoiceMode::HandsFree;
         }
         self.suspend_media();
+        self.trigger_prewarm();
         info!("VoiceSessionManager: Hands-Free dictation activated");
         self.begin_request(PttTiming {
             press_at,
@@ -1318,6 +1355,15 @@ mod tests {
             .ignore_fullscreen_enabled
             .store(false, Ordering::Relaxed);
         assert!(!session.voice_suppressed());
+    }
+
+    #[test]
+    fn test_ptt_start_dispatches_prewarm() {
+        let (session, _) = create_test_session();
+        let res = session.start_ptt();
+        assert!(res.is_ok());
+        assert_eq!(session.current_mode(), VoiceMode::PushToTalk);
+        session.stop_ptt().unwrap();
     }
 
     /// Build a session recording start-cue and capture-start into one order
@@ -3275,44 +3321,58 @@ mod tests {
 
         let server_thread = std::thread::spawn(move || {
             use std::io::{Read, Write};
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut reader = BufReader::new(stream.try_clone().unwrap());
-            let mut header_bytes = Vec::new();
-            let mut byte = [0u8; 1];
-            while reader.read_exact(&mut byte).is_ok() {
-                header_bytes.push(byte[0]);
-                if header_bytes.ends_with(b"\r\n\r\n") {
-                    break;
+            for _ in 0..2 {
+                let (mut stream, _) = match listener.accept() {
+                    Ok(s) => s,
+                    Err(_) => break,
+                };
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut header_bytes = Vec::new();
+                let mut byte = [0u8; 1];
+                while reader.read_exact(&mut byte).is_ok() {
+                    header_bytes.push(byte[0]);
+                    if header_bytes.ends_with(b"\r\n\r\n") {
+                        break;
+                    }
                 }
-            }
-            let headers = String::from_utf8_lossy(&header_bytes).to_string();
-            assert!(headers.starts_with("POST /transcribe HTTP/1.1"));
-            assert!(
-                headers
-                    .to_lowercase()
-                    .contains("authorization: bearer mock-test-key")
-            );
-
-            let mut content_length = 0usize;
-            for line in headers.lines() {
-                if let Some(val) = line.to_lowercase().strip_prefix("content-length:") {
-                    content_length = val.trim().parse().unwrap_or(0);
+                let headers = String::from_utf8_lossy(&header_bytes).to_string();
+                if headers.starts_with("OPTIONS") {
+                    let resp =
+                        "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: keep-alive\r\n\r\n";
+                    stream.write_all(resp.as_bytes()).unwrap();
+                    let _ = stream.flush();
+                    continue;
                 }
-            }
 
-            if content_length > 0 {
-                let mut body = vec![0u8; content_length];
-                let _ = reader.read_exact(&mut body);
-            }
+                assert!(headers.starts_with("POST /transcribe HTTP/1.1"));
+                assert!(
+                    headers
+                        .to_lowercase()
+                        .contains("authorization: bearer mock-test-key")
+                );
 
-            let response_body = r#"{"text": "Cloud voice dictation verified"}"#;
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                response_body.len(),
-                response_body
-            );
-            stream.write_all(response.as_bytes()).unwrap();
-            let _ = stream.flush();
+                let mut content_length = 0usize;
+                for line in headers.lines() {
+                    if let Some(val) = line.to_lowercase().strip_prefix("content-length:") {
+                        content_length = val.trim().parse().unwrap_or(0);
+                    }
+                }
+
+                if content_length > 0 {
+                    let mut body = vec![0u8; content_length];
+                    let _ = reader.read_exact(&mut body);
+                }
+
+                let response_body = r#"{"text": "Cloud voice dictation verified"}"#;
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    response_body.len(),
+                    response_body
+                );
+                stream.write_all(response.as_bytes()).unwrap();
+                let _ = stream.flush();
+                break;
+            }
         });
 
         let cloud_client = Arc::new(taurine_core::voice::GroqVoiceClient::with_endpoint(
