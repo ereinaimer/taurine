@@ -65,7 +65,7 @@ pub fn sanitize_cleaned_text(raw_input: &str, cleaned: &str) -> String {
 /// silent front-truncation and acoustic hallucination.
 pub fn build_whisper_prompt(
     dict: &VoiceDictionary,
-    trigger_phrases: &[impl AsRef<str>],
+    _trigger_phrases: &[impl AsRef<str>],
 ) -> Option<String> {
     const MAX_ITEMS: usize = 40;
     const MAX_CHARS: usize = 500;
@@ -73,7 +73,8 @@ pub fn build_whisper_prompt(
     let mut total_chars = 0;
     let mut seen = std::collections::HashSet::new();
 
-    // 1. Personal dictionary first (highest priority)
+    // Only include explicit personal dictionary terms to prevent biasing
+    // Whisper's acoustic language classifier toward Latin/English script
     for term in dict.terms() {
         if collected.len() >= MAX_ITEMS {
             break;
@@ -85,23 +86,6 @@ pub fn build_whisper_prompt(
             }
             total_chars += trimmed.len() + 2;
             collected.push(trimmed.to_string());
-        }
-    }
-
-    // 2. Voice triggers second
-    if collected.len() < MAX_ITEMS && total_chars < MAX_CHARS {
-        for trigger in trigger_phrases {
-            if collected.len() >= MAX_ITEMS {
-                break;
-            }
-            let trimmed = trigger.as_ref().trim();
-            if !trimmed.is_empty() && seen.insert(trimmed.to_lowercase()) {
-                if total_chars + trimmed.len() + 2 > MAX_CHARS {
-                    continue;
-                }
-                total_chars += trimmed.len() + 2;
-                collected.push(trimmed.to_string());
-            }
         }
     }
 
@@ -137,6 +121,8 @@ impl CloudVoiceClient {
         Self {
             client: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(20))
+                .tcp_keepalive(Some(std::time::Duration::from_secs(60)))
+                .pool_max_idle_per_host(4)
                 .build()
                 .unwrap_or_else(|_| reqwest::Client::new()),
             auth_token,
@@ -152,6 +138,8 @@ impl CloudVoiceClient {
         Self {
             client: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(20))
+                .tcp_keepalive(Some(std::time::Duration::from_secs(60)))
+                .pool_max_idle_per_host(4)
                 .build()
                 .unwrap_or_else(|_| reqwest::Client::new()),
             auth_token,
@@ -200,6 +188,17 @@ impl CloudVoiceClient {
         }
 
         None
+    }
+
+    /// Pre-warms the HTTP connection and TLS session in the background
+    /// so subsequent transcription calls avoid connection setup latency.
+    pub async fn prewarm(&self) {
+        let _ = self
+            .client
+            .request(reqwest::Method::OPTIONS, &self.endpoint_url)
+            .header("apikey", &self.anon_key)
+            .send()
+            .await;
     }
 
     /// Run the raw transcript through the edge function's Llama-3.1-8b cleanup agent.
@@ -573,8 +572,8 @@ mod tests {
 
     #[test]
     fn test_build_whisper_prompt_formatting_and_deduplication() {
-        let dict = VoiceDictionary::from_csv("Taurine, PostgreSQL, API");
-        let triggers = vec!["open browser", "send email", "taurine", "POSTGRESQL"];
+        let dict = VoiceDictionary::from_csv("Taurine, PostgreSQL, API, taurine, POSTGRESQL");
+        let triggers = vec!["open browser", "send email"];
 
         let prompt = build_whisper_prompt(&dict, &triggers);
         assert!(prompt.is_some(), "Prompt must not be empty");
@@ -582,8 +581,6 @@ mod tests {
 
         // Must be comma-separated
         assert!(prompt_str.contains("Taurine, PostgreSQL, API"));
-        assert!(prompt_str.contains("open browser"));
-        assert!(prompt_str.contains("send email"));
 
         // Deduplication: taurine and postgresql should only appear once
         let lower = prompt_str.to_lowercase();
@@ -597,6 +594,41 @@ mod tests {
             1,
             "PostgreSQL must be deduplicated"
         );
+    }
+
+    #[tokio::test]
+    async fn test_prewarm_connection_succeeds_without_blocking() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let server_thread = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let req = read_mock_request(&mut stream);
+            assert!(req.starts_with("OPTIONS /voice HTTP/1.1"));
+            let response = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: keep-alive\r\n\r\n";
+            stream.write_all(response.as_bytes()).unwrap();
+            let _ = stream.flush();
+        });
+
+        let client = GroqVoiceClient::with_endpoint(
+            Some("test-token".to_string()),
+            format!("http://127.0.0.1:{port}/voice"),
+            "whisper-large-v3".to_string(),
+        );
+
+        client.prewarm().await;
+        server_thread.join().unwrap();
+    }
+
+    #[test]
+    fn test_build_whisper_prompt_uses_only_dictionary_terms() {
+        let dict = VoiceDictionary::from_csv("Taurine, PostgreSQL");
+        // Trigger phrases should not contaminate the Whisper acoustic prompt
+        let prompt = build_whisper_prompt(&dict, &["brb", "btw", "curl", "gh"]).unwrap();
+        assert!(prompt.contains("Taurine"));
+        assert!(prompt.contains("PostgreSQL"));
+        assert!(!prompt.contains("brb"));
+        assert!(!prompt.contains("btw"));
     }
 
     #[tokio::test]
