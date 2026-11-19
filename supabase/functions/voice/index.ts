@@ -50,6 +50,7 @@ async function runLlamaCleanup(
   apiKey: string,
   rawTranscript: string,
   customTerms?: string[] | null,
+  detectedLanguage?: string | null,
 ): Promise<string> {
   const trimmedRaw = rawTranscript.trim();
   if (!trimmedRaw) {
@@ -57,18 +58,24 @@ async function runLlamaCleanup(
   }
 
   let systemPrompt =
-    "You are an expert voice dictation cleanup engine. Transform the raw transcribed speech into clean, well-formatted, professional text.\n" +
+    "You are an expert voice dictation cleanup engine. Transform raw transcribed speech into clean, well-formatted, professional text.\n" +
     "Rules:\n" +
     "- Correct punctuation, capitalization, and minor grammatical slips.\n" +
     "- Remove conversational filler words (e.g. um, uh, ah, like, you know) and accidental stutter repetitions.\n" +
     "- Format numbers, currencies, dates, email addresses, and technical terms appropriately.\n" +
-    "- Structure continuous speech into natural, readable paragraphs separated by blank lines (\\n\\n) at major topic transitions or thought shifts (typically every 3 to 6 sentences), or whenever the speaker dictates a new paragraph or new line.\n" +
-    "- Format sequences of numbered items, chronologies, rankings, or sequential instructions as numbered lists (e.g. 1., 2., 3.) when dictated or naturally itemized.\n" +
-    "- Format itemized features, options, components, or bullet points as clean bulleted lists (using hyphen \"- \") when dictated or naturally itemized.\n" +
-    "- For standard continuous thoughts, explanations, and narratives, preserve regular flowing prose in paragraphs rather than forcing lists.\n" +
+    "- Structure continuous speech into natural paragraphs separated by blank lines (\\n\\n) at major topic transitions or thought shifts, or when the speaker dictates a new paragraph.\n" +
+    "- Format sequences of numbered items or sequential instructions as numbered lists (e.g. 1., 2., 3.) when itemized.\n" +
+    "- Format itemized features, options, or components as clean bulleted lists (- ) when itemized.\n" +
+    "- Preserve regular flowing prose in paragraphs rather than forcing lists for standard explanations.\n" +
     "- Preserve the speaker's original intent, vocabulary, tone, and meaning exactly.\n" +
+    "- Universal Native Script Rule: If speech belonging to any language typically written in a non-Latin script (including Indic languages, East Asian languages such as Japanese or Chinese, Cyrillic, Arabic, Hebrew, Greek, etc.) is transcribed in Latin or Romanized phonetic transliteration (e.g. Romaji, Pinyin, or Romanized Indic speech), render it in its authentic, standard native script and orthography (e.g. native syllabaries, characters, kanji/hanzi, abugidas, or alphabets). Never translate the meaning into another language; transcribe the speaker's exact words in their authentic language and native script.\n" +
+    "- Code-Switching & Technical Words: When a speaker naturally mixes languages (e.g. using English technical words, programming identifiers, software products, or brand names within non-English speech), preserve those genuine English terms in standard Latin text while keeping the surrounding language in its authentic native script.\n" +
     "- If the speech contains only conversational filler words, stuttering, or ambient noise with no substantive content, output an empty string.\n" +
     "- Output ONLY the final cleaned text with no surrounding quotes, conversational preamble, explanations, markdown code blocks, or notes.";
+
+  if (detectedLanguage && detectedLanguage.toLowerCase() !== "english" && detectedLanguage.toLowerCase() !== "en") {
+    systemPrompt += `\n- Acoustic language detected by speech recognition model: ${detectedLanguage}. Transcribe using the official, natural writing system and script of ${detectedLanguage}.`;
+  }
 
   if (customTerms && customTerms.length > 0) {
     const validTerms = customTerms
@@ -80,8 +87,8 @@ async function runLlamaCleanup(
     }
   }
 
-  const estimatedTokens = Math.floor((trimmedRaw.split(/\s+/).length * 4) / 3) + 64;
-  const dynamicMaxTokens = Math.min(Math.max(estimatedTokens * 2 + 512, 1024), 8192);
+  const estimatedTokens = Math.floor((trimmedRaw.split(/\s+/).length * 4) / 3) + 32;
+  const dynamicMaxTokens = Math.min(Math.max(estimatedTokens * 2 + 128, 256), 4096);
 
   try {
     const res = await fetch(GROQ_CHAT_URL, {
@@ -96,7 +103,7 @@ async function runLlamaCleanup(
           { role: "system", content: systemPrompt },
           { role: "user", content: trimmedRaw },
         ],
-        temperature: 0.1,
+        temperature: 0,
         max_tokens: dynamicMaxTokens,
       }),
     });
@@ -179,8 +186,9 @@ Deno.serve(async (req: Request) => {
       const body = await req.json();
       const rawText = body.raw_text || "";
       const customTerms: string[] | null = Array.isArray(body.custom_terms) ? body.custom_terms : null;
+      const detectedLanguage: string | null = body.language || null;
 
-      const cleaned = await runLlamaCleanup(groqApiKey, rawText, customTerms);
+      const cleaned = await runLlamaCleanup(groqApiKey, rawText, customTerms, detectedLanguage);
       return new Response(JSON.stringify({ text: cleaned }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -216,7 +224,7 @@ Deno.serve(async (req: Request) => {
       const groqFormData = new FormData();
       groqFormData.append("file", file, "dictation.wav");
       groqFormData.append("model", WHISPER_MODEL);
-      groqFormData.append("response_format", "json");
+      groqFormData.append("response_format", "verbose_json");
       groqFormData.append("temperature", "0");
       if (prompt && prompt.trim().length > 0) {
         groqFormData.append("prompt", prompt.trim());
@@ -240,15 +248,16 @@ Deno.serve(async (req: Request) => {
 
       const whisperJson = await whisperRes.json();
       const rawText = (whisperJson.text || "").trim();
+      const detectedLanguage: string | null = whisperJson.language || null;
 
       if (cleanup && rawText.length > 0) {
-        const cleanedText = await runLlamaCleanup(groqApiKey, rawText, customTerms);
-        return new Response(JSON.stringify({ text: cleanedText, raw_text: rawText }), {
+        const cleanedText = await runLlamaCleanup(groqApiKey, rawText, customTerms, detectedLanguage);
+        return new Response(JSON.stringify({ text: cleanedText, raw_text: rawText, language: detectedLanguage }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      return new Response(JSON.stringify({ text: rawText, raw_text: rawText }), {
+      return new Response(JSON.stringify({ text: rawText, raw_text: rawText, language: detectedLanguage }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
