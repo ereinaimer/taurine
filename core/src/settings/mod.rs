@@ -16,6 +16,8 @@ static CACHED_VOICE_HANDSFREE_HOTKEY: parking_lot::RwLock<Option<String>> =
     parking_lot::RwLock::new(None);
 static CACHED_VOICE_DICTIONARY: parking_lot::RwLock<Option<String>> =
     parking_lot::RwLock::new(None);
+static CACHED_VOICE_PREFERRED_LANGUAGES: parking_lot::RwLock<Option<String>> =
+    parking_lot::RwLock::new(None);
 static CACHED_VOICE_INPUT_DEVICE: parking_lot::RwLock<Option<String>> =
     parking_lot::RwLock::new(None);
 static CACHED_PAUSE_MEDIA_WHILE_DICTATING: std::sync::atomic::AtomicBool =
@@ -208,6 +210,18 @@ pub fn get_cached_voice_dictionary() -> String {
     CACHED_VOICE_DICTIONARY.read().clone().unwrap_or_default()
 }
 
+pub fn set_cached_voice_preferred_languages(langs: String) {
+    *CACHED_VOICE_PREFERRED_LANGUAGES.write() = Some(langs);
+    bump_settings_version();
+}
+
+pub fn get_cached_voice_preferred_languages() -> String {
+    CACHED_VOICE_PREFERRED_LANGUAGES
+        .read()
+        .clone()
+        .unwrap_or_else(|| "en".to_string())
+}
+
 pub fn set_cached_voice_input_device(device: Option<String>) {
     *CACHED_VOICE_INPUT_DEVICE.write() = device;
     bump_settings_version();
@@ -367,13 +381,14 @@ pub enum SettingKey {
     VoicePttHotkey,
     VoiceHandsfreeHotkey,
     VoiceDictionary,
+    VoicePreferredLanguages,
     VoiceInputDevice,
     PauseMediaWhileDictating,
     TuiCursorStyle,
 }
 
 impl SettingKey {
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 21] = [
         Self::PauseHotkey,
         Self::StartOnBoot,
         Self::AutoUpdate,
@@ -391,6 +406,7 @@ impl SettingKey {
         Self::VoicePttHotkey,
         Self::VoiceHandsfreeHotkey,
         Self::VoiceDictionary,
+        Self::VoicePreferredLanguages,
         Self::VoiceInputDevice,
         Self::PauseMediaWhileDictating,
         Self::TuiCursorStyle,
@@ -421,6 +437,7 @@ impl SettingKey {
             Self::VoicePttHotkey => "voice_ptt_hotkey",
             Self::VoiceHandsfreeHotkey => "voice_handsfree_hotkey",
             Self::VoiceDictionary => "voice_dictionary",
+            Self::VoicePreferredLanguages => "voice_preferred_languages",
             Self::VoiceInputDevice => "voice_input_device",
             Self::PauseMediaWhileDictating => "pause_media_while_dictating",
             Self::TuiCursorStyle => "tui_cursor_style",
@@ -447,6 +464,7 @@ pub struct Settings {
     pub voice_ptt_hotkey: String,
     pub voice_handsfree_hotkey: String,
     pub voice_dictionary: String,
+    pub voice_preferred_languages: String,
     pub voice_input_device: Option<String>,
     pub pause_media_while_dictating: bool,
     pub tui_cursor_style: TuiCursorStyle,
@@ -472,6 +490,7 @@ impl std::fmt::Debug for Settings {
             .field("voice_ptt_hotkey", &self.voice_ptt_hotkey)
             .field("voice_handsfree_hotkey", &self.voice_handsfree_hotkey)
             .field("voice_dictionary", &self.voice_dictionary)
+            .field("voice_preferred_languages", &self.voice_preferred_languages)
             .field("voice_input_device", &self.voice_input_device)
             .field(
                 "pause_media_while_dictating",
@@ -483,7 +502,7 @@ impl std::fmt::Debug for Settings {
 }
 
 impl Settings {
-    pub const ALL_KEYS: [&'static str; 20] = [
+    pub const ALL_KEYS: [&'static str; 21] = [
         "pause_hotkey",
         "start_on_boot",
         "auto_update",
@@ -501,6 +520,7 @@ impl Settings {
         "voice_ptt_hotkey",
         "voice_handsfree_hotkey",
         "voice_dictionary",
+        "voice_preferred_languages",
         "voice_input_device",
         "pause_media_while_dictating",
         "tui_cursor_style",
@@ -532,6 +552,11 @@ impl Settings {
                 "voice_handsfree_hotkey"
             }
             "voice_dictionary" | "voice_vocab" | "voice_words" => "voice_dictionary",
+            "voice_preferred_languages"
+            | "preferred_languages"
+            | "voice_languages"
+            | "languages"
+            | "langs" => "voice_preferred_languages",
             "voice_input_device" | "voice_device" | "voice_mic" | "input_device" | "mic"
             | "microphone" => "voice_input_device",
             "pause_media_while_dictating" | "pause_media" => "pause_media_while_dictating",
@@ -621,6 +646,7 @@ impl Default for Settings {
             voice_ptt_hotkey: "win+lctrl".to_string(),
             voice_handsfree_hotkey: "win+lctrl+lalt".to_string(),
             voice_dictionary: String::new(),
+            voice_preferred_languages: "en".to_string(),
             voice_input_device: None,
             pause_media_while_dictating: true,
             tui_cursor_style: TuiCursorStyle::default(),
@@ -672,6 +698,7 @@ mod tests {
         assert_eq!(defaults.voice_ptt_hotkey, "win+lctrl");
         assert_eq!(defaults.voice_handsfree_hotkey, "win+lctrl+lalt");
         assert!(defaults.voice_dictionary.is_empty());
+        assert_eq!(defaults.voice_preferred_languages, "en");
         assert_eq!(defaults.voice_input_device, None);
     }
 
@@ -759,6 +786,23 @@ mod tests {
             "voice_dictionary"
         );
         assert_eq!(Settings::resolve_key("voice_vocab"), "voice_dictionary");
+        assert_eq!(
+            Settings::resolve_key("voice_preferred_languages"),
+            "voice_preferred_languages"
+        );
+        assert_eq!(
+            Settings::resolve_key("preferred_languages"),
+            "voice_preferred_languages"
+        );
+        assert_eq!(
+            Settings::resolve_key("voice_languages"),
+            "voice_preferred_languages"
+        );
+        assert_eq!(
+            Settings::resolve_key("languages"),
+            "voice_preferred_languages"
+        );
+        assert_eq!(Settings::resolve_key("langs"), "voice_preferred_languages");
         assert_eq!(
             Settings::resolve_key("voice_input_device"),
             "voice_input_device"

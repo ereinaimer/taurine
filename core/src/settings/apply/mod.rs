@@ -195,6 +195,23 @@ pub fn apply_setting_input_with_manager(
             manager.update_setting(actual_key, normalized)?;
             ApplySettingOutcome::default()
         }
+        "voice_preferred_languages" => {
+            let raw = value.unwrap_or_default();
+            let langs: Vec<String> = raw
+                .split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_ascii_lowercase())
+                .collect();
+            let normalized = if langs.is_empty() {
+                "en".to_string()
+            } else {
+                langs.join(",")
+            };
+            crate::settings::set_cached_voice_preferred_languages(normalized.clone());
+            manager.update_setting(actual_key, normalized)?;
+            ApplySettingOutcome::default()
+        }
         "voice_input_device" => {
             let parsed = match value {
                 Some(v) if !v.trim().is_empty() => Some(v.trim().to_string()),

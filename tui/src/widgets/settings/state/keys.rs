@@ -57,6 +57,7 @@ impl SettingCategory {
             Self::VoiceDictation => &[
                 SettingKey::VoicePttHotkey,
                 SettingKey::VoiceHandsfreeHotkey,
+                SettingKey::VoicePreferredLanguages,
                 SettingKey::VoiceDictionary,
                 SettingKey::VoiceInputDevice,
                 SettingKey::PauseMediaWhileDictating,
@@ -98,6 +99,7 @@ impl SettingKeyMeta for SettingKey {
             Self::InlineDatetimeFormat => "Inline Date & Time Format",
             Self::VoicePttHotkey => "Voice Push-to-Talk Hotkey",
             Self::VoiceHandsfreeHotkey => "Voice Hands-free Hotkey",
+            Self::VoicePreferredLanguages => "Voice Preferred Languages",
             Self::VoiceDictionary => "Voice Personal Dictionary",
             Self::VoiceInputDevice => "Voice Input Device",
             Self::PauseMediaWhileDictating => "Pause Media While Dictating",
@@ -131,6 +133,9 @@ impl SettingKeyMeta for SettingKey {
             Self::VoiceHandsfreeHotkey => {
                 "Press once to start dictation mode, press again or Escape to stop and type"
             }
+            Self::VoicePreferredLanguages => {
+                "Comma-separated language codes for speech recognition candidates (e.g. en, ml, or auto)"
+            }
             Self::VoiceDictionary => {
                 "Comma-separated custom vocabulary words for phonetic and fuzzy correction"
             }
@@ -159,6 +164,7 @@ impl SettingKeyMeta for SettingKey {
             Self::AiProvider | Self::AiModel | Self::AiCustomEndpoint => SettingCategory::AiCopilot,
             Self::VoicePttHotkey
             | Self::VoiceHandsfreeHotkey
+            | Self::VoicePreferredLanguages
             | Self::VoiceDictionary
             | Self::VoiceInputDevice
             | Self::PauseMediaWhileDictating => SettingCategory::VoiceDictation,
@@ -186,7 +192,9 @@ impl SettingKeyMeta for SettingKey {
             Self::InlineDateFormat | Self::InlineTimeFormat | Self::InlineDatetimeFormat => {
                 EditorKind::InlineText
             }
-            Self::AiModel | Self::VoiceDictionary => EditorKind::TextInput,
+            Self::AiModel | Self::VoiceDictionary | Self::VoicePreferredLanguages => {
+                EditorKind::TextInput
+            }
         }
     }
 
@@ -239,6 +247,13 @@ impl SettingKeyMeta for SettingKey {
             Self::PauseMediaWhileDictating => settings.pause_media_while_dictating.to_string(),
             Self::VoicePttHotkey => settings.voice_ptt_hotkey.clone(),
             Self::VoiceHandsfreeHotkey => settings.voice_handsfree_hotkey.clone(),
+            Self::VoicePreferredLanguages => {
+                if settings.voice_preferred_languages.is_empty() {
+                    "en".to_string()
+                } else {
+                    settings.voice_preferred_languages.clone()
+                }
+            }
             Self::VoiceDictionary => {
                 if settings.voice_dictionary.is_empty() {
                     "<empty>".to_string()
@@ -266,6 +281,7 @@ impl SettingKeyMeta for SettingKey {
             Self::AiCustomEndpoint => settings.ai_custom_endpoint.clone().unwrap_or_default(),
             Self::VoicePttHotkey => settings.voice_ptt_hotkey.clone(),
             Self::VoiceHandsfreeHotkey => settings.voice_handsfree_hotkey.clone(),
+            Self::VoicePreferredLanguages => settings.voice_preferred_languages.clone(),
             Self::VoiceDictionary => settings.voice_dictionary.clone(),
             Self::StartOnBoot
             | Self::AutoUpdate

@@ -126,6 +126,12 @@ impl<'a> SettingsManager<'a> {
             settings.voice_dictionary = v;
         }
 
+        if let Some(val) = map.get("voice_preferred_languages")
+            && let Ok(v) = serde_json::from_str::<String>(val)
+        {
+            settings.voice_preferred_languages = v;
+        }
+
         if let Some(val) = map.get("voice_input_device")
             && let Ok(v) = serde_json::from_str::<Option<String>>(val)
         {
@@ -214,5 +220,18 @@ mod tests {
         assert_eq!(settings.voice_ptt_hotkey, "ctrl+space");
         assert_eq!(settings.voice_handsfree_hotkey, "ctrl+alt+space");
         assert_eq!(settings.voice_dictionary, "Rust, Taurine, Whisper");
+    }
+
+    #[test]
+    fn load_all_reads_voice_preferred_languages_from_db() {
+        let (_dir, conn) = open_test_db();
+        let manager = SettingsManager::new(&conn);
+
+        manager
+            .update_setting("voice_preferred_languages", "en,ml")
+            .unwrap();
+
+        let settings = manager.load_all();
+        assert_eq!(settings.voice_preferred_languages, "en,ml");
     }
 }

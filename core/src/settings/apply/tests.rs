@@ -180,7 +180,7 @@ fn toggling_system_tray_enabled_persists_changed_value() {
 
 #[test]
 fn setting_key_all_has_unique_storage_keys() {
-    assert_eq!(SettingKey::ALL.len(), 20);
+    assert_eq!(SettingKey::ALL.len(), 21);
 
     let mut seen = HashSet::new();
     for key in SettingKey::ALL {
@@ -229,6 +229,7 @@ fn sweep_covers_defaults_set_and_reset_for_all_keys() {
         ("voice_ptt_hotkey", "ctrl+space"),
         ("voice_handsfree_hotkey", "ctrl+alt+space"),
         ("voice_dictionary", "Rust, Taurine"),
+        ("voice_preferred_languages", "en,ml"),
         ("voice_input_device", "External Mic"),
         ("pause_media_while_dictating", "false"),
         ("tui_cursor_style", "underscore"),
@@ -257,6 +258,7 @@ fn sweep_covers_defaults_set_and_reset_for_all_keys() {
         voice_ptt_hotkey: "ctrl+space".to_string(),
         voice_handsfree_hotkey: "ctrl+alt+space".to_string(),
         voice_dictionary: "Rust, Taurine".to_string(),
+        voice_preferred_languages: "en,ml".to_string(),
         voice_input_device: Some("External Mic".to_string()),
         pause_media_while_dictating: false,
         tui_cursor_style: TuiCursorStyle::Underscore,
@@ -447,4 +449,47 @@ fn test_invalid_voice_hotkey_diagnostic() {
         msg.contains("invalid voice_ptt_hotkey"),
         "expected invalid hotkey message, got: {msg}"
     );
+}
+
+#[test]
+fn test_voice_preferred_languages_normalization_and_caching() {
+    let _guard = crate::testing::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let (_dir, conn) = open_test_db();
+    let manager = SettingsManager::new(&conn);
+
+    assert_eq!(
+        default_setting_input("voice_preferred_languages").unwrap(),
+        Some("en".to_string())
+    );
+
+    apply_setting_input_with_manager(&manager, "voice_preferred_languages", Some("en, ml "))
+        .unwrap();
+    assert_eq!(
+        crate::settings::get_cached_voice_preferred_languages(),
+        "en,ml"
+    );
+
+    apply_setting_input_with_manager(&manager, "voice_preferred_languages", Some("   ")).unwrap();
+    assert_eq!(
+        crate::settings::get_cached_voice_preferred_languages(),
+        "en"
+    );
+
+    apply_setting_input_with_manager(&manager, "voice_preferred_languages", Some("EN, JA"))
+        .unwrap();
+    assert_eq!(
+        crate::settings::get_cached_voice_preferred_languages(),
+        "en,ja"
+    );
+
+    for alias in [
+        "preferred_languages",
+        "voice_languages",
+        "languages",
+        "langs",
+    ] {
+        assert_eq!(Settings::resolve_key(alias), "voice_preferred_languages");
+    }
 }

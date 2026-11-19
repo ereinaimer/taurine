@@ -775,10 +775,10 @@ mod tests {
     }
 
     #[test]
-    fn test_all_twenty_settings_are_always_visible() {
+    fn test_all_twenty_one_settings_are_always_visible() {
         let state = SettingsPageState::default();
         let visible = state.visible_keys();
-        assert_eq!(visible.len(), 20);
+        assert_eq!(visible.len(), 21);
         for key in SettingKey::ALL {
             assert!(visible.contains(&key), "{key:?} should be visible");
         }
@@ -797,7 +797,7 @@ mod tests {
     }
 
     #[test]
-    fn test_setting_categories_cover_all_twenty_keys() {
+    fn test_setting_categories_cover_all_twenty_one_keys() {
         let mut all_categorized = Vec::new();
         for cat in SettingCategory::ALL {
             for key in cat.keys() {
@@ -805,7 +805,7 @@ mod tests {
                 all_categorized.push(*key);
             }
         }
-        assert_eq!(all_categorized.len(), 20);
+        assert_eq!(all_categorized.len(), 21);
         for key in SettingKey::ALL {
             assert!(all_categorized.contains(&key));
         }

@@ -24,6 +24,7 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
         "voice_ptt_hotkey" => Ok(Some(defaults.voice_ptt_hotkey)),
         "voice_handsfree_hotkey" => Ok(Some(defaults.voice_handsfree_hotkey)),
         "voice_dictionary" => Ok(Some(defaults.voice_dictionary)),
+        "voice_preferred_languages" => Ok(Some(defaults.voice_preferred_languages)),
         "voice_input_device" => Ok(defaults.voice_input_device),
         "pause_media_while_dictating" => Ok(Some(defaults.pause_media_while_dictating.to_string())),
         "tui_cursor_style" => Ok(Some(match defaults.tui_cursor_style {
