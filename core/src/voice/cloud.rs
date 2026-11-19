@@ -6,7 +6,7 @@
 use crate::error::{Error, Result};
 use crate::voice::VoiceDictionary;
 
-pub const DEFAULT_VOICE_FUNCTION_PATH: &str = "/functions/v1/voice-transcribe";
+pub const DEFAULT_VOICE_FUNCTION_PATH: &str = "/functions/v1/voice";
 pub const DEFAULT_GROQ_API_URL: &str = DEFAULT_VOICE_FUNCTION_PATH;
 pub const DEFAULT_GROQ_CHAT_URL: &str = DEFAULT_VOICE_FUNCTION_PATH;
 pub const DEFAULT_GROQ_MODEL: &str = "whisper-large-v3";
@@ -835,7 +835,7 @@ mod tests {
             let (mut stream, _) = listener.accept().unwrap();
             let req = read_mock_request(&mut stream);
 
-            assert!(req.starts_with("POST /voice-transcribe HTTP/1.1"));
+            assert!(req.starts_with("POST /voice HTTP/1.1"));
             assert!(
                 req.to_lowercase()
                     .contains("authorization: bearer test-llama-key")
@@ -856,7 +856,7 @@ mod tests {
 
         let client = GroqVoiceClient::with_endpoint(
             Some("test-llama-key".to_string()),
-            format!("http://127.0.0.1:{port}/voice-transcribe"),
+            format!("http://127.0.0.1:{port}/voice"),
             "whisper-large-v3".to_string(),
         );
 
@@ -890,7 +890,7 @@ mod tests {
 
         let client = GroqVoiceClient::with_endpoint(
             Some("test-llama-key".to_string()),
-            format!("http://127.0.0.1:{port}/voice-transcribe"),
+            format!("http://127.0.0.1:{port}/voice"),
             "whisper-large-v3".to_string(),
         );
 
@@ -923,7 +923,7 @@ mod tests {
 
         let client = GroqVoiceClient::with_endpoint(
             Some("test-llama-key".to_string()),
-            format!("http://127.0.0.1:{port}/voice-transcribe"),
+            format!("http://127.0.0.1:{port}/voice"),
             "whisper-large-v3".to_string(),
         );
 
@@ -1020,7 +1020,7 @@ mod tests {
             // First chunk request (raw chunk)
             let (mut stream1, _) = listener.accept().unwrap();
             let req1 = read_mock_request(&mut stream1);
-            assert!(req1.contains("/voice-transcribe"));
+            assert!(req1.contains("/voice"));
             let body1 = r#"{"text": "First paragraph intro"}"#;
             let resp1 = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
@@ -1034,7 +1034,7 @@ mod tests {
             // Second chunk request (raw chunk)
             let (mut stream2, _) = listener.accept().unwrap();
             let req2 = read_mock_request(&mut stream2);
-            assert!(req2.contains("/voice-transcribe"));
+            assert!(req2.contains("/voice"));
             assert!(req2.contains("First paragraph intro"));
             let body2 = r#"{"text": "item one and item two"}"#;
             let resp2 = format!(
@@ -1049,7 +1049,7 @@ mod tests {
             // Unified cleanup request (JSON cleanup)
             let (mut stream3, _) = listener.accept().unwrap();
             let req3 = read_mock_request(&mut stream3);
-            assert!(req3.contains("/voice-transcribe"));
+            assert!(req3.contains("/voice"));
             assert!(req3.contains("First paragraph intro item one and item two"));
             let body3 = r#"{"text": "First paragraph intro.\n\n1. Item one\n2. Item two"}"#;
             let resp3 = format!(
@@ -1066,7 +1066,7 @@ mod tests {
 
         let client = GroqVoiceClient::with_endpoint(
             Some("test-key".to_string()),
-            format!("http://127.0.0.1:{port}/voice-transcribe"),
+            format!("http://127.0.0.1:{port}/voice"),
             "whisper-large-v3".to_string(),
         );
 
@@ -1151,7 +1151,7 @@ mod tests {
 
         let client = GroqVoiceClient::with_endpoint(
             Some("test-key".to_string()),
-            format!("http://127.0.0.1:{port}/voice-transcribe"),
+            format!("http://127.0.0.1:{port}/voice"),
             "whisper-large-v3".to_string(),
         );
 

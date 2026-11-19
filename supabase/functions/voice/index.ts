@@ -1,4 +1,4 @@
-// Supabase Edge Function: voice-transcribe
+// Supabase Edge Function: voice
 // Secure gateway for Taurine voice dictation.
 // Authenticates users via Supabase Auth and proxies to Groq Whisper + Llama 3.1 8B without client-side API keys.
 
@@ -259,7 +259,7 @@ Deno.serve(async (req: Request) => {
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error("voice-transcribe unhandled error:", err);
+    console.error("voice gateway unhandled error:", err);
     return new Response(JSON.stringify({ error: `Internal Server Error: ${message}` }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
