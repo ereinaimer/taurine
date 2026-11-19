@@ -3,6 +3,13 @@
 // Authenticates users via Supabase Auth and proxies to Groq Whisper + Llama 3.1 8B without client-side API keys.
 
 import { createClient } from "@supabase/supabase-js";
+import {
+  buildLlamaSystemPrompt,
+  computeAverageLogprob,
+  parseLanguageCandidates,
+  selectBestCandidate,
+} from "./routing.ts";
+import type { WhisperCandidateResult, WhisperResponse } from "./routing.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -14,6 +21,15 @@ const GROQ_WHISPER_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
 const GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions";
 const WHISPER_MODEL = "whisper-large-v3";
 const CLEANUP_MODEL = "llama-3.1-8b-instant";
+
+export class GroqApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+    this.name = "GroqApiError";
+  }
+}
 
 function sanitizeCleanedText(rawInput: string, cleaned: string): string {
   let text = cleaned.trim();
@@ -46,6 +62,40 @@ function sanitizeCleanedText(rawInput: string, cleaned: string): string {
   return text;
 }
 
+async function callGroqWhisper(
+  apiKey: string,
+  file: Blob,
+  prompt?: string | null,
+  language?: string | null,
+): Promise<WhisperResponse> {
+  const groqFormData = new FormData();
+  groqFormData.append("file", file, "dictation.wav");
+  groqFormData.append("model", WHISPER_MODEL);
+  groqFormData.append("response_format", "verbose_json");
+  groqFormData.append("temperature", "0");
+  if (language && language.trim().length > 0) {
+    groqFormData.append("language", language.trim());
+  }
+  if (prompt && prompt.trim().length > 0) {
+    groqFormData.append("prompt", prompt.trim());
+  }
+
+  const whisperRes = await fetch(GROQ_WHISPER_URL, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: groqFormData,
+  });
+
+  if (!whisperRes.ok) {
+    const errorText = await whisperRes.text();
+    throw new GroqApiError(whisperRes.status, `Groq Whisper error (${whisperRes.status}): ${errorText}`);
+  }
+
+  return (await whisperRes.json()) as WhisperResponse;
+}
+
 async function runLlamaCleanup(
   apiKey: string,
   rawTranscript: string,
@@ -57,36 +107,7 @@ async function runLlamaCleanup(
     return "";
   }
 
-  let systemPrompt =
-    "You are an expert voice dictation cleanup engine. Transform raw transcribed speech into clean, well-formatted, professional text.\n" +
-    "Rules:\n" +
-    "- Correct punctuation, capitalization, and minor grammatical slips.\n" +
-    "- Remove conversational filler words (e.g. um, uh, ah, like, you know) and accidental stutter repetitions.\n" +
-    "- Format numbers, currencies, dates, email addresses, and technical terms appropriately.\n" +
-    "- Structure continuous speech into natural paragraphs separated by blank lines (\\n\\n) at major topic transitions or thought shifts, or when the speaker dictates a new paragraph.\n" +
-    "- Format sequences of numbered items or sequential instructions as numbered lists (e.g. 1., 2., 3.) when itemized.\n" +
-    "- Format itemized features, options, or components as clean bulleted lists (- ) when itemized.\n" +
-    "- Preserve regular flowing prose in paragraphs rather than forcing lists for standard explanations.\n" +
-    "- Preserve the speaker's original intent, vocabulary, tone, and meaning exactly.\n" +
-    "- Universal Native Script Rule: If speech belonging to any language typically written in a non-Latin script (including Indic languages, East Asian languages such as Japanese or Chinese, Cyrillic, Arabic, Hebrew, Greek, etc.) is transcribed in Latin or Romanized phonetic transliteration (e.g. Romaji, Pinyin, or Romanized Indic speech), render it in its authentic, standard native script and orthography (e.g. native syllabaries, characters, kanji/hanzi, abugidas, or alphabets). Never translate the meaning into another language; transcribe the speaker's exact words in their authentic language and native script.\n" +
-    "- Code-Switching & Technical Words: When a speaker naturally mixes languages (e.g. using English technical words, programming identifiers, software products, or brand names within non-English speech), preserve those genuine English terms in standard Latin text while keeping the surrounding language in its authentic native script.\n" +
-    "- If the speech contains only conversational filler words, stuttering, or ambient noise with no substantive content, output an empty string.\n" +
-    "- Output ONLY the final cleaned text with no surrounding quotes, conversational preamble, explanations, markdown code blocks, or notes.";
-
-  if (detectedLanguage && detectedLanguage.toLowerCase() !== "english" && detectedLanguage.toLowerCase() !== "en") {
-    systemPrompt += `\n- Acoustic language detected by speech recognition model: ${detectedLanguage}. Transcribe using the official, natural writing system and script of ${detectedLanguage}.`;
-  }
-
-  if (customTerms && customTerms.length > 0) {
-    const validTerms = customTerms
-      .map((t) => t.trim())
-      .filter((t) => t.length > 0)
-      .slice(0, 50);
-    if (validTerms.length > 0) {
-      systemPrompt += `\n- Domain vocabulary to preserve and format verbatim if phonetically spoken: ${validTerms.join(", ")}.`;
-    }
-  }
-
+  const systemPrompt = buildLlamaSystemPrompt(customTerms, detectedLanguage);
   const estimatedTokens = Math.floor((trimmedRaw.split(/\s+/).length * 4) / 3) + 32;
   const dynamicMaxTokens = Math.min(Math.max(estimatedTokens * 2 + 128, 256), 4096);
 
@@ -220,44 +241,60 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      // Forward audio to Groq Whisper
-      const groqFormData = new FormData();
-      groqFormData.append("file", file, "dictation.wav");
-      groqFormData.append("model", WHISPER_MODEL);
-      groqFormData.append("response_format", "verbose_json");
-      groqFormData.append("temperature", "0");
-      if (prompt && prompt.trim().length > 0) {
-        groqFormData.append("prompt", prompt.trim());
-      }
+      const preferredLanguagesRaw = formData.get("preferred_languages")?.toString() || null;
+      const candidates = parseLanguageCandidates(preferredLanguagesRaw);
 
-      const whisperRes = await fetch(GROQ_WHISPER_URL, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${groqApiKey}`,
-        },
-        body: groqFormData,
-      });
+      let winningResponse: WhisperResponse;
+      let effectiveLanguage: string | null = null;
 
-      if (!whisperRes.ok) {
-        const errorText = await whisperRes.text();
-        return new Response(JSON.stringify({ error: `Groq Whisper error (${whisperRes.status}): ${errorText}` }), {
-          status: whisperRes.status,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+      if (candidates.length === 0) {
+        // Unconstrained detection (single Whisper call without language parameter)
+        winningResponse = await callGroqWhisper(groqApiKey, file, prompt, null);
+        effectiveLanguage = winningResponse.language || null;
+      } else if (candidates.length === 1) {
+        // Exactly 1 candidate: single Whisper call with language: candidate
+        const candidate = candidates[0];
+        winningResponse = await callGroqWhisper(groqApiKey, file, prompt, candidate);
+        effectiveLanguage = winningResponse.language || candidate;
+      } else {
+        // Multiple candidates: run concurrent Whisper calls via Promise.allSettled across candidate languages (capped at 3)
+        const candidatePromises = candidates.map(async (candidate) => {
+          const response = await callGroqWhisper(groqApiKey, file, prompt, candidate);
+          const avgLogprob = computeAverageLogprob(response.segments);
+          return { candidate, response, avgLogprob };
         });
+
+        const settled = await Promise.allSettled(candidatePromises);
+        const successfulResults: WhisperCandidateResult[] = [];
+        let firstRejection: PromiseRejectedResult | null = null;
+
+        for (const res of settled) {
+          if (res.status === "fulfilled") {
+            successfulResults.push(res.value);
+          } else if (!firstRejection) {
+            firstRejection = res;
+          }
+        }
+
+        if (successfulResults.length === 0) {
+          throw firstRejection?.reason || new Error("All language candidate transcription attempts failed");
+        }
+
+        const best = selectBestCandidate(successfulResults);
+        winningResponse = best.response;
+        effectiveLanguage = winningResponse.language || best.candidate;
       }
 
-      const whisperJson = await whisperRes.json();
-      const rawText = (whisperJson.text || "").trim();
-      const detectedLanguage: string | null = whisperJson.language || null;
+      const rawText = (winningResponse.text || "").trim();
 
       if (cleanup && rawText.length > 0) {
-        const cleanedText = await runLlamaCleanup(groqApiKey, rawText, customTerms, detectedLanguage);
-        return new Response(JSON.stringify({ text: cleanedText, raw_text: rawText, language: detectedLanguage }), {
+        const cleanedText = await runLlamaCleanup(groqApiKey, rawText, customTerms, effectiveLanguage);
+        return new Response(JSON.stringify({ text: cleanedText, raw_text: rawText, language: effectiveLanguage }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      return new Response(JSON.stringify({ text: rawText, raw_text: rawText, language: detectedLanguage }), {
+      return new Response(JSON.stringify({ text: rawText, raw_text: rawText, language: effectiveLanguage }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -267,10 +304,11 @@ Deno.serve(async (req: Request) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err: unknown) {
+    const status = err instanceof GroqApiError ? err.status : 500;
     const message = err instanceof Error ? err.message : String(err);
     console.error("voice gateway unhandled error:", err);
     return new Response(JSON.stringify({ error: `Internal Server Error: ${message}` }), {
-      status: 500,
+      status,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
