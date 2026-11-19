@@ -49,6 +49,10 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
             "voice_handsfree_hotkey",
             settings.voice_handsfree_hotkey.clone(),
         ),
+        (
+            "voice_preferred_languages",
+            settings.voice_preferred_languages.clone(),
+        ),
         ("voice_dictionary", settings.voice_dictionary.clone()),
         (
             "voice_input_device",
@@ -293,6 +297,30 @@ mod tests {
             cursor_alias_err.contains("only available in TUI settings"),
             "expected TUI-only rejection for alias, got: {cursor_alias_err}"
         );
+    }
+
+    #[test]
+    fn set_and_reset_voice_preferred_languages() {
+        let (updated, reset) = with_test_db(|| -> taurine_core::error::Result<(String, String)> {
+            execute_set(
+                Some("voice_preferred_languages".to_string()),
+                Some("en, ml".to_string()),
+                false,
+            )?;
+            let conn = init::setup()?;
+            let manager = SettingsManager::new(&conn);
+            let updated = manager.load_all().voice_preferred_languages;
+
+            execute_reset("voice_preferred_languages".to_string(), false)?;
+            let conn = init::setup()?;
+            let manager = SettingsManager::new(&conn);
+            let reset = manager.load_all().voice_preferred_languages;
+            Ok((updated, reset))
+        })
+        .unwrap();
+
+        assert_eq!(updated, "en,ml");
+        assert_eq!(reset, "en");
     }
 
     #[test]
