@@ -144,7 +144,15 @@ pub fn recover_orphaned_files(
             file
         );
 
-        match cloud_client.transcribe_blocking(&samples, 16000, None, Some(&terms)) {
+        let preferred_langs = taurine_core::settings::get_cached_voice_preferred_languages();
+
+        match cloud_client.transcribe_blocking(
+            &samples,
+            16000,
+            None,
+            Some(&terms),
+            Some(&preferred_langs),
+        ) {
             Ok(text) => {
                 let formatted = taurine_core::voice::format_transcript(&text);
                 let trimmed = formatted.trim();
@@ -212,5 +220,66 @@ mod tests {
         clear_active_transcript_dump();
         let dumped_after = emergency_dump_to_disk_and_clipboard(temp_dir.path());
         assert_eq!(dumped_after, None);
+    }
+
+    #[test]
+    fn test_recover_orphaned_files_forwards_preferred_languages() {
+        use std::io::{Read, Write};
+        let _lock = crate::hook::tests::TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let temp_dir = tempfile::tempdir().unwrap();
+        crate::platform::test_injector().clear();
+        taurine_core::settings::set_cached_voice_preferred_languages("en,ja".to_string());
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let server_thread = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut data = Vec::new();
+            let mut buf = [0u8; 1024];
+            let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(500)));
+            while let Ok(n) = stream.read(&mut buf) {
+                if n == 0 {
+                    break;
+                }
+                data.extend_from_slice(&buf[..n]);
+                if data.len() > 3000 {
+                    break;
+                }
+            }
+            let req = String::from_utf8_lossy(&data);
+            assert!(req.contains("name=\"preferred_languages\""));
+            assert!(req.contains("en,ja"));
+
+            let response_body = r#"{"text": "rescued audio test"}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+            let _ = stream.flush();
+        });
+
+        let client = taurine_core::voice::GroqVoiceClient::with_endpoint(
+            Some("test-key".to_string()),
+            format!("http://127.0.0.1:{port}/transcribe"),
+            "whisper-large-v3".to_string(),
+        )
+        .with_cleanup_enabled(false);
+
+        let dict = taurine_core::voice::VoiceDictionary::from_csv("");
+        let samples = vec![0.1f32; 16000];
+        let mut spooler =
+            taurine_core::voice::AudioSpooler::new(temp_dir.path(), "test_req").unwrap();
+        spooler.append_samples(&samples).unwrap();
+        let file_path = spooler.path().to_path_buf();
+
+        let result = recover_orphaned_files(&client, &dict, vec![file_path]).unwrap();
+        assert_eq!(result, vec!["Rescued audio test".to_string()]);
+        server_thread.join().unwrap();
+        taurine_core::settings::set_cached_voice_preferred_languages("en".to_string());
     }
 }

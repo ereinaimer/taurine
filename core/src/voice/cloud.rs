@@ -281,6 +281,7 @@ impl CloudVoiceClient {
         wav_bytes: &[u8],
         prompt: Option<&str>,
         custom_terms: Option<&[String]>,
+        preferred_languages: Option<&str>,
     ) -> Result<String> {
         let auth_token = self.resolve_auth_token().ok_or_else(|| {
             let diag = crate::diagnostic::Diagnostic::problem(
@@ -304,6 +305,12 @@ impl CloudVoiceClient {
             && !p.trim().is_empty()
         {
             form = form.text("prompt", p.trim().to_string());
+        }
+
+        if let Some(langs) = preferred_languages
+            && !langs.trim().is_empty()
+        {
+            form = form.text("preferred_languages", langs.trim().to_string());
         }
 
         if let Some(terms) = custom_terms
@@ -379,12 +386,14 @@ impl CloudVoiceClient {
         sample_rate: u32,
         prompt: Option<&str>,
         custom_terms: Option<&[String]>,
+        preferred_languages: Option<&str>,
     ) -> Result<String> {
         self.transcribe_samples_bounded(
             samples,
             sample_rate,
             prompt,
             custom_terms,
+            preferred_languages,
             crate::voice::vad::DEFAULT_CHUNK_MAX_SAMPLES,
             crate::voice::vad::DEFAULT_CHUNK_MIN_SAMPLES,
         )
@@ -392,12 +401,14 @@ impl CloudVoiceClient {
     }
 
     /// Transcribe raw audio samples with customizable chunk limits.
+    #[allow(clippy::too_many_arguments)]
     pub async fn transcribe_samples_bounded(
         &self,
         samples: &[f32],
         sample_rate: u32,
         prompt: Option<&str>,
         custom_terms: Option<&[String]>,
+        preferred_languages: Option<&str>,
         max_chunk_samples: usize,
         min_split_samples: usize,
     ) -> Result<String> {
@@ -430,7 +441,12 @@ impl CloudVoiceClient {
                 }
                 let wav = crate::voice::encode_pcm16_wav(chunk, sample_rate, 1);
                 let text = match raw_client
-                    .transcribe_wav(&wav, dynamic_prompt.as_deref(), custom_terms)
+                    .transcribe_wav(
+                        &wav,
+                        dynamic_prompt.as_deref(),
+                        custom_terms,
+                        preferred_languages,
+                    )
                     .await
                 {
                     Ok(t) => t,
@@ -442,7 +458,12 @@ impl CloudVoiceClient {
                         );
                         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                         match raw_client
-                            .transcribe_wav(&wav, dynamic_prompt.as_deref(), custom_terms)
+                            .transcribe_wav(
+                                &wav,
+                                dynamic_prompt.as_deref(),
+                                custom_terms,
+                                preferred_languages,
+                            )
                             .await
                         {
                             Ok(t) => t,
@@ -489,7 +510,8 @@ impl CloudVoiceClient {
             }
         } else {
             let wav = crate::voice::encode_pcm16_wav(samples, sample_rate, 1);
-            self.transcribe_wav(&wav, prompt, custom_terms).await
+            self.transcribe_wav(&wav, prompt, custom_terms, preferred_languages)
+                .await
         }
     }
 
@@ -500,6 +522,7 @@ impl CloudVoiceClient {
         sample_rate: u32,
         prompt: Option<&str>,
         custom_terms: Option<&[String]>,
+        preferred_languages: Option<&str>,
     ) -> Result<String> {
         match tokio::runtime::Handle::try_current() {
             Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
@@ -509,6 +532,7 @@ impl CloudVoiceClient {
                         sample_rate,
                         prompt,
                         custom_terms,
+                        preferred_languages,
                     ))
                 })
             }
@@ -517,6 +541,7 @@ impl CloudVoiceClient {
                 let samples_vec = samples.to_vec();
                 let prompt = prompt.map(str::to_string);
                 let custom_terms = custom_terms.map(|t| t.to_vec());
+                let preferred_languages = preferred_languages.map(str::to_string);
                 std::thread::spawn(move || {
                     let rt = tokio::runtime::Builder::new_current_thread()
                         .enable_all()
@@ -529,6 +554,7 @@ impl CloudVoiceClient {
                         sample_rate,
                         prompt.as_deref(),
                         custom_terms.as_deref(),
+                        preferred_languages.as_deref(),
                     ))
                 })
                 .join()
@@ -541,7 +567,13 @@ impl CloudVoiceClient {
                     .enable_all()
                     .build()
                     .map_err(|e| Error::Service(format!("Failed to create async runtime: {e}")))?;
-                rt.block_on(self.transcribe_samples(samples, sample_rate, prompt, custom_terms))
+                rt.block_on(self.transcribe_samples(
+                    samples,
+                    sample_rate,
+                    prompt,
+                    custom_terms,
+                    preferred_languages,
+                ))
             }
         }
     }
@@ -641,7 +673,7 @@ mod tests {
 
         let client = GroqVoiceClient::new(None);
         let wav = crate::voice::encode_pcm16_wav(&[0.0; 160], 16000, 1);
-        let result = client.transcribe_wav(&wav, None, None).await;
+        let result = client.transcribe_wav(&wav, None, None, None).await;
 
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
@@ -687,7 +719,7 @@ mod tests {
         .with_cleanup_enabled(false);
 
         let wav = crate::voice::encode_pcm16_wav(&[0.0; 160], 16000, 1);
-        let transcript = client.transcribe_wav(&wav, None, None).await.unwrap();
+        let transcript = client.transcribe_wav(&wav, None, None, None).await.unwrap();
 
         assert_eq!(transcript, "Hello world, this is Taurine cloud voice.");
         server_thread.join().unwrap();
@@ -724,11 +756,88 @@ mod tests {
 
         let wav = crate::voice::encode_pcm16_wav(&[0.0; 160], 16000, 1);
         let transcript = client
-            .transcribe_wav(&wav, Some("Taurine, Whisper, Rust"), None)
+            .transcribe_wav(&wav, Some("Taurine, Whisper, Rust"), None, None)
             .await
             .unwrap();
 
         assert_eq!(transcript, "Taurine Whisper Rust test.");
+        server_thread.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_transcribe_wav_includes_preferred_languages() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let server_thread = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let req = read_mock_request(&mut stream);
+
+            assert!(req.contains("name=\"preferred_languages\""));
+            assert!(req.contains("en,ml"));
+
+            let response_body = r#"{"text": "Malayalam dictation verified"}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+            let _ = stream.flush();
+        });
+
+        let client = GroqVoiceClient::with_endpoint(
+            Some("test-groq-key".to_string()),
+            format!("http://127.0.0.1:{port}/transcribe"),
+            "whisper-large-v3".to_string(),
+        )
+        .with_cleanup_enabled(false);
+
+        let wav = crate::voice::encode_pcm16_wav(&[0.0; 160], 16000, 1);
+        let transcript = client
+            .transcribe_wav(&wav, None, None, Some("en,ml"))
+            .await
+            .unwrap();
+
+        assert_eq!(transcript, "Malayalam dictation verified");
+        server_thread.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_transcribe_wav_omits_empty_preferred_languages() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        let server_thread = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let req = read_mock_request(&mut stream);
+
+            assert!(!req.contains("name=\"preferred_languages\""));
+
+            let response_body = r#"{"text": "Default dictation"}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+            let _ = stream.flush();
+        });
+
+        let client = GroqVoiceClient::with_endpoint(
+            Some("test-groq-key".to_string()),
+            format!("http://127.0.0.1:{port}/transcribe"),
+            "whisper-large-v3".to_string(),
+        )
+        .with_cleanup_enabled(false);
+
+        let wav = crate::voice::encode_pcm16_wav(&[0.0; 160], 16000, 1);
+        let transcript = client
+            .transcribe_wav(&wav, None, None, Some("   "))
+            .await
+            .unwrap();
+
+        assert_eq!(transcript, "Default dictation");
         server_thread.join().unwrap();
     }
 
@@ -758,7 +867,7 @@ mod tests {
         );
 
         let wav = crate::voice::encode_pcm16_wav(&[0.0; 160], 16000, 1);
-        let result = client.transcribe_wav(&wav, None, None).await;
+        let result = client.transcribe_wav(&wav, None, None, None).await;
 
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
@@ -791,7 +900,7 @@ mod tests {
         );
 
         let wav = crate::voice::encode_pcm16_wav(&[0.0; 160], 16000, 1);
-        let result = client.transcribe_wav(&wav, None, None).await;
+        let result = client.transcribe_wav(&wav, None, None, None).await;
 
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
@@ -996,7 +1105,7 @@ mod tests {
             .unwrap();
 
         let result =
-            rt.block_on(async { client.transcribe_blocking(&[0.0; 160], 16000, None, None) });
+            rt.block_on(async { client.transcribe_blocking(&[0.0; 160], 16000, None, None, None) });
 
         assert_eq!(result.unwrap(), "blocking test");
         server_thread.join().unwrap();
@@ -1035,7 +1144,7 @@ mod tests {
             .unwrap();
 
         let result =
-            rt.block_on(async { client.transcribe_blocking(&[0.0; 160], 16000, None, None) });
+            rt.block_on(async { client.transcribe_blocking(&[0.0; 160], 16000, None, None, None) });
 
         assert_eq!(result.unwrap(), "multithread blocking test");
         server_thread.join().unwrap();
@@ -1110,7 +1219,7 @@ mod tests {
         }
 
         let result = client
-            .transcribe_samples_bounded(&samples, 16000, None, None, 6000, 3000)
+            .transcribe_samples_bounded(&samples, 16000, None, None, None, 6000, 3000)
             .await
             .unwrap();
 
@@ -1194,7 +1303,7 @@ mod tests {
         }
 
         let result = client
-            .transcribe_samples_bounded(&samples, 16000, None, None, 6000, 3000)
+            .transcribe_samples_bounded(&samples, 16000, None, None, None, 6000, 3000)
             .await;
 
         // Must salvage the successfully transcribed first chunk instead of failing!

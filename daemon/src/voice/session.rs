@@ -750,8 +750,16 @@ impl VoiceSessionManager {
         let terms = dict.terms().to_vec();
         drop(dict);
 
+        let preferred_langs = taurine_core::settings::get_cached_voice_preferred_languages();
+
         self.cloud_client
-            .transcribe_blocking(audio, 16000, prompt.as_deref(), Some(&terms))
+            .transcribe_blocking(
+                audio,
+                16000,
+                prompt.as_deref(),
+                Some(&terms),
+                Some(&preferred_langs),
+            )
             .map_err(|e| e.to_string())
     }
 
@@ -3361,6 +3369,15 @@ mod tests {
                 if content_length > 0 {
                     let mut body = vec![0u8; content_length];
                     let _ = reader.read_exact(&mut body);
+                    let body_str = String::from_utf8_lossy(&body);
+                    assert!(
+                        body_str.contains("name=\"preferred_languages\""),
+                        "Expected multipart form to contain preferred_languages field"
+                    );
+                    assert!(
+                        body_str.contains("en,ml"),
+                        "Expected preferred_languages to contain 'en,ml'"
+                    );
                 }
 
                 let response_body = r#"{"text": "Cloud voice dictation verified"}"#;
@@ -3374,6 +3391,8 @@ mod tests {
                 break;
             }
         });
+
+        taurine_core::settings::set_cached_voice_preferred_languages("en,ml".to_string());
 
         let cloud_client = Arc::new(taurine_core::voice::GroqVoiceClient::with_endpoint(
             Some("mock-test-key".to_string()),
@@ -3438,6 +3457,7 @@ mod tests {
         guard.set_balance(original_balance);
         guard.set_unlimited(original_unlimited);
         guard.set_authenticated(original_authenticated);
+        taurine_core::settings::set_cached_voice_preferred_languages("en".to_string());
 
         server_thread.join().unwrap();
     }
