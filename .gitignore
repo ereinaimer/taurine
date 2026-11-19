@@ -73,3 +73,5 @@ GEMINI.md
 .env
 .env.*
 target_tests/
+supabase/.temp/
+
