@@ -1631,10 +1631,13 @@ fn delete_triggers_by_pattern_ignores_already_deleted() {
 
 #[test]
 fn test_audit_payload_tags_mouse_invalid_directive_diagnostic() {
-    let err = audit_payload_tags("[mouse(click, nonextent)]").unwrap_err();
+    let err = audit_payload_tags("[mouse click nonextent]").unwrap_err();
     let msg = err.to_string();
     assert!(msg.contains("mouse"), "expected mouse error, got: {msg}");
     assert!(!msg.contains('`'), "must not contain backticks: {msg}");
+
+    let legacy_err = audit_payload_tags("[mouse(click, nonextent)]").unwrap_err();
+    assert!(legacy_err.to_string().contains("obsolete"));
 }
 
 #[test]
@@ -1952,7 +1955,7 @@ fn test_audit_payload_tags_missing_default_teaches_semicolon_syntax() {
     let err = audit_payload_tags("[nickname]").unwrap_err();
     let msg = err.to_string();
     assert!(
-        msg.contains("[name=default]"),
+        msg.contains("[$nickname=\"default\"]"),
         "expected named-default example, got: {msg}"
     );
     assert!(

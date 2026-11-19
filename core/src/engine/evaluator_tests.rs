@@ -728,7 +728,7 @@ fn inline_run_templates_skip_blind_undo_registration() {
     let state = Arc::new(EngineState::new());
     state.load_actions(vec![(
         "runme".to_string(),
-        crate::db::crud::TriggerAction::text("before [execute(bash, echo hi)] after"),
+        crate::db::crud::TriggerAction::text("before [run \"echo hi\"] after"),
     )]);
     let mut eval = Evaluator::new(state);
 
@@ -936,7 +936,7 @@ fn test_end_to_end_dynamic_variable_expansion() {
     let state = Arc::new(EngineState::new());
     state.load_actions(vec![(
         "repo".to_string(),
-        crate::db::crud::TriggerAction::text("https://github.com/[0=org]/[1=repo]"),
+        crate::db::crud::TriggerAction::text("https://github.com/[$org=\"org\"]/[$repo=\"repo\"]"),
     )]);
     let mut eval = Evaluator::new(state);
 
@@ -969,7 +969,9 @@ fn test_end_to_end_dynamic_variable_named_args_and_defaults() {
     let state = Arc::new(EngineState::new());
     state.load_actions(vec![(
         "gh".to_string(),
-        crate::db::crud::TriggerAction::text("https://github.com/[username]/[repo=taurine]"),
+        crate::db::crud::TriggerAction::text(
+            "https://github.com/[$username=\"username\"]/[$repo=\"taurine\"]",
+        ),
     )]);
     let mut eval = Evaluator::new(state);
 
@@ -1899,7 +1901,7 @@ fn test_spaces_in_arguments_parse() {
     let state = Arc::new(EngineState::new());
     state.load_actions(vec![(
         "hi".to_string(),
-        crate::db::crud::TriggerAction::text("Hello [0=default], [1=msg]!"),
+        crate::db::crud::TriggerAction::text("Hello [$name=\"default\"], [$msg=\"msg\"]!"),
     )]);
 
     let mut eval = Evaluator::new(state);
@@ -1926,7 +1928,7 @@ fn test_spaces_in_arguments_with_leading_dot() {
     let state = Arc::new(EngineState::new());
     state.load_actions(vec![(
         "hi".to_string(),
-        crate::db::crud::TriggerAction::text("Hello [0=default], [1=msg]!"),
+        crate::db::crud::TriggerAction::text("Hello [$name=\"default\"], [$msg=\"msg\"]!"),
     )]);
 
     let mut eval = Evaluator::new(state);
@@ -1946,7 +1948,7 @@ fn test_colon_is_literal_text_after_separator_switch() {
     let state = Arc::new(EngineState::new());
     state.load_actions(vec![(
         "meet".to_string(),
-        crate::db::crud::TriggerAction::text("At [hour=now] in [place=here]"),
+        crate::db::crud::TriggerAction::text("At [$hour=\"now\"] in [$place=\"here\"]"),
     )]);
     let mut eval = Evaluator::new(state);
     for c in "meet:2pm".chars() {
@@ -1970,7 +1972,7 @@ fn test_plan_path_ordered_bare_fallback() {
     let mut args = ArgMap::default();
     args.positional.push("2pm".to_string());
     args.positional.push("lobby".to_string());
-    let plan = ExecutionPlan::compile("Meet at [hour=now] in [place=here]");
+    let plan = ExecutionPlan::compile("Meet at [$hour=\"now\"] in [$place=\"here\"]");
     let expansion = plan.evaluate(&args, None, ExpansionOrigin::User);
     assert_eq!(
         expansion.steps,
@@ -1983,7 +1985,9 @@ fn test_named_args_match_case_insensitively() {
     let state = Arc::new(EngineState::new());
     state.load_actions(vec![(
         "gh".to_string(),
-        crate::db::crud::TriggerAction::text("https://github.com/[name=user]/[repo=taurine]"),
+        crate::db::crud::TriggerAction::text(
+            "https://github.com/[$name=\"user\"]/[$repo=\"taurine\"]",
+        ),
     )]);
     let mut eval = Evaluator::new(state);
     for c in ">gh;NAME=ereinaimer".chars() {

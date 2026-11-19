@@ -545,7 +545,7 @@ mod tests {
         with_test_db(|db_path| {
             execute(
                 "Shift + Ctrl + G".to_string(),
-                "git status[key(enter)]".to_string(),
+                "git status[enter]".to_string(),
                 "all".to_string(),
                 true,
                 None,

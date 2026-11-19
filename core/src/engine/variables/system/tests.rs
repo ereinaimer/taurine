@@ -52,7 +52,7 @@ fn test_is_directive() {
 fn test_resolve_random_int_interpolation() {
     assert_eq!(
         crate::engine::variables::interpolate::interpolate(
-            "[random(int, 5, 5)]",
+            "[random int 5 5]",
             &crate::engine::variables::types::ArgMap::default()
         ),
         "5"
@@ -62,7 +62,7 @@ fn test_resolve_random_int_interpolation() {
 #[test]
 fn test_resolve_lorem_word_interpolation_count() {
     let resolved = crate::engine::variables::interpolate::interpolate(
-        "[lorem(words, 3)]",
+        "[lorem words 3]",
         &crate::engine::variables::types::ArgMap::default(),
     );
 
@@ -112,7 +112,7 @@ fn test_finalize_cursor_skipped_past_navigation_cap() {
 
 #[test]
 fn test_finalize_key_directive_splits_into_steps() {
-    let res = finalize("name[key(tab)]email", None);
+    let res = finalize("name[tab]email", None);
     assert_eq!(
         res.steps,
         vec![
@@ -121,11 +121,18 @@ fn test_finalize_key_directive_splits_into_steps() {
             ExpansionStep::Text("email".to_string()),
         ]
     );
+
+    // Legacy key(...) syntax does not expand
+    let legacy = finalize("name[key(tab)]email", None);
+    assert_eq!(
+        legacy.steps,
+        vec![ExpansionStep::Text("name[key(tab)]email".to_string())]
+    );
 }
 
 #[test]
 fn test_finalize_delay_directive() {
-    let res = finalize("first[delay(200ms)]second[delay(100)]third", None);
+    let res = finalize("first[wait 200ms]second[wait 100ms]third", None);
     assert_eq!(
         res.steps,
         vec![
@@ -136,11 +143,18 @@ fn test_finalize_delay_directive() {
             ExpansionStep::Text("third".to_string()),
         ]
     );
+
+    // Legacy delay(...) syntax does not expand
+    let legacy = finalize("first[delay(200ms)]second", None);
+    assert_eq!(
+        legacy.steps,
+        vec![ExpansionStep::Text("first[delay(200ms)]second".to_string())]
+    );
 }
 
 #[test]
 fn test_finalize_inline_run_splits_progressive_steps() {
-    let res = finalize("Wait for it... [execute(bash, echo Done!)]", None);
+    let res = finalize("Wait for it... [run \"echo Done!\"]", None);
 
     assert_eq!(
         res.steps[0],
@@ -160,10 +174,7 @@ fn test_finalize_inline_run_splits_progressive_steps() {
 
 #[test]
 fn test_finalize_silent_inline_run_uses_silent_metadata() {
-    let res = finalize(
-        "start[execute(bash, echo background, silent=true)]end",
-        None,
-    );
+    let res = finalize("start[run silent \"echo background\"]end", None);
 
     assert_eq!(res.steps.len(), 3);
     match &res.steps[1] {
@@ -181,7 +192,7 @@ fn test_finalize_silent_inline_run_uses_silent_metadata() {
 #[test]
 fn test_finalize_inline_run_with_transformers() {
     let res = finalize(
-        "[execute(bash, echo done) | case(upper) | strip(whitespace)]",
+        "[run \"echo done\" | case(upper) | strip(whitespace)]",
         None,
     );
     assert_eq!(res.steps.len(), 1);
@@ -201,19 +212,9 @@ fn test_finalize_inline_run_with_transformers() {
 }
 
 #[test]
-fn test_finalize_missing_run_file_emits_error_text() {
-    let res = finalize(
-        "[execute(bash, C:\\definitely\\missing.sh, file=true)]",
-        None,
-    );
-
-    assert_eq!(res.steps, vec![]);
-}
-
-#[test]
 fn test_finalize_inline_run_unconditional_regardless_of_cached_setting() {
     crate::settings::set_cached_scripts_enabled(false);
-    let res = finalize("echo [execute(bash, echo hi)]", None);
+    let res = finalize("echo [run \"echo hi\"]", None);
     crate::settings::set_cached_scripts_enabled(true);
 
     assert_eq!(res.steps.len(), 2);
@@ -222,7 +223,7 @@ fn test_finalize_inline_run_unconditional_regardless_of_cached_setting() {
 
 #[test]
 fn test_finalize_cursor_suppressed_when_key_directives_present() {
-    let res = finalize("name[cursor][key(tab)]email", None);
+    let res = finalize("name[cursor][tab]email", None);
     // [cursor] should be kept as literal text, not processed as a directive.
     assert_eq!(
         res.steps,
@@ -236,7 +237,7 @@ fn test_finalize_cursor_suppressed_when_key_directives_present() {
 
 #[test]
 fn test_finalize_multiple_key_directives() {
-    let res = finalize("a[key(tab)]b[key(enter)]c", None);
+    let res = finalize("a[tab]b[enter]c", None);
     assert_eq!(
         res.steps,
         vec![
@@ -251,15 +252,15 @@ fn test_finalize_multiple_key_directives() {
 
 #[test]
 fn test_finalize_key_alias_case_insensitive() {
-    let res = finalize("[key(TAB)]", None);
+    let res = finalize("[TAB]", None);
     assert_eq!(res.steps, vec![ExpansionStep::KeyPress("tab".to_string())]);
 }
 
 #[test]
 fn test_finalize_key_alias_strips_quotes() {
-    let res = finalize("[key(\"tab\")]", None);
+    let res = finalize("[\"tab\"]", None);
     assert_eq!(res.steps, vec![ExpansionStep::KeyPress("tab".to_string())]);
-    let res2 = finalize("[key('enter')]", None);
+    let res2 = finalize("['enter']", None);
     assert_eq!(
         res2.steps,
         vec![ExpansionStep::KeyPress("enter".to_string())]
@@ -268,12 +269,15 @@ fn test_finalize_key_alias_strips_quotes() {
 
 #[test]
 fn test_contains_key_or_delay_directives() {
-    assert!(contains_key_or_delay_directives("hello [key(tab)] world"));
-    assert!(contains_key_or_delay_directives("test [delay(100ms)]"));
+    assert!(contains_key_or_delay_directives("hello [tab] world"));
+    assert!(contains_key_or_delay_directives("test [wait 100ms]"));
     assert!(!contains_key_or_delay_directives("hello [cursor] world"));
     assert!(!contains_key_or_delay_directives("just plain text"));
     // Escaped should not count.
-    assert!(!contains_key_or_delay_directives(r#"\[key(tab)\]"#));
+    assert!(!contains_key_or_delay_directives(r#"\[tab\]"#));
+    // Obsolete legacy syntax does not count as active directives
+    assert!(!contains_key_or_delay_directives("hello [key(tab)] world"));
+    assert!(!contains_key_or_delay_directives("test [delay(100ms)]"));
 }
 
 #[test]
@@ -354,7 +358,7 @@ fn test_literal_newline_passes_through_unchanged() {
 
 #[test]
 fn test_finalize_escaped_brackets_in_key_mode() {
-    let res = finalize(r#"\[literal\][key(tab)]after"#, None);
+    let res = finalize(r#"\[literal\][tab]after"#, None);
     assert_eq!(
         res.steps,
         vec![
@@ -367,7 +371,7 @@ fn test_finalize_escaped_brackets_in_key_mode() {
 
 #[test]
 fn test_finalize_modifier_combo_key() {
-    let res = finalize("[key(ctrl+a)]", None);
+    let res = finalize("[ctrl+a]", None);
     assert_eq!(
         res.steps,
         vec![ExpansionStep::KeyPress("ctrl+a".to_string())]
@@ -376,7 +380,7 @@ fn test_finalize_modifier_combo_key() {
 
 #[test]
 fn test_finalize_multi_modifier_combo_case_normalized() {
-    let res = finalize("[key(Ctrl+Shift+End)]", None);
+    let res = finalize("[Ctrl+Shift+End]", None);
     assert_eq!(
         res.steps,
         vec![ExpansionStep::KeyPress("ctrl+shift+end".to_string())]
@@ -385,7 +389,7 @@ fn test_finalize_multi_modifier_combo_case_normalized() {
 
 #[test]
 fn test_finalize_combo_between_text_segments() {
-    let res = finalize("Name[key(tab)]Address[key(shift+tab)]Back", None);
+    let res = finalize("Name[tab]Address[shift+tab]Back", None);
     assert_eq!(
         res.steps,
         vec![
@@ -400,7 +404,7 @@ fn test_finalize_combo_between_text_segments() {
 
 #[test]
 fn test_finalize_standalone_modifier_directives() {
-    let res = finalize("[key(mod)][key(super)][key(ctrl)]", None);
+    let res = finalize("[mod][super][ctrl]", None);
     assert_eq!(
         res.steps,
         vec![
@@ -416,11 +420,11 @@ fn test_validate_output_logic_paths() {
     // Verify path coverage without panicking.
     validate_output("valid", None).unwrap();
     validate_output("[cursor] [cursor]", Some("multi")).unwrap();
-    validate_output("[key(tab)] [cursor]", Some("conflict")).unwrap();
+    validate_output("[tab] [cursor]", Some("conflict")).unwrap();
     validate_output("[cursor=invalid]", Some("default")).unwrap();
-    validate_output("[lorem.words([num=5])]", Some("nested")).unwrap();
+    validate_output("[lorem count=[$num=5]]", Some("nested")).unwrap();
     validate_output(r#"\[cursor\] [cursor]"#, Some("escaped")).unwrap();
-    validate_output("[clipboard=invalid]", None).unwrap();
+    validate_output("[clip=invalid]", None).unwrap();
 }
 
 #[test]
@@ -459,7 +463,7 @@ mod compatibility_finalize_tests {
 
     #[test]
     fn delay_directives_also_suppress_cursor_positioning() {
-        let res = finalize("start[cursor][delay(25ms)]end", None);
+        let res = finalize("start[cursor][wait 25ms]end", None);
 
         assert_eq!(
             res.steps,
@@ -473,7 +477,7 @@ mod compatibility_finalize_tests {
 
     #[test]
     fn escaped_cursor_literal_stays_literal_when_key_directives_exist() {
-        let res = finalize(r#"\[cursor\][key(tab)]after"#, None);
+        let res = finalize(r#"\[cursor\][tab]after"#, None);
 
         assert_eq!(
             res.steps,
@@ -500,7 +504,7 @@ mod compatibility_finalize_tests {
 
     #[test]
     fn key_and_delay_directives_preserve_current_execution_order() {
-        let res = finalize("a[key(tab)]b[delay(10ms)]c[key(enter)]", None);
+        let res = finalize("a[tab]b[wait 10ms]c[enter]", None);
 
         assert_eq!(
             res.steps,
@@ -517,11 +521,8 @@ mod compatibility_finalize_tests {
 
     #[test]
     fn escaped_directives_are_unescaped_to_text() {
-        let res = finalize(r#"\[key(enter)\]"#, None);
-        assert_eq!(
-            res.steps,
-            vec![ExpansionStep::Text("[key(enter)]".to_string())]
-        );
+        let res = finalize(r#"\[enter\]"#, None);
+        assert_eq!(res.steps, vec![ExpansionStep::Text("[enter]".to_string())]);
     }
 
     #[test]
@@ -575,7 +576,7 @@ mod compatibility_finalize_tests {
             args.positional.push("New York".to_string());
             args.named.insert("role".to_string(), "Manager".to_string());
             let res = evaluate_template(
-                "Hello [0=friend]! You live in [1='San Francisco'] and work as [role='Software Engineer'].",
+                "Hello [$name=\"friend\"]! You live in [$city=\"San Francisco\"] and work as [$role=\"Software Engineer\"].",
                 Some(&args),
             );
             assert_eq!(
@@ -591,22 +592,28 @@ mod compatibility_finalize_tests {
             let mut args = crate::engine::variables::types::ArgMap::default();
             args.positional.push("custom".to_string());
             let res = evaluate_template(
-                "Escaped brackets: \\[0=ignored\\] | Literal pipe: [0='default value' \\| case(upper)] | Parsed pipe: [0='hello' | case(upper)]",
+                "Escaped brackets: \\[$val=\"ignored\"\\] | Literal pipe: [$val=\"default value\" \\| case(upper)] | Parsed pipe: [$val=\"hello\" | case(upper)]",
                 Some(&args),
             );
             assert_eq!(
                 res.steps,
                 vec![ExpansionStep::Text(
-                    "Escaped brackets: [0=ignored] | Literal pipe: custom | Parsed pipe: CUSTOM"
+                    "Escaped brackets: [$val=\"ignored\"] | Literal pipe: custom | Parsed pipe: CUSTOM"
                         .to_string()
                 )]
             );
 
             let res_no_args = evaluate_template(
-                "Escaped brackets: \\[0=ignored\\] | Literal pipe: [0='default value' \\| case(upper)] | Parsed pipe: [0='hello' | case(upper)]",
+                "Escaped brackets: \\[$val=\"ignored\"\\] | Literal pipe: [$val=\"default value\" \\| case(upper)] | Parsed pipe: [$val=\"hello\" | case(upper)]",
                 None,
             );
-            assert_eq!(res_no_args.steps, vec![ExpansionStep::Text("Escaped brackets: [0=ignored] | Literal pipe: 'default value' | case(upper) | Parsed pipe: 'DEFAULT VALUE' | CASE(UPPER)".to_string())]);
+            assert_eq!(
+                res_no_args.steps,
+                vec![ExpansionStep::Text(
+                    "Escaped brackets: [$val=\"ignored\"] | Literal pipe: \"default value\" | case(upper) | Parsed pipe: \"DEFAULT VALUE\" | CASE(UPPER)"
+                        .to_string()
+                )]
+            );
         }
 
         // Test Case 3: testdatetime
@@ -636,7 +643,7 @@ mod compatibility_finalize_tests {
                 std::env::set_var("USERPROFILE", "c:\\users\\aimer");
             }
             let res = evaluate_template(
-                "User (Title Case): [env(USERNAME) | case(title)] | Home Path (Lowercase): [env(USERPROFILE) | case(lower)]",
+                "User (Title Case): [env USERNAME | case(title)] | Home Path (Lowercase): [env USERPROFILE | case(lower)]",
                 None,
             );
             assert_eq!(
@@ -667,7 +674,7 @@ mod compatibility_finalize_tests {
                 std::fs::write(&path, "line one\nline two\nline three").ok();
                 let res = evaluate_template(
                     &format!(
-                        "Full Content: [file(read, ~/{file_name}) | strip(whitespace)] | Line 2: [file(line, ~/{file_name}, 2) | case(upper)] | Lines 1-3: [file(lines, ~/{file_name}, 1, 3)]"
+                        "Full Content: [file read ~/{file_name} | strip(whitespace)] | Line 2: [file line ~/{file_name} 2 | case(upper)] | Lines 1-3: [file lines ~/{file_name} 1 3]"
                     ),
                     None,
                 );
@@ -693,7 +700,7 @@ mod compatibility_finalize_tests {
                 "banana".to_string(),
             ]);
             let res = evaluate_template(
-                "Latest (Slugified): [clip | case(slug)] | Second: [clip | strip(whitespace)] | Third (Upper): [clip(1) | case(upper)] | Empty index: [clip(2) | wrap(singlequote)]",
+                "Latest (Slugified): [clip | case(slug)] | Second: [clip | strip(whitespace)] | Third (Upper): [clip 1 | case(upper)] | Empty index: [clip 2 | wrap(singlequote)]",
                 None,
             );
             super::clipboard::set_mock_clip(None);
@@ -707,7 +714,7 @@ mod compatibility_finalize_tests {
         // Test Case 7: testexec
         {
             let res = evaluate_template(
-                "Cwd Path: [execute(powershell, \"(Get-Location).Path\") | strip(whitespace)] | Cmd Command: [execute(cmd, echo hello from cmd) | case(upper)] | Silent Task: [execute(powershell, echo 'background task', silent=true)]",
+                "Cwd Path: [run \"(Get-Location).Path\" | strip(whitespace)] | Cmd Command: [run \"echo hello from cmd\" | case(upper)] | Silent Task: [run silent \"echo 'background task'\"]",
                 None,
             );
             assert_eq!(res.steps.len(), 6);
@@ -757,7 +764,7 @@ mod compatibility_finalize_tests {
         // Test Case 9: testrandom
         {
             let res = evaluate_template(
-                "Int (10-50): [random(int, 10, 50)] | Pass (12): [random(pass, 12)] | Choice: [random(choice, apple, banana, cherry) | case(title)] | Lorem (Dynamic Count): [lorem(words, [random(int, 2, 4)]) | case(kebab)]",
+                "Int (10-50): [random int 10 50] | Pass (12): [random pass 12] | Choice: [random choice \"apple\" \"banana\" \"cherry\" | case(title)] | Lorem (Dynamic Count): [lorem words 3 | case(kebab)]",
                 None,
             );
             assert_eq!(res.steps.len(), 1);
@@ -786,7 +793,7 @@ mod compatibility_finalize_tests {
                 ).unwrap();
 
             let res = evaluate_template(
-                "Output: [use('testinner') | case(upper)] | Date: [chrono(date)]",
+                "Output: [use \"testinner\" | case(upper)] | Date: [date]",
                 None,
             );
 
@@ -832,7 +839,7 @@ mod compatibility_finalize_tests {
             args.positional.push("Smith".to_string());
             args.positional.push("Admin".to_string());
             let res = evaluate_template(
-                "[0=first][key(tab)][delay(100ms)][1=second][key(tab)][delay(50)][2=third][key(enter)]",
+                "[$first=\"first\"][tab][wait 100ms][$second=\"second\"][tab][wait 50ms][$third=\"third\"][enter]",
                 Some(&args),
             );
             assert_eq!(
@@ -856,12 +863,12 @@ mod compatibility_finalize_tests {
 fn test_finalize_ai_origin_blocks_all_directives_and_cursor() {
     use crate::engine::variables::types::ExpansionOrigin;
 
-    let input = "AI output with [key(tab)] [delay(100ms)] [mouse(click, m1)] [image(file:\"a.png\")] [execute(python, \"1\")] and [cursor]";
+    let input = "AI output with [tab] [wait 100ms] [mouse click m1] [image \"a.png\"] [run \"echo 1\"] and [cursor]";
     let res = finalize_with_origin(input, None, ExpansionOrigin::Ai);
     assert_eq!(
         res.steps,
         vec![ExpansionStep::Text(
-            "AI output with [key(tab)] [delay(100ms)] [mouse(click, m1)] [image(file:\"a.png\")] [execute(python, \"1\")] and [cursor]"
+            "AI output with [tab] [wait 100ms] [mouse click m1] [image \"a.png\"] [run \"echo 1\"] and [cursor]"
                 .to_string()
         )]
     );
@@ -871,7 +878,7 @@ fn test_finalize_ai_origin_blocks_all_directives_and_cursor() {
 fn test_finalize_user_origin_preserves_exec_inline_run() {
     use crate::engine::variables::types::ExpansionOrigin;
 
-    let input = "User snippet [execute(powershell, \"whoami\")]";
+    let input = "User snippet [run \"whoami\"]";
     let res = finalize_with_origin(input, None, ExpansionOrigin::User);
     assert_eq!(res.steps.len(), 2);
     assert_eq!(
@@ -886,61 +893,54 @@ fn test_parse_mouse_directive_unified_actions() {
     use crate::keys::MouseButton;
 
     assert_eq!(
-        parse_mouse_directive("mouse(click, m1)"),
+        parse_mouse_directive("mouse click m1"),
         Some(ExpansionStep::MouseClick(MouseButton::Left, 1))
     );
     assert_eq!(
-        parse_mouse_directive("mouse(click, m2, 2)"),
+        parse_mouse_directive("mouse click m2 2"),
         Some(ExpansionStep::MouseClick(MouseButton::Right, 2))
     );
     assert_eq!(
-        parse_mouse_directive("mouse(click, m3, 3)"),
+        parse_mouse_directive("mouse click m3 3"),
         Some(ExpansionStep::MouseClick(MouseButton::Middle, 3))
     );
     assert_eq!(
-        parse_mouse_directive("mouse(click, m4)"),
+        parse_mouse_directive("mouse click m4"),
         Some(ExpansionStep::MouseClick(MouseButton::Button4, 1))
     );
     assert_eq!(
-        parse_mouse_directive("mouse(click, m5, 0)"),
+        parse_mouse_directive("mouse click m5 0"),
         Some(ExpansionStep::MouseClick(MouseButton::Button5, 0))
     );
     assert_eq!(
-        parse_mouse_directive("mouse(click, m6)"),
+        parse_mouse_directive("mouse click m6"),
         Some(ExpansionStep::MouseClick(MouseButton::Other(6), 1))
     );
     assert_eq!(
-        parse_mouse_directive("mouse(click, m255)"),
+        parse_mouse_directive("mouse click m255"),
         Some(ExpansionStep::MouseClick(MouseButton::Other(255), 1))
     );
     assert_eq!(
-        parse_mouse_directive("mouse(hold, m1)"),
+        parse_mouse_directive("mouse hold m1"),
         Some(ExpansionStep::MouseDown(MouseButton::Left))
     );
     assert_eq!(
-        parse_mouse_directive("mouse(release, m5)"),
+        parse_mouse_directive("mouse release m5"),
         Some(ExpansionStep::MouseUp(MouseButton::Button5))
     );
     assert_eq!(
-        parse_mouse_directive("mouse(move, 1920, 1080)"),
+        parse_mouse_directive("mouse move 1920 1080"),
         Some(ExpansionStep::MouseMove(1920, 1080))
     );
     assert_eq!(
-        parse_mouse_directive("mouse(scroll, -120)"),
+        parse_mouse_directive("mouse scroll -120"),
         Some(ExpansionStep::MouseScroll(-120))
     );
     assert_eq!(
-        parse_mouse_directive("mouse(scroll, 5)"),
+        parse_mouse_directive("mouse scroll 5"),
         Some(ExpansionStep::MouseScroll(5))
     );
-    assert_eq!(
-        parse_mouse_directive("mouse(action=click, btn=m1, count=2)"),
-        Some(ExpansionStep::MouseClick(MouseButton::Left, 2))
-    );
-    assert_eq!(
-        parse_mouse_directive("mouse(\"click\", \"m1\")"),
-        Some(ExpansionStep::MouseClick(MouseButton::Left, 1))
-    );
+    assert_eq!(parse_mouse_directive("mouse(click, m1)"), None);
 }
 
 #[test]
@@ -985,6 +985,7 @@ fn test_parse_mouse_directive_rejects_deleted_forms() {
         assert_eq!(parse_mouse_directive(deleted), None, "{deleted}");
     }
     // pos is deferred content, not a step.
+    assert_eq!(parse_mouse_directive("mouse pos"), None);
     assert_eq!(parse_mouse_directive("mouse(pos)"), None);
 }
 
@@ -1008,17 +1009,18 @@ fn test_mouse_deleted_forms_hint_canonical_save_time() {
 
 #[test]
 fn test_mouse_unified_deferred_and_directive() {
-    assert!(is_directive("mouse(click, m1)"));
-    assert!(is_directive("mouse(pos)"));
-    assert!(is_deferred("mouse(pos)"));
+    assert!(is_directive("mouse click m1"));
+    assert!(is_directive("mouse pos"));
+    assert!(is_deferred("mouse pos"));
     assert!(!is_deferred("mouse.pos"));
+    assert!(!is_directive("mouse(click, m1)"));
 }
 
 #[test]
 fn test_finalize_mouse_directives() {
     use crate::keys::MouseButton;
 
-    let input = "Action: [mouse(click, m4)][delay(50)][mouse(click, m1, 2)]";
+    let input = "Action: [mouse click m4][wait 50ms][mouse click m1 2]";
     let res = finalize(input, None);
     assert_eq!(
         res.steps,
@@ -1035,7 +1037,7 @@ fn test_finalize_mouse_directives() {
 fn test_finalize_cursor_suppressed_when_mouse_directives_present() {
     use crate::keys::MouseButton;
 
-    let res = finalize("name[cursor][mouse(click, m1)]email", None);
+    let res = finalize("name[cursor][mouse click m1]email", None);
     assert_eq!(
         res.steps,
         vec![
@@ -1090,7 +1092,7 @@ fn use_placeholder_cache_matches_db_and_refreshes_after_clear() {
     )
     .unwrap();
 
-    let first = eval_use_template("Result: [use(ucache_inner)]!");
+    let first = eval_use_template("Result: [use ucache_inner]!");
     assert_eq!(first.steps.len(), 1);
     assert_eq!(
         first.steps[0],
@@ -1104,7 +1106,7 @@ fn use_placeholder_cache_matches_db_and_refreshes_after_clear() {
     .unwrap();
 
     // Still the cached text: proves the second resolution skipped the database.
-    let second = eval_use_template("Result: [use(ucache_inner)]!");
+    let second = eval_use_template("Result: [use ucache_inner]!");
     assert_eq!(second.steps.len(), 1);
     assert_eq!(
         second.steps[0],
@@ -1112,7 +1114,7 @@ fn use_placeholder_cache_matches_db_and_refreshes_after_clear() {
     );
 
     crate::engine::variables::interpolate::clear_use_cache();
-    let third = eval_use_template("Result: [use(ucache_inner)]!");
+    let third = eval_use_template("Result: [use ucache_inner]!");
     assert_eq!(third.steps.len(), 1);
     assert_eq!(
         third.steps[0],
@@ -1162,7 +1164,7 @@ fn use_cache_late_inner_snippet_resolves_after_it_appears() {
     let conn = crate::db::key::open_keyed_connection(&crate::paths::get_db_path()).unwrap();
     conn.execute(
         "INSERT OR REPLACE INTO triggers (id, output, action_type, target_os, tags, is_deleted, created_at, updated_at)
-         VALUES ('ucache_outer_id', 'X[use(ucache_late)]Y', 'text', 'all', '[]', 0, 1719878400, 1719878400)",
+         VALUES ('ucache_outer_id', 'X[use ucache_late]Y', 'text', 'all', '[]', 0, 1719878400, 1719878400)",
         [],
     )
     .unwrap();
@@ -1174,7 +1176,7 @@ fn use_cache_late_inner_snippet_resolves_after_it_appears() {
     .unwrap();
 
     // Inner snippet does not exist yet: outer caches, inner stays uncached.
-    let first = eval_use_template("[use(ucache_outer)]");
+    let first = eval_use_template("[use ucache_outer]");
     assert_eq!(first.steps.len(), 1);
     assert_eq!(first.steps[0], ExpansionStep::Text("XY".to_string()));
 
@@ -1192,7 +1194,7 @@ fn use_cache_late_inner_snippet_resolves_after_it_appears() {
     .unwrap();
 
     // Cached outer plus uncached inner must resolve, not stall.
-    let second = eval_use_template("[use(ucache_outer)]");
+    let second = eval_use_template("[use ucache_outer]");
     assert_eq!(second.steps.len(), 1);
     assert_eq!(second.steps[0], ExpansionStep::Text("Xm!Y".to_string()));
 
@@ -1242,7 +1244,7 @@ fn use_cache_keeps_args_live_on_cache_hits() {
     let conn = crate::db::key::open_keyed_connection(&crate::paths::get_db_path()).unwrap();
     conn.execute(
         "INSERT OR REPLACE INTO triggers (id, output, action_type, target_os, tags, is_deleted, created_at, updated_at)
-         VALUES ('ucache_args_id', 'hi [0]', 'text', 'all', '[]', 0, 1719878400, 1719878400)",
+         VALUES ('ucache_args_id', 'hi [$arg=\"\"]', 'text', 'all', '[]', 0, 1719878400, 1719878400)",
         [],
     )
     .unwrap();
@@ -1254,15 +1256,15 @@ fn use_cache_keeps_args_live_on_cache_hits() {
     .unwrap();
 
     let mut args_a = crate::engine::variables::types::ArgMap::default();
-    args_a.positional.push("A".to_string());
-    let first = eval_with_args("[use(ucache_args)]", &args_a);
+    args_a.named.insert("arg".to_string(), "A".to_string());
+    let first = eval_with_args("[use ucache_args]", &args_a);
     assert_eq!(first.steps.len(), 1);
     assert_eq!(first.steps[0], ExpansionStep::Text("hi A".to_string()));
 
     // Same cached raw template with different args must give different text.
     let mut args_b = crate::engine::variables::types::ArgMap::default();
-    args_b.positional.push("B".to_string());
-    let second = eval_with_args("[use(ucache_args)]", &args_b);
+    args_b.named.insert("arg".to_string(), "B".to_string());
+    let second = eval_with_args("[use ucache_args]", &args_b);
     assert_eq!(second.steps.len(), 1);
     assert_eq!(second.steps[0], ExpansionStep::Text("hi B".to_string()));
 

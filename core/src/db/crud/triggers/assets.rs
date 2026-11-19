@@ -19,14 +19,12 @@ pub(crate) fn compile_and_save_assets(
         let inner = trim_slice(&output[tag.start + 1..tag.end]);
         let mut rewritten_tag = None;
 
-        if let Some(rest) = inner.strip_prefix("image(")
-            && rest.ends_with(')')
-        {
-            let path = trim_slice(&rest[..rest.len() - 1]);
+        if let Some(rest) = inner.strip_prefix("image ") {
+            let path = crate::engine::variables::system::strip_argument_quotes(rest.trim());
             if path.starts_with("asset(") && path.ends_with(')') {
                 let hash = trim_slice(&path[6..path.len() - 1]);
                 active_hashes.insert(hash.to_string());
-                rewritten_tag = Some(format!("[image(asset({}))]", hash));
+                rewritten_tag = Some(format!("[image \"asset({})\"]", hash));
             } else if !path.is_empty()
                 && let Some(path_buf) = crate::engine::variables::system::file::expand_path(path)
             {
@@ -74,64 +72,7 @@ pub(crate) fn compile_and_save_assets(
                 )?;
 
                 active_hashes.insert(hash.clone());
-                rewritten_tag = Some(format!("[image(asset({}))]", hash));
-            }
-        } else if let Some(raw) =
-            crate::engine::variables::system::execute::strip_execute_args(inner)
-            && let Ok(invocation) = crate::engine::variables::system::execute::parse_invocation(raw)
-            && invocation.file
-        {
-            let path = invocation.subject.trim();
-            if path.starts_with("asset(") && path.ends_with(')') {
-                let hash = trim_slice(&path[6..path.len() - 1]);
-                active_hashes.insert(hash.to_string());
-                rewritten_tag = Some(format!("[{}]", inner));
-            } else if !path.is_empty()
-                && let Some(path_buf) = crate::engine::variables::system::file::expand_path(path)
-                && let Ok(bytes) = std::fs::read(&path_buf)
-            {
-                let compressed = zstd::bulk::compress(&bytes, 3).map_err(|e| {
-                    crate::Error::Service(format!("zstd compression failed: {}", e))
-                })?;
-                let mut hasher = Sha256::new();
-                hasher.update(&compressed);
-                let hash = hex::encode(hasher.finalize());
-
-                let mime_type = match path_buf.extension().and_then(|ext| ext.to_str()) {
-                    Some(ext) => match ext.to_lowercase().as_str() {
-                        "sh" | "bash" => "text/x-shellscript",
-                        "py" => "text/x-python",
-                        "js" => "text/javascript",
-                        "ps1" => "text/x-powershell",
-                        _ => "application/octet-stream",
-                    },
-                    None => "application/octet-stream",
-                };
-
-                let now = now_unix_secs();
-                conn.execute(
-                    "INSERT OR REPLACE INTO assets (id, trigger_id, mime_type, compressed_content, updated_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5)",
-                    (
-                        &hash,
-                        trigger_id,
-                        mime_type,
-                        &compressed,
-                        now,
-                    ),
-                )?;
-
-                active_hashes.insert(hash.clone());
-                let subject = invocation.subject.as_str();
-                let replacement = format!("asset({})", hash);
-                // Subject may be quoted in the tag; replace the quoted span when present
-                // so the asset reference never inherits stray quotes.
-                let new_inner = [format!("\"{subject}\""), format!("'{subject}'")]
-                    .into_iter()
-                    .find(|quoted| inner.contains(quoted.as_str()))
-                    .map(|quoted| inner.replacen(quoted.as_str(), &replacement, 1))
-                    .unwrap_or_else(|| inner.replacen(subject, &replacement, 1));
-                rewritten_tag = Some(format!("[{}]", new_inner));
+                rewritten_tag = Some(format!("[image \"asset({})\"]", hash));
             }
         }
 

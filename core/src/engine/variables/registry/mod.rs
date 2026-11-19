@@ -11,15 +11,14 @@ pub fn strip_global_transformers(key: &str) -> &str {
 }
 
 /// Splits a unified tag into namespace/root + raw args.
-/// Space-separated syntax (e.g. `date tomorrow YYYY-MM-DD`, `run "echo hi"`)
-/// or legacy paren syntax are both recognized.
+/// System calls use space-separated syntax (e.g. `date tomorrow YYYY-MM-DD`, `run "echo hi"`).
 pub fn parse_system_call(inner: &str) -> Option<(&str, &str)> {
     let pipeline = system::transformers::split_pipeline(inner);
     let s = pipeline.first()?.trim();
     if s.is_empty() {
         return None;
     }
-    let (root, rest) = match s.split_once(|c: char| c.is_whitespace() || c == '(') {
+    let (root, rest) = match s.split_once(char::is_whitespace) {
         Some((r, rem)) => (r.trim(), rem.trim()),
         None => (s, ""),
     };
@@ -27,14 +26,7 @@ pub fn parse_system_call(inner: &str) -> Option<(&str, &str)> {
     if SYSTEM_ROOTS.contains(&lower_root.as_str())
         || validation::deleted_root_hint(&lower_root).is_some()
     {
-        let clean_rest = if rest.ends_with(')') && s.contains('(') {
-            &rest[..rest.len() - 1]
-        } else if s.contains('(') {
-            return None;
-        } else {
-            rest
-        };
-        Some((root, clean_rest.trim()))
+        Some((root, rest))
     } else {
         None
     }

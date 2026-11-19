@@ -477,7 +477,7 @@ fn validate_voice_slot_parity(
             if !defined.iter().any(|d| d.eq_ignore_ascii_case(&slot)) {
                 return Err(crate::Error::Config(format!(
                     "Voice slot '[{slot}]' has no matching variable in the output template \
-                     (voice trigger '{invocation}'). Add '[{slot}=default]' to the output."
+                     (voice trigger '{invocation}'). Add '[${slot}=\"default\"]' to the output."
                 )));
             }
         }

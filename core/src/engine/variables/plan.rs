@@ -151,11 +151,11 @@ impl ExecutionPlan {
             for op in &self.ops {
                 match op {
                     PlanOp::Cursor => text.push_str("[cursor]"),
-                    PlanOp::KeyPress(alias) => text.push_str(&format!("[key({alias})]")),
-                    PlanOp::Delay(ms) => text.push_str(&format!("[delay({ms}ms)]")),
+                    PlanOp::KeyPress(alias) => text.push_str(&format!("[{alias}]")),
+                    PlanOp::Delay(ms) => text.push_str(&format!("[wait {ms}ms]")),
                     PlanOp::Mouse(step) => text.push_str(&format_mouse_directive(step)),
                     PlanOp::Image(ExpansionStep::Image(_, path)) => {
-                        text.push_str(&format!("[image({path})]"))
+                        text.push_str(&format!("[image \"{path}\"]"))
                     }
                     PlanOp::InlineRun {
                         raw_cmd,
@@ -224,13 +224,7 @@ impl ExecutionPlan {
                     }
                     other => {
                         let text = evaluate_text_op(other, args, &bare);
-                        if text.contains('[')
-                            && (text.contains("[key(")
-                                || text.contains("[delay(")
-                                || text.contains("[mouse(")
-                                || text.contains("[execute(")
-                                || text.contains("[image("))
-                        {
+                        if text.contains('[') && system::contains_key_or_delay_directives(&text) {
                             let sub_steps = system::finalize(&text, None).steps;
                             for s in sub_steps {
                                 match s {
@@ -393,7 +387,7 @@ fn compile_ops(expr: &str) -> (Vec<PlanOp>, bool, bool) {
         } else if let Some(step) = image::parse_img_directive(inner) {
             has_directive_steps = true;
             ops.push(PlanOp::Image(step));
-        } else if inner.starts_with("run") || inner.starts_with("execute(") {
+        } else if inner.starts_with("run") {
             has_directive_steps = true;
             let pipeline = transformers::split_pipeline(inner);
             let base = pipeline[0];
@@ -411,7 +405,7 @@ fn compile_ops(expr: &str) -> (Vec<PlanOp>, bool, bool) {
             }
         } else if inner.contains('[') {
             ops.push(PlanOp::Dynamic(format!("[{inner}]")));
-        } else if (inner.starts_with("use(") && inner.ends_with(')')) || inner.starts_with("use ") {
+        } else if inner.starts_with("use ") || inner == "use" {
             let pipeline = transformers::split_pipeline(inner);
             let base = pipeline[0];
             let trs = pipeline[1..].iter().map(|s| s.to_string()).collect();
@@ -454,21 +448,6 @@ fn compile_ops(expr: &str) -> (Vec<PlanOp>, bool, bool) {
             {
                 ops.push(PlanOp::SystemVar {
                     key: key_unquoted.to_string(),
-                    transformers,
-                });
-            } else if let Ok(index) = key_unquoted.parse::<usize>() {
-                ops.push(PlanOp::PositionalArg {
-                    index,
-                    default_value,
-                    transformers,
-                });
-            } else if !key_unquoted.contains('[')
-                && !key_unquoted.contains(']')
-                && !system::is_reserved(key_unquoted)
-            {
-                ops.push(PlanOp::NamedArg {
-                    name: key_unquoted.to_string(),
-                    default_value,
                     transformers,
                 });
             } else {
@@ -634,7 +613,13 @@ fn evaluate_text_op(
             default_value,
             transformers: trs,
         } => {
-            let raw_val = if let Some(val) = find_named(args, name) {
+            let var_ident = name.strip_prefix('$').unwrap_or(name);
+            let raw_val = if let Ok(idx) = var_ident.parse::<usize>()
+                && idx >= 1
+                && let Some(val) = args.positional.get(idx - 1)
+            {
+                Some(val.clone())
+            } else if let Some(val) = find_named(args, name) {
                 Some(val)
             } else if let Some(val) = bare.get(&name.to_lowercase()) {
                 Some(val.clone())
@@ -693,10 +678,10 @@ fn evaluate_text_op(
         }
         PlanOp::Dynamic(expr) => interpolate(expr, args),
         PlanOp::Cursor => "[cursor]".to_string(),
-        PlanOp::KeyPress(alias) => format!("[key({alias})]"),
-        PlanOp::Delay(ms) => format!("[delay({ms}ms)]"),
+        PlanOp::KeyPress(alias) => format!("[{alias}]"),
+        PlanOp::Delay(ms) => format!("[wait {ms}ms]"),
         PlanOp::Mouse(step) => format_mouse_directive(step),
-        PlanOp::Image(ExpansionStep::Image(_, path)) => format!("[image({path})]"),
+        PlanOp::Image(ExpansionStep::Image(_, path)) => format!("[image \"{path}\"]"),
         PlanOp::Image(_) => String::new(),
         PlanOp::InlineRun {
             raw_cmd,
@@ -777,11 +762,17 @@ fn format_raw_system_tag(key: &str, transformers: &[String]) -> String {
 }
 
 fn parse_use_key(key: &str) -> Option<String> {
-    let inner = key.strip_prefix("use(")?.strip_suffix(')')?;
-    let unquoted = system::strip_quotes(inner.trim())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| inner.trim().to_string());
-    Some(unquoted)
+    let trimmed = key.trim();
+    if !trimmed.starts_with("use ") && trimmed != "use" {
+        return None;
+    }
+    let rest = trimmed.strip_prefix("use").unwrap_or("").trim();
+    let unquoted = system::strip_argument_quotes(rest);
+    if unquoted.is_empty() {
+        None
+    } else {
+        Some(unquoted.to_string())
+    }
 }
 
 fn resolve_use_snippet(trigger_name: &str, args: &ArgMap, depth: usize) -> String {
@@ -795,19 +786,19 @@ fn format_mouse_directive(step: &ExpansionStep) -> String {
     match step {
         ExpansionStep::MouseClick(btn, count) => {
             if *count == 1 {
-                format!("[mouse(click, {})]", mouse_button_arg_name(btn))
+                format!("[mouse click {}]", mouse_button_arg_name(btn))
             } else {
-                format!("[mouse(click, {}, {count})]", mouse_button_arg_name(btn))
+                format!("[mouse click {} {count}]", mouse_button_arg_name(btn))
             }
         }
         ExpansionStep::MouseDown(btn) => {
-            format!("[mouse(hold, {})]", mouse_button_arg_name(btn))
+            format!("[mouse hold {}]", mouse_button_arg_name(btn))
         }
         ExpansionStep::MouseUp(btn) => {
-            format!("[mouse(release, {})]", mouse_button_arg_name(btn))
+            format!("[mouse release {}]", mouse_button_arg_name(btn))
         }
-        ExpansionStep::MouseMove(x, y) => format!("[mouse(move, {x}, {y})]"),
-        ExpansionStep::MouseScroll(d) => format!("[mouse(scroll, {d})]"),
+        ExpansionStep::MouseMove(x, y) => format!("[mouse move {x} {y}]"),
+        ExpansionStep::MouseScroll(d) => format!("[mouse scroll {d}]"),
         _ => String::new(),
     }
 }
@@ -853,7 +844,7 @@ mod tests {
         args.positional.push("ereinaimer".to_string());
         args.positional.push("taurine".to_string());
 
-        let plan = ExecutionPlan::compile("https://github.com/[0=org]/[1=repo]");
+        let plan = ExecutionPlan::compile("https://github.com/[$org=\"org\"]/[$repo=\"repo\"]");
         let expansion = plan.evaluate(&args, None, ExpansionOrigin::User);
         assert_eq!(
             expansion.steps,
@@ -868,7 +859,7 @@ mod tests {
         let mut args = ArgMap::default();
         args.named.insert("name".to_string(), "john".to_string());
 
-        let plan = ExecutionPlan::compile("Hello [name=default | case(upper)]!");
+        let plan = ExecutionPlan::compile("Hello [$name=\"default\" | case(upper)]!");
         let expansion = plan.evaluate(&args, None, ExpansionOrigin::User);
         assert_eq!(
             expansion.steps,
@@ -900,7 +891,7 @@ mod tests {
         args.positional.push("cli".to_string());
         args.positional.push("add custom pipelines".to_string());
 
-        let tpl = "git commit -m \"feat([0=core]): [1=update codebase | case(sentence)]\"[key(enter)][delay(500ms)]git push origin main[key(enter)]";
+        let tpl = "git commit -m \"feat([$scope=\"core\"]): [$msg=\"update codebase\" | case(sentence)]\"[enter][wait 500ms]git push origin main[enter]";
         let plan = ExecutionPlan::compile(tpl);
         let expansion = plan.evaluate(&args, None, ExpansionOrigin::User);
 
@@ -920,7 +911,7 @@ mod tests {
 
     #[test]
     fn test_compile_cursor_conflict_with_key_directives() {
-        let tpl = "echo [cursor][key(enter)]";
+        let tpl = "echo [cursor][enter]";
         let plan = ExecutionPlan::compile(tpl);
         let expansion = plan.evaluate(&ArgMap::default(), None, ExpansionOrigin::User);
 
@@ -935,7 +926,7 @@ mod tests {
 
     #[test]
     fn test_compile_and_evaluate_unified_mouse_directives() {
-        let tpl = "go [mouse(click, m1)] mid [mouse(click, m2, 2)] hold [mouse(hold, m3)] end";
+        let tpl = "go [mouse click m1] mid [mouse click m2 2] hold [mouse hold m3] end";
         let plan = ExecutionPlan::compile(tpl);
         let expansion = plan.evaluate(&ArgMap::default(), None, ExpansionOrigin::User);
 
@@ -955,7 +946,7 @@ mod tests {
 
     #[test]
     fn test_plan_mouse_rendering_is_canonical() {
-        let tpl = "[mouse(click, m1)][mouse(click, m2, 2)][mouse(hold, m3)][mouse(release, m4)][mouse(move, 100, 200)][mouse(scroll, -5)]";
+        let tpl = "[mouse click m1][mouse click m2 2][mouse hold m3][mouse release m4][mouse move 100 200][mouse scroll -5]";
         let plan = ExecutionPlan::compile(tpl);
         let expansion = plan.evaluate(&ArgMap::default(), None, ExpansionOrigin::Ai);
         assert_eq!(expansion.steps.len(), 1);
@@ -964,7 +955,7 @@ mod tests {
         };
         assert_eq!(
             rendered,
-            "[mouse(click, m1)][mouse(click, m2, 2)][mouse(hold, m3)][mouse(release, m4)][mouse(move, 100, 200)][mouse(scroll, -5)]"
+            "[mouse click m1][mouse click m2 2][mouse hold m3][mouse release m4][mouse move 100 200][mouse scroll -5]"
         );
     }
 
@@ -1023,23 +1014,26 @@ mod tests {
     fn test_parity_with_interpolate_and_finalize() {
         let test_cases = vec![
             ("Plain text", ArgMap::default()),
-            ("Hello [0=world]!", {
+            ("Hello [$user=\"world\"]!", {
                 let mut m = ArgMap::default();
                 m.positional.push("Alice".to_string());
                 m
             }),
-            ("User: [user=guest | case(upper)]", {
+            ("User: [$user=\"guest\" | case(upper)]", {
                 let mut m = ArgMap::default();
                 m.named.insert("user".to_string(), "bob".to_string());
                 m
             }),
             ("Escaped: \\[cursor\\] and \\\\ path", ArgMap::default()),
-            ("| [0=ID] | [1=Name | case(title)] |[key(enter)]", {
-                let mut m = ArgMap::default();
-                m.positional.push("42".to_string());
-                m.positional.push("jane doe".to_string());
-                m
-            }),
+            (
+                "| [$id=\"ID\"] | [$name=\"Name\" | case(title)] |[enter]",
+                {
+                    let mut m = ArgMap::default();
+                    m.positional.push("42".to_string());
+                    m.positional.push("jane doe".to_string());
+                    m
+                },
+            ),
         ];
 
         for (tpl, args) in test_cases {
@@ -1056,7 +1050,7 @@ mod tests {
     #[test]
     fn test_plan_inline_run_unconditional_regardless_of_cached_setting() {
         crate::settings::set_cached_scripts_enabled(false);
-        let plan = ExecutionPlan::compile("run [execute(bash, echo hi)]");
+        let plan = ExecutionPlan::compile("run [run \"echo hi\"]");
         let actual = plan.evaluate(&ArgMap::default(), None, ExpansionOrigin::User);
         crate::settings::set_cached_scripts_enabled(true);
 

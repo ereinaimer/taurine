@@ -69,7 +69,7 @@ fn script_interpolation_with_positional_args_matches_current_behavior() {
     let memory = Arc::new(MemorySource::new());
     let catalog = ExpansionCatalog::with_source(memory.clone());
 
-    let script = "explorer [0=C:\\Temp]";
+    let script = "explorer [$path=\"C:\\Temp\"]";
     let compressed = compress(script).unwrap();
 
     let action = TriggerAction {
@@ -102,7 +102,7 @@ fn script_interpolation_with_named_args_matches_current_behavior() {
     let memory = Arc::new(MemorySource::new());
     let catalog = ExpansionCatalog::with_source(memory.clone());
 
-    let script = "curl https://[env=].example.com";
+    let script = "curl https://[$env=\"\"].example.com";
     let compressed = compress(script).unwrap();
 
     let action = TriggerAction {
@@ -584,7 +584,7 @@ fn test_regex_catalog_compilation_and_match() {
     catalog.load_actions(vec![
         (
             "issue-(\\d+)".to_string(),
-            TriggerAction::text("https://github.com/issues/[0]"),
+            TriggerAction::text("https://github.com/issues/[$1]"),
         ),
         (
             "invalid(pattern".to_string(),
@@ -684,7 +684,7 @@ fn keystroke_path_uses_use_cache_until_reload() {
     )
     .unwrap();
 
-    let outer = TriggerAction::text("[use(uuni_inner)]!");
+    let outer = TriggerAction::text("[use uuni_inner]!");
     let args = ArgMap::default();
     let first = expand_trigger_action_with_args(outer.clone(), &args, "outer").unwrap();
     assert_eq!(first.steps, vec![ExpansionStep::Text("hello!".to_string())]);

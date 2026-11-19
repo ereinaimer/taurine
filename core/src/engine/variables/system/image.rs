@@ -67,30 +67,29 @@ fn load_file_image(path_str: &str) -> Result<(Vec<u8>, String), String> {
 }
 
 pub fn parse_img_directive(inner: &str) -> Option<ExpansionStep> {
-    if let Some(rest) = inner.strip_prefix("image(")
-        && rest.ends_with(')')
-    {
-        let path = strip_argument_quotes(rest[..rest.len() - 1].trim());
-        if path.is_empty() {
-            return None;
-        }
+    let trimmed = inner.trim();
+    if !trimmed.starts_with("image ") && trimmed != "image" {
+        return None;
+    }
+    let rest = trimmed.strip_prefix("image").unwrap_or("").trim();
+    let path = strip_argument_quotes(rest);
+    if path.is_empty() {
+        return None;
+    }
 
-        let res = if path.starts_with("asset(") && path.ends_with(')') {
-            let hash = path[6..path.len() - 1].trim();
-            load_asset_image(hash)
-        } else {
-            load_file_image(path)
-        };
-
-        match res {
-            Ok((bytes, mime_type)) => Some(ExpansionStep::Image(bytes, mime_type)),
-            Err(e) => {
-                tracing::warn!("Failed to load image '{}': {}", path, e);
-                None
-            }
-        }
+    let res = if path.starts_with("asset(") && path.ends_with(')') {
+        let hash = path[6..path.len() - 1].trim();
+        load_asset_image(hash)
     } else {
-        None
+        load_file_image(path)
+    };
+
+    match res {
+        Ok((bytes, mime_type)) => Some(ExpansionStep::Image(bytes, mime_type)),
+        Err(e) => {
+            tracing::warn!("Failed to load image '{}': {}", path, e);
+            None
+        }
     }
 }
 
@@ -112,8 +111,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("logo.png");
         std::fs::write(&path, TINY_PNG).unwrap();
-        let key = format!("image(\"{}\")", path.display());
+        let key = format!("image \"{}\"", path.display());
         assert!(parse_img_directive(&key).is_some());
+
+        // Legacy paren syntax is refused
+        let legacy = format!("image(\"{}\")", path.display());
+        assert!(parse_img_directive(&legacy).is_none());
     }
 
     #[test]
@@ -123,7 +126,7 @@ mod tests {
         let mut bytes = TINY_PNG.to_vec();
         bytes.resize(10 * 1024 * 1024 + 1, 0);
         std::fs::write(&path, &bytes).unwrap();
-        let key = format!("image({})", path.display());
+        let key = format!("image \"{}\"", path.display());
         assert!(parse_img_directive(&key).is_none());
     }
 }

@@ -181,9 +181,9 @@ fn test_count_ai_calls_in_template() {
 #[test]
 fn test_get_referenced_triggers() {
     assert!(get_referenced_triggers("Hello world").is_empty());
-    assert_eq!(get_referenced_triggers("Hello [use(\"foo\")]"), vec!["foo"]);
+    assert_eq!(get_referenced_triggers("Hello [use \"foo\"]"), vec!["foo"]);
     assert_eq!(
-        get_referenced_triggers("[use('bar')] [use(baz)]"),
+        get_referenced_triggers("[use 'bar'] [use baz]"),
         vec!["bar", "baz"]
     );
 }
@@ -191,8 +191,8 @@ fn test_get_referenced_triggers() {
 #[test]
 fn test_check_limits_recursive_detects_cycles() {
     let mut catalog = std::collections::HashMap::new();
-    catalog.insert("A".to_string(), "calls [use(\"B\")]".to_string());
-    catalog.insert("B".to_string(), "calls [use(\"A\")]".to_string());
+    catalog.insert("A".to_string(), "calls [use \"B\"]".to_string());
+    catalog.insert("B".to_string(), "calls [use \"A\"]".to_string());
 
     let mut visited = std::collections::HashSet::new();
     let mut max_depth = 0;
@@ -222,11 +222,11 @@ fn test_check_limits_recursive_detects_cycles() {
 #[test]
 fn test_check_limits_recursive_enforces_depth() {
     let mut catalog = std::collections::HashMap::new();
-    catalog.insert("1".to_string(), "[use(\"2\")]".to_string());
-    catalog.insert("2".to_string(), "[use(\"3\")]".to_string());
-    catalog.insert("3".to_string(), "[use(\"4\")]".to_string());
-    catalog.insert("4".to_string(), "[use(\"5\")]".to_string());
-    catalog.insert("5".to_string(), "[use(\"6\")]".to_string());
+    catalog.insert("1".to_string(), "[use \"2\"]".to_string());
+    catalog.insert("2".to_string(), "[use \"3\"]".to_string());
+    catalog.insert("3".to_string(), "[use \"4\"]".to_string());
+    catalog.insert("4".to_string(), "[use \"5\"]".to_string());
+    catalog.insert("5".to_string(), "[use \"6\"]".to_string());
     catalog.insert("6".to_string(), "done".to_string());
 
     let mut visited = std::collections::HashSet::new();
@@ -257,8 +257,8 @@ fn test_check_limits_recursive_enforces_depth() {
 #[test]
 fn test_check_limits_recursive_enforces_ai_count() {
     let mut catalog = std::collections::HashMap::new();
-    catalog.insert("A".to_string(), "[clip | ai(1)] [use(\"B\")]".to_string());
-    catalog.insert("B".to_string(), "[clip | ai(2)] [use(\"C\")]".to_string());
+    catalog.insert("A".to_string(), "[clip | ai(1)] [use \"B\"]".to_string());
+    catalog.insert("B".to_string(), "[clip | ai(2)] [use \"C\"]".to_string());
     catalog.insert("C".to_string(), "[clip | ai(3)] [clip | ai(4)]".to_string());
 
     let mut visited = std::collections::HashSet::new();
@@ -305,7 +305,7 @@ fn test_validate_dead_use_reference() {
     let result = validate_trigger_limits(
         &conn,
         "new_trigger",
-        "greeting [use(\"nonexistent\")]",
+        "greeting [use \"nonexistent\"]",
         "text",
     );
     assert!(result.is_err());
@@ -328,7 +328,7 @@ fn test_validate_live_reference_passes() {
         ).unwrap();
     add_alias(&conn, &id, InvocationType::Word, "other", false).unwrap();
 
-    let result = validate_trigger_limits(&conn, "greeting", "hello [use(\"other\")]", "text");
+    let result = validate_trigger_limits(&conn, "greeting", "hello [use \"other\"]", "text");
     assert!(result.is_ok());
 }
 
@@ -341,7 +341,7 @@ fn test_validate_self_reference_is_error() {
 
     // Self-reference is a circular reference — correctly caught by
     // check_limits_recursive before the dead-reference scan runs.
-    let result = validate_trigger_limits(&conn, "greeting", "hello [use(\"greeting\")]", "text");
+    let result = validate_trigger_limits(&conn, "greeting", "hello [use \"greeting\"]", "text");
     assert!(result.is_err());
     assert!(
         result
@@ -895,7 +895,7 @@ fn test_add_trigger_by_type_rejects_dead_ref() {
         &conn,
         TriggerType::Word,
         "hello",
-        "greeting [use(\"nonexistent\")]",
+        "greeting [use \"nonexistent\"]",
         "all",
         None,
         None,
@@ -1615,7 +1615,7 @@ fn delete_by_value_removes_all_holders() {
 fn create_entry_rejects_voice_slot_not_in_output() {
     let (_dir, conn) = crate::testing::open_test_db();
     let entry = entry_fixture_with_output(
-        "Hello, [name=Sarah]!",
+        "Hello, [$name=\"Sarah\"]!",
         vec![(InvocationType::Voice, "send [msg] to [person]")],
     );
     let err = create_entry(&conn, entry).unwrap_err();
@@ -1630,7 +1630,7 @@ fn create_entry_rejects_voice_slot_not_in_output() {
 fn create_entry_accepts_matching_voice_slots() {
     let (_dir, conn) = crate::testing::open_test_db();
     let entry = entry_fixture_with_output(
-        "To: [person=Sarah]\n[msg=Hello]",
+        "To: [$person=\"Sarah\"]\n[$msg=\"Hello\"]",
         vec![(InvocationType::Voice, "send [msg] to [person]")],
     );
     assert!(create_entry(&conn, entry).is_ok());

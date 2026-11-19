@@ -1,8 +1,6 @@
 use super::super::parser::{BindError, BoundArgs, Param, ParamSpec, bind_call, has_named_args};
 use super::super::system::datetime::apply_temporal_calc;
 use super::super::system::file::check_args as check_file_args;
-use super::super::system::{parse_delay_ms, strip_argument_quotes, strip_quotes};
-use crate::keys::{LogicalKey, Modifier};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValidationError {
     UnknownRoot(String),
@@ -323,8 +321,6 @@ const UUID_VERSIONS: &[&str] = &["v4", "v7"];
 const IP_TYPES: &[&str] = &["public", "local"];
 const RANDOM_KINDS: &[&str] = &["int", "choice", "str", "pass"];
 const LOREM_KINDS: &[&str] = &["words", "sentences", "paragraphs"];
-const HTTP_OPS: &[&str] = &["get", "status"];
-const KEY_EXAMPLES: &[&str] = &["enter", "tab", "f5", "ctrl+s"];
 
 fn invalid(
     root: &'static str,
@@ -350,8 +346,6 @@ const FILE_HINT: &[&str] = &[
     "file(line, path, n)",
     "file(lines, path, start[, end])",
 ];
-const HTTP_HINT: &[&str] = &["http(get, url)", "http(status, url)"];
-const DELAY_HINT: &[&str] = &["delay(200ms)", "delay(1.5s)"];
 
 fn validate_value_args(
     ns: &str,
@@ -419,43 +413,6 @@ fn validate_value_args(
                 Ok(())
             } else {
                 Err(invalid("file", raw.to_string(), FILE_HINT))
-            }
-        }
-        "http" => {
-            if !HTTP_OPS.contains(&named("op")) {
-                return Err(invalid("http", named("op").to_string(), HTTP_OPS));
-            }
-            let url = strip_quotes(named("url").trim()).unwrap_or(named("url").trim());
-            if url.is_empty() {
-                return Err(invalid("http", raw.to_string(), HTTP_HINT));
-            }
-            Ok(())
-        }
-        "delay" => {
-            let ms = strip_quotes(raw.trim()).unwrap_or(raw.trim());
-            if parse_delay_ms(ms).is_some() {
-                Ok(())
-            } else {
-                Err(invalid("delay", raw.to_string(), DELAY_HINT))
-            }
-        }
-        "key" => {
-            let token = strip_argument_quotes(raw.trim()).to_ascii_lowercase();
-            let parts: Vec<&str> = token.split('+').collect();
-            if parts.is_empty() || parts.iter().any(|p| p.is_empty()) {
-                return Err(invalid("key", raw.to_string(), KEY_EXAMPLES));
-            }
-            let main_valid = parts
-                .last()
-                .and_then(|part| LogicalKey::from_alias(part))
-                .is_some_and(|k| k.is_mouse_button().is_none());
-            let mods_valid = parts[..parts.len().saturating_sub(1)]
-                .iter()
-                .all(|m| Modifier::from_alias(m).is_some());
-            if main_valid && mods_valid {
-                Ok(())
-            } else {
-                Err(invalid("key", raw.to_string(), KEY_EXAMPLES))
             }
         }
         _ => Ok(()),
@@ -618,23 +575,19 @@ fn validate_mouse_args(bound: &BoundArgs, raw: &str) -> Result<(), ValidationErr
     match action {
         "click" => {
             if bound.positional.len() > 3 {
-                return Err(invalid(
-                    "mouse",
-                    raw.to_string(),
-                    &["mouse(click, mN[, n])"],
-                ));
+                return Err(invalid("mouse", raw.to_string(), &["mouse click mN [n]"]));
             }
             if count_raw.parse::<u32>().is_err() {
                 return Err(invalid(
                     "mouse",
                     count_raw.to_string(),
-                    &["mouse(click, mN[, n])"],
+                    &["mouse click mN [n]"],
                 ));
             }
         }
         "hold" | "release" => {
             if bound.positional.len() > 2 || count_raw != "1" {
-                return Err(invalid("mouse", raw.to_string(), &["mouse(hold, mN)"]));
+                return Err(invalid("mouse", raw.to_string(), &["mouse hold mN"]));
             }
         }
         "move" => {
@@ -642,7 +595,7 @@ fn validate_mouse_args(bound: &BoundArgs, raw: &str) -> Result<(), ValidationErr
                 || (bound.positional.len() == 2 && count_raw == "1")
                 || (bound.positional.is_empty() && count_raw == "1")
             {
-                return Err(invalid("mouse", raw.to_string(), &["mouse(move, x, y)"]));
+                return Err(invalid("mouse", raw.to_string(), &["mouse move x y"]));
             }
             let x_ok = bound
                 .named
@@ -652,12 +605,12 @@ fn validate_mouse_args(bound: &BoundArgs, raw: &str) -> Result<(), ValidationErr
                 .parse::<u16>()
                 .is_ok();
             if !x_ok || count_raw.parse::<u16>().is_err() {
-                return Err(invalid("mouse", raw.to_string(), &["mouse(move, x, y)"]));
+                return Err(invalid("mouse", raw.to_string(), &["mouse move x y"]));
             }
         }
         "scroll" => {
             if bound.positional.len() > 2 || count_raw != "1" {
-                return Err(invalid("mouse", raw.to_string(), &["mouse(scroll, delta)"]));
+                return Err(invalid("mouse", raw.to_string(), &["mouse scroll delta"]));
             }
             let delta_ok = bound
                 .named
@@ -667,13 +620,13 @@ fn validate_mouse_args(bound: &BoundArgs, raw: &str) -> Result<(), ValidationErr
                 .parse::<i32>()
                 .is_ok();
             if !delta_ok {
-                return Err(invalid("mouse", raw.to_string(), &["mouse(scroll, delta)"]));
+                return Err(invalid("mouse", raw.to_string(), &["mouse scroll delta"]));
             }
         }
         "pos" => {
             let btn = bound.named.get("btn").map(String::as_str).unwrap_or("");
             if bound.positional.len() > 1 || !btn.is_empty() || count_raw != "1" {
-                return Err(invalid("mouse", raw.to_string(), &["mouse(pos)"]));
+                return Err(invalid("mouse", raw.to_string(), &["mouse pos"]));
             }
         }
         _ => {}

@@ -133,7 +133,8 @@ pub fn deserialize_payload(bytes: &[u8]) -> crate::Result<ExchangePayload> {
 }
 
 fn contains_run_variable(content: &str) -> bool {
-    content.to_ascii_lowercase().contains("[execute(")
+    let lower = content.to_ascii_lowercase();
+    lower.contains("[run ") || lower.contains("[run\"") || lower.contains("[run'")
 }
 
 #[cfg(test)]
@@ -329,7 +330,7 @@ mod tests {
             description: None,
             trigger_type: TriggerType::Word,
             trigger: "gm".to_string(),
-            output: "before [EXECUTE(bash, echo hi)] after".to_string(),
+            output: "before [run \"echo hi\"] after".to_string(),
             action_type: "text".to_string(),
             is_enabled: true,
             target_os: "all".to_string(),
@@ -344,7 +345,7 @@ mod tests {
         payload.triggers[0].script = Some(ScriptExport {
             interpreter: ScriptInterpreter::Bash,
             behavior: ScriptBehavior::Inline,
-            content: "echo [execute(bash, date)]".to_string(),
+            content: "echo [run \"date\"]".to_string(),
         });
         assert!(payload_contains_run_variables(&payload));
     }
@@ -524,7 +525,7 @@ mod tests {
 
         let trigger = "asset_test";
         let output = format!(
-            "Img1: [image({})] Img2: [image({})]",
+            "Img1: [image \"{}\"] Img2: [image \"{}\"]",
             img_path.to_string_lossy(),
             banner_path.to_string_lossy()
         );
@@ -556,8 +557,8 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert!(rewritten_output.contains("Img1: [image(asset("));
-        assert!(rewritten_output.contains("Img2: [image(asset("));
+        assert!(rewritten_output.contains("Img1: [image \"asset("));
+        assert!(rewritten_output.contains("Img2: [image \"asset("));
 
         let payload = export_triggers(&conn).unwrap();
         assert_eq!(payload.triggers.len(), 1);
@@ -580,7 +581,7 @@ mod tests {
         let restored_output: String = conn
             .query_row("SELECT output FROM triggers", [], |row| row.get(0))
             .unwrap();
-        assert!(restored_output.contains("Img1: [image(asset("));
-        assert!(restored_output.contains("Img2: [image(asset("));
+        assert!(restored_output.contains("Img1: [image \"asset("));
+        assert!(restored_output.contains("Img2: [image \"asset("));
     }
 }

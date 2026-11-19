@@ -46,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Monetization Simplification**: Free tier now includes unlimited snippets, workspaces, and devices, gating exclusively on weekly expansion quota.
 
 ### Removed
+- **Legacy Directive Syntax**: Eliminated legacy parenthesized directive syntax and bare variable tags in favor of unified space-separated commands and assigned dynamic variables.
 - **Voice BYOK Configuration**: Removed manual API key settings and local environment lookups for voice dictation.
 - **Feature Toggles**: Removed configuration toggles for clipboard history, script execution, inline assist features, and developer hyperparameters.
 - **Local Voice Models**: Removed local voice models and downloader in preparation for cloud-based voice dictation.

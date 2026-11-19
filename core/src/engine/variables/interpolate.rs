@@ -40,7 +40,12 @@ pub(crate) fn extract_placeholders<'a>(template: &'a str) -> IndexMap<&'a str, P
 
         let key_unquoted = system::strip_quotes(key).unwrap_or(key);
 
-        if has_valid_default_value(default_value)
+        let is_numeric_capture = key_unquoted
+            .strip_prefix('$')
+            .is_some_and(|s| s.parse::<usize>().is_ok());
+
+        if (has_valid_default_value(default_value) || is_numeric_capture)
+            && key_unquoted.starts_with('$')
             && !system::is_reserved(key_unquoted)
             && !placeholders.contains_key(key_unquoted)
             && !key_unquoted.contains('[')
@@ -60,14 +65,23 @@ pub(crate) fn extract_placeholders<'a>(template: &'a str) -> IndexMap<&'a str, P
 }
 
 fn find_named(args: &ArgMap, key: &str) -> Option<String> {
+    let without_dollar = key.strip_prefix('$').unwrap_or(key);
     args.named
         .iter()
-        .find(|(k, _)| k.eq_ignore_ascii_case(key))
+        .find(|(k, _)| {
+            k.eq_ignore_ascii_case(key)
+                || k.eq_ignore_ascii_case(without_dollar)
+                || k.strip_prefix('$')
+                    .is_some_and(|without| without.eq_ignore_ascii_case(without_dollar))
+        })
         .map(|(_, v)| v.clone())
 }
 
 fn is_valid_user_reference(key: &str, default_value: Option<&str>, args: &ArgMap) -> bool {
     let key_unquoted = system::strip_quotes(key).unwrap_or(key);
+    if !key_unquoted.starts_with('$') {
+        return false;
+    }
 
     if let Some((ns, raw)) = parse_system_call(key_unquoted)
         && super::registry::validate_system_call(ns, Some(raw)).is_ok()
@@ -75,8 +89,12 @@ fn is_valid_user_reference(key: &str, default_value: Option<&str>, args: &ArgMap
         return false;
     }
 
-    if let Ok(index) = key_unquoted.parse::<usize>() {
-        return index < args.positional.len() || has_valid_default_value(default_value);
+    let var_ident = key_unquoted.strip_prefix('$').unwrap_or(key_unquoted);
+    if let Ok(idx) = var_ident.parse::<usize>()
+        && idx >= 1
+        && idx - 1 < args.positional.len()
+    {
+        return true;
     }
 
     find_named(args, key_unquoted).is_some()
@@ -100,16 +118,17 @@ fn resolve_user_placeholder(
     let key_unquoted = system::strip_quotes(key).unwrap_or(key);
     let default_val_unquoted = default_value.map(|v| system::strip_quotes(v).unwrap_or(v));
 
-    if let Ok(index) = key_unquoted.parse::<usize>() {
-        args.positional
-            .get(index)
-            .cloned()
-            .or_else(|| find_named(args, key_unquoted))
-            .or_else(|| default_val_unquoted.map(|value| resolve_default_value(value, args, depth)))
-    } else if let Some(value) = find_named(args, key_unquoted) {
+    let var_ident = key_unquoted.strip_prefix('$').unwrap_or(key_unquoted);
+    if let Ok(idx) = var_ident.parse::<usize>()
+        && idx >= 1
+        && let Some(val) = args.positional.get(idx - 1)
+    {
+        return Some(val.clone());
+    }
+
+    if let Some(value) = find_named(args, key_unquoted) {
         Some(value)
     } else if pos_idx != usize::MAX {
-        // honey: empty segments never fill; each field consumes one slot, empty keeps default
         match args.positional.get(pos_idx) {
             Some(value) if !value.is_empty() => Some(value.clone()),
             _ => default_val_unquoted.map(|value| resolve_default_value(value, args, depth)),
@@ -186,7 +205,10 @@ fn interpolate_with_depth(template: &str, args: &ArgMap, depth: usize) -> String
         }
         // Numeric keys index directly and explicit `key=value` args never
         // consume a bare positional; only unresolved named fields advance.
-        let slot = if key.parse::<usize>().is_ok() || find_named(args, key).is_some() {
+        let is_numeric_capture = key
+            .strip_prefix('$')
+            .is_some_and(|s| s.parse::<usize>().is_ok());
+        let slot = if is_numeric_capture || find_named(args, key).is_some() {
             usize::MAX
         } else {
             let slot = pos_idx;
@@ -218,7 +240,7 @@ fn interpolate_with_depth(template: &str, args: &ArgMap, depth: usize) -> String
                     Some(user.clone())
                 } else if key_unquoted.starts_with('\x03') && key_unquoted.ends_with('\x04') {
                     Some(key_unquoted.to_string())
-                } else if key_unquoted.starts_with("use(") && key_unquoted.ends_with(')') {
+                } else if key_unquoted.starts_with("use ") || key_unquoted == "use" {
                     Some(resolve_use_placeholder(key_unquoted, args, depth))
                 } else if let Some(sys) = resolve_system_placeholder(key_unquoted) {
                     Some(sys)
@@ -227,8 +249,6 @@ fn interpolate_with_depth(template: &str, args: &ArgMap, depth: usize) -> String
                     resolve_user_placeholder(key, default_value, args, depth, usize::MAX)
                 } else if let Some(unquoted) = system::strip_quotes(key) {
                     Some(unquoted.to_string())
-                } else if key.chars().all(|c| c.is_ascii_digit()) {
-                    resolve_user_placeholder(key, default_value, args, depth, usize::MAX)
                 } else if !transformers.is_empty()
                     && !system::is_reserved(key_unquoted)
                     && !system::is_directive(key_unquoted)
@@ -283,11 +303,17 @@ fn resolve_system_placeholder(key: &str) -> Option<String> {
 }
 
 fn parse_use_key(key: &str) -> Option<String> {
-    let inner = key.strip_prefix("use(")?.strip_suffix(')')?;
-    let unquoted = super::system::strip_quotes(inner.trim())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| inner.trim().to_string());
-    Some(unquoted)
+    let trimmed = key.trim();
+    if !trimmed.starts_with("use ") && trimmed != "use" {
+        return None;
+    }
+    let rest = trimmed.strip_prefix("use").unwrap_or("").trim();
+    let unquoted = super::system::strip_argument_quotes(rest);
+    if unquoted.is_empty() {
+        None
+    } else {
+        Some(unquoted.to_string())
+    }
 }
 
 // Raw snippet templates by trigger name. Cleared on every catalog reload,

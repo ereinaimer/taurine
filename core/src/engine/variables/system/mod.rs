@@ -46,9 +46,9 @@ pub fn is_directive(key: &str) -> bool {
         || parse_key_action(key).is_some()
         || parse_wait_directive(key).is_some()
         || parse_mouse_directive(key).is_some()
-        || key.starts_with("mouse")
-        || key.starts_with("run")
-        || key.starts_with("execute(")
+        || key == "mouse pos"
+        || key == "run"
+        || key.starts_with("run ")
 }
 
 /// Checks if a system keyword triggers deferred (async) evaluation.
@@ -57,10 +57,7 @@ pub fn is_directive(key: &str) -> bool {
 /// so the daemon can evaluate them in a non-blocking thread and show a braille spinner.
 pub fn is_deferred(key: &str) -> bool {
     let trimmed = key.trim();
-    if trimmed == "mouse pos" || trimmed == "mouse(pos)" {
-        return true;
-    }
-    false
+    trimmed == "mouse pos"
 }
 
 /// Resolves a content-producing system variable.
@@ -92,54 +89,29 @@ pub fn resolve(key: &str) -> Option<String> {
         let rest = trimmed.strip_prefix("calc").unwrap_or("").trim();
         return crate::engine::math::evaluate(rest);
     }
-    if trimmed == "env" || trimmed.starts_with("env ") || trimmed.starts_with("env(") {
-        let rest = trimmed
-            .strip_prefix("env(")
-            .and_then(|s| s.strip_suffix(')'))
-            .unwrap_or_else(|| trimmed.strip_prefix("env").unwrap_or("").trim());
+    if trimmed == "env" || trimmed.starts_with("env ") {
+        let rest = trimmed.strip_prefix("env").unwrap_or("").trim();
         return env::resolve(rest);
     }
-    if trimmed == "file" || trimmed.starts_with("file ") || trimmed.starts_with("file(") {
-        let rest = trimmed
-            .strip_prefix("file(")
-            .and_then(|s| s.strip_suffix(')'))
-            .unwrap_or_else(|| trimmed.strip_prefix("file").unwrap_or("").trim());
+    if trimmed == "file" || trimmed.starts_with("file ") {
+        let rest = trimmed.strip_prefix("file").unwrap_or("").trim();
         return file::resolve(rest);
     }
-    if trimmed == "random" || trimmed.starts_with("random ") || trimmed.starts_with("random(") {
-        let rest = trimmed
-            .strip_prefix("random(")
-            .and_then(|s| s.strip_suffix(')'))
-            .unwrap_or_else(|| trimmed.strip_prefix("random").unwrap_or("").trim());
+    if trimmed == "random" || trimmed.starts_with("random ") {
+        let rest = trimmed.strip_prefix("random").unwrap_or("").trim();
         return random::resolve(rest);
     }
-    if trimmed == "lorem" || trimmed.starts_with("lorem ") || trimmed.starts_with("lorem(") {
-        let rest = trimmed
-            .strip_prefix("lorem(")
-            .and_then(|s| s.strip_suffix(')'))
-            .unwrap_or_else(|| trimmed.strip_prefix("lorem").unwrap_or("").trim());
+    if trimmed == "lorem" || trimmed.starts_with("lorem ") {
+        let rest = trimmed.strip_prefix("lorem").unwrap_or("").trim();
         return lorem::resolve(rest);
     }
-    if trimmed == "uuid" || trimmed.starts_with("uuid ") || trimmed.starts_with("uuid(") {
-        let rest = trimmed
-            .strip_prefix("uuid(")
-            .and_then(|s| s.strip_suffix(')'))
-            .unwrap_or_else(|| trimmed.strip_prefix("uuid").unwrap_or("").trim());
+    if trimmed == "uuid" || trimmed.starts_with("uuid ") {
+        let rest = trimmed.strip_prefix("uuid").unwrap_or("").trim();
         return uuid::resolve(rest);
     }
-    if trimmed == "clip" || trimmed.starts_with("clip ") || trimmed.starts_with("clip(") {
-        let rest = trimmed
-            .strip_prefix("clip(")
-            .and_then(|s| s.strip_suffix(')'))
-            .unwrap_or_else(|| trimmed.strip_prefix("clip").unwrap_or("").trim());
+    if trimmed == "clip" || trimmed.starts_with("clip ") {
+        let rest = trimmed.strip_prefix("clip").unwrap_or("").trim();
         return clipboard::resolve(rest);
-    }
-    if trimmed == "chrono" || trimmed.starts_with("chrono(") {
-        let inner = trimmed
-            .strip_prefix("chrono(")
-            .and_then(|s| s.strip_suffix(')'))
-            .unwrap_or("");
-        return datetime::resolve(inner);
     }
 
     None
@@ -268,10 +240,6 @@ pub fn is_valid_key_name(name: &str) -> bool {
 }
 
 pub fn parse_key_action(inner: &str) -> Option<(String, usize)> {
-    if let Some(alias) = parse_key_directive(inner) {
-        return Some((alias.to_string(), 1));
-    }
-
     let tokens = crate::engine::variables::parser::tokenize_words(inner);
     if tokens.len() == 1 {
         if tokens[0].chars().all(|c| c.is_ascii_digit()) {
@@ -294,15 +262,8 @@ pub fn parse_key_action(inner: &str) -> Option<(String, usize)> {
 }
 
 pub fn parse_wait_directive(inner: &str) -> Option<u64> {
-    if let Some(ms) = parse_delay_directive(inner) {
-        return Some(ms);
-    }
-
     let tokens = crate::engine::variables::parser::tokenize_words(inner);
-    if !tokens.is_empty()
-        && (tokens[0].eq_ignore_ascii_case("wait") || tokens[0].eq_ignore_ascii_case("delay"))
-        && tokens.len() >= 2
-    {
+    if !tokens.is_empty() && tokens[0].eq_ignore_ascii_case("wait") && tokens.len() >= 2 {
         let dur_str = &tokens[1];
         if let Some(ms) = parse_delay_ms(dur_str) {
             return Some(ms);
@@ -313,18 +274,6 @@ pub fn parse_wait_directive(inner: &str) -> Option<u64> {
     }
 
     None
-}
-
-pub(crate) fn parse_key_directive(inner: &str) -> Option<&str> {
-    let rest = inner.strip_prefix("key(")?;
-    let alias = rest.strip_suffix(')')?;
-    Some(strip_argument_quotes(alias))
-}
-
-pub(crate) fn parse_delay_directive(inner: &str) -> Option<u64> {
-    let rest = inner.strip_prefix("delay(")?;
-    let delay_str = rest.strip_suffix(')')?;
-    parse_delay_ms(strip_argument_quotes(delay_str))
 }
 
 /// Strict button parser for the mouse directive: `mN` only (`m1..=u8::MAX`,
@@ -346,9 +295,6 @@ pub(crate) fn parse_mouse_button(arg: &str) -> Option<MouseButton> {
 }
 
 pub(crate) fn parse_mouse_directive(inner: &str) -> Option<ExpansionStep> {
-    use crate::engine::variables::parser::bind_call;
-
-    // Check space-separated mouse directive: [mouse click m1], [mouse move 100 200], etc.
     let tokens = crate::engine::variables::parser::tokenize_words(inner);
     if tokens.len() >= 2 && tokens[0].eq_ignore_ascii_case("mouse") {
         let action = tokens[1].to_ascii_lowercase();
@@ -378,79 +324,15 @@ pub(crate) fn parse_mouse_directive(inner: &str) -> Option<ExpansionStep> {
                 let delta = tokens.get(2).and_then(|s| s.parse::<i32>().ok())?;
                 return Some(ExpansionStep::MouseScroll(delta));
             }
-            "pos" => return None,
             _ => {}
         }
     }
 
-    let raw = inner.strip_prefix("mouse(")?.strip_suffix(')')?;
-    let spec = crate::engine::variables::registry::param_spec("mouse")?;
-    let bound = bind_call("mouse", raw, &spec).ok()?;
-    let action = bound.named.get("action").map(String::as_str).unwrap_or("");
-    // Binder fills defaults into named, so an explicit count reads as
-    // non-"1"; a bare extra positional only exists when explicitly passed.
-    let count_raw = bound.named.get("count").map(String::as_str).unwrap_or("1");
-    match action {
-        "click" => {
-            if bound.positional.len() > 3 {
-                return None;
-            }
-            let btn = parse_mouse_button(bound.named.get("btn").map(String::as_str).unwrap_or(""))?;
-            let count = count_raw.parse::<u32>().ok()?;
-            Some(ExpansionStep::MouseClick(btn, count))
-        }
-        "hold" | "release" => {
-            if bound.positional.len() > 2 || count_raw != "1" {
-                return None;
-            }
-            let btn = parse_mouse_button(bound.named.get("btn").map(String::as_str).unwrap_or(""))?;
-            Some(if action == "hold" {
-                ExpansionStep::MouseDown(btn)
-            } else {
-                ExpansionStep::MouseUp(btn)
-            })
-        }
-        "move" => {
-            // X/Y ride the generic btn/count slots; y has no default so
-            // a 2-positional call (or defaulted count) is an arity error.
-            if bound.positional.len() > 3
-                || (bound.positional.len() == 2 && count_raw == "1")
-                || (bound.positional.is_empty() && count_raw == "1")
-            {
-                return None;
-            }
-            let x = bound
-                .named
-                .get("btn")
-                .map(String::as_str)
-                .unwrap_or("")
-                .parse::<u16>()
-                .ok()?;
-            let y = count_raw.parse::<u16>().ok()?;
-            Some(ExpansionStep::MouseMove(x, y))
-        }
-        "scroll" => {
-            if bound.positional.len() > 2 || count_raw != "1" {
-                return None;
-            }
-            // Signed delta, positive scrolls up / negative scrolls down.
-            let delta = bound
-                .named
-                .get("btn")
-                .map(String::as_str)
-                .unwrap_or("")
-                .parse::<i32>()
-                .ok()?;
-            Some(ExpansionStep::MouseScroll(delta))
-        }
-        // Pos is deferred content (sys marker), not a step; unknown
-        // actions are save-time errors.
-        _ => None,
-    }
+    None
 }
 
 /// Checks whether the interpolated string contains any key, wait, mouse, or run directives.
-fn contains_key_or_delay_directives(text: &str) -> bool {
+pub(crate) fn contains_key_or_delay_directives(text: &str) -> bool {
     let mut ptr = 0;
 
     while let Some(tag) = find_next_tag(text, ptr) {
@@ -459,7 +341,6 @@ fn contains_key_or_delay_directives(text: &str) -> bool {
             || parse_wait_directive(inner).is_some()
             || parse_mouse_directive(inner).is_some()
             || inner.starts_with("run")
-            || inner.starts_with("execute(")
         {
             return true;
         }
@@ -505,7 +386,6 @@ pub fn validate_output(output: &str, trigger: Option<&str>) -> crate::error::Res
             || parse_wait_directive(inner).is_some()
             || parse_mouse_directive(inner).is_some()
             || inner.starts_with("run")
-            || inner.starts_with("execute(")
         {
             has_key_or_delay = true;
         }
@@ -532,8 +412,8 @@ pub fn validate_output(output: &str, trigger: Option<&str>) -> crate::error::Res
     // 2. Conflict check: [cursor] vs key/delay/mouse directives
     if has_key_or_delay && cursor_count > 0 {
         tracing::warn!(
-            "[cursor] directive will be ignored because [key(...)], [delay(...)] or [mouse(...)] directives are present{}. \
-             Use [key(left)] for precise navigation in multi-action snippets.",
+            "[cursor] directive will be ignored because key, wait, or mouse directives are present{}. \
+             Use [left] for precise navigation in multi-action snippets.",
             trigger_ctx
         );
     }
@@ -543,7 +423,7 @@ pub fn validate_output(output: &str, trigger: Option<&str>) -> crate::error::Res
 
 /// Splits an interpolated string into a sequence of [`ExpansionStep`] actions.
 ///
-/// Handles `[key(...)]`, `[delay(...)]`, `[mouse(...)]` directives and escape sequences (`\[`, `\]`).
+/// Handles keypresses, wait delays, mouse actions, and escape sequences (`\[`, `\]`).
 /// Text between directives becomes `ExpansionStep::Text`.
 /// `[cursor]` is preserved as-is for the `apply_cursor_positioning` post-pass.
 /// Escaped `\[cursor\]` is stored with a sentinel to avoid false matches.
@@ -565,7 +445,7 @@ fn split_into_steps_with_origin(text: &str, origin: ExpansionOrigin) -> Vec<Expa
             let base_expr = pipeline[0];
             let transformers: Vec<String> = pipeline[1..].iter().map(|s| s.to_string()).collect();
 
-            if base_expr.starts_with("run") || execute::strip_execute_args(base_expr).is_some() {
+            if base_expr.starts_with("run") {
                 flush_text(&mut steps, &mut current_text);
                 match execute::to_script_metadata(base_expr) {
                     Ok(metadata) => steps.push(ExpansionStep::InlineRun(metadata, transformers)),

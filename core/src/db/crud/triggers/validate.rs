@@ -57,10 +57,11 @@ pub(crate) fn collect_defined_variables(payload: &str) -> std::collections::Hash
             {
                 let key_unquoted =
                     crate::engine::variables::system::strip_quotes(key).unwrap_or(key);
-                defined.insert(key_unquoted.to_string());
-                let without_dollar = key_unquoted.strip_prefix('$').unwrap_or(key_unquoted);
-                defined.insert(without_dollar.to_string());
-                defined.insert(format!("${without_dollar}"));
+                if key_unquoted.starts_with('$') {
+                    defined.insert(key_unquoted.to_string());
+                    let without_dollar = key_unquoted.strip_prefix('$').unwrap_or(key_unquoted);
+                    defined.insert(without_dollar.to_string());
+                }
             }
         }
         ptr = tag.end + 1;
@@ -85,6 +86,58 @@ pub fn audit_script_payload_tags(payload: &str, trigger_type: TriggerType) -> Re
     audit_payload_tags_impl_opt(payload, &defined_vars, trigger_type, true)
 }
 
+fn check_legacy_syntax(inner: &str, key: &str) -> Option<String> {
+    let trimmed = key.trim();
+    if trimmed.starts_with("key(") && trimmed.ends_with(')') {
+        let arg = trimmed[4..trimmed.len() - 1].trim();
+        return Some(format!(
+            "[{inner}]: key(...) directive syntax is obsolete; use bare key directly, e.g. [{arg}]"
+        ));
+    }
+    if trimmed.starts_with("delay(") && trimmed.ends_with(')') {
+        let arg = trimmed[6..trimmed.len() - 1].trim();
+        return Some(format!(
+            "[{inner}]: delay(...) directive syntax is obsolete; use [wait ...], e.g. [wait {arg}]"
+        ));
+    }
+    if trimmed.starts_with("chrono(") && trimmed.ends_with(')') {
+        return Some(format!(
+            "[{inner}]: chrono(...) is obsolete; use [date] or [time]"
+        ));
+    }
+    if trimmed.starts_with("execute(") && trimmed.ends_with(')') {
+        return Some(format!(
+            "[{inner}]: execute(...) is obsolete; use [run \"cmd\"]"
+        ));
+    }
+    if trimmed.starts_with("mouse(") && trimmed.ends_with(')') {
+        return Some(format!(
+            "[{inner}]: mouse(...) directive syntax is obsolete; use space-separated syntax, e.g. [mouse click m1]"
+        ));
+    }
+    if trimmed.starts_with("image(") && trimmed.ends_with(')') {
+        let arg = trimmed[6..trimmed.len() - 1].trim();
+        return Some(format!(
+            "[{inner}]: image(...) directive syntax is obsolete; use [image \"{arg}\"]"
+        ));
+    }
+    if trimmed.starts_with("use(") && trimmed.ends_with(')') {
+        let arg = trimmed[4..trimmed.len() - 1].trim();
+        return Some(format!(
+            "[{inner}]: use(...) syntax is obsolete; use [use \"{arg}\"]"
+        ));
+    }
+    for root in &["clip", "env", "file", "random", "lorem", "uuid"] {
+        let prefix = format!("{root}(");
+        if trimmed.starts_with(&prefix) && trimmed.ends_with(')') {
+            return Some(format!(
+                "[{inner}]: {root}(...) syntax is obsolete; system variables use space-separated syntax, e.g. [{root} ...]"
+            ));
+        }
+    }
+    None
+}
+
 pub(crate) fn audit_payload_tags_impl_opt(
     payload: &str,
     defined_vars: &std::collections::HashSet<String>,
@@ -100,6 +153,10 @@ pub(crate) fn audit_payload_tags_impl_opt(
         let pipeline = crate::engine::variables::system::transformers::split_pipeline(inner);
         let base_expr = pipeline[0];
         let (key, default_value) = split_key_default(base_expr);
+
+        if let Some(err) = check_legacy_syntax(inner, key) {
+            return Err(crate::Error::Config(err));
+        }
 
         for segment in &pipeline[1..] {
             if !crate::engine::variables::system::transformers::is_valid_transformer(segment) {
@@ -164,7 +221,7 @@ pub(crate) fn audit_payload_tags_impl_opt(
                     }
                 }
 
-                if matches!(ns, "key" | "delay" | "wait" | "mouse" | "run") {
+                if matches!(ns, "wait" | "mouse" | "run") {
                     has_key_or_delay = true;
                 }
 
@@ -194,10 +251,26 @@ pub(crate) fn audit_payload_tags_impl_opt(
             } else {
                 let key_unquoted =
                     crate::engine::variables::system::strip_quotes(key).unwrap_or(key);
-                let is_user_var = default_value.is_some()
-                    || defined_vars.contains(key_unquoted)
-                    || defined_vars
-                        .contains(key_unquoted.strip_prefix('$').unwrap_or(key_unquoted));
+                if default_value.is_some() && !key_unquoted.starts_with('$') {
+                    return Err(crate::Error::Config(format!(
+                        "[{inner}]: dynamic variables must start with $ (e.g. [${key_unquoted}=\"default\"])"
+                    )));
+                }
+                if !is_script
+                    && !key_unquoted.starts_with('$')
+                    && !key_unquoted.is_empty()
+                    && key_unquoted.chars().all(|c| c.is_ascii_digit())
+                {
+                    return Err(crate::Error::Config(format!(
+                        "[{inner}]: positional numeric tags like [{key_unquoted}] are not allowed; use [$name=\"default\"]"
+                    )));
+                }
+
+                let is_user_var = key_unquoted.starts_with('$')
+                    && (default_value.is_some()
+                        || defined_vars.contains(key_unquoted)
+                        || defined_vars
+                            .contains(key_unquoted.strip_prefix('$').unwrap_or(key_unquoted)));
 
                 if (!is_script || is_user_var) && key_unquoted.contains('.') {
                     return Err(crate::Error::Config(format!(
@@ -224,7 +297,7 @@ pub(crate) fn audit_payload_tags_impl_opt(
                                 && !is_allowed_regex_positional
                             {
                                 let mut diag = crate::diagnostic::Diagnostic::problem(format!(
-                                    "[{inner}]: dynamic variables need a default (e.g., [name=default] or [${var_ident}=\"default\"]); fill inline like trigger;value or trigger;name=value"
+                                    "[{inner}]: dynamic variables need a default (e.g., [${var_ident}=\"default\"]); fill inline like trigger;value or trigger;name=value"
                                 ));
                                 if let Some(suggestion) =
                                     crate::diagnostic::matcher::find_best_match(
@@ -259,7 +332,7 @@ pub(crate) fn audit_payload_tags_impl_opt(
 
     if cursor_count > 0 && has_key_or_delay {
         return Err(crate::Error::Config(
-            "[cursor] conflicts with key/delay/mouse directives".to_string(),
+            "[cursor] conflicts with key/wait/mouse directives".to_string(),
         ));
     }
 
@@ -384,15 +457,7 @@ pub(crate) fn get_referenced_triggers(payload: &str) -> Vec<String> {
     while let Some(tag) = find_next_tag(payload, ptr) {
         let inner = trim_slice(&payload[tag.start + 1..tag.end]);
         let (key, _) = split_key_default(inner);
-        if key.starts_with("use(")
-            && key.ends_with(')')
-            && let Some(inner_key) = key.strip_prefix("use(").and_then(|k| k.strip_suffix(')'))
-        {
-            let unquoted = crate::engine::variables::system::strip_quotes(inner_key.trim())
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| inner_key.trim().to_string());
-            refs.push(unquoted);
-        } else if key == "use" || key.starts_with("use ") {
+        if key == "use" || key.starts_with("use ") {
             let rest = key.strip_prefix("use").unwrap_or("").trim();
             let unquoted = crate::engine::variables::system::strip_quotes(rest)
                 .map(|s| s.to_string())
@@ -551,7 +616,7 @@ pub fn validate_trigger_limits(
     for ref_trigger in &all_referenced {
         if !catalog.contains_key(ref_trigger) {
             return Err(crate::Error::Config(format!(
-                "[use(\"{}\")] does not exist",
+                "[use \"{}\"] does not exist",
                 ref_trigger
             )));
         }

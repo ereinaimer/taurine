@@ -50,19 +50,26 @@ fn parses_call_and_rejects_dots() {
 #[test]
 fn parses_call_shapes() {
     assert_eq!(
-        parse_system_call("random(choice, a, b)"),
-        Some(("random", "choice, a, b"))
+        parse_system_call("random choice a b"),
+        Some(("random", "choice a b"))
     );
     assert_eq!(parse_system_call("date"), Some(("date", "")));
-    assert_eq!(parse_system_call("  clip(1)  "), Some(("clip", "1")));
-    assert_eq!(parse_system_call("clip | case(upper)"), Some(("clip", "")));
+    assert_eq!(parse_system_call("  clip 1  "), Some(("clip", "1")));
+    assert_eq!(parse_system_call("clip | upper"), Some(("clip", "")));
     assert_eq!(
-        parse_system_call("env(X, \"a|b\")"),
-        Some(("env", "X, \"a|b\""))
+        parse_system_call("env X \"a|b\""),
+        Some(("env", "X \"a|b\""))
+    );
+    assert_eq!(
+        parse_system_call("calc (10 + 2) / 3"),
+        Some(("calc", "(10 + 2) / 3"))
     );
     assert_eq!(parse_system_call(""), None);
     assert_eq!(parse_system_call("   "), None);
-    assert_eq!(parse_system_call("clip(1"), None);
+    // Legacy paren syntax is refused
+    assert_eq!(parse_system_call("random(choice, a, b)"), None);
+    assert_eq!(parse_system_call("clip(1)"), None);
+    assert_eq!(parse_system_call("env(X)"), None);
     assert_eq!(parse_system_call("()"), None);
     assert_eq!(parse_system_call("(1)"), None);
 }

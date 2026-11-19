@@ -201,7 +201,7 @@ fn script_add_hotkey_creates_canonical_hotkey_trigger() {
         execute(
             "Control + Shift + W".to_string(),
             true,
-            Some("winget install [0=package]".to_string()),
+            Some("winget install [$pkg=\"package\"]".to_string()),
             None,
             Some(ScriptInterpreter::PowerShell),
             ScriptBehavior::Inline,

@@ -59,11 +59,37 @@ fn usage_hint(namespace: &str, spec: &ParamSpec) -> String {
 }
 
 fn split_call_args(raw: &str) -> Vec<String> {
-    let mut parts = Vec::new();
-    let mut current = String::new();
     let mut quote: Option<char> = None;
     let mut paren: usize = 0;
     let mut bracket: usize = 0;
+    let mut has_unquoted_comma = false;
+    for c in raw.chars() {
+        if let Some(q) = quote {
+            if c == q {
+                quote = None;
+            }
+        } else if c == '"' || c == '\'' {
+            quote = Some(c);
+        } else if c == '(' {
+            paren += 1;
+        } else if c == ')' {
+            paren = paren.saturating_sub(1);
+        } else if c == '[' {
+            bracket += 1;
+        } else if c == ']' {
+            bracket = bracket.saturating_sub(1);
+        } else if c == ',' && paren == 0 && bracket == 0 {
+            has_unquoted_comma = true;
+            break;
+        }
+    }
+
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    quote = None;
+    paren = 0;
+    bracket = 0;
+
     for c in raw.chars() {
         if let Some(q) = quote {
             current.push(c);
@@ -85,13 +111,23 @@ fn split_call_args(raw: &str) -> Vec<String> {
         } else if c == ']' {
             bracket = bracket.saturating_sub(1);
             current.push(c);
-        } else if c == ',' && paren == 0 && bracket == 0 {
-            parts.push(std::mem::take(&mut current));
+        } else if has_unquoted_comma {
+            if c == ',' && paren == 0 && bracket == 0 {
+                parts.push(std::mem::take(&mut current));
+            } else {
+                current.push(c);
+            }
+        } else if c.is_whitespace() && paren == 0 && bracket == 0 {
+            if !current.is_empty() {
+                parts.push(std::mem::take(&mut current));
+            }
         } else {
             current.push(c);
         }
     }
-    parts.push(current);
+    if !current.is_empty() {
+        parts.push(current);
+    }
     parts
 }
 

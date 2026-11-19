@@ -548,7 +548,7 @@ fn test_import_rewrites_asset_uuids() {
             description: None,
             trigger_type: TriggerType::Word,
             trigger: "test_asset".to_string(),
-            output: format!("Asset here: [image(asset({}))]", old_asset_id),
+            output: format!("Asset here: [image \"asset({})\"]", old_asset_id),
             action_type: "text".to_string(),
             is_enabled: true,
             target_os: "all".to_string(),

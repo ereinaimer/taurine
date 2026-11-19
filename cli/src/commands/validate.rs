@@ -76,42 +76,42 @@ mod tests {
 
     #[test]
     fn accepts_valid_system_tags_and_literals() {
-        assert!(
-            audit_payload_tags("[chrono(time, tz=utc) | case(upper)] [env(USERPROFILE)]").is_ok()
-        );
-        assert!(audit_payload_tags("[ip(public)] [ip(local)]").is_ok());
-        assert!(audit_payload_tags("[ip(online)]").is_err());
+        assert!(audit_payload_tags("[time utc | case(upper)] [env USERPROFILE]").is_ok());
+        assert!(audit_payload_tags("[ip]").is_ok());
+        assert!(audit_payload_tags("[ip public]").is_err());
+        assert!(audit_payload_tags("[ip online]").is_err());
         assert!(audit_payload_tags("json = \\[1, 2, 3\\]").is_ok());
-        assert!(audit_payload_tags("[name=John | case(upper)]").is_ok());
+        assert!(audit_payload_tags("[$name=\"John\" | case(upper)]").is_ok());
         assert!(audit_payload_tags("[clip | ai(\"summarize\")]").is_ok());
         assert!(audit_payload_tags(
-            "[execute(powershell, \"curl https://ipinfo.io/json\") | json(\"ip\") | case(upper) | strip(whitespace)]"
+            "[run \"curl https://ipinfo.io/json\" | json(\"ip\") | case(upper) | strip(whitespace)]"
         ).is_ok());
     }
 
     #[test]
     fn rejects_invalid_system_modifier() {
-        let error = audit_payload_tags("[chrono(invalid_param=123)]").unwrap_err();
-        assert!(error.to_string().contains("chrono"));
+        let error = audit_payload_tags("[date invalid_param=123]").unwrap_err();
+        assert!(error.to_string().contains("date"));
     }
 
     #[test]
     fn rejects_unknown_transformer_names() {
-        let error = audit_payload_tags("[name=John | upper]").unwrap_err();
+        let error = audit_payload_tags("[$name=\"John\" | bogus_transform]").unwrap_err();
         assert!(error.to_string().contains("unknown transformer"));
-        assert!(error.to_string().contains("upper"));
+        assert!(error.to_string().contains("bogus_transform"));
 
         let legacy = audit_payload_tags("[clip | firstline]").unwrap_err();
         assert!(legacy.to_string().contains("unknown transformer"));
 
-        assert!(audit_payload_tags("[name=John | case(upper)]").is_ok());
+        assert!(audit_payload_tags("[$name=\"John\" | case(upper)]").is_ok());
+        assert!(audit_payload_tags("[$name=\"John\" | upper]").is_ok());
         assert!(audit_payload_tags("[clip | lines(first)]").is_ok());
         assert!(audit_payload_tags("[clip | lines(sort, \"numeric\")]").is_ok());
     }
 
     #[test]
     fn rejects_unknown_net_modifier() {
-        let error = audit_payload_tags("[ip(bogus)]").unwrap_err();
+        let error = audit_payload_tags("[ip bogus]").unwrap_err();
         assert!(error.to_string().contains("ip"));
     }
 
@@ -135,8 +135,8 @@ mod tests {
 
     #[test]
     fn accepts_lorem_with_nested_dynamic_arg() {
-        assert!(audit_payload_tags("[lorem(words, count=[num=5])]").is_ok());
-        assert!(audit_payload_tags("[lorem(words, count=[random(int, min=3, max=3)])]").is_ok());
+        assert!(audit_payload_tags("[lorem words [$num=\"5\"]]").is_ok());
+        assert!(audit_payload_tags("[lorem words [random 3 3]]").is_ok());
     }
 
     #[test]
@@ -158,14 +158,14 @@ mod tests {
 
     #[test]
     fn rejects_empty_default_assignment() {
-        let error = audit_payload_tags("[name=]").unwrap_err();
+        let error = audit_payload_tags("[$name=]").unwrap_err();
         assert!(error.to_string().contains("default value cannot be empty"));
 
-        let error2 = audit_payload_tags("[name=\"\"]").unwrap_err();
-        assert!(error2.to_string().contains("default value cannot be empty"));
-
-        let error3 = audit_payload_tags("[name=   | case(upper)]").unwrap_err();
+        let error3 = audit_payload_tags("[$name=   | case(upper)]").unwrap_err();
         assert!(error3.to_string().contains("default value cannot be empty"));
+
+        // Explicit empty quotes are allowed as empty string defaults
+        assert!(audit_payload_tags("[$name=\"\"]").is_ok());
     }
 
     #[test]
@@ -269,36 +269,35 @@ mod tests {
 
     #[test]
     fn accepts_nested_and_reused_variables() {
-        assert!(audit_payload_tags("Status: [http(status, url=\"https://httpbin.org/status/200\")] | UA: [[http(get, url=\"https://httpbin.org/headers\")] | json('headers.User-Agent') | truncate(15)]").is_ok());
-        assert!(audit_payload_tags("User [name='Developer'] checked [url='httpbin.org/json'] at [chrono(time, tz=utc, format=\"HH:mm\")] UTC. Title of JSON: [http(get, url=[url]) | json('slideshow.title') | case(upper)]").is_ok());
+        assert!(audit_payload_tags("Status: [run \"curl -s -o /dev/null -w '%{http_code}' https://httpbin.org/status/200\"] | UA: [[run \"curl -s https://httpbin.org/headers\"] | json('headers.User-Agent') | truncate(15)]").is_ok());
+        assert!(audit_payload_tags("User [$name='Developer'] checked [$url='httpbin.org/json'] at [time utc HH:mm] UTC. Title of JSON: [run \"curl -s https://httpbin.org/json\" | json('slideshow.title') | case(upper)]").is_ok());
     }
 
     #[test]
     fn test_template_syntax_spec_compliance_validation() {
         // Positive Test Cases
-        assert!(audit_payload_tags("Hello [0=friend]! You live in [1='San Francisco'] and work as [role='Software Engineer'].").is_ok());
+        assert!(audit_payload_tags("Hello [$name='friend']! You live in [$city='San Francisco'] and work as [$role='Software Engineer'].").is_ok());
         assert!(
             audit_payload_tags_with_trigger_type(
-                "Hello [0]! You live in [1] and [2]",
+                "Hello [$1]! You live in [$2] and [$3]",
                 TriggerType::Regex
             )
             .is_ok()
         );
-        assert!(audit_payload_tags("Escaped brackets: \\[0=ignored\\] | Literal pipe: [0='default value' \\| upper] | Parsed pipe: [0='hello' | case(upper)]").is_ok());
-        assert!(audit_payload_tags("Local: [chrono(date)] [chrono(time)] | UTC +1w: [chrono(date, tz=utc, offset=\"+1w\", format=\"'Today is' dddd, MMMM D, YYYY\")] | UTC Time -2h: [chrono(time, tz=utc, offset=\"-2h\", format=\"hh:mm A\")] | Cased AM/PM: [chrono(time, format=A) | case(lower)]").is_ok());
-        assert!(audit_payload_tags("User (Title Case): [env(USERNAME) | case(title)] | Home Path (Lowercase): [env(USERPROFILE) | case(lower)]").is_ok());
-        assert!(audit_payload_tags("Full Content: [file(read, path=\"~/taurine_test.txt\") | strip(whitespace)] | Line 2: [file(line, path=\"~/taurine_test.txt\", start=2) | case(upper)] | Lines 1-3: [file(lines, path=\"~/taurine_test.txt\", start=1, end=3)]").is_ok());
-        assert!(audit_payload_tags("Latest (Slugified): [clip | case(slug)] | Second: [clip | strip(whitespace)] | Third (Upper): [clip(1) | case(upper)] | Empty index: [clip(2) | wrap(singlequote)]").is_ok());
-        assert!(audit_payload_tags("Cwd Path: [execute(powershell, \"(Get-Location).Path\") | strip(whitespace)] | Cmd Command: [execute(cmd, \"echo hello from cmd\") | case(upper)] | Silent Task: [execute(powershell, \"echo 'background task'\", silent=true)]").is_ok());
-        assert!(audit_payload_tags("Status: [http(status, url=\"https://httpbin.org/status/200\")] | UA: [http(get, url=\"https://httpbin.org/headers\") | json('headers.User-Agent') | truncate(15)]").is_ok());
-        assert!(audit_payload_tags("Status: [http(status, url=\"https://httpbin.org/status/200\")] | UA: [[http(get, url=\"https://httpbin.org/headers\")] | json('headers.User-Agent') | truncate(15)]").is_ok());
-        assert!(audit_payload_tags("Int (10-50): [random(int, min=10, max=50)] | Pass (12): [random(pass, 12)] | Choice: [random(choice, apple, banana, cherry) | case(title)] | Lorem (Dynamic Count): [lorem(words, count=[random(int, min=2, max=4)]) | case(kebab)]").is_ok());
+        assert!(audit_payload_tags("Escaped brackets: \\[$arg=\"ignored\"\\] | Literal pipe: [$arg='default value' \\| case(upper)] | Parsed pipe: [$arg='hello' | case(upper)]").is_ok());
+        assert!(audit_payload_tags("Local: [date] [time] | UTC +1w: [date +1w utc \"'Today is' dddd, MMMM D, YYYY\"] | UTC Time -2h: [time -2h hh:mm A utc] | Cased AM/PM: [time A | case(lower)]").is_ok());
+        assert!(audit_payload_tags("User (Title Case): [env USERNAME | case(title)] | Home Path (Lowercase): [env USERPROFILE | case(lower)]").is_ok());
+        assert!(audit_payload_tags("Full Content: [file read \"~/taurine_test.txt\" | strip(whitespace)] | Line 2: [file line \"~/taurine_test.txt\" 2 | case(upper)] | Lines 1-3: [file lines \"~/taurine_test.txt\" 1 3]").is_ok());
+        assert!(audit_payload_tags("Latest (Slugified): [clip | case(slug)] | Second: [clip | strip(whitespace)] | Third (Upper): [clip 1 | case(upper)] | Empty index: [clip 2 | wrap(singlequote)]").is_ok());
+        assert!(audit_payload_tags("Cwd Path: [run \"(Get-Location).Path\" | strip(whitespace)] | Cmd Command: [run \"echo hello from cmd\" | case(upper)] | Silent Task: [run silent \"echo 'background task'\"]").is_ok());
+        assert!(audit_payload_tags("Status: [run \"curl -s https://httpbin.org/status/200\"] | UA: [run \"curl -s https://httpbin.org/headers\" | json('headers.User-Agent') | truncate(15)]").is_ok());
+        assert!(audit_payload_tags("Status: [run \"curl -s https://httpbin.org/status/200\"] | UA: [[run \"curl -s https://httpbin.org/headers\"] | json('headers.User-Agent') | truncate(15)]").is_ok());
+        assert!(audit_payload_tags("Int (10-50): [random int 10 50] | Pass (12): [random pass 12] | Choice: [random choice apple banana cherry | case(title)] | Lorem (Dynamic Count): [lorem words [random 2 4] | case(kebab)]").is_ok());
         assert!(
-            audit_payload_tags("Output: [use('testinner') | case(upper)] | Date: [chrono(date)]")
-                .is_ok()
+            audit_payload_tags("Output: [use \"testinner\" | case(upper)] | Date: [date]").is_ok()
         );
-        assert!(audit_payload_tags("User [name='Developer'] checked [url='httpbin.org/json'] at [chrono(time, tz=utc, format=\"HH:mm\")] UTC. Title of JSON: [http(get, url=[url]) | json('slideshow.title') | case(upper)]").is_ok());
-        assert!(audit_payload_tags("[0=first][key(tab)][delay(100ms)][1=second][key(tab)][delay(50ms)][2=third][key(enter)]").is_ok());
+        assert!(audit_payload_tags("User [$name='Developer'] checked [$url='httpbin.org/json'] at [time utc HH:mm] UTC. Title of JSON: [run \"curl -s https://httpbin.org/json\" | json('slideshow.title') | case(upper)]").is_ok());
+        assert!(audit_payload_tags("[$first=\"first\"][tab][wait 100ms][$second=\"second\"][tab][wait 50ms][$third=\"third\"][enter]").is_ok());
 
         // Negative Test Cases
         assert!(audit_payload_tags("User: [name=]").is_err());
@@ -306,7 +305,7 @@ mod tests {
         assert!(audit_payload_tags("Hello [0]!").is_err());
         assert!(audit_payload_tags("User: [my.custom.var=there]").is_err());
         assert!(audit_payload_tags("Start: [cursor] End: [cursor]").is_err());
-        assert!(audit_payload_tags("Hello: [cursor] [key(tab)]").is_err());
+        assert!(audit_payload_tags("Hello: [cursor] [tab]").is_err());
         assert!(audit_payload_tags("Time: [time=12:00]").is_err());
     }
 
@@ -391,9 +390,9 @@ mod tests {
         assert!(super::audit_payload_tags("User: [my.custom.var=there]").is_err());
 
         // System variables and defined variables in scripts should still be checked
-        // (bare chrono formats are accepted; digit-leading tokens are not offsets)
-        assert!(audit_script_payload_tags("[chrono(YYYY-MM-DD)]", TriggerType::Word).is_ok());
-        assert!(audit_script_payload_tags("[chrono(1d)]", TriggerType::Word).is_err());
+        assert!(audit_script_payload_tags("[date YYYY-MM-DD]", TriggerType::Word).is_ok());
+        assert!(audit_script_payload_tags("[date 1d]", TriggerType::Word).is_err());
+        assert!(audit_script_payload_tags("[chrono(YYYY-MM-DD)]", TriggerType::Word).is_err());
         assert!(audit_script_payload_tags("[my_var]", TriggerType::Word).is_ok()); // undefined var is allowed as literal text in scripts
     }
 }
