@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Voice Speed & Multilingual Restoration**: Pre-warmed HTTPS connections on keypress and automatically restored authentic native scripts for non-Latin languages.
 - **Voice Crash Recovery & Partial Salvage**: Automatically recover interrupted dictations on restart and salvage partial transcripts during network drops.
 - **Unified Snippet Syntax**: Streamlined template syntax with bare key directives, direct filters, direct arithmetic, and order-independent date and time parameters.
 - **Long-Form Voice Dictation & Structuring**: Support multi-minute continuous dictation with silence-aware audio chunking, paragraph breaks, and itemized lists.

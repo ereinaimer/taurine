@@ -428,3 +428,20 @@ fn voice_trigger_outranks_plain_dictation_on_fuzzy_match() {
         "trigger {trigger_score:.3} must beat unrelated {plain_score:.3}"
     );
 }
+
+#[tokio::test]
+#[ignore = "live network test against Supabase edge function; opt-in with TAURINE_ALLOW_HOST_INPUT=1"]
+async fn test_live_cloud_voice_clean_transcript_and_prewarm() {
+    if std::env::var("TAURINE_ALLOW_HOST_INPUT").unwrap_or_default() != "1" {
+        return;
+    }
+    let client = taurine_core::voice::GroqVoiceClient::from_env_or_keyring();
+    client.prewarm().await;
+
+    let clean = client
+        .clean_transcript("um hello world, i want to test this out", None)
+        .await;
+    assert!(clean.is_ok(), "clean_transcript failed: {:?}", clean.err());
+    let clean_str = clean.unwrap();
+    assert!(!clean_str.is_empty());
+}
