@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  parseLanguageCandidates,
-  computeAverageLogprob,
-  selectBestCandidate,
   buildLlamaSystemPrompt,
+  computeAverageLogprob,
+  parseLanguageCandidates,
+  resolveCandidateWhisperLanguage,
+  selectBestCandidate,
 } from "./routing.ts";
 import type { WhisperCandidateResult } from "./routing.ts";
 
@@ -110,15 +111,33 @@ test("selectBestCandidate handles single candidate or throws on empty", () => {
   assert.throws(() => selectBestCandidate([]), /empty result set/);
 });
 
-test("buildLlamaSystemPrompt includes native script examples and technical term rules", () => {
+test("resolveCandidateWhisperLanguage maps English to null and preserves non-English", () => {
+  assert.equal(resolveCandidateWhisperLanguage(null), null);
+  assert.equal(resolveCandidateWhisperLanguage(undefined), null);
+  assert.equal(resolveCandidateWhisperLanguage(""), null);
+  assert.equal(resolveCandidateWhisperLanguage("en"), null);
+  assert.equal(resolveCandidateWhisperLanguage("EN"), null);
+  assert.equal(resolveCandidateWhisperLanguage("english"), null);
+  assert.equal(resolveCandidateWhisperLanguage("auto"), null);
+  assert.equal(resolveCandidateWhisperLanguage("ml"), "ml");
+  assert.equal(resolveCandidateWhisperLanguage("ML"), "ml");
+  assert.equal(resolveCandidateWhisperLanguage("ja"), "ja");
+  assert.equal(resolveCandidateWhisperLanguage("hi"), "hi");
+});
+
+test("buildLlamaSystemPrompt strictly forbids translation and enforces native script", () => {
   const promptEn = buildLlamaSystemPrompt(null, "en");
+  assert.ok(promptEn.includes("CRITICAL MANDATE - ZERO TRANSLATION"));
+  assert.ok(promptEn.includes("NEVER translate the speaker's words"));
   assert.ok(promptEn.includes("മലയാളം"));
   assert.ok(promptEn.includes("日本語"));
   assert.ok(promptEn.includes("हिन्दी"));
   assert.ok(!promptEn.includes("Explicit Target Language"));
 
   const promptMl = buildLlamaSystemPrompt(["Supabase", "Taurine"], "malayalam");
+  assert.ok(promptMl.includes("CRITICAL MANDATE - ZERO TRANSLATION"));
   assert.ok(promptMl.includes("Explicit Target Language & Native Script"));
   assert.ok(promptMl.includes("malayalam"));
+  assert.ok(promptMl.includes("DO NOT translate to English"));
   assert.ok(promptMl.includes("Supabase, Taurine"));
 });

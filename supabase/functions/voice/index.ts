@@ -7,6 +7,7 @@ import {
   buildLlamaSystemPrompt,
   computeAverageLogprob,
   parseLanguageCandidates,
+  resolveCandidateWhisperLanguage,
   selectBestCandidate,
 } from "./routing.ts";
 import type { WhisperCandidateResult, WhisperResponse } from "./routing.ts";
@@ -257,9 +258,12 @@ Deno.serve(async (req: Request) => {
         winningResponse = await callGroqWhisper(groqApiKey, file, prompt, candidate);
         effectiveLanguage = winningResponse.language || candidate;
       } else {
-        // Multiple candidates: run concurrent Whisper calls via Promise.allSettled across candidate languages (capped at 3)
+        // Multiple candidates: run concurrent Whisper calls via Promise.allSettled across candidate languages (capped at 3).
+        // For English in a multilingual list, resolveCandidateWhisperLanguage returns null (unconstrained auto-detection).
+        // This prevents Whisper from forcing English translation when non-English audio (e.g. Malayalam) is spoken.
         const candidatePromises = candidates.map(async (candidate) => {
-          const response = await callGroqWhisper(groqApiKey, file, prompt, candidate);
+          const whisperLang = resolveCandidateWhisperLanguage(candidate);
+          const response = await callGroqWhisper(groqApiKey, file, prompt, whisperLang);
           const avgLogprob = computeAverageLogprob(response.segments);
           return { candidate, response, avgLogprob };
         });

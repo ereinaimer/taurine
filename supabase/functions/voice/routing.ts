@@ -100,31 +100,52 @@ export function selectBestCandidate<T extends { response: { text?: string }; avg
 }
 
 /**
+ * Resolves the Whisper language parameter for a candidate when querying in multilingual candidate mode.
+ * In Whisper, passing `language: "en"` on non-English audio forces Whisper into translation mode (translating to English).
+ * To prevent translation, English in a multilingual list must query Whisper with `null` (unconstrained auto-detection).
+ * If English is spoken, unconstrained Whisper naturally detects English and transcribes it without translating foreign audio.
+ */
+export function resolveCandidateWhisperLanguage(candidate: string | null | undefined): string | null {
+  if (!candidate) {
+    return null;
+  }
+  const normalized = candidate.trim().toLowerCase();
+  if (normalized === "en" || normalized === "english" || normalized === "auto") {
+    return null;
+  }
+  return normalized;
+}
+
+/**
  * Builds the Llama 3.1 cleanup system prompt.
- * Instructs rendering in authentic native script while preserving English technical terms in Latin script.
+ * Instructs rendering in authentic native script while strictly forbidding translation.
  */
 export function buildLlamaSystemPrompt(
   customTerms?: string[] | null,
   detectedLanguage?: string | null,
 ): string {
   let systemPrompt =
-    "You are an expert voice dictation cleanup engine. Transform raw transcribed speech into clean, well-formatted, professional text.\n" +
-    "Rules:\n" +
-    "- Correct punctuation, capitalization, and minor grammatical slips.\n" +
+    "You are an expert voice dictation cleanup engine. Clean, punctuate, and format raw transcribed speech while STRICTLY preserving the original spoken language.\n\n" +
+    "CRITICAL MANDATE - ZERO TRANSLATION:\n" +
+    "- NEVER translate the speaker's words into English or any other language. Translating non-English speech is strictly forbidden.\n" +
+    "- If the input is in Malayalam (or any non-English language), the output MUST be in Malayalam. If the input is in English, the output MUST be in English.\n" +
+    "- You are a transcription post-processor, NOT a translator.\n\n" +
+    "Formatting & Cleanup Rules:\n" +
+    "- Correct punctuation, capitalization, and minor grammatical slips without changing vocabulary or meaning.\n" +
     "- Remove conversational filler words (e.g. um, uh, ah, like, you know) and accidental stutter repetitions.\n" +
     "- Format numbers, currencies, dates, email addresses, and technical terms appropriately.\n" +
     "- Structure continuous speech into natural paragraphs separated by blank lines (\\n\\n) at major topic transitions or thought shifts, or when the speaker dictates a new paragraph.\n" +
-    "- Format sequences of numbered items or sequential instructions as numbered lists (e.g. 1., 2., 3.) when itemized.\n" +
+    "- Format sequential steps or itemized instructions as numbered lists (e.g. 1., 2., 3.) when itemized.\n" +
     "- Format itemized features, options, or components as clean bulleted lists (- ) when itemized.\n" +
     "- Preserve regular flowing prose in paragraphs rather than forcing lists for standard explanations.\n" +
     "- Preserve the speaker's original intent, vocabulary, tone, and meaning exactly.\n" +
-    "- Universal Native Script Rule: If speech belonging to any language typically written in a non-Latin script (including Indic languages like മലയാളം for Malayalam or हिन्दी for Hindi, East Asian languages like 日本語 for Japanese or Chinese, Cyrillic, Arabic, Hebrew, Greek, etc.) is transcribed in Latin or Romanized phonetic transliteration (e.g. Manglish, Hinglish, Romaji, Pinyin, or Romanized speech), render it in its authentic, standard native script and orthography. Never translate the meaning into English or another language; transcribe the speaker's exact spoken words in their authentic language and native script.\n" +
+    "- Native Script Rule: If speech belonging to any language typically written in a non-Latin script (including Indic languages like മലയാളം for Malayalam or हिन्दी for Hindi, East Asian languages like 日本語 for Japanese or Chinese, Cyrillic, Arabic, Hebrew, Greek, etc.) is transcribed in Latin or Romanized phonetic transliteration (e.g. Manglish, Hinglish, Romaji, Pinyin, or Romanized speech), render it in its authentic, standard native script and orthography. Never translate the meaning into English or another language; transcribe the speaker's exact spoken words in their authentic language and native script.\n" +
     "- Code-Switching & Technical Words: When a speaker naturally mixes languages (e.g. using English technical words, programming identifiers, software products, or brand names within non-English speech), preserve those genuine English terms in standard Latin text while keeping all surrounding language in its authentic native script.\n" +
     "- If the speech contains only conversational filler words, stuttering, or ambient noise with no substantive content, output an empty string.\n" +
     "- Output ONLY the final cleaned text with no surrounding quotes, conversational preamble, explanations, markdown code blocks, or notes.";
 
   if (detectedLanguage && detectedLanguage.toLowerCase() !== "english" && detectedLanguage.toLowerCase() !== "en") {
-    systemPrompt += `\n- Explicit Target Language & Native Script: The audio was spoken in or identified as ${detectedLanguage}. You MUST render the speech in its authentic native script (e.g. മലയാളം for Malayalam, 日本語 for Japanese, हिन्दी for Hindi, etc.). If the raw transcript is in Latin/English characters or phonetic transliteration, convert and restore it completely into the authentic native script of ${detectedLanguage}. NEVER leave non-English speech phonetically transliterated in Latin characters.\n- Technical Term Preservation: Keep genuine English technical terms, coding keywords, software names, and brand identifiers in standard Latin script while rendering all surrounding speech in authentic native script.`;
+    systemPrompt += `\n- Explicit Target Language & Native Script: The audio was spoken in or identified as ${detectedLanguage}. You MUST render the speech in its authentic native script (e.g. മലയാളം for Malayalam, 日本語 for Japanese, हिन्दी for Hindi, etc.). If the raw transcript is in Latin/English characters or phonetic transliteration, convert and restore it completely into the authentic native script of ${detectedLanguage}. DO NOT translate to English.\n- Technical Term Preservation: Keep genuine English technical terms, coding keywords, software names, and brand identifiers in standard Latin script while rendering all surrounding speech in authentic native script.`;
   }
 
   if (customTerms && customTerms.length > 0) {
