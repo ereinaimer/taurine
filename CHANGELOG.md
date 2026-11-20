@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Voice Non-English Translation**: Fixed an issue where speaking in Malayalam or other non-English languages was translated to English instead of preserving the authentic native script.
+
 ### Added
 - **Voice Preferred Languages & Candidate Routing**: Configure preferred dictation language candidates and route acoustic candidates concurrently for authentic native script output.
 - **Voice Speed & Multilingual Restoration**: Pre-warmed HTTPS connections on keypress and automatically restored authentic native scripts for non-Latin languages.
