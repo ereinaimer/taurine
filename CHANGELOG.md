@@ -49,6 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Google Authentication**: Replaced GitHub OAuth with Google OAuth as the default cloud authentication provider alongside email login.
 - **Word-Based Telemetry**: Replaced keystroke metrics with separate counts for words spoken and words expanded across daily statistics and cloud synchronization.
 - **Monetization Simplification**: Free tier now includes unlimited snippets, workspaces, and devices, gating exclusively on weekly expansion quota.
+- **Voice Trigger Slot Syntax**: Voice slot placeholders now require the output-variable `$` prefix (e.g. `--voice "say hi to [$person]"`); bare `[person]` slots are rejected.
 
 ### Removed
 - **Legacy Directive Syntax**: Eliminated legacy parenthesized directive syntax and bare variable tags in favor of unified space-separated commands and assigned dynamic variables.

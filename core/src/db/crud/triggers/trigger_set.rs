@@ -456,8 +456,8 @@ fn audit_type_for_entry(invocations: &[(InvocationType, String, bool)]) -> Trigg
     }
 }
 
-/// Rejects parameterized voice invocations whose `[slot]` names have no
-/// matching `[slot=default]` variable in a text output template. Scripts skip
+/// Rejects parameterized voice invocations whose `[$slot]` names have no
+/// matching `[$slot=default]` variable in a text output template. Scripts skip
 /// the check: bare `[slot]` refs without defaults are idiomatic there and
 /// still interpolate at runtime.
 fn validate_voice_slot_parity(
@@ -476,7 +476,7 @@ fn validate_voice_slot_parity(
         for slot in pattern.slot_names() {
             if !defined.iter().any(|d| d.eq_ignore_ascii_case(&slot)) {
                 return Err(crate::Error::Config(format!(
-                    "Voice slot '[{slot}]' has no matching variable in the output template \
+                    "Voice slot '[${slot}]' has no matching variable in the output template \
                      (voice trigger '{invocation}'). Add '[${slot}=\"default\"]' to the output."
                 )));
             }

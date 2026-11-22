@@ -253,6 +253,22 @@ fn test_voice_trigger_database_crud_lifecycle() {
         validate_voice_phrase("  Hello World  ").unwrap(),
         "hello world"
     );
+    assert_eq!(
+        validate_voice_phrase("say hi to [$person]").unwrap(),
+        "say hi to [$person]"
+    );
+    assert!(
+        validate_voice_phrase("say hi to [person]")
+            .unwrap_err()
+            .to_string()
+            .contains("must use a '$' prefix")
+    );
+    assert!(
+        validate_voice_phrase("say hi to [$person=Sarah]")
+            .unwrap_err()
+            .to_string()
+            .contains("cannot declare a default")
+    );
 
     // Threshold tiers by phrase length (helper names kept).
     assert_eq!(threshold_for_phrase("my email"), 0.85);
@@ -383,7 +399,7 @@ fn test_exact_static_trigger_takes_precedence_over_parameterized() {
     use taurine_core::voice::rank_voice_invocations;
 
     let static_trig = test_voice_invocation("say hi", "Hello there!");
-    let param_trig = test_voice_invocation("say hi to [person]", "Hello, [person]!");
+    let param_trig = test_voice_invocation("say hi to [$person]", "Hello, [$person]!");
     let triggers = vec![static_trig.clone(), param_trig.clone()];
 
     // Saying "say hi" perfectly matches static trigger
@@ -393,7 +409,7 @@ fn test_exact_static_trigger_takes_precedence_over_parameterized() {
 
     // Saying "say hi to Bob" matches parameterized trigger
     let m2 = rank_voice_invocations("say hi to Bob", &triggers).unwrap();
-    assert_eq!(m2.trigger.invocation, "say hi to [person]");
+    assert_eq!(m2.trigger.invocation, "say hi to [$person]");
     assert_eq!(m2.args.named.get("person").unwrap(), "Bob");
 }
 
@@ -402,7 +418,7 @@ fn test_static_fuzzy_fallback_when_no_parameterized_match() {
     use taurine_core::voice::rank_voice_invocations;
 
     let static_trig = test_voice_invocation("movies folder", "opened");
-    let param_trig = test_voice_invocation("send [msg] to [person]", "To: [person]!");
+    let param_trig = test_voice_invocation("send [$msg] to [$person]", "To: [$person]!");
     let triggers = vec![static_trig.clone(), param_trig.clone()];
 
     // Near-miss keeps legacy static behavior

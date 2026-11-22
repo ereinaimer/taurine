@@ -1549,7 +1549,7 @@ mod tests {
                 behavior: None,
                 invocations: vec![(
                     taurine_core::db::crud::InvocationType::Voice,
-                    "say hi to [person]".to_string(),
+                    "say hi to [$person]".to_string(),
                     false,
                 )],
             },
@@ -2908,7 +2908,7 @@ mod tests {
                 behavior: None,
                 invocations: vec![(
                     taurine_core::db::crud::InvocationType::Voice,
-                    "say hi to [person]".to_string(),
+                    "say hi to [$person]".to_string(),
                     false,
                 )],
             },

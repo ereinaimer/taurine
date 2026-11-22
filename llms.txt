@@ -46,6 +46,7 @@ A fast, secure and easy-to-use text expander built in Rust. Taurine helps you ty
 *   `taurine add --hotkey <combo> <output>`: Treat the trigger as a global keyboard shortcut (e.g., `alt+y`).
 *   `taurine add script <trigger>... <body> [-f file] [-l lang] [-m mode] [--hotkey <combo>] [--regex <pattern>] [--voice <phrase>]`: Adds a shell script trigger (see section 5).
 *   One entry can group word, hotkey, regex, and voice invocations: `taurine add hi hello 'Hello!' --hotkey ctrl+h --voice 'say hi'` (repeatable flags, one invocation each). Shown as `hi (+3)`; deleting an entry's last invocation deletes the entry.
+*   Voice triggers support named slots using the same `$` prefix as output variables: `--voice "say hi to [$person]"` with output `"Hello, [$person=there]!"`. Bare `[person]` slots are rejected.
 *   `taurine add --include-apps <list> | --exclude-apps <list>`: Restrict a trigger to specific applications (see 3.5).
 *   `taurine list` (or `ls`): Displays a formatted table of all active triggers. Supports `--sort` (`alpha`, `usage`, `created`, `recent`), `--asc`/`--desc`, `--tag`, and `--json`.
 *   `taurine delete` (or `rm`/`remove`) `<trigger>...`: Removes one or more triggers. 
@@ -121,9 +122,9 @@ Validation limits: trigger string ≤200 chars, text output ≤100 KB, script co
 
 ## 4. Dynamic Variables
 
-Flexible snippets use `[variable_name=default]` placeholders. The `=` is mandatory. Arguments are passed by appending `;value` to the trigger: `>hi;Erein ` → "Hello, Erein!".
+Flexible snippets use `[$variable_name=default]` placeholders. The `$` prefix and `=` are mandatory. Arguments are passed by appending `;value` to the trigger: `>hi;Erein ` → "Hello, Erein!".
 
-*   **Ordered bare values**: bare values fill `[name=default]` fields in template order (`meet;2pm;lobby`); explicit `key=value` always wins, case-insensitively (`>gh;name=erein;repo=taurine`). Missing values use defaults.
+*   **Ordered bare values**: bare values fill `[$name=default]` fields in template order (`meet;2pm;lobby`); explicit `key=value` always wins, case-insensitively (`>gh;name=erein;repo=taurine`). Missing values use defaults.
 *   **Quoting**: wrap arguments with spaces/semicolons in single or double quotes (`>hi;"John Doe" `). Unquoted spaces are fine; `:` is ordinary text (`meet;12:30;lobby` needs no quoting).
 *   **Skip placeholders** with an empty segment (`;;`) to keep their defaults.
 *   **Escaping**: `\[` `\]` escape brackets; `\n`, `\t`, `\r` are escaped literals.
@@ -153,7 +154,7 @@ System variables inject machine data or generate values using unified `namespace
 
 ## 5. Text Transformers
 
-Global transformers apply with Unix pipe syntax right after any variable, positional, default, or quoted literal: `[name=text | case(upper)]`, `[name=john | case(title)]`, `['hello world' | case(title)]`. Chain left-to-right (`[text=text | strip(whitespace) | case(upper)]`).
+Global transformers apply with Unix pipe syntax right after any variable, positional, default, or quoted literal: `[$name=text | case(upper)]`, `[$name=john | case(title)]`, `['hello world' | case(title)]`. Chain left-to-right (`[$text=text | strip(whitespace) | case(upper)]`).
 
 *   **Casing**: `case(upper|lower|sentence|title|camel|pascal|snake|kebab|slug)`.
 *   **Text** (UTF-8 aware): `count(chars|words)`, `truncate(n)`, `repeat(n)`, `replace(old, new)`, `replace(regex, pattern, replacement)`, `slice(start, end)`, `filter(digits|alphanumeric)`, `strip(whitespace|emoji)`.
@@ -178,8 +179,8 @@ Taurine's background engine runs arbitrary scripts (Bash, Python, PowerShell, No
 *   **Languages**: `bash` (`.sh`), `powershell` (`.ps1`), `python` (`.py`), `node` (`.js`, `.cjs`), `cmd` (`.bat`, `.cmd`). Inference order: file extension → shebang → explicit `--lang`.
 *   **Execution modes** (`-m`, `--mode`): `inline` (default — stdout injected as text via a clipboard-first "injection" mechanism) or `silent` (background only, for notifications/builds).
 *   **Storage**: `zstd`-compressed BLOBs inside the SQLite DB; script files (`-f`) are copied in — the original file isn't needed afterward.
-*   **"Interpolation First"**: variables are replaced in the script body *before* the interpreter runs — `[var=default]`, `[env(USERNAME)]`, transformers, and named/bare values all work, including inside script files.
-*   **Examples**: `taurine add script url 'start https://[url=google.com]' --lang powershell --os windows`; `taurine add script --hotkey "ctrl+shift+w" winget "winget install [pkg=git]"`.
+*   **"Interpolation First"**: variables are replaced in the script body *before* the interpreter runs — `[$var=default]`, `[env(USERNAME)]`, transformers, and named/bare values all work, including inside script files.
+*   **Examples**: `taurine add script url 'start https://[$url=google.com]' --lang powershell --os windows`; `taurine add script --hotkey "ctrl+shift+w" winget "winget install [$pkg=git]"`.
 *   Hard limit: 20s max execution time (then terminated). Scripts run with the service's environment in a temporary directory; interpreters must be on `PATH`.
 
 ---

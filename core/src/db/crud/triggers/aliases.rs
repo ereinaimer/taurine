@@ -589,6 +589,15 @@ pub fn validate_voice_phrase(phrase: &str) -> Result<String> {
         return Err(Error::Config(diag.render()));
     }
 
+    crate::voice::pattern::VoicePattern::parse(trimmed).map_err(|detail| {
+        let diag = Diagnostic::problem(detail)
+            .help("Voice slots reference output variables and must use the same '$' prefix")
+            .example(
+                "taurine add --voice \"say hi to [$person]\" \"Hello, [$person=\\\"there\\\"]!\"",
+            );
+        Error::Config(diag.render())
+    })?;
+
     let normalized: String = trimmed.nfc().collect::<String>().to_lowercase();
 
     // Check reserved dictation command prefix

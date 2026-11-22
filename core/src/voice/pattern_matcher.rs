@@ -106,7 +106,7 @@ mod tests {
 
     #[test]
     fn test_match_single_slot_trailing() {
-        let pattern = VoicePattern::parse("say hi to [person]").unwrap();
+        let pattern = VoicePattern::parse("say hi to [$person]").unwrap();
         let args = match_voice_pattern("say hi to Sarah", &pattern).unwrap();
         assert_eq!(args.named.get("person").map(|s| s.as_str()), Some("Sarah"));
         assert_eq!(args.positional, vec!["Sarah"]);
@@ -114,7 +114,7 @@ mod tests {
 
     #[test]
     fn test_match_multi_slot_with_intermediate_anchor() {
-        let pattern = VoicePattern::parse("send [msg] to [person]").unwrap();
+        let pattern = VoicePattern::parse("send [$msg] to [$person]").unwrap();
         let args = match_voice_pattern("send I will be late to Sarah", &pattern).unwrap();
         assert_eq!(
             args.named.get("msg").map(|s| s.as_str()),
@@ -125,7 +125,7 @@ mod tests {
 
     #[test]
     fn test_match_rightmost_anchor_disambiguation() {
-        let pattern = VoicePattern::parse("send [msg] to [person]").unwrap();
+        let pattern = VoicePattern::parse("send [$msg] to [$person]").unwrap();
         let args = match_voice_pattern("send happy birthday to you to Sarah.", &pattern).unwrap();
         assert_eq!(
             args.named.get("msg").map(|s| s.as_str()),
@@ -136,7 +136,7 @@ mod tests {
 
     #[test]
     fn test_strips_trailing_punctuation() {
-        let pattern = VoicePattern::parse("remind [person] about [task]").unwrap();
+        let pattern = VoicePattern::parse("remind [$person] about [$task]").unwrap();
         let args = match_voice_pattern("remind Alex, about the meeting.", &pattern).unwrap();
         assert_eq!(args.named.get("person").map(|s| s.as_str()), Some("Alex"));
         assert_eq!(
@@ -147,13 +147,13 @@ mod tests {
 
     #[test]
     fn test_empty_slot_does_not_match() {
-        let pattern = VoicePattern::parse("send [msg] to [person]").unwrap();
+        let pattern = VoicePattern::parse("send [$msg] to [$person]").unwrap();
         assert!(match_voice_pattern("send to Sarah", &pattern).is_none());
     }
 
     #[test]
     fn test_missing_anchor_does_not_match() {
-        let pattern = VoicePattern::parse("send [msg] to [person]").unwrap();
+        let pattern = VoicePattern::parse("send [$msg] to [$person]").unwrap();
         assert!(match_voice_pattern("send hello Sarah", &pattern).is_none());
     }
 }

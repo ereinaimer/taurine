@@ -3,7 +3,7 @@
 pub enum VoicePatternPart {
     /// Static anchor text matched against spoken words.
     Anchor(String),
-    /// A named slot placeholder (e.g. `msg` from `[msg]`).
+    /// A named slot placeholder (e.g. `msg` from `[$msg]`).
     Slot(String),
 }
 
@@ -14,7 +14,9 @@ pub struct VoicePattern {
 }
 
 impl VoicePattern {
-    /// Parse a voice pattern string (e.g. `"send [msg] to [person]"` or `"say hi"`).
+    /// Parse a voice pattern string (e.g. `"send [$msg] to [$person]"` or `"say hi"`).
+    /// Slots must use the `$` prefix shared with output templates; bare
+    /// `[name]` brackets are rejected.
     pub fn parse(input: &str) -> Result<Self, String> {
         let trimmed = input.trim();
         if trimmed.is_empty() {
@@ -37,14 +39,22 @@ impl VoicePattern {
                     .ok_or_else(|| "Unclosed slot bracket '[' in voice pattern".to_string())?;
 
                 let slot_raw = rest[open_idx + 1..close_idx].trim();
-                let slot_name = if let Some((name, _)) = slot_raw.split_once('=') {
-                    name.trim()
-                } else {
-                    slot_raw
+                if slot_raw.is_empty() {
+                    return Err("Empty slot name in voice pattern".to_string());
+                }
+                let Some(slot_name) = slot_raw.strip_prefix('$') else {
+                    return Err(format!(
+                        "Voice slot '[{slot_raw}]' must use a '$' prefix (write '[${slot_raw}]')"
+                    ));
                 };
-
+                let slot_name = slot_name.trim();
                 if slot_name.is_empty() {
                     return Err("Empty slot name in voice pattern".to_string());
+                }
+                if slot_name.contains('=') {
+                    return Err(format!(
+                        "Voice slot '[{slot_raw}]' cannot declare a default; defaults belong in the output template"
+                    ));
                 }
 
                 parts.push(VoicePatternPart::Slot(slot_name.to_string()));
@@ -97,7 +107,7 @@ mod tests {
 
     #[test]
     fn test_parse_parameterized_phrase() {
-        let pattern = VoicePattern::parse("send [msg] to [person]").unwrap();
+        let pattern = VoicePattern::parse("send [$msg] to [$person]").unwrap();
         assert!(pattern.is_parameterized());
         assert_eq!(
             pattern.parts,
@@ -113,7 +123,7 @@ mod tests {
 
     #[test]
     fn test_parse_leading_and_trailing_slots() {
-        let pattern = VoicePattern::parse("[greeting] everyone").unwrap();
+        let pattern = VoicePattern::parse("[$greeting] everyone").unwrap();
         assert_eq!(
             pattern.parts,
             vec![
@@ -125,7 +135,26 @@ mod tests {
 
     #[test]
     fn test_parse_unclosed_or_empty_brackets_fails() {
-        assert!(VoicePattern::parse("send [msg to").is_err());
+        assert!(VoicePattern::parse("send [$msg to").is_err());
         assert!(VoicePattern::parse("send [] to").is_err());
+        assert!(VoicePattern::parse("send [$] to").is_err());
+    }
+
+    #[test]
+    fn test_parse_rejects_bare_slot() {
+        let err = VoicePattern::parse("say hi to [person]").unwrap_err();
+        assert!(
+            err.contains("[$person]"),
+            "error must show the corrected form, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_parse_rejects_slot_default() {
+        let err = VoicePattern::parse("say hi to [$person=Sarah]").unwrap_err();
+        assert!(
+            err.contains("cannot declare a default"),
+            "unexpected error: {err}"
+        );
     }
 }

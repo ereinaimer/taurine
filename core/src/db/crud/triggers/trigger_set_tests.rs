@@ -1616,12 +1616,12 @@ fn create_entry_rejects_voice_slot_not_in_output() {
     let (_dir, conn) = crate::testing::open_test_db();
     let entry = entry_fixture_with_output(
         "Hello, [$name=\"Sarah\"]!",
-        vec![(InvocationType::Voice, "send [msg] to [person]")],
+        vec![(InvocationType::Voice, "send [$msg] to [$person]")],
     );
     let err = create_entry(&conn, entry).unwrap_err();
     assert!(
         err.to_string()
-            .contains("Voice slot '[msg]' has no matching variable in the output template"),
+            .contains("Voice slot '[$msg]' has no matching variable in the output template"),
         "unexpected error: {err}"
     );
 }
@@ -1631,9 +1631,23 @@ fn create_entry_accepts_matching_voice_slots() {
     let (_dir, conn) = crate::testing::open_test_db();
     let entry = entry_fixture_with_output(
         "To: [$person=\"Sarah\"]\n[$msg=\"Hello\"]",
-        vec![(InvocationType::Voice, "send [msg] to [person]")],
+        vec![(InvocationType::Voice, "send [$msg] to [$person]")],
     );
     assert!(create_entry(&conn, entry).is_ok());
+}
+
+#[test]
+fn create_entry_rejects_bare_voice_slot() {
+    let (_dir, conn) = crate::testing::open_test_db();
+    let entry = entry_fixture_with_output(
+        "Hello, [$person=\"there\"]!",
+        vec![(InvocationType::Voice, "send [msg] to [person]")],
+    );
+    let err = create_entry(&conn, entry).unwrap_err();
+    assert!(
+        err.to_string().contains("must use a '$' prefix"),
+        "unexpected error: {err}"
+    );
 }
 
 fn script_entry_fixture(invocation: &str) -> NewEntry {
