@@ -461,7 +461,7 @@ fn test_voice_preferred_languages_normalization_and_caching() {
 
     assert_eq!(
         default_setting_input("voice_preferred_languages").unwrap(),
-        Some("en".to_string())
+        Some("auto".to_string())
     );
 
     apply_setting_input_with_manager(&manager, "voice_preferred_languages", Some("en, ml "))
@@ -474,7 +474,7 @@ fn test_voice_preferred_languages_normalization_and_caching() {
     apply_setting_input_with_manager(&manager, "voice_preferred_languages", Some("   ")).unwrap();
     assert_eq!(
         crate::settings::get_cached_voice_preferred_languages(),
-        "en"
+        "auto"
     );
 
     apply_setting_input_with_manager(&manager, "voice_preferred_languages", Some("EN, JA"))

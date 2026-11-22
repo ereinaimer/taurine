@@ -751,6 +751,10 @@ impl VoiceSessionManager {
         drop(dict);
 
         let preferred_langs = taurine_core::settings::get_cached_voice_preferred_languages();
+        info!(
+            "VoiceSessionManager: transcribing audio with preferred_languages: {:?}",
+            preferred_langs
+        );
 
         self.cloud_client
             .transcribe_blocking(
@@ -832,6 +836,11 @@ impl VoiceSessionManager {
         };
 
         let transcript_at = Instant::now();
+        info!(
+            "VoiceSessionManager: received transcript ({} chars): {:?}",
+            transcript_text.len(),
+            transcript_text
+        );
         debug!(
             "VoiceSessionManager: voice latency press_to_cue_ms={:.2} press_to_recording_ms={:.2} press_to_transcript_ms={:.2}",
             timing.cue_at.duration_since(timing.press_at).as_secs_f64() * 1000.0,
@@ -3457,7 +3466,7 @@ mod tests {
         guard.set_balance(original_balance);
         guard.set_unlimited(original_unlimited);
         guard.set_authenticated(original_authenticated);
-        taurine_core::settings::set_cached_voice_preferred_languages("en".to_string());
+        taurine_core::settings::set_cached_voice_preferred_languages("auto".to_string());
 
         server_thread.join().unwrap();
     }

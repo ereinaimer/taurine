@@ -439,7 +439,7 @@ async fn test_live_cloud_voice_clean_transcript_and_prewarm() {
     client.prewarm().await;
 
     let clean = client
-        .clean_transcript("um hello world, i want to test this out", None)
+        .clean_transcript("um hello world, i want to test this out", None, None)
         .await;
     assert!(clean.is_ok(), "clean_transcript failed: {:?}", clean.err());
     let clean_str = clean.unwrap();

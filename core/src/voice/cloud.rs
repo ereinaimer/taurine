@@ -120,8 +120,10 @@ impl CloudVoiceClient {
         let config = crate::cloud::CloudConfig::default_or_from_env();
         Self {
             client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(20))
-                .tcp_keepalive(Some(std::time::Duration::from_secs(60)))
+                .connect_timeout(std::time::Duration::from_secs(4))
+                .timeout(std::time::Duration::from_secs(12))
+                .pool_idle_timeout(Some(std::time::Duration::from_secs(15)))
+                .tcp_keepalive(Some(std::time::Duration::from_secs(30)))
                 .pool_max_idle_per_host(4)
                 .build()
                 .unwrap_or_else(|_| reqwest::Client::new()),
@@ -137,8 +139,10 @@ impl CloudVoiceClient {
         let config = crate::cloud::CloudConfig::default_or_from_env();
         Self {
             client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(20))
-                .tcp_keepalive(Some(std::time::Duration::from_secs(60)))
+                .connect_timeout(std::time::Duration::from_secs(4))
+                .timeout(std::time::Duration::from_secs(12))
+                .pool_idle_timeout(Some(std::time::Duration::from_secs(15)))
+                .tcp_keepalive(Some(std::time::Duration::from_secs(30)))
                 .pool_max_idle_per_host(4)
                 .build()
                 .unwrap_or_else(|_| reqwest::Client::new()),
@@ -201,11 +205,12 @@ impl CloudVoiceClient {
             .await;
     }
 
-    /// Run the raw transcript through the edge function's Llama-3.1-8b cleanup agent.
+    /// Run the raw transcript through the edge function's Llama cleanup agent.
     pub async fn clean_transcript(
         &self,
         raw_transcript: &str,
         custom_terms: Option<&[String]>,
+        language: Option<&str>,
     ) -> Result<String> {
         let trimmed_raw = raw_transcript.trim();
         if trimmed_raw.is_empty() {
@@ -225,6 +230,7 @@ impl CloudVoiceClient {
         let payload = serde_json::json!({
             "raw_text": trimmed_raw,
             "custom_terms": custom_terms,
+            "language": language,
         });
 
         let response = match self
@@ -292,57 +298,88 @@ impl CloudVoiceClient {
             Error::Config(diag.render())
         })?;
 
-        let mut form = reqwest::multipart::Form::new().text(
-            "cleanup",
-            if self.cleanup_enabled {
-                "true"
-            } else {
-                "false"
-            },
-        );
+        let build_form = || -> Result<reqwest::multipart::Form> {
+            let mut form = reqwest::multipart::Form::new().text(
+                "cleanup",
+                if self.cleanup_enabled {
+                    "true"
+                } else {
+                    "false"
+                },
+            );
 
-        if let Some(p) = prompt
-            && !p.trim().is_empty()
-        {
-            form = form.text("prompt", p.trim().to_string());
-        }
+            if let Some(p) = prompt
+                && !p.trim().is_empty()
+            {
+                form = form.text("prompt", p.trim().to_string());
+            }
 
-        if let Some(langs) = preferred_languages
-            && !langs.trim().is_empty()
-        {
-            form = form.text("preferred_languages", langs.trim().to_string());
-        }
+            if let Some(langs) = preferred_languages
+                && !langs.trim().is_empty()
+                && !langs.trim().eq_ignore_ascii_case("auto")
+            {
+                form = form.text("preferred_languages", langs.trim().to_string());
+            }
 
-        if let Some(terms) = custom_terms
-            && !terms.is_empty()
-            && let Ok(terms_json) = serde_json::to_string(terms)
-        {
-            form = form.text("custom_terms", terms_json);
-        }
+            if let Some(terms) = custom_terms
+                && !terms.is_empty()
+                && let Ok(terms_json) = serde_json::to_string(terms)
+            {
+                form = form.text("custom_terms", terms_json);
+            }
 
-        form = form.part(
-            "file",
-            reqwest::multipart::Part::bytes(wav_bytes.to_vec())
-                .file_name("dictation.wav")
-                .mime_str("audio/wav")
-                .map_err(|e| {
-                    Error::Service(format!("Failed to build multipart audio part: {e}"))
-                })?,
-        );
+            form = form.part(
+                "file",
+                reqwest::multipart::Part::bytes(wav_bytes.to_vec())
+                    .file_name("dictation.wav")
+                    .mime_str("audio/wav")
+                    .map_err(|e| {
+                        Error::Service(format!("Failed to build multipart audio part: {e}"))
+                    })?,
+            );
+            Ok(form)
+        };
 
-        let response = self
-            .client
-            .post(&self.endpoint_url)
-            .header("Authorization", format!("Bearer {auth_token}"))
-            .header("apikey", &self.anon_key)
-            .multipart(form)
-            .send()
-            .await
-            .map_err(|e| {
-                Error::Service(format!(
-                    "Failed to send transcription request to voice gateway: {e}"
-                ))
-            })?;
+        let max_attempts = 2;
+        let mut attempts = 0;
+        let response = loop {
+            attempts += 1;
+            let form = build_form()?;
+
+            tracing::info!(
+                "CloudVoiceClient: sending transcription request (attempt {}/{}, preferred_languages: {:?}, wav_bytes: {})",
+                attempts,
+                max_attempts,
+                preferred_languages,
+                wav_bytes.len()
+            );
+
+            match self
+                .client
+                .post(&self.endpoint_url)
+                .header("Authorization", format!("Bearer {auth_token}"))
+                .header("apikey", &self.anon_key)
+                .multipart(form)
+                .send()
+                .await
+            {
+                Ok(resp) => break resp,
+                Err(e) => {
+                    tracing::warn!(
+                        "CloudVoiceClient: attempt {}/{} failed ({e})",
+                        attempts,
+                        max_attempts
+                    );
+                    if attempts < max_attempts {
+                        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                        continue;
+                    }
+                    return Err(Error::Service(format!(
+                        "Failed to send transcription request to voice gateway: {e}"
+                    )));
+                }
+            }
+        };
 
         let status = response.status();
         if status.as_u16() == 401 {
@@ -369,11 +406,22 @@ impl CloudVoiceClient {
         #[derive(serde::Deserialize)]
         struct GatewayResponse {
             text: String,
+            #[serde(default)]
+            raw_text: Option<String>,
+            #[serde(default)]
+            language: Option<String>,
         }
 
         let parsed: GatewayResponse = response.json().await.map_err(|e| {
             Error::Service(format!("Failed to parse voice gateway JSON response: {e}"))
         })?;
+
+        tracing::info!(
+            "CloudVoiceClient: gateway returned HTTP {status}, language: {:?}, raw_len: {}, final_len: {}",
+            parsed.language,
+            parsed.raw_text.as_ref().map(|s| s.len()).unwrap_or(0),
+            parsed.text.len()
+        );
 
         Ok(parsed.text)
     }
@@ -504,7 +552,8 @@ impl CloudVoiceClient {
             }
 
             if self.cleanup_enabled {
-                self.clean_transcript(trimmed_full, custom_terms).await
+                self.clean_transcript(trimmed_full, custom_terms, preferred_languages)
+                    .await
             } else {
                 Ok(trimmed_full.to_string())
             }
@@ -833,7 +882,7 @@ mod tests {
 
         let wav = crate::voice::encode_pcm16_wav(&[0.0; 160], 16000, 1);
         let transcript = client
-            .transcribe_wav(&wav, None, None, Some("   "))
+            .transcribe_wav(&wav, None, None, Some("auto"))
             .await
             .unwrap();
 
@@ -1003,7 +1052,7 @@ mod tests {
 
         let custom_terms = vec!["Taurine".to_string(), "Rust".to_string()];
         let cleaned = client
-            .clean_transcript("um hello like this is a test", Some(&custom_terms))
+            .clean_transcript("um hello like this is a test", Some(&custom_terms), None)
             .await
             .unwrap();
         assert_eq!(cleaned, "Hello, this is a test.");
@@ -1036,7 +1085,7 @@ mod tests {
         );
 
         let result = client
-            .clean_transcript("raw text fallback", None)
+            .clean_transcript("raw text fallback", None, None)
             .await
             .unwrap();
         assert_eq!(result, "raw text fallback");
@@ -1068,7 +1117,7 @@ mod tests {
             "whisper-large-v3".to_string(),
         );
 
-        let cleaned = client.clean_transcript("um uh", None).await.unwrap();
+        let cleaned = client.clean_transcript("um uh", None, None).await.unwrap();
         assert_eq!(cleaned, "");
         server_thread.join().unwrap();
     }

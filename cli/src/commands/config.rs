@@ -320,7 +320,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(updated, "en,ml");
-        assert_eq!(reset, "en");
+        assert_eq!(reset, "auto");
     }
 
     #[test]

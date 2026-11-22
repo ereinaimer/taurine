@@ -219,7 +219,7 @@ pub fn get_cached_voice_preferred_languages() -> String {
     CACHED_VOICE_PREFERRED_LANGUAGES
         .read()
         .clone()
-        .unwrap_or_else(|| "en".to_string())
+        .unwrap_or_else(|| "auto".to_string())
 }
 
 pub fn set_cached_voice_input_device(device: Option<String>) {
@@ -646,7 +646,7 @@ impl Default for Settings {
             voice_ptt_hotkey: "win+lctrl".to_string(),
             voice_handsfree_hotkey: "win+lctrl+lalt".to_string(),
             voice_dictionary: String::new(),
-            voice_preferred_languages: "en".to_string(),
+            voice_preferred_languages: "auto".to_string(),
             voice_input_device: None,
             pause_media_while_dictating: true,
             tui_cursor_style: TuiCursorStyle::default(),
@@ -698,7 +698,7 @@ mod tests {
         assert_eq!(defaults.voice_ptt_hotkey, "win+lctrl");
         assert_eq!(defaults.voice_handsfree_hotkey, "win+lctrl+lalt");
         assert!(defaults.voice_dictionary.is_empty());
-        assert_eq!(defaults.voice_preferred_languages, "en");
+        assert_eq!(defaults.voice_preferred_languages, "auto");
         assert_eq!(defaults.voice_input_device, None);
     }
 

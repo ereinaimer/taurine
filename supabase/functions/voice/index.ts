@@ -1,16 +1,9 @@
 // Supabase Edge Function: voice
 // Secure gateway for Taurine voice dictation.
-// Authenticates users via Supabase Auth and proxies to Groq Whisper + Llama 3.1 8B without client-side API keys.
+// Authenticates users via Supabase Auth and delegates speech-to-text to ElevenLabs Scribe v3
+// and post-processing formatting to Groq Llama 3.3 70B without client-side API keys.
 
 import { createClient } from "@supabase/supabase-js";
-import {
-  buildLlamaSystemPrompt,
-  computeAverageLogprob,
-  parseLanguageCandidates,
-  resolveCandidateWhisperLanguage,
-  selectBestCandidate,
-} from "./routing.ts";
-import type { WhisperCandidateResult, WhisperResponse } from "./routing.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -18,22 +11,42 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const GROQ_WHISPER_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
+const ELEVENLABS_STT_URL = "https://api.elevenlabs.io/v1/speech-to-text";
+const ELEVENLABS_MODEL_ID = "scribe_v3";
 const GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions";
-const WHISPER_MODEL = "whisper-large-v3";
-const CLEANUP_MODEL = "llama-3.1-8b-instant";
+const CLEANUP_MODEL = "llama-3.3-70b-versatile";
 
-export class GroqApiError extends Error {
+export class VoiceGatewayError extends Error {
   status: number;
   constructor(status: number, message: string) {
     super(message);
     this.status = status;
-    this.name = "GroqApiError";
+    this.name = "VoiceGatewayError";
   }
+}
+
+interface ScribeResponse {
+  text: string;
+  language_code?: string;
+  language_probability?: number;
 }
 
 function sanitizeCleanedText(rawInput: string, cleaned: string): string {
   let text = cleaned.trim();
+
+  // Strip <raw_transcript> ... </raw_transcript> or <raw_speech> ... </raw_speech> tags if echoed
+  if (text.startsWith("<raw_transcript>")) {
+    text = text.substring("<raw_transcript>".length).trim();
+  }
+  if (text.endsWith("</raw_transcript>")) {
+    text = text.substring(0, text.length - "</raw_transcript>".length).trim();
+  }
+  if (text.startsWith("<raw_speech>")) {
+    text = text.substring("<raw_speech>".length).trim();
+  }
+  if (text.endsWith("</raw_speech>")) {
+    text = text.substring(0, text.length - "</raw_speech>".length).trim();
+  }
 
   // Strip markdown code fence if present
   if (text.startsWith("```")) {
@@ -58,61 +71,148 @@ function sanitizeCleanedText(rawInput: string, cleaned: string): string {
     text = text.substring(1, text.length - 1).trim();
   } else if (text.startsWith("“") && text.endsWith("”") && !rawTrimmed.startsWith("“")) {
     text = text.substring(1, text.length - 1).trim();
+  } else if (text.startsWith("‘") && text.endsWith("’") && !rawTrimmed.startsWith("‘")) {
+    text = text.substring(1, text.length - 1).trim();
   }
 
   return text;
 }
 
-async function callGroqWhisper(
+function parseLanguagePreferences(raw: string | null | undefined): {
+  primaryLanguage: string | null;
+  secondaryLanguages: string[];
+} {
+  if (!raw) {
+    return { primaryLanguage: null, secondaryLanguages: [] };
+  }
+  const parts = raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => s.length > 0);
+
+  if (parts.length === 0 || parts.includes("auto")) {
+    return { primaryLanguage: null, secondaryLanguages: [] };
+  }
+
+  const unique = Array.from(new Set(parts));
+  const primary = unique[0];
+  const secondaries = unique.slice(1, 4); // max 3 secondary language codes
+  return { primaryLanguage: primary, secondaryLanguages: secondaries };
+}
+
+function sanitizeKeyterm(term: string): string | null {
+  const trimmed = term.trim();
+  if (!trimmed || trimmed.length > 50) return null;
+  // Scribe forbids characters < > { } [ ] \
+  const sanitized = trimmed.replace(/[<>{}\[\]\\]/g, "").trim();
+  if (!sanitized) return null;
+  const words = sanitized.split(/\s+/);
+  if (words.length > 5) return null;
+  return sanitized;
+}
+
+async function callElevenLabsScribe(
   apiKey: string,
   file: Blob,
-  prompt?: string | null,
-  language?: string | null,
-): Promise<WhisperResponse> {
-  const groqFormData = new FormData();
-  groqFormData.append("file", file, "dictation.wav");
-  groqFormData.append("model", WHISPER_MODEL);
-  groqFormData.append("response_format", "verbose_json");
-  groqFormData.append("temperature", "0");
-  if (language && language.trim().length > 0) {
-    groqFormData.append("language", language.trim());
-  }
-  if (prompt && prompt.trim().length > 0) {
-    groqFormData.append("prompt", prompt.trim());
+  preferredLanguagesRaw?: string | null,
+  customTerms?: string[] | null,
+): Promise<ScribeResponse> {
+  const formData = new FormData();
+  formData.append("file", file, "dictation.wav");
+  formData.append("model_id", ELEVENLABS_MODEL_ID);
+  formData.append("diarize", "false");
+  formData.append("tag_audio_events", "false");
+
+  const { primaryLanguage, secondaryLanguages } = parseLanguagePreferences(preferredLanguagesRaw);
+  if (primaryLanguage) {
+    formData.append("language_code", primaryLanguage);
+    for (const sec of secondaryLanguages) {
+      formData.append("secondary_language_codes", sec);
+    }
   }
 
-  const whisperRes = await fetch(GROQ_WHISPER_URL, {
+  if (customTerms && Array.isArray(customTerms)) {
+    const seen = new Set<string>();
+    for (const term of customTerms) {
+      const valid = sanitizeKeyterm(term);
+      if (valid && !seen.has(valid.toLowerCase()) && seen.size < 1000) {
+        seen.add(valid.toLowerCase());
+        formData.append("keyterms", valid);
+      }
+    }
+  }
+
+  const res = await fetch(ELEVENLABS_STT_URL, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${apiKey}`,
+      "xi-api-key": apiKey,
     },
-    body: groqFormData,
+    body: formData,
   });
 
-  if (!whisperRes.ok) {
-    const errorText = await whisperRes.text();
-    throw new GroqApiError(whisperRes.status, `Groq Whisper error (${whisperRes.status}): ${errorText}`);
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new VoiceGatewayError(res.status, `ElevenLabs Scribe error (${res.status}): ${errorText}`);
   }
 
-  return (await whisperRes.json()) as WhisperResponse;
+  return (await res.json()) as ScribeResponse;
+}
+
+function buildLlamaSystemPrompt(customTerms?: string[] | null): string {
+  let prompt =
+    "You are an expert voice dictation post-processor and document editor. Your job is to transform raw spoken transcripts into clean, readable, professional text while maintaining strict fidelity to the speaker's original words.\n\n" +
+    "# Rules & Guidelines:\n\n" +
+    "1. Preserve Exact Spoken Language & Words:\n" +
+    "- NEVER translate. Do not change words, language, dialect, or script.\n" +
+    "- The transcript is already transcribed in the speaker's authentic language and native script (including Indic, East Asian, Cyrillic, Latin, or code-switched scripts). Preserve it verbatim.\n" +
+    "- Keep genuine English technical terms, coding identifiers, software names, and product names in Latin script exactly as spoken.\n\n" +
+    "2. Speech Disfluency Removal:\n" +
+    "- Strip verbal filler words (e.g. um, uh, ah, like, you know) and accidental stutter repetitions.\n" +
+    "- If the transcript contains only filler words, background noise, or meaningless hesitations, return an empty string.\n\n" +
+    "3. Paragraphs & Structural Formatting:\n" +
+    "- Organize continuous speech into logical paragraphs separated by blank lines (\\n\\n) at natural thought transitions, major topic shifts, or dictated paragraph breaks.\n" +
+    "- Do not create a single giant run-on block of text.\n\n" +
+    "4. Bulleted & Numbered Lists:\n" +
+    "- When the speaker dictates sequential steps, chronologies, or numbered items (e.g. 'first... second...', 'step one...'), format them as clean numbered lists (1., 2., 3.).\n" +
+    "- When the speaker clearly itemizes features, options, tasks, to-do items, or brainstormed points, format them as clean markdown bullet points (- Item).\n" +
+    "- Only format as lists when the speaker is clearly itemizing points. Do not force lists onto regular conversational explanations or continuous prose.\n\n" +
+    "5. Punctuation, Capitalization & Numbers:\n" +
+    "- Apply accurate, natural punctuation (commas, periods, question marks) and sentence capitalization.\n" +
+    "- Format numbers, currencies, dates, email addresses, and units cleanly according to standard conventions.\n\n" +
+    "6. Output Contract (Strict Negative Constraints):\n" +
+    "- Output ONLY the polished final text.\n" +
+    "- Do NOT include conversational preamble (e.g., 'Here is the formatted text:'), commentary, notes, or explanations.\n" +
+    "- Do NOT wrap output in quotation marks or markdown code blocks (```).";
+
+  if (customTerms && customTerms.length > 0) {
+    const valid = customTerms
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0)
+      .slice(0, 50);
+    if (valid.length > 0) {
+      prompt += `\n\n# Vocabulary to preserve verbatim if present:\n${valid.join(", ")}`;
+    }
+  }
+
+  return prompt;
 }
 
 async function runLlamaCleanup(
   apiKey: string,
   rawTranscript: string,
   customTerms?: string[] | null,
-  detectedLanguage?: string | null,
 ): Promise<string> {
   const trimmedRaw = rawTranscript.trim();
   if (!trimmedRaw) {
     return "";
   }
 
-  const systemPrompt = buildLlamaSystemPrompt(customTerms, detectedLanguage);
+  const systemPrompt = buildLlamaSystemPrompt(customTerms);
   const estimatedTokens = Math.floor((trimmedRaw.split(/\s+/).length * 4) / 3) + 32;
   const dynamicMaxTokens = Math.min(Math.max(estimatedTokens * 2 + 128, 256), 4096);
 
   try {
+    console.log(`[Voice Gateway] Calling Groq Chat cleanup with model="${CLEANUP_MODEL}"`);
     const res = await fetch(GROQ_CHAT_URL, {
       method: "POST",
       headers: {
@@ -123,7 +223,7 @@ async function runLlamaCleanup(
         model: CLEANUP_MODEL,
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: trimmedRaw },
+          { role: "user", content: `<raw_transcript>\n${trimmedRaw}\n</raw_transcript>` },
         ],
         temperature: 0,
         max_tokens: dynamicMaxTokens,
@@ -131,20 +231,25 @@ async function runLlamaCleanup(
     });
 
     if (!res.ok) {
-      console.warn(`Llama cleanup returned status ${res.status}; falling back to raw transcript`);
+      const errText = await res.text();
+      console.error(`[Voice Gateway] Groq Chat error for model="${CLEANUP_MODEL}" (HTTP ${res.status}): ${errText}`);
+      // Do not fall back to 8B instant; return raw transcript directly
       return trimmedRaw;
     }
 
     const data = await res.json();
     const content = data.choices?.[0]?.message?.content;
     if (typeof content === "string") {
-      return sanitizeCleanedText(trimmedRaw, content);
+      const cleaned = sanitizeCleanedText(trimmedRaw, content);
+      console.log(`[Voice Gateway] Groq Chat cleanup succeeded: "${cleaned}"`);
+      return cleaned;
     }
+    return trimmedRaw;
   } catch (err) {
-    console.warn("Llama cleanup fetch error:", err);
+    console.error(`[Voice Gateway] Groq Chat exception for model="${CLEANUP_MODEL}":`, err);
+    // Do not fall back to 8B instant; return raw transcript directly
+    return trimmedRaw;
   }
-
-  return trimmedRaw;
 }
 
 Deno.serve(async (req: Request) => {
@@ -190,14 +295,9 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  // 2. Validate server secret
+  // 2. Validate server secrets
+  const elevenlabsApiKey = Deno.env.get("ELEVENLABS_API_KEY");
   const groqApiKey = Deno.env.get("GROQ_API_KEY");
-  if (!groqApiKey) {
-    return new Response(JSON.stringify({ error: "Server configuration error: GROQ_API_KEY secret not set" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
 
   const contentType = req.headers.get("content-type") || "";
 
@@ -205,12 +305,19 @@ Deno.serve(async (req: Request) => {
   try {
     // Mode A: Raw text cleanup request (used for multi-chunk aggregation)
     if (contentType.includes("application/json")) {
+      if (!groqApiKey) {
+        return new Response(JSON.stringify({ error: "Server configuration error: GROQ_API_KEY secret not set" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       const body = await req.json();
       const rawText = body.raw_text || "";
       const customTerms: string[] | null = Array.isArray(body.custom_terms) ? body.custom_terms : null;
-      const detectedLanguage: string | null = body.language || null;
 
-      const cleaned = await runLlamaCleanup(groqApiKey, rawText, customTerms, detectedLanguage);
+      console.log(`[Voice Gateway] JSON cleanup request received: raw_text length=${rawText.length}`);
+      const cleaned = await runLlamaCleanup(groqApiKey, rawText, customTerms);
       return new Response(JSON.stringify({ text: cleaned }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -218,6 +325,13 @@ Deno.serve(async (req: Request) => {
 
     // Mode B: Audio transcription request (multipart/form-data)
     if (contentType.includes("multipart/form-data")) {
+      if (!elevenlabsApiKey) {
+        return new Response(JSON.stringify({ error: "Server configuration error: ELEVENLABS_API_KEY secret not set" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       const formData = await req.formData();
       const file = formData.get("file");
       if (!file || !(file instanceof Blob)) {
@@ -227,7 +341,6 @@ Deno.serve(async (req: Request) => {
         });
       }
 
-      const prompt = formData.get("prompt")?.toString() || null;
       const cleanup = formData.get("cleanup") !== "false";
       let customTerms: string[] | null = null;
       const termsRaw = formData.get("custom_terms");
@@ -243,64 +356,35 @@ Deno.serve(async (req: Request) => {
       }
 
       const preferredLanguagesRaw = formData.get("preferred_languages")?.toString() || null;
-      const candidates = parseLanguageCandidates(preferredLanguagesRaw);
 
-      let winningResponse: WhisperResponse;
-      let effectiveLanguage: string | null = null;
+      console.log(`[Voice Gateway] ElevenLabs Scribe request: preferred_languages="${preferredLanguagesRaw}", customTerms count=${customTerms?.length || 0}`);
 
-      if (candidates.length === 0) {
-        // Unconstrained detection (single Whisper call without language parameter)
-        winningResponse = await callGroqWhisper(groqApiKey, file, prompt, null);
-        effectiveLanguage = winningResponse.language || null;
-      } else if (candidates.length === 1) {
-        // Exactly 1 candidate: single Whisper call with language: candidate
-        const candidate = candidates[0];
-        winningResponse = await callGroqWhisper(groqApiKey, file, prompt, candidate);
-        effectiveLanguage = winningResponse.language || candidate;
-      } else {
-        // Multiple candidates: run concurrent Whisper calls via Promise.allSettled across candidate languages (capped at 3).
-        // For English in a multilingual list, resolveCandidateWhisperLanguage returns null (unconstrained auto-detection).
-        // This prevents Whisper from forcing English translation when non-English audio (e.g. Malayalam) is spoken.
-        const candidatePromises = candidates.map(async (candidate) => {
-          const whisperLang = resolveCandidateWhisperLanguage(candidate);
-          const response = await callGroqWhisper(groqApiKey, file, prompt, whisperLang);
-          const avgLogprob = computeAverageLogprob(response.segments);
-          return { candidate, response, avgLogprob };
-        });
+      const scribeResponse = await callElevenLabsScribe(
+        elevenlabsApiKey,
+        file,
+        preferredLanguagesRaw,
+        customTerms,
+      );
 
-        const settled = await Promise.allSettled(candidatePromises);
-        const successfulResults: WhisperCandidateResult[] = [];
-        let firstRejection: PromiseRejectedResult | null = null;
+      const rawText = (scribeResponse.text || "").trim();
+      const detectedLanguage = scribeResponse.language_code || null;
 
-        for (const res of settled) {
-          if (res.status === "fulfilled") {
-            successfulResults.push(res.value);
-          } else if (!firstRejection) {
-            firstRejection = res;
-          }
-        }
+      console.log(`[Voice Gateway] Scribe completed: language="${detectedLanguage}", raw_text length=${rawText.length}`);
 
-        if (successfulResults.length === 0) {
-          throw firstRejection?.reason || new Error("All language candidate transcription attempts failed");
-        }
-
-        const best = selectBestCandidate(successfulResults);
-        winningResponse = best.response;
-        effectiveLanguage = winningResponse.language || best.candidate;
+      if (cleanup && groqApiKey && rawText.length > 0) {
+        console.log(`[Voice Gateway] Initiating Llama 3.3 70B cleanup on raw_text`);
+        const cleanedText = await runLlamaCleanup(groqApiKey, rawText, customTerms);
+        const finalText = (cleanedText && cleanedText.trim().length > 0) ? cleanedText : rawText;
+        return new Response(
+          JSON.stringify({ text: finalText, raw_text: rawText, language: detectedLanguage }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
       }
 
-      const rawText = (winningResponse.text || "").trim();
-
-      if (cleanup && rawText.length > 0) {
-        const cleanedText = await runLlamaCleanup(groqApiKey, rawText, customTerms, effectiveLanguage);
-        return new Response(JSON.stringify({ text: cleanedText, raw_text: rawText, language: effectiveLanguage }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      return new Response(JSON.stringify({ text: rawText, raw_text: rawText, language: effectiveLanguage }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ text: rawText, raw_text: rawText, language: detectedLanguage }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     return new Response(JSON.stringify({ error: "Unsupported Media Type: Expected multipart/form-data or application/json" }), {
@@ -308,10 +392,10 @@ Deno.serve(async (req: Request) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err: unknown) {
-    const status = err instanceof GroqApiError ? err.status : 500;
+    const status = err instanceof VoiceGatewayError ? err.status : 500;
     const message = err instanceof Error ? err.message : String(err);
-    console.error("voice gateway unhandled error:", err);
-    return new Response(JSON.stringify({ error: `Internal Server Error: ${message}` }), {
+    console.error("[Voice Gateway] Unhandled error:", err);
+    return new Response(JSON.stringify({ error: `Voice Gateway Error: ${message}` }), {
       status,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

@@ -8,10 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
-- **Voice Non-English Translation**: Fixed an issue where speaking in Malayalam or other non-English languages was translated to English instead of preserving the authentic native script.
+- **Zero-Configuration Multilingual Voice Dictation**: Automatically detect spoken languages natively without translation or manual configuration.
+- **Voice Gateway Resilience**: Prevent dictation timeouts and failures by automatically retrying dropped serverless connections and falling back safely when text cleanup is empty.
 
 ### Added
-- **Voice Preferred Languages & Candidate Routing**: Configure preferred dictation language candidates and route acoustic candidates concurrently for authentic native script output.
 - **Voice Speed & Multilingual Restoration**: Pre-warmed HTTPS connections on keypress and automatically restored authentic native scripts for non-Latin languages.
 - **Voice Crash Recovery & Partial Salvage**: Automatically recover interrupted dictations on restart and salvage partial transcripts during network drops.
 - **Unified Snippet Syntax**: Streamlined template syntax with bare key directives, direct filters, direct arithmetic, and order-independent date and time parameters.

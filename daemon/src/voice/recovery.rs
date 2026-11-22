@@ -224,7 +224,6 @@ mod tests {
 
     #[test]
     fn test_recover_orphaned_files_forwards_preferred_languages() {
-        use std::io::{Read, Write};
         let _lock = crate::hook::tests::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -236,20 +235,31 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
 
         let server_thread = std::thread::spawn(move || {
+            use std::io::{BufRead, Read, Write};
             let (mut stream, _) = listener.accept().unwrap();
-            let mut data = Vec::new();
-            let mut buf = [0u8; 1024];
-            let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(500)));
-            while let Ok(n) = stream.read(&mut buf) {
-                if n == 0 {
+            let mut reader = std::io::BufReader::new(&mut stream);
+            let mut header_data = Vec::new();
+            let mut line = String::new();
+            let mut content_length = 0;
+            while let Ok(n) = reader.read_line(&mut line) {
+                if n == 0 || line == "\r\n" {
                     break;
                 }
-                data.extend_from_slice(&buf[..n]);
-                if data.len() > 3000 {
-                    break;
+                header_data.extend_from_slice(line.as_bytes());
+                if line.to_lowercase().starts_with("content-length:")
+                    && let Some(val) = line.split(':').nth(1)
+                {
+                    content_length = val.trim().parse::<usize>().unwrap_or(0);
                 }
+                line.clear();
             }
-            let req = String::from_utf8_lossy(&data);
+            let mut body = vec![0u8; content_length];
+            if content_length > 0 {
+                let _ = reader.read_exact(&mut body);
+            }
+            let mut full_req = header_data;
+            full_req.extend_from_slice(&body);
+            let req = String::from_utf8_lossy(&full_req);
             assert!(req.contains("name=\"preferred_languages\""));
             assert!(req.contains("en,ja"));
 
@@ -259,8 +269,9 @@ mod tests {
                 response_body.len(),
                 response_body
             );
-            stream.write_all(response.as_bytes()).unwrap();
-            let _ = stream.flush();
+            let stream_ref = reader.into_inner();
+            stream_ref.write_all(response.as_bytes()).unwrap();
+            let _ = stream_ref.flush();
         });
 
         let client = taurine_core::voice::GroqVoiceClient::with_endpoint(
@@ -278,8 +289,8 @@ mod tests {
         let file_path = spooler.path().to_path_buf();
 
         let result = recover_orphaned_files(&client, &dict, vec![file_path]).unwrap();
-        assert_eq!(result, vec!["Rescued audio test".to_string()]);
         server_thread.join().unwrap();
-        taurine_core::settings::set_cached_voice_preferred_languages("en".to_string());
+        assert_eq!(result, vec!["Rescued audio test".to_string()]);
+        taurine_core::settings::set_cached_voice_preferred_languages("auto".to_string());
     }
 }

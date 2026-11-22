@@ -203,8 +203,8 @@ pub fn apply_setting_input_with_manager(
                 .filter(|s| !s.is_empty())
                 .map(|s| s.to_ascii_lowercase())
                 .collect();
-            let normalized = if langs.is_empty() {
-                "en".to_string()
+            let normalized = if langs.is_empty() || langs.iter().any(|s| s == "auto") {
+                "auto".to_string()
             } else {
                 langs.join(",")
             };
