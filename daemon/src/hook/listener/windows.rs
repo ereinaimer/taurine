@@ -14,10 +14,10 @@ pub(super) fn windows_grab(
     use std::time::SystemTime;
     use windows_sys::Win32::Foundation::LPARAM;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CallNextHookEx, GetMessageW, HC_ACTION, MSG, MSLLHOOKSTRUCT, SetWindowsHookExW,
-        UnhookWindowsHookEx, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP,
-        WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SYSKEYDOWN,
-        WM_XBUTTONDOWN, WM_XBUTTONUP,
+        CallNextHookEx, GetMessageW, HC_ACTION, KBDLLHOOKSTRUCT, MSG, MSLLHOOKSTRUCT,
+        SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_KEYDOWN,
+        WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_RBUTTONDOWN,
+        WM_RBUTTONUP, WM_SYSKEYDOWN, WM_XBUTTONDOWN, WM_XBUTTONUP,
     };
 
     thread_local! {
@@ -47,38 +47,53 @@ pub(super) fn windows_grab(
     unsafe extern "system" fn ll_keyboard_proc(code: i32, wparam: usize, lparam: LPARAM) -> isize {
         unsafe {
             if code == HC_ACTION as i32 {
-                // Parse KBDLLHOOKSTRUCT: { vkCode: u32, scanCode: u32, flags: u32, time: u32, dwExtraInfo: usize }
                 // SAFETY: lparam is a valid pointer to KBDLLHOOKSTRUCT for the duration of this call.
-                let kbds = lparam as *const [u32; 5];
-                let flags = (*kbds)[2];
-                // LLKHF_INJECTED is 0x00000010 (bit 4); LLKHF_LOWER_IL_INJECTED is 0x00000002 (bit 1).
-                let is_injected = (flags & 0x10) != 0 || (flags & 0x02) != 0;
-
-                if is_injected {
-                    // Synthetic event from SendInput (e.g. Taurine's simulated backspaces or paste).
+                let kbds = *(lparam as *const KBDLLHOOKSTRUCT);
+                if kbds.dwExtraInfo == crate::platform::windows::TAURINE_EXTRA_INFO_MAGIC {
+                    // Synthetic event from Taurine's own SendInput (e.g. simulated backspaces, expansion text, paste).
                     // Pass directly to the next hook and never process as physical input.
                     let hhook = TL_HHOOK.with(|h| *h.borrow());
                     return CallNextHookEx(hhook, code, wparam, lparam);
                 }
 
-                let vk_code = (*kbds)[0] as u16;
-                let scan_code = (*kbds)[1];
+                let flags = kbds.flags;
+                let vk_code = kbds.vkCode as u16;
+                let scan_code = kbds.scanCode;
                 let is_press =
                     matches!(wparam, w if w == WM_KEYDOWN as usize || w == WM_SYSKEYDOWN as usize);
 
-                let key = vk_to_rdev_key(vk_code);
+                // Handle Unicode packet keystrokes (LLKHF_UNICODE = 0x04 or VK_PACKET = 0xE7),
+                // common in mobile remote typing (RustDesk/VNC).
+                let is_unicode_packet = (flags & 0x04) != 0 || vk_code == 0xE7;
+                let (key, name) = if is_unicode_packet {
+                    let ch = char::from_u32(scan_code);
+                    let key = match ch {
+                        Some(c) if c.is_ascii_alphabetic() => {
+                            vk_to_rdev_key(c.to_ascii_uppercase() as u16)
+                        }
+                        Some(c) if c.is_ascii_digit() => vk_to_rdev_key(c as u16),
+                        _ => rdev::Key::Unknown(scan_code),
+                    };
+                    let name = if is_press {
+                        ch.map(|c| c.to_string())
+                    } else {
+                        None
+                    };
+                    (key, name)
+                } else {
+                    let key = vk_to_rdev_key(vk_code);
+                    let name = if is_press {
+                        resolve_key_name(vk_code as u32, scan_code)
+                    } else {
+                        None
+                    };
+                    (key, name)
+                };
+
                 let event_type = if is_press {
                     rdev::EventType::KeyPress(key)
                 } else {
                     rdev::EventType::KeyRelease(key)
-                };
-
-                // Resolve the Unicode name of this keypress (for character events).
-                // Only needed on KeyPress; KeyRelease never produces a character.
-                let name = if is_press {
-                    resolve_key_name(vk_code as u32, scan_code)
-                } else {
-                    None
                 };
 
                 let event = rdev::Event {
@@ -130,11 +145,7 @@ pub(super) fn windows_grab(
 
                 // SAFETY: lparam is a valid pointer to MSLLHOOKSTRUCT for the duration of this call.
                 let ms = *(lparam as *const MSLLHOOKSTRUCT);
-                let flags = ms.flags;
-                // LLMHF_INJECTED is 0x00000001 (bit 0); LLMHF_LOWER_IL_INJECTED is 0x00000002 (bit 1).
-                let is_injected = (flags & 0x01) != 0 || (flags & 0x02) != 0;
-
-                if is_injected {
+                if ms.dwExtraInfo == crate::platform::windows::TAURINE_EXTRA_INFO_MAGIC {
                     let hhook = TL_MOUSE_HHOOK.with(|h| *h.borrow());
                     return CallNextHookEx(hhook, code, wparam, lparam);
                 }

@@ -1067,4 +1067,31 @@ mod listener_pipeline_tests {
         crate::input::hotkey::clear_pause_press_sender();
         counter.join().expect("counter exits once senders drop");
     }
+
+    /// Keystrokes injected by remote desktop software (RustDesk, VNC) or
+    /// on-screen keyboards contain character names and must expand triggers normally.
+    #[test]
+    fn remote_desktop_keystrokes_expand_triggers() {
+        let _guard = TestGuard::acquire();
+        let h = Harness::new().with_trigger(";remote", "ExpandedFromRemote");
+
+        // Remote keystrokes arrive with character names
+        for c in ";remote".chars() {
+            let r = h.type_char(c);
+            assert!(r.is_some(), "Remote char '{c}' must pass through");
+        }
+
+        let result = h.enter();
+        assert!(
+            result.is_none(),
+            "Enter must be swallowed on trigger match for remote input"
+        );
+    }
+
+    /// Verifies that Taurine's synthetic input magic signature is nonzero
+    /// and consistent between the injector and Windows hook listener.
+    #[test]
+    fn taurine_extra_info_magic_is_valid() {
+        assert_ne!(crate::platform::windows::TAURINE_EXTRA_INFO_MAGIC, 0);
+    }
 }

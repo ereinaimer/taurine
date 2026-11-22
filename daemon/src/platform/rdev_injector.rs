@@ -101,6 +101,18 @@ impl Injector for RdevInjector {
     }
 
     fn simulate_left(&self, count: usize) {
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::UI::Input::KeyboardAndMouse::VK_LEFT;
+            let mut inputs = Vec::with_capacity(count * 2);
+            for _ in 0..count {
+                inputs.push(make_vk_input(VK_LEFT, false));
+                inputs.push(make_vk_input(VK_LEFT, true));
+            }
+            if send_inputs_batch(&inputs) {
+                return;
+            }
+        }
         for _ in 0..count {
             let _ = crate::injector::simulate_monitored(&EventType::KeyPress(Key::LeftArrow));
             let _ = crate::injector::simulate_monitored(&EventType::KeyRelease(Key::LeftArrow));
@@ -108,6 +120,18 @@ impl Injector for RdevInjector {
     }
 
     fn simulate_right(&self, count: usize) {
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::UI::Input::KeyboardAndMouse::VK_RIGHT;
+            let mut inputs = Vec::with_capacity(count * 2);
+            for _ in 0..count {
+                inputs.push(make_vk_input(VK_RIGHT, false));
+                inputs.push(make_vk_input(VK_RIGHT, true));
+            }
+            if send_inputs_batch(&inputs) {
+                return;
+            }
+        }
         for _ in 0..count {
             let _ = crate::injector::simulate_monitored(&EventType::KeyPress(Key::RightArrow));
             let _ = crate::injector::simulate_monitored(&EventType::KeyRelease(Key::RightArrow));
@@ -115,6 +139,17 @@ impl Injector for RdevInjector {
     }
 
     fn simulate_backspace(&self, count: usize) {
+        #[cfg(windows)]
+        {
+            let mut inputs = Vec::with_capacity(count * 2);
+            for _ in 0..count {
+                inputs.push(make_backspace_input(false));
+                inputs.push(make_backspace_input(true));
+            }
+            if send_inputs_batch(&inputs) {
+                return;
+            }
+        }
         for _ in 0..count {
             let _ = crate::injector::simulate_monitored(&EventType::KeyPress(Key::Backspace));
             let _ = crate::injector::simulate_monitored(&EventType::KeyRelease(Key::Backspace));
@@ -122,6 +157,20 @@ impl Injector for RdevInjector {
     }
 
     fn simulate_paste(&self) {
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::UI::Input::KeyboardAndMouse::VK_CONTROL;
+            const VK_V: u16 = 0x56;
+            let inputs = [
+                make_vk_input(VK_CONTROL, false),
+                make_vk_input(VK_V, false),
+                make_vk_input(VK_V, true),
+                make_vk_input(VK_CONTROL, true),
+            ];
+            if send_inputs_batch(&inputs) {
+                return;
+            }
+        }
         let modifier = if cfg!(target_os = "macos") {
             rdev::Key::MetaLeft
         } else {
@@ -140,6 +189,7 @@ impl Injector for RdevInjector {
                 GetAsyncKeyState, VK_CONTROL, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_MENU,
                 VK_RCONTROL, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SHIFT,
             };
+            let mut inputs = Vec::new();
             // SAFETY: GetAsyncKeyState is a thread-safe Win32 API that reads the asynchronous
             // keystate bitmap from kernel memory with no failure modes.
             unsafe {
@@ -147,14 +197,10 @@ impl Injector for RdevInjector {
                     let l = (GetAsyncKeyState(VK_LSHIFT as i32) as u16 & 0x8000) != 0;
                     let r = (GetAsyncKeyState(VK_RSHIFT as i32) as u16 & 0x8000) != 0;
                     if l || !r {
-                        let _ = crate::injector::simulate_monitored(&EventType::KeyRelease(
-                            Key::ShiftLeft,
-                        ));
+                        inputs.push(make_vk_input(VK_LSHIFT, true));
                     }
                     if r {
-                        let _ = crate::injector::simulate_monitored(&EventType::KeyRelease(
-                            Key::ShiftRight,
-                        ));
+                        inputs.push(make_vk_input(VK_RSHIFT, true));
                     }
                 }
 
@@ -162,14 +208,10 @@ impl Injector for RdevInjector {
                     let l = (GetAsyncKeyState(VK_LCONTROL as i32) as u16 & 0x8000) != 0;
                     let r = (GetAsyncKeyState(VK_RCONTROL as i32) as u16 & 0x8000) != 0;
                     if l || !r {
-                        let _ = crate::injector::simulate_monitored(&EventType::KeyRelease(
-                            Key::ControlLeft,
-                        ));
+                        inputs.push(make_vk_input(VK_LCONTROL, true));
                     }
                     if r {
-                        let _ = crate::injector::simulate_monitored(&EventType::KeyRelease(
-                            Key::ControlRight,
-                        ));
+                        inputs.push(make_vk_input(VK_RCONTROL, true));
                     }
                 }
 
@@ -177,24 +219,23 @@ impl Injector for RdevInjector {
                     let l = (GetAsyncKeyState(VK_LMENU as i32) as u16 & 0x8000) != 0;
                     let r = (GetAsyncKeyState(VK_RMENU as i32) as u16 & 0x8000) != 0;
                     if l || !r {
-                        let _ =
-                            crate::injector::simulate_monitored(&EventType::KeyRelease(Key::Alt));
+                        inputs.push(make_vk_input(VK_LMENU, true));
                     }
                     if r {
-                        let _ =
-                            crate::injector::simulate_monitored(&EventType::KeyRelease(Key::AltGr));
+                        inputs.push(make_vk_input(VK_RMENU, true));
                     }
                 }
 
                 if (GetAsyncKeyState(VK_LWIN as i32) as u16 & 0x8000) != 0 {
-                    let _ =
-                        crate::injector::simulate_monitored(&EventType::KeyRelease(Key::MetaLeft));
+                    inputs.push(make_vk_input(VK_LWIN, true));
                 }
 
                 if (GetAsyncKeyState(VK_RWIN as i32) as u16 & 0x8000) != 0 {
-                    let _ =
-                        crate::injector::simulate_monitored(&EventType::KeyRelease(Key::MetaRight));
+                    inputs.push(make_vk_input(VK_RWIN, true));
                 }
+            }
+            if !inputs.is_empty() {
+                let _ = send_inputs_batch(&inputs);
             }
         }
         #[cfg(not(windows))]
@@ -349,7 +390,7 @@ fn make_vk_input(vk: u16, key_up: bool) -> windows_sys::Win32::UI::Input::Keyboa
                 wScan: 0,
                 dwFlags: if key_up { KEYEVENTF_KEYUP } else { 0 },
                 time: 0,
-                dwExtraInfo: 0,
+                dwExtraInfo: crate::platform::windows::TAURINE_EXTRA_INFO_MAGIC,
             },
         },
     }
@@ -381,7 +422,7 @@ fn make_unicode_input(
                     KEYEVENTF_UNICODE
                 },
                 time: 0,
-                dwExtraInfo: 0,
+                dwExtraInfo: crate::platform::windows::TAURINE_EXTRA_INFO_MAGIC,
             },
         },
     }
@@ -454,7 +495,7 @@ fn make_mouse_event(
                 mouseData: mouse_data,
                 dwFlags: dw_flags,
                 time: 0,
-                dwExtraInfo: 0,
+                dwExtraInfo: crate::platform::windows::TAURINE_EXTRA_INFO_MAGIC,
             },
         },
     })

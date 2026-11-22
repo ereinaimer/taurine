@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Homepage Activity Pane Recovery**: Dragging the quota pane fully against the navigation rail keeps a draggable boundary so the recent activity pane can always be pulled back, and resetting the layout now restores the homepage split too.
 
 ### Added
+- **Remote Desktop Trigger Support**: Enable word and hotkey expansions across remote desktop sessions (RustDesk, VNC) and on-screen keyboards by filtering only Taurine's synthetic events.
 - **Voice Speed & Multilingual Restoration**: Pre-warmed HTTPS connections on keypress and automatically restored authentic native scripts for non-Latin languages.
 - **Voice Crash Recovery & Partial Salvage**: Automatically recover interrupted dictations on restart and salvage partial transcripts during network drops.
 - **Unified Snippet Syntax**: Streamlined template syntax with bare key directives, direct filters, direct arithmetic, and order-independent date and time parameters.
