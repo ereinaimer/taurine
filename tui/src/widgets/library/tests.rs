@@ -2197,6 +2197,62 @@ fn content_edit_esc_commits_and_exits() {
 }
 
 #[test]
+fn stale_edit_never_paints_over_another_row() {
+    use crate::theme::default::DARK_THEME;
+    use ratatui::{Terminal, backend::TestBackend};
+
+    let mut state = sample_state();
+    let interaction = state.start_content_edit_at(0, 0);
+    assert!(interaction.pending_edit().is_none());
+    for ch in "ZZZ".chars() {
+        state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    }
+    // The wheel's render-time path can move the cursor while the
+    // session stays pinned to the row it was opened on.
+    state.follow_list_scroll(2);
+    assert_eq!(state.selected_index(), Some(2));
+    assert!(
+        state.edit().is_some(),
+        "the session stays pinned to the row it was opened on"
+    );
+    let selected = state.item_at_filtered(2).expect("selected row");
+    assert_ne!(
+        state.edit().expect("open session").trigger_id(),
+        selected.id(),
+        "the scenario needs the cursor on a different row than the session"
+    );
+    let selected_content = selected.content().to_string();
+
+    let area = ratatui::layout::Rect::new(0, 0, 80, 30);
+    let backend = TestBackend::new(area.width, area.height);
+    let mut terminal = Terminal::new(backend).expect("test terminal");
+    terminal
+        .draw(|frame| {
+            detail::render_detail(
+                frame,
+                frame.area(),
+                &DARK_THEME,
+                &state,
+                &crate::widgets::toggle::ToggleAnimations::default(),
+                None,
+            );
+        })
+        .expect("test draw");
+    let buffer = terminal.backend().buffer();
+    let text: String = (0..area.height)
+        .flat_map(|y| (0..area.width).map(move |x| buffer[(x, y)].symbol()))
+        .collect();
+    assert!(
+        text.contains(&selected_content),
+        "the selected row's content shows: {text:?}"
+    );
+    assert!(
+        !text.contains("ZZZ"),
+        "a stale draft must never paint over another row: {text:?}"
+    );
+}
+
+#[test]
 fn content_edit_select_all_copies_and_pastes() {
     use crate::widgets::library::actions::{read_clipboard, set_mock_clipboard};
 
@@ -4851,14 +4907,14 @@ fn split_extreme_ratios_park_without_resurrection() {
     assert!((before.center.width as i16 - parked.center.width as i16).abs() <= 2);
     assert!((parked.props.width as i16 - before.props.width as i16).abs() <= 2);
 
-    // Deep overflow parks props full screen; it starts flush on the
-    // rail so the rail divider stays the only vertical boundary.
+    // Deep overflow parks props full screen; the gutter stays on the
+    // workspace edge so the parked pane can be dragged back open.
     let parked = split_panes(area, DEFAULT_SPLIT_RATIO, 2.0);
     assert_eq!(parked.list.width, 0);
     assert_eq!(parked.center.width, 0);
-    assert_eq!(parked.props.x, area.x);
-    assert_eq!(parked.props.width, 100);
-    assert_eq!(parked.props_divider, None);
+    assert_eq!(parked.props.x, area.x.saturating_add(1));
+    assert_eq!(parked.props.width, 99);
+    assert_eq!(parked.props_divider, Some(area.x));
 
     // List side parks fully open with no survivors.
     let parked = split_panes(area, 1.0, DEFAULT_DETAIL_RATIO);
@@ -4868,7 +4924,7 @@ fn split_extreme_ratios_park_without_resurrection() {
 }
 
 #[test]
-fn visible_dividers_hide_parked_nothing_dividers() {
+fn visible_dividers_keep_parked_edge_dividers() {
     let area = ratatui::layout::Rect::new(0, 0, 100, 30);
     // List parked full screen: only its own divider paints, on the
     // last column with nothing after it.
@@ -4876,11 +4932,11 @@ fn visible_dividers_hide_parked_nothing_dividers() {
         visible_divider_columns(area, 1.0, DEFAULT_DETAIL_RATIO),
         vec![(DividerSide::List, 99)]
     );
-    // Props parked full screen: no page divider; the nav rail divider
-    // is the single boundary.
+    // Props parked full screen: its edge divider stays painted and
+    // grabbable so the pane can be dragged back open.
     assert_eq!(
         visible_divider_columns(area, DEFAULT_SPLIT_RATIO, 2.0),
-        Vec::new()
+        vec![(DividerSide::Props, 0)]
     );
     // Ordinary split paints both, tagged in order.
     let split = split_panes(area, DEFAULT_SPLIT_RATIO, DEFAULT_DETAIL_RATIO);

@@ -212,18 +212,19 @@ pub(crate) fn split_panes(area: Rect, list_ratio: f32, props_ratio: f32) -> Pane
         width: center_width,
         height: area.height,
     };
-    // honey: the same rule for a fully parked right pane. It starts
-    // flush on the rail and fills the workspace, so the rail divider is
-    // the single boundary instead of a second line beside it.
+    // honey: a fully parked right pane keeps its gutter on the workspace
+    // edge, mirroring the collapsed rail (nav_rail::layout): the
+    // divider stays grabbable so the pane can be dragged back open
+    // instead of stranding the page with no hit target.
     let props = Rect {
         x: if right_parked {
-            area.x
+            area.x.saturating_add(1)
         } else {
             center.x.saturating_add(center.width).saturating_add(1)
         },
         y: area.y,
         width: if right_parked {
-            area.width
+            area.width.saturating_sub(1)
         } else {
             right_width
         },
@@ -231,7 +232,7 @@ pub(crate) fn split_panes(area: Rect, list_ratio: f32, props_ratio: f32) -> Pane
     };
     let list_divider = (list.width > 0).then_some(list.x.saturating_add(list.width));
     let props_divider = if right_parked {
-        None
+        Some(area.x)
     } else {
         (center.width > 0 || props.width > 0).then_some(center.x.saturating_add(center.width))
     };
@@ -359,16 +360,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn split_parks_a_side_pane_on_the_terminal_edge() {
+    fn split_parks_a_right_pane_with_a_grabbable_edge_divider() {
         let area = Rect::new(0, 0, 80, 20);
         let parked = split_panes(area, 0.0, 2.0);
         assert_eq!(parked.center.width, 0);
         assert_eq!(
-            parked.props_divider, None,
-            "the rail divider is the single boundary"
+            parked.props_divider,
+            Some(area.x),
+            "the parked pane keeps a grabbable gutter on the edge"
         );
-        assert_eq!(parked.props.x, area.x, "the parked pane sits flush");
-        assert_eq!(parked.props.width, area.width);
+        assert_eq!(
+            parked.props.x,
+            area.x.saturating_add(1),
+            "the pane starts right of its gutter"
+        );
+        assert_eq!(parked.props.width, area.width.saturating_sub(1));
     }
 
     #[test]

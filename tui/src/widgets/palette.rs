@@ -78,7 +78,7 @@ impl PaletteCommand {
             Self::ToggleSearchPane => "Show or hide the search pane",
             Self::TogglePropertiesPane => "Show or hide the properties pane",
             Self::ToggleNavRail => "Show or hide the navigation rail",
-            Self::ResetLayout => "Restore both panes to their default widths",
+            Self::ResetLayout => "Restore all panes to their default widths",
             Self::NewTrigger => "Create a trigger without leaving the library",
             Self::ImportTriggers => "Import triggers from a file",
             Self::ExportTriggers => "Export triggers to a file",

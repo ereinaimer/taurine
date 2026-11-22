@@ -896,7 +896,11 @@ fn execute_palette_command(app: &mut App, command: palette::PaletteCommand) {
             .library_page_mut()
             .toggle_panel(library::DividerSide::Props),
         PaletteCommand::ToggleNavRail => app.nav_rail_mut().toggle(),
-        PaletteCommand::ResetLayout => app.library_page_mut().reset_layout(),
+        PaletteCommand::ResetLayout => {
+            app.library_page_mut().reset_layout();
+            app.home_page_mut()
+                .set_account_ratio(home::account::DEFAULT_RATIO);
+        }
         PaletteCommand::NewTrigger => {
             if app.library_page().is_modal_open() || app.is_settings_overlay_open() {
                 return;
@@ -1170,6 +1174,11 @@ fn handle_tui_mouse_event(
                 return;
             }
             if library::list::list_contains(full, page, mouse.column, mouse.row) {
+                // honey: the wheel is the only cursor path that skipped
+                // the edit flush; commit first so the draft saves into
+                // the row it was typed on, then the cursor follows.
+                let flush = app.library_page_mut().commit_edit();
+                apply_library_interaction(app, flush);
                 let down = mouse.kind == MouseEventKind::ScrollDown;
                 app.library_page_mut()
                     .smooth_scroll_list(if down { 1 } else { -1 });
@@ -4086,7 +4095,7 @@ mod tests {
     }
 
     #[test]
-    fn parked_home_account_pane_leaves_one_divider() {
+    fn parked_home_boundary_reopens_the_activity_pane() {
         use ratatui::{Terminal, backend::TestBackend};
 
         let mut app = library_app();
@@ -4104,20 +4113,62 @@ mod tests {
         let full = workspace_full(&app, TEST_AREA);
         let split = home::split_home(full, app.home_page().account_ratio());
         assert_eq!(split.center.width, 0, "activity fully minimized");
-        assert!(
-            split.props_divider.is_none(),
-            "no page divider beside the rail divider"
+        assert_eq!(
+            split.props_divider,
+            Some(full.x),
+            "the parked boundary stays grabbable on the rail edge"
         );
 
         let buffer = terminal.backend().buffer();
-        let line: String = (full.x.saturating_sub(1)..full.x.saturating_add(12))
+        assert_eq!(
+            buffer[(full.x, full.y)].symbol(),
+            "│",
+            "the parked boundary paints as a grabbable gutter"
+        );
+        let line: String = (full.x.saturating_add(1)..full.x.saturating_add(12))
             .map(|x| buffer[(x, full.y)].symbol())
             .collect();
-        assert_eq!(line.matches('│').count(), 1, "one divider: {line:?}");
         assert!(
             line.contains("ACCOUNT"),
-            "account pane starts past the single divider: {line:?}"
+            "account pane starts past its gutter: {line:?}"
         );
+
+        // Grabbing the parked boundary and dragging right brings the
+        // recent activity pane back, so a full-left drag is never a
+        // dead end.
+        let row = full.y + 5;
+        handle_tui_mouse_event(&mut app, left_click(full.x, row), TEST_AREA);
+        assert_eq!(
+            app.home_page().divider_drag(),
+            Some(panes::DividerSide::Props),
+            "the parked boundary hits as the account divider"
+        );
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(
+                full.x.saturating_add(10),
+                row,
+                MouseEventKind::Drag(MouseButton::Left),
+            ),
+            TEST_AREA,
+        );
+        let reopened = home::split_home(full, app.home_page().account_ratio());
+        assert!(
+            reopened.center.width > 0,
+            "dragging the boundary right reopens the activity pane"
+        );
+        assert!(reopened.props_divider.is_some());
+
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(
+                full.x.saturating_add(10),
+                row,
+                MouseEventKind::Up(MouseButton::Left),
+            ),
+            TEST_AREA,
+        );
+        assert_eq!(app.home_page().divider_drag(), None);
     }
 
     #[test]
@@ -4496,6 +4547,57 @@ mod tests {
                 "the clicked row stays highlighted (line {y})"
             );
         }
+    }
+
+    #[test]
+    fn wheel_scroll_commits_an_open_edit_before_the_cursor_follows() {
+        use ratatui::{Terminal, backend::TestBackend};
+
+        let mut app = library_app();
+        seed_library_items(&mut app, 40);
+        let backend = TestBackend::new(TEST_AREA.width, TEST_AREA.height);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal
+            .draw(|frame| render_app(frame, &mut app, TEST_AREA))
+            .expect("test draw");
+        let full = workspace_full(&app, TEST_AREA);
+        let page = app.library_page();
+        let content = library::left_content(full, page.split_ratio(), page.detail_ratio());
+        let (list_area, _) =
+            library::content_sections(content, false, page.search_field(), page.is_search_active());
+        let rows = (list_area.height / 4) as usize;
+        app.library_page_mut().select_first_window_bottom(rows);
+        let before = app.library_page().selected_index();
+
+        // Open the description editor on the selected row. The draft
+        // stays unchanged so the flush is hermetic: nothing to persist.
+        let interaction = app.library_page_mut().start_description_edit();
+        apply_library_interaction(&mut app, interaction);
+        assert!(app.library_page().edit().is_some());
+
+        handle_tui_mouse_event(
+            &mut app,
+            mouse_at(list_area.x + 2, list_area.y + 2, MouseEventKind::ScrollDown),
+            TEST_AREA,
+        );
+        for _ in 0..20 {
+            terminal
+                .draw(|frame| render_app(frame, &mut app, TEST_AREA))
+                .expect("test draw");
+            if !app.library_page().list_scroll_animating() {
+                break;
+            }
+        }
+
+        assert!(
+            app.library_page().edit().is_none(),
+            "the wheel flushes the open edit before moving the cursor"
+        );
+        assert!(
+            app.library_page().selected_index() > before,
+            "the cursor follows the wheel"
+        );
+        assert!(app.library_page().list_follows_bottom());
     }
 
     #[test]

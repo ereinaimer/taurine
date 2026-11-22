@@ -473,8 +473,12 @@ fn render_header_row(
     let available = row.width.saturating_sub(width).saturating_sub(1);
     // honey: editing shows the caret-anchored viewport with a real
     // caret, mirroring the search box; read mode shows the truncated
-    // trigger text.
-    if let Some(edit) = state.trigger_edit() {
+    // trigger text. The id check keeps a stale session from painting
+    // another row's draft over the selected item.
+    if let Some(edit) = state
+        .trigger_edit()
+        .filter(|edit| edit.trigger_id() == item.id())
+    {
         let (visible, caret) = edit.field().window(available);
         let gap = available.saturating_sub(visible.chars().count() as u16);
         let mut spans = vec![
@@ -533,9 +537,11 @@ fn render_description_row(
         return;
     }
     let row = row_area(area, DESCRIPTION_OFFSET);
+    // honey: the id check keeps a stale session from painting another
+    // row's draft over the selected item.
     if let Some(edit) = state
         .edit()
-        .filter(|edit| edit.target() == EditTarget::Description)
+        .filter(|edit| edit.target() == EditTarget::Description && edit.trigger_id() == item.id())
     {
         let (visible, caret) = edit.line().window(row.width);
         let gap = row.width.saturating_sub(visible.chars().count() as u16);
@@ -710,9 +716,11 @@ fn render_content_rows(
         width: text_width,
         height: CONTENT_INNER_HEIGHT as u16,
     };
+    // honey: the id check keeps a stale session from painting another
+    // row's draft over the selected item.
     if let Some(edit) = state
         .edit()
-        .filter(|edit| edit.target() == EditTarget::Content)
+        .filter(|edit| edit.target() == EditTarget::Content && edit.trigger_id() == item.id())
     {
         render_content_editor(
             frame,

@@ -1502,20 +1502,33 @@ mod tests {
     }
 
     #[test]
-    fn parked_account_pane_sits_flush_on_the_rail() {
+    fn parked_account_pane_keeps_a_grabbable_boundary() {
         let area = Rect::new(7, 0, 93, 30);
         let split = split_home(area, account::MAX_RATIO);
 
         assert_eq!(split.center.width, 0, "activity fully minimized");
-        assert_eq!(split.props.x, area.x, "account pane sits flush on the rail");
         assert_eq!(
-            split.props.width, area.width,
-            "account pane fills the workspace"
+            split.props_divider,
+            Some(area.x),
+            "the parked boundary stays grabbable on the rail edge"
         );
         assert_eq!(
-            split.props_divider, None,
-            "the rail divider is the single boundary"
+            split.props.x,
+            area.x.saturating_add(1),
+            "the account pane starts right of its gutter"
         );
+        assert_eq!(split.props.width, area.width.saturating_sub(1));
+        assert_eq!(
+            divider_hit(area, account::MAX_RATIO, area.x, 4),
+            Some(DividerSide::Props),
+            "the boundary column hits as the props divider"
+        );
+
+        // Dragging the boundary back to the right reopens the activity
+        // pane, so a full-left drag is never a dead end.
+        let reopened = split_home(area, ratio_for_column(area, area.x.saturating_add(10)));
+        assert!(reopened.center.width > 0, "activity reopens");
+        assert!(reopened.props_divider.is_some());
     }
 
     #[test]

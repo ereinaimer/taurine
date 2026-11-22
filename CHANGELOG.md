@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Voice Dictation Post-Processing**: Eliminate speech stutters, false starts, and filler words by polishing transcripts into structured paragraphs and lists.
 - **Zero-Configuration Multilingual Voice Dictation**: Automatically detect spoken languages natively without translation or manual configuration.
 - **Voice Gateway Resilience**: Prevent dictation timeouts and failures by automatically retrying dropped serverless connections and falling back safely when text cleanup is empty.
+- **Library Detail Follows the Highlight**: The main content pane now tracks the highlighted list item while scrolling, and any in-progress edit is saved to the item it belongs to before switching.
+- **Homepage Activity Pane Recovery**: Dragging the quota pane fully against the navigation rail keeps a draggable boundary so the recent activity pane can always be pulled back, and resetting the layout now restores the homepage split too.
 
 ### Added
 - **Voice Speed & Multilingual Restoration**: Pre-warmed HTTPS connections on keypress and automatically restored authentic native scripts for non-Latin languages.
