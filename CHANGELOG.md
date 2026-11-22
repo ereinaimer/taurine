@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Voice Dictation Post-Processing**: Eliminate speech stutters, false starts, and filler words by polishing transcripts into structured paragraphs and lists.
 - **Zero-Configuration Multilingual Voice Dictation**: Automatically detect spoken languages natively without translation or manual configuration.
 - **Voice Gateway Resilience**: Prevent dictation timeouts and failures by automatically retrying dropped serverless connections and falling back safely when text cleanup is empty.
 

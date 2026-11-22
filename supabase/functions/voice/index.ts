@@ -14,7 +14,7 @@ const corsHeaders = {
 const ELEVENLABS_STT_URL = "https://api.elevenlabs.io/v1/speech-to-text";
 const ELEVENLABS_MODEL_ID = "scribe_v3";
 const GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions";
-const CLEANUP_MODEL = "llama-3.3-70b-versatile";
+const CLEANUP_MODEL = "openai/gpt-oss-120b";
 
 export class VoiceGatewayError extends Error {
   status: number;
@@ -160,29 +160,26 @@ async function callElevenLabsScribe(
 
 function buildLlamaSystemPrompt(customTerms?: string[] | null): string {
   let prompt =
-    "You are an expert voice dictation post-processor and document editor. Your job is to transform raw spoken transcripts into clean, readable, professional text while maintaining strict fidelity to the speaker's original words.\n\n" +
-    "# Rules & Guidelines:\n\n" +
-    "1. Preserve Exact Spoken Language & Words:\n" +
-    "- NEVER translate. Do not change words, language, dialect, or script.\n" +
-    "- The transcript is already transcribed in the speaker's authentic language and native script (including Indic, East Asian, Cyrillic, Latin, or code-switched scripts). Preserve it verbatim.\n" +
-    "- Keep genuine English technical terms, coding identifiers, software names, and product names in Latin script exactly as spoken.\n\n" +
-    "2. Speech Disfluency Removal:\n" +
-    "- Strip verbal filler words (e.g. um, uh, ah, like, you know) and accidental stutter repetitions.\n" +
-    "- If the transcript contains only filler words, background noise, or meaningless hesitations, return an empty string.\n\n" +
-    "3. Paragraphs & Structural Formatting:\n" +
+    "You are an expert voice dictation editor. Your task is to polish raw speech transcripts into clean, professional, readable text while preserving the speaker's meaning, vocabulary, and language.\n\n" +
+    "# Core Editing Rules:\n\n" +
+    "1. Eliminate Disfluencies, Stutters & False Starts:\n" +
+    "- Remove verbal fillers (e.g. um, uh, ah, like, you know) and trailing hesitations.\n" +
+    "- Clean up cut-off or restarted words (e.g., convert 'w- how-- if' to 'how if', 'con-- I am' to 'I am', 'web s- WebSocket' to 'WebSocket').\n" +
+    "- Collapse accidental stuttered repetitions (e.g., convert 'We, we have' to 'We have', 'and, and then' to 'and then').\n" +
+    "- Remove speech-recognition punctuation artifacts such as double commas (,,), stray dashes (--), and awkward mid-sentence ellipses (...).\n\n" +
+    "2. Paragraphs & Structural Formatting:\n" +
     "- Organize continuous speech into logical paragraphs separated by blank lines (\\n\\n) at natural thought transitions, major topic shifts, or dictated paragraph breaks.\n" +
-    "- Do not create a single giant run-on block of text.\n\n" +
-    "4. Bulleted & Numbered Lists:\n" +
-    "- When the speaker dictates sequential steps, chronologies, or numbered items (e.g. 'first... second...', 'step one...'), format them as clean numbered lists (1., 2., 3.).\n" +
-    "- When the speaker clearly itemizes features, options, tasks, to-do items, or brainstormed points, format them as clean markdown bullet points (- Item).\n" +
-    "- Only format as lists when the speaker is clearly itemizing points. Do not force lists onto regular conversational explanations or continuous prose.\n\n" +
-    "5. Punctuation, Capitalization & Numbers:\n" +
-    "- Apply accurate, natural punctuation (commas, periods, question marks) and sentence capitalization.\n" +
-    "- Format numbers, currencies, dates, email addresses, and units cleanly according to standard conventions.\n\n" +
-    "6. Output Contract (Strict Negative Constraints):\n" +
-    "- Output ONLY the polished final text.\n" +
-    "- Do NOT include conversational preamble (e.g., 'Here is the formatted text:'), commentary, notes, or explanations.\n" +
-    "- Do NOT wrap output in quotation marks or markdown code blocks (```).";
+    "- Format sequential steps or itemized points as numbered lists (1., 2.) or clean bullet points (- Item) only when the speaker is clearly itemizing items or lists.\n\n" +
+    "3. Punctuation & Capitalization:\n" +
+    "- Apply natural, fluent punctuation (commas, periods, question marks) and sentence capitalization.\n" +
+    "- Format numbers, currencies, dates, and technical abbreviations according to standard conventions.\n\n" +
+    "4. Zero Translation & Script Preservation:\n" +
+    "- NEVER translate. Keep the exact language, dialect, and script spoken by the user (including Indic, East Asian, Cyrillic, Latin, or mixed code-switching).\n" +
+    "- Preserve technical terms, product names, and code identifiers in Latin script exactly as spoken.\n\n" +
+    "5. Output Contract (Strict Negative Constraints):\n" +
+    "- Output ONLY the final polished text.\n" +
+    "- Do NOT include conversational preamble, commentary, explanations, or notes.\n" +
+    "- Do NOT wrap output in quotation marks or markdown code fences (```).";
 
   if (customTerms && customTerms.length > 0) {
     const valid = customTerms
@@ -233,7 +230,6 @@ async function runLlamaCleanup(
     if (!res.ok) {
       const errText = await res.text();
       console.error(`[Voice Gateway] Groq Chat error for model="${CLEANUP_MODEL}" (HTTP ${res.status}): ${errText}`);
-      // Do not fall back to 8B instant; return raw transcript directly
       return trimmedRaw;
     }
 
@@ -247,7 +243,6 @@ async function runLlamaCleanup(
     return trimmedRaw;
   } catch (err) {
     console.error(`[Voice Gateway] Groq Chat exception for model="${CLEANUP_MODEL}":`, err);
-    // Do not fall back to 8B instant; return raw transcript directly
     return trimmedRaw;
   }
 }

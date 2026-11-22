@@ -252,10 +252,11 @@ impl CloudVoiceClient {
             }
         };
 
-        if !response.status().is_success() {
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
             tracing::warn!(
-                "Voice cleanup gateway returned status {}; falling back to raw transcript",
-                response.status()
+                "Voice cleanup gateway returned status {status} ({body}); falling back to raw transcript"
             );
             return Ok(trimmed_raw.to_string());
         }
