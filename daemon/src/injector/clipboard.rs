@@ -211,6 +211,13 @@ pub(super) fn prepare_clipboard_for_expansion(
     if success {
         Ok(original)
     } else {
+        // Our payload may still be on the clipboard. Put the user's content
+        // back, but only when the clipboard still holds our payload: if some
+        // other process (or the user) replaced it meanwhile, their fresh copy
+        // wins.
+        if clipboard.get_text().map(|c| c == expected).unwrap_or(false) {
+            let _ = clipboard.set_text(&original);
+        }
         Err(format!(
             "clipboard verify failed after polling: expected {:?}, got {:?}",
             expected, actual

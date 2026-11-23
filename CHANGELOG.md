@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Voice Gateway Resilience**: Prevent dictation timeouts and failures by automatically retrying dropped serverless connections and falling back safely when text cleanup is empty.
 - **Library Detail Follows the Highlight**: The main content pane now tracks the highlighted list item while scrolling, and any in-progress edit is saved to the item it belongs to before switching.
 - **Homepage Activity Pane Recovery**: Dragging the quota pane fully against the navigation rail keeps a draggable boundary so the recent activity pane can always be pulled back, and resetting the layout now restores the homepage split too.
+- **Stuck Modifier Self-Healing**: Expansions and Tab completions no longer stop responding after a missed modifier release; key releases and hook restarts now re-check the real keyboard state instead of waiting for a mouse click.
+- **No More Vanishing Triggers**: A failed or interrupted expansion now leaves your typed trigger in place instead of erasing it with nothing pasted.
+- **No More Mangled Output on Fast Typing**: Keystrokes typed in the instant an expansion starts no longer leak into the app and get deleted along with the trigger.
+- **Long Trigger Support**: Triggers up to 128 characters long now expand.
+- **Complete Keystroke Tracking**: Keys that type multiple characters are now tracked, so later triggers keep matching after unusual key output.
 
 ### Added
 - **Remote Desktop Trigger Support**: Enable word and hotkey expansions across remote desktop sessions (RustDesk, VNC) and on-screen keyboards by filtering only Taurine's synthetic events.

@@ -17,6 +17,37 @@ fn test_evaluator_reset_clears_buffer_and_deactivates_completions() {
     assert!(!eval.is_completion_active());
 }
 
+#[test]
+fn paste_event_appends_chars_without_evaluating() {
+    let mut eval = setup();
+    // A multi-char key (layout-dependent) arrives atomically: every char is
+    // tracked so the buffer mirrors the app, with no mid-sequence evaluation.
+    let result = eval.process(EngineEvent::Paste("gm".to_string()));
+    assert!(result.is_none());
+    assert_eq!(eval.buffer.buffer_string(), "gm");
+    // The pasted chars still form a valid trigger tail for the next ActionKey.
+    let result = eval.process(EngineEvent::ActionKey);
+    assert!(result.is_some());
+    assert_eq!(result.unwrap().trigger, "gm");
+}
+
+#[test]
+fn long_trigger_beyond_default_cap_expands() {
+    let state = Arc::new(EngineState::new());
+    let trigger = "a".repeat(35);
+    state.load_actions(vec![(
+        trigger.clone(),
+        crate::db::crud::TriggerAction::text("LONG!"),
+    )]);
+    let mut eval = Evaluator::new(state);
+    for c in trigger.chars() {
+        eval.process(EngineEvent::Char(c));
+    }
+    let result = eval.process(EngineEvent::ActionKey);
+    assert!(result.is_some(), "35-char trigger must still match");
+    assert_eq!(result.unwrap().delete_count, 35);
+}
+
 trait EvaluatorTestExt {
     fn process(&mut self, event: EngineEvent) -> Option<ExpansionResult>;
 }

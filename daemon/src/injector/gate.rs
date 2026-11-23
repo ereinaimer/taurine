@@ -142,20 +142,28 @@ pub fn spawn_guarded_injection_thread<F>(thread_name: &str, task: F)
 where
     F: FnOnce() + Send + 'static,
 {
+    // Arm on the calling thread, before the task is queued: a physical
+    // keypress landing between dispatch and the pool worker waking must see
+    // IS_INJECTING. Otherwise the keystroke leaks into the app and the
+    // trigger-erasing backspaces then delete it along with the trigger.
+    let guard = InjectionFlagGuard::begin();
+    let dispatch_gen = INJECTION_GENERATION.load(Ordering::SeqCst);
+    let task = move || {
+        let _guard = guard;
+        DISPATCH_GENERATION.with(|slot| slot.set(Some(dispatch_gen)));
+        task();
+        DISPATCH_GENERATION.with(|slot| slot.set(None));
+    };
+
     if let Some(tx) = INJECTION_POOL.get() {
-        let task = Box::new(task);
-        if tx.send(task).is_err() {
+        if tx.send(Box::new(task)).is_err() {
             error!(thread_name, "Injection pool channel closed, dropping task");
         }
     } else {
         // Fallback: direct spawn (happens before pool is initialized)
-        let guard = InjectionFlagGuard::begin();
         let spawn_result = thread::Builder::new()
             .name(thread_name.to_string())
-            .spawn(move || {
-                let _guard = guard;
-                task();
-            });
+            .spawn(task);
 
         if let Err(error) = spawn_result {
             error!(
@@ -173,10 +181,22 @@ pub fn abort_injection() {
     INJECTION_GENERATION.fetch_add(1, Ordering::SeqCst);
 }
 
-/// Capture the current generation.  Tasks should call this at creation
-/// and then use `is_aborted()` at each check point.
+thread_local! {
+    /// Generation captured on the dispatching thread when the task was
+    /// queued. A physical keypress between queueing and task start bumps the
+    /// global generation; honouring the dispatch-time value lets the task
+    /// detect that it was superseded before it ever touched the application.
+    static DISPATCH_GENERATION: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+}
+
+/// Capture the generation this work is accountable to: the dispatch-time
+/// value inside queued injection tasks, otherwise the current global value.
+/// Tasks should call this at creation and then use `is_aborted()` at each
+/// check point.
 pub fn capture_generation() -> u64 {
-    INJECTION_GENERATION.load(Ordering::SeqCst)
+    DISPATCH_GENERATION
+        .with(|slot| slot.get())
+        .unwrap_or_else(|| INJECTION_GENERATION.load(Ordering::SeqCst))
 }
 
 /// Returns `true` when the generation has advanced past `captured`,
@@ -277,6 +297,40 @@ mod tests {
         abort_injection();
         let gen2 = INJECTION_GENERATION.load(Ordering::SeqCst);
         assert!(gen2 > gen1, "abort_injection() must increment generation");
+    }
+
+    #[test]
+    fn pool_task_observes_dispatch_time_generation() {
+        init_injection_pool();
+        let expected = INJECTION_GENERATION.load(Ordering::SeqCst);
+        let (gen_tx, gen_rx) = mpsc::channel();
+        spawn_guarded_injection_thread("test-dispatch-gen", move || {
+            let _ = gen_tx.send(capture_generation());
+        });
+        let observed = gen_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("pool task must execute");
+        assert_eq!(
+            observed, expected,
+            "task must observe the generation captured at dispatch time"
+        );
+    }
+
+    #[test]
+    fn abort_after_dispatch_marks_task_generation_stale() {
+        init_injection_pool();
+        let (gen_tx, gen_rx) = mpsc::channel();
+        spawn_guarded_injection_thread("test-stale-gen", move || {
+            let _ = gen_tx.send(capture_generation());
+        });
+        abort_injection();
+        let observed = gen_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("pool task must execute");
+        assert!(
+            is_aborted(observed),
+            "dispatch-time generation must be stale after a later abort"
+        );
     }
 
     #[test]

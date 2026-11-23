@@ -10,7 +10,7 @@ use crate::input::hook_health::HookHealth;
 use crate::input::hotkey;
 use taurine_core::engine::Evaluator;
 
-use super::listener::{LISTENER_EPOCH, spawn_windows_hook_listener};
+use super::listener::{LISTENER_EPOCH, spawn_windows_hook_listener, sync_physical_modifiers};
 
 #[derive(Debug, Clone)]
 pub enum WindowsSupervisorEvent {
@@ -281,6 +281,19 @@ pub fn start_windows_supervisor(
                         lock.reset();
                     }
                     crate::hook::dispatch::clear_undo_state(state.as_ref());
+                    // Re-sync modifier flags against physical state: releases
+                    // lost while the hook was down would otherwise stay stuck
+                    // across the respawn, silently disabling expansions.
+                    sync_physical_modifiers(
+                        &left_alt_down,
+                        &right_alt_down,
+                        &left_ctrl_down,
+                        &right_ctrl_down,
+                        &left_shift_down,
+                        &right_shift_down,
+                        &left_meta_down,
+                        &right_meta_down,
+                    );
 
                     listener_handle = Some(spawn_windows_hook_listener(
                         evaluator.clone(),

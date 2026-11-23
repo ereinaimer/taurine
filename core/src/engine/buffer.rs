@@ -3,6 +3,12 @@ use std::borrow::Cow;
 pub const FAST_BUFFER_CAPACITY: usize = 1024 * 1024; // 1 MiB hard capacity cap (1,048,576 chars)
 const INITIAL_BUFFER_CAPACITY: usize = 512;
 
+/// Default backward scan depth for suffix-candidate extraction.
+pub const DEFAULT_SUFFIX_CAP: usize = 30;
+/// Hard ceiling for the adaptive scan depth: bounds per-evaluation cost no
+/// matter how long the longest loaded trigger is.
+pub const MAX_SUFFIX_CAP: usize = 128;
+
 use smallvec::SmallVec;
 
 #[derive(Debug, Clone)]
@@ -383,18 +389,29 @@ impl FastBuffer {
     }
 
     pub fn extract_suffix_candidates(&self) -> SmallVec<[(String, Option<char>); 16]> {
+        self.extract_suffix_candidates_with_cap(DEFAULT_SUFFIX_CAP)
+    }
+
+    /// Same as [`Self::extract_suffix_candidates`] with a caller-chosen scan
+    /// depth, so the engine can cover the longest loaded trigger instead of
+    /// silently never matching triggers longer than the default depth.
+    pub fn extract_suffix_candidates_with_cap(
+        &self,
+        cap: usize,
+    ) -> SmallVec<[(String, Option<char>); 16]> {
+        let cap = cap.clamp(1, MAX_SUFFIX_CAP);
         let mut candidates = SmallVec::new();
         if self.len == 0 {
             return candidates;
         }
 
         let capacity = self.data.len();
-        let mut collected = ['\0'; 30];
+        let mut collected = ['\0'; MAX_SUFFIX_CAP];
         let mut collected_len = 0;
         let mut curr = (self.head + capacity - 1) % capacity;
         let mut n = 0;
 
-        while n < self.len && n < 30 && collected_len < 30 {
+        while n < self.len && n < cap && collected_len < cap {
             let c = self.data[curr];
             if c.is_whitespace() {
                 let mut space_collected = false;
@@ -407,7 +424,7 @@ impl FastBuffer {
 
                     for slot in &mut chars_to_collect {
                         if check_n < self.len
-                            && check_n < 30
+                            && check_n < cap
                             && self.data[check_curr].is_ascii_uppercase()
                         {
                             *slot = self.data[check_curr];
@@ -422,23 +439,23 @@ impl FastBuffer {
 
                     if ok {
                         let mut has_minus = false;
-                        if check_n < self.len && check_n < 30 && self.data[check_curr] == '-' {
+                        if check_n < self.len && check_n < cap && self.data[check_curr] == '-' {
                             has_minus = true;
                             check_curr = (check_curr + capacity - 1) % capacity;
                             check_n += 1;
                         }
 
-                        if collected_len < 30 {
+                        if collected_len < cap {
                             collected[collected_len] = ' ';
                             collected_len += 1;
                         }
                         for &uc in &chars_to_collect[..chars_to_collect_count] {
-                            if collected_len < 30 {
+                            if collected_len < cap {
                                 collected[collected_len] = uc;
                                 collected_len += 1;
                             }
                         }
-                        if has_minus && collected_len < 30 {
+                        if has_minus && collected_len < cap {
                             collected[collected_len] = '-';
                             collected_len += 1;
                         }
@@ -450,7 +467,7 @@ impl FastBuffer {
                 }
                 if !space_collected {
                     // Include space in collected and continue to build multi-word candidates
-                    if collected_len < 30 {
+                    if collected_len < cap {
                         collected[collected_len] = ' ';
                         collected_len += 1;
                     }
@@ -460,7 +477,7 @@ impl FastBuffer {
                 }
                 continue;
             }
-            if collected_len < 30 {
+            if collected_len < cap {
                 collected[collected_len] = c;
                 collected_len += 1;
             }
@@ -815,6 +832,20 @@ mod tests {
         assert!(candidates.len() <= 30);
         // The longest should be 30 chars
         assert_eq!(candidates.last().map(|(s, _)| s.len()), Some(30));
+    }
+
+    #[test]
+    fn test_extract_suffix_candidates_with_cap_beyond_default() {
+        let mut b = FastBuffer::new();
+        type_str(&mut b, "abcdefghijklmnopqrstuvwxyz0123456789"); // 36 chars
+        let candidates = b.extract_suffix_candidates_with_cap(64);
+        assert_eq!(candidates.last().map(|(s, _)| s.len()), Some(36));
+        // Default wrapper still caps at 30
+        let default = b.extract_suffix_candidates();
+        assert_eq!(default.last().map(|(s, _)| s.len()), Some(30));
+        // Values above the hard ceiling are clamped; scan stops at buffer start
+        let clamped = b.extract_suffix_candidates_with_cap(1000);
+        assert_eq!(clamped.last().map(|(s, _)| s.len()), Some(36));
     }
 
     #[test]

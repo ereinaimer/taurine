@@ -466,6 +466,17 @@ fn inject_expansion_inner(
     };
     let captured_gen = capture_generation();
 
+    // Superseded while queued (a physical keypress landed between dispatch
+    // and worker pickup): bail before touching the app so the trigger text
+    // and the user's fresh keystroke both stay intact.
+    if is_aborted(captured_gen) {
+        debug!("Injection superseded before start; trigger left intact");
+        return InjectionReport {
+            successful_chars: 0,
+            completed: false,
+        };
+    }
+
     // Pre-Release: neutralize modifier state only when simulated keypresses or backspaces will occur.
     if requires_keys {
         crate::platform::get_injector().pre_release_modifiers();
@@ -496,6 +507,47 @@ fn inject_expansion_inner(
     #[cfg(target_os = "linux")]
     thread::sleep(Duration::from_millis(10));
 
+    // Pre-flight the first text payload into the clipboard BEFORE erasing the
+    // trigger: clipboard contention or a mid-poll abort then fails benignly
+    // (trigger intact, retry possible) instead of leaving deleted text with
+    // nothing pasted. Only when the expansion starts with text, so leading
+    // delays or scripts never hold the user's clipboard hostage. Linux keeps
+    // its per-segment direct-typing fallback.
+    let mut original_clipboard: Option<String> = None;
+    #[cfg(not(target_os = "linux"))]
+    if let Some(ExpansionStep::Text(first_text)) = steps.first()
+        && !first_text.is_empty()
+    {
+        match crate::platform::get_clipboard_manager() {
+            Ok(mut clipboard) => {
+                match prepare_clipboard_for_expansion(&mut clipboard, first_text, captured_gen) {
+                    Ok(orig) => original_clipboard = Some(orig),
+                    Err(e) => {
+                        warn!("Clipboard pre-flight failed ({e}); trigger left intact");
+                        return InjectionReport {
+                            successful_chars: 0,
+                            completed: false,
+                        };
+                    }
+                }
+            }
+            Err(e) => {
+                error!("Failed to initialize clipboard: {e}");
+                return InjectionReport::default();
+            }
+        }
+    }
+
+    // Last-moment abort check before the backspaces: a physical keypress that
+    // landed during pre-flight must not cost the user their trigger.
+    if is_aborted(captured_gen) {
+        debug!("Injection superseded before trigger erase; trigger left intact");
+        return InjectionReport {
+            successful_chars: 0,
+            completed: false,
+        };
+    }
+
     // 1. Erase the trigger.
     erase_trigger(delete_count);
 
@@ -503,7 +555,6 @@ fn inject_expansion_inner(
     thread::sleep(Duration::from_millis(20));
 
     // 2. Execute each step in sequence.
-    let mut original_clipboard: Option<String> = None;
     let mut last_clipboard_payload: Option<String> = None;
     let mut report = InjectionReport {
         successful_chars: 0,

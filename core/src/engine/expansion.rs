@@ -157,7 +157,9 @@ impl crate::engine::evaluator::Evaluator {
             }
         }
 
-        let candidates = self.buffer.extract_suffix_candidates();
+        let candidates = self
+            .buffer
+            .extract_suffix_candidates_with_cap(self.state.max_suffix_scan_len());
 
         for (word, prev_char) in candidates.into_iter().rev() {
             let is_boundary = prev_char.is_none_or(|c| !c.is_alphanumeric());

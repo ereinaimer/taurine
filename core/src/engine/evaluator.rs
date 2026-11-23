@@ -251,7 +251,13 @@ impl Evaluator {
                 }
                 result
             }
-            EngineEvent::Paste(_) => None,
+            EngineEvent::Paste(text) => {
+                // Atomic multi-char input (one physical key producing several
+                // characters, layout-dependent): track every char so the buffer
+                // mirrors the app, without mid-sequence evaluation.
+                self.append_to_buffer(&text);
+                None
+            }
             EngineEvent::Char(c) => {
                 // Normal typing tracking
                 self.buffer.push(c);

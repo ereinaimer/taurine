@@ -787,15 +787,36 @@ pub fn process_keyboard_event(
                         return Some(event);
                     }
 
-                    if let Some(ref text) = event.name {
-                        let normalized: String = normalize_key_text(text);
-                        if normalized.chars().count() == 1 {
-                            normalized.chars().next().map(EngineEvent::Char)
-                        } else {
+                    match event.name.as_deref() {
+                        Some(text) => {
+                            let normalized: String = normalize_key_text(text);
+                            let mut chars = normalized.chars();
+                            match (chars.next(), chars.next()) {
+                                (Some(c), None) => Some(EngineEvent::Char(c)),
+                                // One physical key produced multiple characters
+                                // (layout-dependent): track them all so the
+                                // buffer mirrors what the app received.
+                                (Some(_), Some(_)) => Some(EngineEvent::Paste(normalized)),
+                                _ => {
+                                    debug!(
+                                        ?key,
+                                        "Key press resolved to empty text; buffer not updated"
+                                    );
+                                    None
+                                }
+                            }
+                        }
+                        None => {
+                            // Modifier presses legitimately resolve to no name;
+                            // anything else is an untracked keystroke worth logging.
+                            if !is_modifier_key(key) {
+                                debug!(
+                                    ?key,
+                                    "Key press produced no character name; buffer not updated"
+                                );
+                            }
                             None
                         }
-                    } else {
-                        None
                     }
                 }
             };
@@ -830,6 +851,30 @@ pub fn process_keyboard_event(
             }
         }
         EventType::KeyRelease(key) => {
+            // Self-heal stale modifier flags for keyboard-only users: a release
+            // event lost to a hook restart or OS stall otherwise leaves a flag
+            // stuck true, silently killing expansions (chars dropped as
+            // "modified") and Tab completion until the next mouse click.
+            // Windows only: this is where a physical-state query exists.
+            // Race-free: delivery is FIFO, so any press generated while the
+            // modifier was held is processed before this release; the query
+            // reports the current physical state, and a genuinely held
+            // modifier is never cleared. Modifier releases themselves already
+            // clear via the side tracking above.
+            #[cfg(windows)]
+            if !is_modifier_key(key) {
+                sync_physical_modifiers(
+                    left_alt_down,
+                    right_alt_down,
+                    left_ctrl_down,
+                    right_ctrl_down,
+                    left_shift_down,
+                    right_shift_down,
+                    left_meta_down,
+                    right_meta_down,
+                );
+            }
+
             if trigger_assist_is_active(evaluator, state.as_ref())
                 && should_swallow_trigger_assist_key_release(
                     state.as_ref(),

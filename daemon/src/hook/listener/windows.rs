@@ -600,6 +600,25 @@ fn vk_to_rdev_key(vk: u16) -> rdev::Key {
 ///
 /// SAFETY: GetAsyncKeyState is a thread-safe Win32 API that reads from the kernel-mapped
 /// input state bitmap in user-space memory. It takes a valid VK code and has no failure mode.
+/// Test-only override for the physical modifier query: lets hermetic tests
+/// model "modifier physically held" without touching the host keyboard.
+/// Bit 7 arms the mock; bits 0-4 report shift/ctrl/alt/lwin/rwin as held.
+#[cfg(test)]
+pub(crate) static PHYSICAL_MODIFIER_MOCK: std::sync::atomic::AtomicU8 =
+    std::sync::atomic::AtomicU8::new(0);
+#[cfg(test)]
+pub(crate) const MOCK_SHIFT_HELD: u8 = 1 << 0;
+#[cfg(test)]
+pub(crate) const MOCK_CTRL_HELD: u8 = 1 << 1;
+#[cfg(test)]
+pub(crate) const MOCK_ALT_HELD: u8 = 1 << 2;
+#[cfg(test)]
+pub(crate) const MOCK_LWIN_HELD: u8 = 1 << 3;
+#[cfg(test)]
+pub(crate) const MOCK_RWIN_HELD: u8 = 1 << 4;
+#[cfg(test)]
+pub(crate) const MOCK_ARMED: u8 = 1 << 7;
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn sync_physical_modifiers(
     left_alt_down: &std::sync::atomic::AtomicBool,
@@ -614,6 +633,32 @@ pub(crate) fn sync_physical_modifiers(
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
         GetAsyncKeyState, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
     };
+
+    #[cfg(test)]
+    {
+        let mock = PHYSICAL_MODIFIER_MOCK.load(Ordering::Relaxed);
+        if mock & MOCK_ARMED != 0 {
+            if mock & MOCK_SHIFT_HELD == 0 {
+                left_shift_down.store(false, Ordering::Relaxed);
+                right_shift_down.store(false, Ordering::Relaxed);
+            }
+            if mock & MOCK_CTRL_HELD == 0 {
+                left_ctrl_down.store(false, Ordering::Relaxed);
+                right_ctrl_down.store(false, Ordering::Relaxed);
+            }
+            if mock & MOCK_ALT_HELD == 0 {
+                left_alt_down.store(false, Ordering::Relaxed);
+                right_alt_down.store(false, Ordering::Relaxed);
+            }
+            if mock & MOCK_LWIN_HELD == 0 {
+                left_meta_down.store(false, Ordering::Relaxed);
+            }
+            if mock & MOCK_RWIN_HELD == 0 {
+                right_meta_down.store(false, Ordering::Relaxed);
+            }
+            return;
+        }
+    }
     // SAFETY: GetAsyncKeyState is a thread-safe user32/win32k query that reads from the
     // kernel-mapped input state bitmap. It takes a valid VK code and has no unsafe failure modes.
     //

@@ -9,7 +9,7 @@ use crate::keys::Hotkey;
 
 use std::sync::Arc;
 use std::sync::RwLock;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::time::{Duration, Instant};
 
 const UNDO_WINDOW: Duration = Duration::from_millis(5000);
@@ -49,6 +49,11 @@ pub struct EngineState {
     word_catalog: ExpansionCatalog,
     hotkey_catalog: HotkeyCatalog,
     pub regex_catalog: RegexCatalog,
+    /// Longest loaded word trigger (chars), clamped to
+    /// `[DEFAULT_SUFFIX_CAP, MAX_SUFFIX_CAP]`: drives the suffix scan depth so
+    /// long triggers stay matchable. Floor keeps the default depth for
+    /// math/date/conversion fallbacks that are not catalog triggers.
+    max_suffix_scan_len: AtomicUsize,
 }
 
 impl Default for EngineState {
@@ -75,6 +80,7 @@ impl EngineState {
             word_catalog: ExpansionCatalog::new(),
             hotkey_catalog: HotkeyCatalog::new(),
             regex_catalog: RegexCatalog::new(),
+            max_suffix_scan_len: AtomicUsize::new(crate::engine::buffer::DEFAULT_SUFFIX_CAP),
         }
     }
 
@@ -96,6 +102,7 @@ impl EngineState {
             word_catalog: ExpansionCatalog::with_source(source),
             hotkey_catalog: HotkeyCatalog::new(),
             regex_catalog: RegexCatalog::new(),
+            max_suffix_scan_len: AtomicUsize::new(crate::engine::buffer::DEFAULT_SUFFIX_CAP),
         }
     }
 
@@ -129,7 +136,27 @@ impl EngineState {
     }
 
     pub fn load_actions(&self, actions: impl IntoIterator<Item = (String, TriggerAction)>) {
+        let actions: Vec<_> = actions.into_iter().collect();
+        let longest = actions
+            .iter()
+            .map(|(trigger, _)| trigger.chars().count())
+            .max()
+            .unwrap_or(0);
+        self.max_suffix_scan_len.store(
+            longest.clamp(
+                crate::engine::buffer::DEFAULT_SUFFIX_CAP,
+                crate::engine::buffer::MAX_SUFFIX_CAP,
+            ),
+            std::sync::atomic::Ordering::Relaxed,
+        );
         self.word_catalog.load_actions(actions);
+    }
+
+    /// Suffix scan depth for trigger matching: covers the longest loaded
+    /// trigger so triggers beyond the default depth can still expand.
+    pub fn max_suffix_scan_len(&self) -> usize {
+        self.max_suffix_scan_len
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub fn load_hotkey_actions(&self, actions: impl IntoIterator<Item = (String, TriggerAction)>) {
@@ -409,6 +436,24 @@ mod tests {
 
         assert!(state.inline_ai_enabled());
         assert!(state.inline_tab_completion_enabled());
+    }
+
+    #[test]
+    fn max_suffix_scan_len_tracks_longest_loaded_trigger() {
+        let state = EngineState::new();
+        assert_eq!(
+            state.max_suffix_scan_len(),
+            crate::engine::buffer::DEFAULT_SUFFIX_CAP
+        );
+
+        state.load_actions(vec![("x".repeat(45), TriggerAction::text("long"))]);
+        assert_eq!(state.max_suffix_scan_len(), 45);
+
+        state.load_actions(vec![("short".to_string(), TriggerAction::text("s"))]);
+        assert_eq!(
+            state.max_suffix_scan_len(),
+            crate::engine::buffer::DEFAULT_SUFFIX_CAP
+        );
     }
 
     #[test]

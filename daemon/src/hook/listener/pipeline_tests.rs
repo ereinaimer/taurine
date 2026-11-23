@@ -948,6 +948,15 @@ mod listener_pipeline_tests {
         )
         .expect("pause counter thread must spawn");
 
+        // Model Alt physically held across the pair: the release-triggered
+        // modifier re-sync queries physical state, which a test machine
+        // cannot provide.
+        crate::hook::listener::windows::PHYSICAL_MODIFIER_MOCK.store(
+            crate::hook::listener::windows::MOCK_ARMED
+                | crate::hook::listener::windows::MOCK_ALT_HELD,
+            Ordering::Relaxed,
+        );
+
         h.send(bare_event(EventType::KeyPress(Key::Alt)));
         assert!(
             h.send(bare_event(EventType::KeyPress(Key::BackQuote)))
@@ -959,6 +968,7 @@ mod listener_pipeline_tests {
                 .is_none()
         );
         h.send(bare_event(EventType::KeyRelease(Key::BackQuote)));
+        crate::hook::listener::windows::PHYSICAL_MODIFIER_MOCK.store(0, Ordering::Relaxed);
         std::thread::sleep(std::time::Duration::from_millis(400));
         assert!(
             !h.paused.load(Ordering::Relaxed),
@@ -1031,6 +1041,15 @@ mod listener_pipeline_tests {
         )
         .expect("pause counter thread must spawn");
 
+        // Model Alt physically held across the pair: the release-triggered
+        // modifier re-sync queries physical state, which a test machine
+        // cannot provide.
+        crate::hook::listener::windows::PHYSICAL_MODIFIER_MOCK.store(
+            crate::hook::listener::windows::MOCK_ARMED
+                | crate::hook::listener::windows::MOCK_ALT_HELD,
+            Ordering::Relaxed,
+        );
+
         h.send(bare_event(EventType::KeyPress(Key::Alt)));
         assert!(
             h.send(bare_event(EventType::KeyPress(Key::BackQuote)))
@@ -1050,6 +1069,7 @@ mod listener_pipeline_tests {
             "Second press must swing the hint back before settling"
         );
         h.send(bare_event(EventType::KeyRelease(Key::BackQuote)));
+        crate::hook::listener::windows::PHYSICAL_MODIFIER_MOCK.store(0, Ordering::Relaxed);
         std::thread::sleep(std::time::Duration::from_millis(400));
         assert!(
             !h.paused.load(Ordering::Relaxed),
