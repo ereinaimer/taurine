@@ -367,6 +367,56 @@ fn get_all_active_triggers_excludes_hotkey_triggers() {
 }
 
 #[test]
+fn text_outputs_match_filtered_get_all_active_triggers() {
+    init_tracing_for_tests();
+    let (_dir, conn) = open_test_db();
+    conn.execute("DELETE FROM triggers", []).unwrap();
+
+    // Seed: one text trigger with two word aliases, one script trigger with one alias.
+    upsert_trigger(
+        &conn,
+        "uuid-text",
+        None,
+        "gm",
+        "Good morning!",
+        "text",
+        "all",
+        "[]",
+        1,
+        None,
+    )
+    .unwrap();
+    add_alias(&conn, "uuid-text", InvocationType::Word, "gm2", false).unwrap();
+
+    upsert_trigger(
+        &conn,
+        "uuid-script",
+        None,
+        "scr",
+        "echo hello",
+        "script",
+        "all",
+        "[]",
+        1,
+        None,
+    )
+    .unwrap();
+
+    let filtered: std::collections::HashMap<String, String> = get_all_active_triggers(&conn)
+        .unwrap()
+        .into_iter()
+        .filter(|(_, action)| action.action_type == "text")
+        .map(|(trigger, action)| (trigger, action.output))
+        .collect();
+    let direct: std::collections::HashMap<String, String> =
+        super::trigger_get::get_all_active_text_outputs(&conn)
+            .unwrap()
+            .into_iter()
+            .collect();
+    assert_eq!(filtered, direct);
+}
+
+#[test]
 fn get_all_active_hotkey_triggers_loads_only_hotkeys() {
     init_tracing_for_tests();
     let (_dir, conn) = open_test_db();

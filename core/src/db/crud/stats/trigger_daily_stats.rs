@@ -56,7 +56,7 @@ pub fn upsert_trigger_daily_stat_with_conn(
 ) -> rusqlite::Result<()> {
     let now = crate::db::now_unix_secs();
     let device_id = crate::cloud::get_device_hardware_id();
-    conn.execute(
+    conn.prepare_cached(
         "INSERT INTO trigger_daily_stats (
             device_id, trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9)
@@ -67,18 +67,18 @@ pub fn upsert_trigger_daily_stat_with_conn(
             time_saved_ms    = trigger_daily_stats.time_saved_ms + excluded.time_saved_ms,
             version          = trigger_daily_stats.version + 1,
             updated_at       = excluded.updated_at",
-        params![
-            device_id,
-            trigger_id,
-            date,
-            app_key,
-            executions as i64,
-            words_spoken as i64,
-            words_expanded as i64,
-            time_saved_ms as i64,
-            now,
-        ],
-    )?;
+    )?
+    .execute(params![
+        device_id,
+        trigger_id,
+        date,
+        app_key,
+        executions as i64,
+        words_spoken as i64,
+        words_expanded as i64,
+        time_saved_ms as i64,
+        now,
+    ])?;
 
     let entity_id = format!("{trigger_id}:{date}:{app_key}");
     let _ = crate::db::crud::enqueue_outbox(

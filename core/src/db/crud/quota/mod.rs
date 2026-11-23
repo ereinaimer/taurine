@@ -86,16 +86,17 @@ pub fn get_or_init_quota_ledger(
     // Seed new week row with 100.0%
     let initial_pct = 100.0;
     let signature = compute_quota_hmac(key, current_week, initial_pct);
-    let rows_affected = conn.execute(
-        "INSERT OR IGNORE INTO quota_ledger (
+    let rows_affected = conn
+        .prepare_cached(
+            "INSERT OR IGNORE INTO quota_ledger (
              week_start_epoch,
              remaining_percentage,
              last_expansion_at,
              hmac_signature,
              updated_at
          ) VALUES (?1, ?2, NULL, ?3, ?4)",
-        (current_week, initial_pct, &signature, now_epoch),
-    )?;
+        )?
+        .execute((current_week, initial_pct, &signature, now_epoch))?;
     if rows_affected == 0 {
         let row = query_quota_row(conn, current_week)?
             .ok_or_else(|| crate::Error::Database(rusqlite::Error::QueryReturnedNoRows))?;
@@ -134,21 +135,21 @@ pub fn record_quota_depletion(
     let new_pct = (current.remaining_percentage - delta_pct).max(0.0);
     let new_sig = compute_quota_hmac(key, current.week_start_epoch, new_pct);
 
-    conn.execute(
+    conn.prepare_cached(
         "UPDATE quota_ledger
          SET remaining_percentage = ?1,
              last_expansion_at = ?2,
              hmac_signature = ?3,
              updated_at = ?4
          WHERE week_start_epoch = ?5",
-        (
-            new_pct,
-            now_epoch,
-            &new_sig,
-            now_epoch,
-            current.week_start_epoch,
-        ),
-    )?;
+    )?
+    .execute((
+        new_pct,
+        now_epoch,
+        &new_sig,
+        now_epoch,
+        current.week_start_epoch,
+    ))?;
 
     Ok(QuotaLedgerRow {
         week_start_epoch: current.week_start_epoch,

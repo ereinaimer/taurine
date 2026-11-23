@@ -12,7 +12,7 @@ pub fn increment_stat(conn: &Connection, date: &str, deltas: &StatDeltas) -> Res
     let now = now_unix_secs();
     let device_id = crate::cloud::get_device_hardware_id();
 
-    conn.execute(
+    conn.prepare_cached(
         "INSERT INTO stats (
              device_id,
              date,
@@ -35,18 +35,18 @@ pub fn increment_stat(conn: &Connection, date: &str, deltas: &StatDeltas) -> Res
              time_saved_ms    = time_saved_ms + excluded.time_saved_ms,
              version          = version + 1,
              updated_at       = excluded.updated_at",
-        rusqlite::params![
-            device_id,
-            date,
-            deltas.executions,
-            deltas.ai_executions,
-            deltas.voice_executions,
-            deltas.words_spoken,
-            deltas.words_expanded,
-            deltas.time_saved_ms,
-            now,
-        ],
-    )?;
+    )?
+    .execute(rusqlite::params![
+        device_id,
+        date,
+        deltas.executions,
+        deltas.ai_executions,
+        deltas.voice_executions,
+        deltas.words_spoken,
+        deltas.words_expanded,
+        deltas.time_saved_ms,
+        now,
+    ])?;
 
     let _ = crate::db::crud::enqueue_outbox(
         conn,

@@ -27,11 +27,10 @@ pub fn enqueue_outbox(
 
     // Check if an unattempted entry already exists for this entity to coalesce burst edits
     let existing_id: Option<i64> = conn
-        .query_row(
+        .prepare_cached(
             "SELECT id FROM sync_outbox WHERE entity_type = ?1 AND entity_id = ?2 AND retry_count = 0 LIMIT 1",
-            params![entity_type, entity_id],
-            |row| row.get(0),
-        )
+        )?
+        .query_row(params![entity_type, entity_id], |row| row.get(0))
         .optional()?;
 
     if let Some(id) = existing_id {

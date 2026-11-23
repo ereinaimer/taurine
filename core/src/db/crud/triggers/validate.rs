@@ -551,11 +551,9 @@ pub fn validate_trigger_limits(
 ) -> Result<()> {
     let mut catalog = std::collections::HashMap::new();
 
-    if let Ok(actions) = super::trigger_get::get_all_active_triggers(conn) {
-        for (trigger, action) in actions {
-            if action.action_type == "text" {
-                catalog.insert(trigger, action.output);
-            }
+    if let Ok(pairs) = super::trigger_get::get_all_active_text_outputs(conn) {
+        for (trigger, output) in pairs {
+            catalog.insert(trigger, output);
         }
     }
 

@@ -130,33 +130,26 @@ pub fn resolve_trigger_id(
     use rusqlite::OptionalExtension;
 
     let alias_match: Option<String> = conn
-        .query_row(
-            "SELECT trigger_id FROM trigger_aliases WHERE invocation = ?1 LIMIT 1",
-            rusqlite::params![trigger],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT trigger_id FROM trigger_aliases WHERE invocation = ?1 LIMIT 1")?
+        .query_row(rusqlite::params![trigger], |row| row.get(0))
         .optional()?;
     if let Some(id) = alias_match {
         return Ok(Some(id));
     }
 
     let direct_match: Option<String> = conn
-        .query_row(
-            "SELECT id FROM triggers WHERE id = ?1 AND is_deleted = 0 LIMIT 1",
-            rusqlite::params![trigger],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT id FROM triggers WHERE id = ?1 AND is_deleted = 0 LIMIT 1")?
+        .query_row(rusqlite::params![trigger], |row| row.get(0))
         .optional()?;
     if let Some(id) = direct_match {
         return Ok(Some(id));
     }
 
     let desc_match: Option<String> = conn
-        .query_row(
+        .prepare_cached(
             "SELECT id FROM triggers WHERE description = ?1 AND is_deleted = 0 LIMIT 1",
-            rusqlite::params![trigger],
-            |row| row.get(0),
-        )
+        )?
+        .query_row(rusqlite::params![trigger], |row| row.get(0))
         .optional()?;
     if let Some(id) = desc_match {
         return Ok(Some(id));

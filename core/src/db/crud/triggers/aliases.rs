@@ -553,11 +553,11 @@ pub fn tombstone_entry(conn: &Connection, trigger_id: &str, now: i64) -> Result<
 }
 
 pub fn increment_usage_count_by_id(conn: &Connection, trigger_id: &str) -> Result<()> {
-    conn.execute(
+    conn.prepare_cached(
         "UPDATE triggers SET usage_count = usage_count + 1, last_used_at = ?1
           WHERE id = ?2 AND is_deleted = 0",
-        rusqlite::params![crate::db::now_unix_secs(), trigger_id],
-    )?;
+    )?
+    .execute(rusqlite::params![crate::db::now_unix_secs(), trigger_id])?;
     Ok(())
 }
 

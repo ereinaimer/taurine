@@ -3,13 +3,13 @@ use crate::db::now_unix_secs;
 use rusqlite::Connection;
 
 pub fn increment_usage_count_by_trigger(conn: &Connection, trigger: &str) -> Result<()> {
-    conn.execute(
+    conn.prepare_cached(
         "UPDATE triggers
          SET usage_count = usage_count + 1,
              last_used_at = ?1
          WHERE id = (SELECT trigger_id FROM trigger_aliases WHERE invocation = ?2 LIMIT 1) AND is_deleted = 0",
-        rusqlite::params![now_unix_secs(), trigger],
-    )?;
+    )?
+    .execute(rusqlite::params![now_unix_secs(), trigger])?;
     Ok(())
 }
 

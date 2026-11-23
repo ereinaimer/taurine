@@ -77,7 +77,7 @@ pub fn lookup_offline(word: &str) -> Option<Vec<DictionaryEntry>> {
     };
     let conn = get_connection(&mut cache, mode, false)?;
 
-    let mut stmt = match conn.prepare("SELECT data FROM dictionary WHERE word = ? LIMIT 1") {
+    let mut stmt = match conn.prepare_cached("SELECT data FROM dictionary WHERE word = ? LIMIT 1") {
         Ok(s) => s,
         Err(_) => return None,
     };

@@ -235,6 +235,29 @@ AND (t.target_os = 'all' OR t.target_os = ?1)",
     Ok(actions)
 }
 
+/// (invocation, output) pairs for active text triggers only — no script
+/// BLOBs, no non-text rows. Byte-identical to filtering
+/// get_all_active_triggers by action_type in Rust, minus the BLOB loads.
+pub fn get_all_active_text_outputs(conn: &Connection) -> Result<Vec<(String, String)>> {
+    let os_str = get_current_os_db_string();
+    let mut stmt = conn.prepare_cached(
+        "SELECT al.invocation, t.output
+FROM trigger_aliases al JOIN triggers t ON t.id = al.trigger_id
+WHERE al.invocation_type = 'word' AND t.is_deleted = 0 AND t.is_enabled = 1
+AND t.action_type = 'text'
+AND (t.target_os = 'all' OR t.target_os = ?1)",
+    )?;
+
+    let rows = stmt.query_map([os_str], |row| Ok((row.get(0)?, row.get(1)?)))?;
+
+    let mut outputs = Vec::new();
+    for output in rows {
+        outputs.push(output?);
+    }
+
+    Ok(outputs)
+}
+
 /// Fetches all active regex triggers for the current desktop target.
 pub fn get_all_active_regex_triggers(conn: &Connection) -> Result<Vec<(String, TriggerAction)>> {
     let os_str = get_current_os_db_string();

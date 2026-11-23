@@ -105,23 +105,23 @@ pub fn insert_activity_event(conn: &Connection, event: &NewActivityEvent) -> Res
     let app_key = event.app_key.as_deref().unwrap_or("");
     let now_secs = crate::db::now_unix_secs();
 
-    conn.execute(
+    conn.prepare_cached(
         "INSERT INTO activity_events (
             id, trigger_id, timestamp, date, category, app_key, word_count, time_saved_ms, content, version, created_at
         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, ?10)",
-        params![
-            id,
-            event.trigger_id,
-            timestamp,
-            date,
-            event.category.as_str(),
-            app_key,
-            event.word_count as i64,
-            event.time_saved_ms as i64,
-            event.content,
-            now_secs,
-        ],
-    )?;
+    )?
+    .execute(params![
+        id,
+        event.trigger_id,
+        timestamp,
+        date,
+        event.category.as_str(),
+        app_key,
+        event.word_count as i64,
+        event.time_saved_ms as i64,
+        event.content,
+        now_secs,
+    ])?;
 
     let entity_id = id.clone();
     let _ = crate::db::crud::enqueue_outbox(
@@ -191,35 +191,38 @@ pub fn get_activity_events(
     Ok(result)
 }
 
+const RECENT_ACTIVITY_UNFILTERED: &str = "SELECT id, trigger_id, timestamp, date, category, app_key, word_count, time_saved_ms, content, version, 0 AS is_synced, created_at
+         FROM activity_events ORDER BY timestamp DESC, created_at DESC LIMIT ? OFFSET ?";
+
+const RECENT_ACTIVITY_FILTERED: &str = "SELECT id, trigger_id, timestamp, date, category, app_key, word_count, time_saved_ms, content, version, 0 AS is_synced, created_at
+         FROM activity_events WHERE category = ? ORDER BY timestamp DESC, created_at DESC LIMIT ? OFFSET ?";
+
 pub fn get_recent_activity_events(
     conn: &Connection,
     limit: usize,
     offset: usize,
     category_filter: Option<ActivityCategory>,
 ) -> Result<Vec<ActivityEventRow>> {
-    let mut sql = String::from(
-        "SELECT id, trigger_id, timestamp, date, category, app_key, word_count, time_saved_ms, content, version, 0 AS is_synced, created_at
-         FROM activity_events ",
-    );
-    let mut params_vec: Vec<rusqlite::types::Value> = Vec::new();
-
-    if let Some(cat) = category_filter {
-        sql.push_str("WHERE category = ? ");
-        params_vec.push(rusqlite::types::Value::Text(cat.as_str().to_string()));
-    }
-
-    sql.push_str("ORDER BY timestamp DESC, created_at DESC LIMIT ? OFFSET ?");
-    params_vec.push((limit as i64).into());
-    params_vec.push((offset as i64).into());
-
-    let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map(
-        rusqlite::params_from_iter(params_vec),
-        map_activity_event_row,
-    )?;
     let mut results = Vec::new();
-    for row in rows {
-        results.push(row?);
+    match category_filter {
+        Some(cat) => {
+            let mut stmt = conn.prepare_cached(RECENT_ACTIVITY_FILTERED)?;
+            let rows = stmt.query_map(
+                params![cat.as_str(), limit as i64, offset as i64],
+                map_activity_event_row,
+            )?;
+            for row in rows {
+                results.push(row?);
+            }
+        }
+        None => {
+            let mut stmt = conn.prepare_cached(RECENT_ACTIVITY_UNFILTERED)?;
+            let rows =
+                stmt.query_map(params![limit as i64, offset as i64], map_activity_event_row)?;
+            for row in rows {
+                results.push(row?);
+            }
+        }
     }
     Ok(results)
 }
