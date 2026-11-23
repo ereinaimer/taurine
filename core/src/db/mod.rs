@@ -81,13 +81,19 @@ fn build_keyed_pool(
         conn.execute_batch(pragma.as_str())?;
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
-                     PRAGMA synchronous = NORMAL;
-                     PRAGMA busy_timeout = 5000;",
+             PRAGMA synchronous = NORMAL;
+             PRAGMA busy_timeout = 5000;",
         )?;
+        // Hot-path CRUD adds ~10 cached statements on these connections;
+        // rusqlite's default cap of 16 would evict them (LRU thrash).
+        conn.set_prepared_statement_cache_capacity(64);
         Ok(())
     });
     r2d2::Pool::builder()
         .max_size(5)
+        // Keep one warm connection instead of five (r2d2 defaults min_idle to
+        // max_size). Checkouts still grow the pool to max on demand.
+        .min_idle(Some(1))
         // Fail fast on exhaustion instead of blocking the hot path: expansions
         // are millisecond-scale, so a 5s wait means the pool is wedged.
         .connection_timeout(std::time::Duration::from_secs(5))
