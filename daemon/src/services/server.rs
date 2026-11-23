@@ -150,7 +150,7 @@ impl DaemonService {
         let guard = self.reload_lock.clone().lock_owned().await;
         let result = tokio::task::spawn_blocking(move || {
             let _guard = guard;
-            let conn = taurine_core::db::init::setup()
+            let conn = taurine_core::db::get_conn()
                 .map_err(|e| Status::internal(format!("Database connection failed: {}", e)))?;
             service.reload_engine_state(&conn)
         })
@@ -377,7 +377,7 @@ impl DaemonControl for DaemonService {
     async fn sync(&self, _request: Request<SyncRequest>) -> Result<Response<SyncResponse>, Status> {
         let handle = tokio::runtime::Handle::current();
         let outcome = tokio::task::spawn_blocking(move || {
-            let conn = taurine_core::db::init::setup()
+            let conn = taurine_core::db::get_conn()
                 .map_err(|e| format!("Database connection failed: {}", e))?;
             let client = taurine_core::cloud::CloudClient::default_or_from_env();
             let status = handle.block_on(crate::services::sync_worker::SyncWorker::run_sync_cycle(

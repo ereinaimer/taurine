@@ -131,6 +131,11 @@ pub fn start() -> taurine_core::error::Result<()> {
 
     let conn = init::setup()?;
 
+    // Boot-time enforcement of the 30-day activity-event retention window
+    // (was: a prune on every db::init::setup() call). Steady-state pruning
+    // is handled by the hourly maintenance tick below.
+    let _ = taurine_core::db::crud::stats::prune_expired_activity_events(&conn, 30);
+
     // Hydrate QuotaGuard with tier status and stored weekly quota from SQLite
     let tier = taurine_core::db::crud::tier::get_user_tier(&conn);
     crate::engine::quota_guard::QuotaGuard::global().set_unlimited(tier.is_unlimited());
@@ -403,7 +408,7 @@ pub fn start() -> taurine_core::error::Result<()> {
             let _ = crate::platform::panic::catch_worker_panic(
                 "tau-db-load",
                 std::panic::AssertUnwindSafe(move || {
-                    if let Ok(conn) = taurine_core::db::init::setup() {
+                    if let Ok(conn) = taurine_core::db::get_conn() {
                         if let Ok(active) = get_all_active_triggers(&conn) {
                             state_for_bg.load_actions(active);
                         }
@@ -450,7 +455,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                 std::thread::sleep(std::time::Duration::from_secs(60));
 
                 loop {
-                    if let Ok(conn) = taurine_core::db::init::setup() {
+                    if let Ok(conn) = taurine_core::db::get_conn() {
                         let current_settings =
                             taurine_core::settings::SettingsManager::new(&conn).load_all();
                         if current_settings.auto_update {
@@ -478,7 +483,7 @@ pub fn start() -> taurine_core::error::Result<()> {
     // 8. Background Cloud Two-Way Sync Worker (syncs every 600s with event notifications)
     let sync_notify = std::sync::Arc::new(tokio::sync::Notify::new());
     let _sync_thread = SyncWorker::spawn_event_driven(
-        taurine_core::db::init::setup,
+        crate::services::sync_worker::pooled_conn_provider(),
         std::time::Duration::from_secs(600),
         sync_notify.clone(),
     );
@@ -502,10 +507,27 @@ pub fn start() -> taurine_core::error::Result<()> {
             while !shutdown_for_quota.load(Ordering::Relaxed) {
                 interval.tick().await;
                 if crate::engine::quota_guard::QuotaGuard::global().unflushed_delta() > 0.0
-                    && let Ok(conn) = taurine_core::db::init::setup()
+                    && let Ok(conn) = taurine_core::db::get_conn()
                     && let Ok(key) = taurine_core::db::key::get_or_create_db_key()
                 {
                     let _ = crate::engine::quota_guard::QuotaGuard::global().flush_to_db(&conn, &key);
+                }
+            }
+        });
+
+        // 30-day activity-event retention, enforced hourly on a pooled connection
+        // (was: every db::init::setup() call). Retention boundary drift <= 1h.
+        let shutdown_for_prune = shutdown_requested.clone();
+        let prune_handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
+            interval.tick().await; // first tick fires immediately: covers boot-time prune too
+            loop {
+                interval.tick().await;
+                if shutdown_for_prune.load(Ordering::Relaxed) {
+                    break;
+                }
+                if let Ok(conn) = taurine_core::db::get_conn() {
+                    let _ = taurine_core::db::crud::stats::prune_expired_activity_events(&conn, 30);
                 }
             }
         });
@@ -830,6 +852,7 @@ pub fn start() -> taurine_core::error::Result<()> {
         voice_sweep_handle.abort();
         pause_coordinator_handle.abort();
         quota_flush_handle.abort();
+        prune_handle.abort();
         Ok(())
     });
 

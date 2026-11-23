@@ -478,7 +478,7 @@ fn resolve_inline_ai_request<S>(store: &S) -> taurine_core::error::Result<Resolv
 where
     S: CredentialStore,
 {
-    let conn = taurine_core::db::init::setup()?;
+    let conn = taurine_core::db::get_conn()?;
     let settings = SettingsManager::new(&conn).load_all();
     resolve_inline_ai_request_with_settings(store, &settings)
 }

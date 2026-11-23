@@ -1,4 +1,5 @@
 use rusqlite::OptionalExtension;
+use std::sync::Arc;
 use std::time::Duration;
 use taurine_core::cloud::CloudClient;
 use taurine_core::db::crud::triggers::{
@@ -10,6 +11,26 @@ use taurine_core::db::crud::{
     reconcile_cloud_activity_events, reconcile_cloud_app_stats, reconcile_cloud_setting,
     reconcile_cloud_trigger_daily_stats, reconcile_cloud_user_stats,
 };
+
+/// Connection provider handed to the sync worker: yields a fresh database
+/// connection (pooled or raw) per sync cycle.
+pub type ConnProvider =
+    Arc<dyn Fn() -> taurine_core::Result<taurine_core::db::DbConnection> + Send + Sync>;
+
+/// Provider that opens a fresh keyed connection via `db::init::setup()`
+/// (schema + seed included). Intended for tests against temp data dirs; the
+/// existing worker tests build custom-path providers instead, so this is
+/// kept available for hermetic tests rather than used today.
+#[allow(dead_code)]
+pub(crate) fn raw_conn_provider() -> ConnProvider {
+    Arc::new(|| taurine_core::db::init::setup().map(taurine_core::db::DbConnection::Raw))
+}
+
+/// Provider that checks a connection out of the shared keyed r2d2 pool.
+/// Used by the daemon's periodic sync cycles.
+pub(crate) fn pooled_conn_provider() -> ConnProvider {
+    Arc::new(taurine_core::db::get_conn)
+}
 
 /// The execution outcome of a sync cycle.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -225,15 +246,11 @@ impl SyncWorker {
     }
 
     /// Spawns a background thread running event-driven sync cycles with micro-debouncing and cooldown.
-    pub fn spawn_event_driven<F, E>(
-        conn_provider: F,
+    pub fn spawn_event_driven(
+        conn_provider: ConnProvider,
         fallback_interval: Duration,
         notify: std::sync::Arc<tokio::sync::Notify>,
-    ) -> std::thread::JoinHandle<()>
-    where
-        F: Fn() -> Result<rusqlite::Connection, E> + Send + 'static,
-        E: std::fmt::Display,
-    {
+    ) -> std::thread::JoinHandle<()> {
         std::thread::Builder::new()
             .name("tau-sync".to_string())
             .spawn(move || {

@@ -2189,7 +2189,11 @@ async fn test_event_driven_sync_worker_wakes_on_notification() {
 
     let notify = std::sync::Arc::new(tokio::sync::Notify::new());
     let db_path_clone = db_path.clone();
-    let conn_provider = move || rusqlite::Connection::open(&db_path_clone);
+    let conn_provider = std::sync::Arc::new(move || {
+        rusqlite::Connection::open(&db_path_clone)
+            .map(taurine_core::db::DbConnection::Raw)
+            .map_err(taurine_core::error::Error::Database)
+    });
 
     // Spawn event-driven worker with a 600s fallback interval (10 minutes)
     let _worker_handle = SyncWorker::spawn_event_driven(

@@ -4,11 +4,29 @@ use zeroize::{Zeroize, Zeroizing};
 const KEYRING_SERVICE: &str = "taurine";
 const KEYRING_USER: &str = "db-key";
 
+/// Process-wide cache of the per-install database encryption key.
+///
+/// The key only changes on a fresh install. The r2d2 pool's `with_init`
+/// closure already assumes per-process key stability (it captures the key
+/// once per pool creation), so caching adds no new assumption: it only
+/// removes the repeated OS-keyring round trips from periodic callers.
+static CACHED_KEY: std::sync::OnceLock<Zeroizing<[u8; 32]>> = std::sync::OnceLock::new();
+
 /// Returns the per-install database encryption key, creating and storing one on first run.
 ///
-/// Fail-closed: any keystore problem (or a corrupt stored value) is a `Service`
-/// error. Never falls back to plaintext or an ephemeral key.
+/// The OS credential vault is read once per process; subsequent calls return
+/// the cached key. Fail-closed: any keystore problem (or a corrupt stored
+/// value) is a `Service` error. Never falls back to plaintext or an ephemeral key.
 pub fn get_or_create_db_key() -> crate::Result<Zeroizing<[u8; 32]>> {
+    if let Some(cached) = CACHED_KEY.get() {
+        return Ok(cached.clone());
+    }
+    let key = create_or_load_key()?;
+    let _ = CACHED_KEY.set(key.clone());
+    Ok(key)
+}
+
+fn create_or_load_key() -> crate::Result<Zeroizing<[u8; 32]>> {
     let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(keystore_unavailable)?;
     get_or_create_key_with(&entry)
 }
