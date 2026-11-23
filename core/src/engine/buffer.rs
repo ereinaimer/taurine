@@ -328,7 +328,7 @@ impl FastBuffer {
         }
 
         let capacity = self.data.len();
-        let mut collected = Vec::new();
+        let mut collected: SmallVec<[char; 32]> = SmallVec::new();
         let mut curr = (self.head + capacity - 1) % capacity;
         let mut n = 0;
         let mut active_quote: Option<char> = None;
@@ -386,7 +386,7 @@ impl FastBuffer {
         }
 
         let capacity = self.data.len();
-        let mut collected = Vec::new();
+        let mut collected: SmallVec<[char; 32]> = SmallVec::new();
         let mut curr = (self.head + capacity - 1) % capacity;
         let mut n = 0;
 
@@ -443,17 +443,11 @@ impl FastBuffer {
         self.extract_suffix_candidates_with_cap(DEFAULT_SUFFIX_CAP)
     }
 
-    /// Same as [`Self::extract_suffix_candidates`] with a caller-chosen scan
-    /// depth, so the engine can cover the longest loaded trigger instead of
-    /// silently never matching triggers longer than the default depth.
-    pub fn extract_suffix_candidates_with_cap(
-        &self,
-        cap: usize,
-    ) -> SmallVec<[(String, Option<char>); 16]> {
+    /// Extracts the single longest suffix candidate string from the typing buffer.
+    pub fn extract_longest_suffix_candidate_with_cap(&self, cap: usize) -> Option<String> {
         let cap = cap.clamp(1, MAX_SUFFIX_CAP);
-        let mut candidates = SmallVec::new();
         if self.len == 0 {
-            return candidates;
+            return None;
         }
 
         let capacity = self.data.len();
@@ -536,11 +530,34 @@ impl FastBuffer {
             n += 1;
         }
 
-        let collected_slice = &collected[..collected_len];
-        // Build candidates in one pass from stack buffer
-        for len in 1..=collected_len {
-            let word: String = collected_slice[..len].iter().rev().collect();
-            let prev_char = collected_slice.get(len).copied();
+        if collected_len == 0 {
+            return None;
+        }
+
+        Some(collected[..collected_len].iter().rev().collect())
+    }
+
+    /// Same as [`Self::extract_suffix_candidates`] with a caller-chosen scan
+    /// depth, so the engine can cover the longest loaded trigger instead of
+    /// silently never matching triggers longer than the default depth.
+    pub fn extract_suffix_candidates_with_cap(
+        &self,
+        cap: usize,
+    ) -> SmallVec<[(String, Option<char>); 16]> {
+        let Some(longest) = self.extract_longest_suffix_candidate_with_cap(cap) else {
+            return SmallVec::new();
+        };
+
+        let chars: Vec<char> = longest.chars().collect();
+        let total = chars.len();
+        let mut candidates = SmallVec::new();
+        for len in 1..=total {
+            let word: String = chars[total - len..].iter().collect();
+            let prev_char = if len < total {
+                Some(chars[total - len - 1])
+            } else {
+                None
+            };
             candidates.push((word, prev_char));
         }
 

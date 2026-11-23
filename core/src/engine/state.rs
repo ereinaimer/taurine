@@ -54,6 +54,7 @@ pub struct EngineState {
     /// long triggers stay matchable. Floor keeps the default depth for
     /// math/date/conversion fallbacks that are not catalog triggers.
     max_suffix_scan_len: AtomicUsize,
+    pub source: Arc<dyn SnippetSource>,
 }
 
 impl Default for EngineState {
@@ -64,6 +65,7 @@ impl Default for EngineState {
 
 impl EngineState {
     pub fn new() -> Self {
+        let source: Arc<dyn SnippetSource> = Arc::new(crate::engine::source::MemorySource::new());
         Self {
             inline_date_format: parking_lot::RwLock::new("MMMM D, YYYY".to_string()),
             inline_time_format: parking_lot::RwLock::new("h:mm A".to_string()),
@@ -77,10 +79,11 @@ impl EngineState {
 
             undo_state: RwLock::new(None),
             case_cycle: RwLock::new(None),
-            word_catalog: ExpansionCatalog::new(),
+            word_catalog: ExpansionCatalog::with_source(source.clone()),
             hotkey_catalog: HotkeyCatalog::new(),
             regex_catalog: RegexCatalog::new(),
             max_suffix_scan_len: AtomicUsize::new(crate::engine::buffer::DEFAULT_SUFFIX_CAP),
+            source,
         }
     }
 
@@ -99,10 +102,11 @@ impl EngineState {
 
             undo_state: RwLock::new(None),
             case_cycle: RwLock::new(None),
-            word_catalog: ExpansionCatalog::with_source(source),
+            word_catalog: ExpansionCatalog::with_source(source.clone()),
             hotkey_catalog: HotkeyCatalog::new(),
             regex_catalog: RegexCatalog::new(),
             max_suffix_scan_len: AtomicUsize::new(crate::engine::buffer::DEFAULT_SUFFIX_CAP),
+            source,
         }
     }
 

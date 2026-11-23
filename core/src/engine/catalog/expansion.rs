@@ -132,16 +132,19 @@ impl ExpansionCatalog {
             }
         }
 
-        let lower_keyword = keyword.to_lowercase();
-        if lower_keyword != keyword
-            && let Some(action) = self.source.get_action(&lower_keyword)
-        {
-            if !entry_has_app_filters(&action) {
-                return Some(action);
-            }
-            let w = window.resolve(|| fetch_window.take().and_then(|f| f()));
-            if is_app_allowed(&action, w) {
-                return Some(action);
+        // allocate only when the keyword has uppercase; to_lowercase is identity otherwise
+        if keyword.chars().any(char::is_uppercase) {
+            let lower_keyword = keyword.to_lowercase();
+            if lower_keyword != keyword
+                && let Some(action) = self.source.get_action(&lower_keyword)
+            {
+                if !entry_has_app_filters(&action) {
+                    return Some(action);
+                }
+                let w = window.resolve(|| fetch_window.take().and_then(|f| f()));
+                if is_app_allowed(&action, w) {
+                    return Some(action);
+                }
             }
         }
 

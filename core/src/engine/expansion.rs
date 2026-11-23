@@ -157,50 +157,75 @@ impl crate::engine::evaluator::Evaluator {
             }
         }
 
-        let candidates = self
+        if let Some(longest) = self
             .buffer
-            .extract_suffix_candidates_with_cap(self.state.max_suffix_scan_len());
+            .extract_longest_suffix_candidate_with_cap(self.state.max_suffix_scan_len())
+        {
+            let mut prev_char: Option<char> = None;
+            for (idx, ch) in longest.char_indices() {
+                let is_boundary = if idx == 0 {
+                    true
+                } else {
+                    prev_char.is_none_or(|c| !c.is_alphanumeric())
+                };
+                prev_char = Some(ch);
 
-        for (word, prev_char) in candidates.into_iter().rev() {
-            let is_boundary = prev_char.is_none_or(|c| !c.is_alphanumeric());
-            if is_boundary
-                && let Some(expansion) = self.state.fetch_expansion_no_date_fallback_lazy(
-                    &word,
-                    window,
-                    fetch_window.take(),
-                )
-            {
-                let delete_count = word.chars().count();
-                let stat_kind = stat_kind_for_steps(expansion.is_calculation, &expansion.steps);
-                self.buffer.clear();
-                if let Some(template) = expansion.ai_transformer_template {
-                    let initial_text = self.get_initial_spinner_text(&template);
-                    return Some(ExpansionResult {
-                        delete_count,
-                        steps: vec![ExpansionStep::Text(initial_text)],
-                        trigger: word,
-                        undo_trigger: None,
-                        is_calculation: false,
-                        stat_kind: TriggerStatKind::InlineAi,
-                        track_usage: true,
-                        follow_up: Some(ExpansionFollowUp::AiTransformer {
-                            template_with_markers: template,
-                        }),
-                    });
+                if !is_boundary {
+                    continue;
                 }
 
-                let undo_trigger = self.undo_trigger_for_steps(&word, &expansion.steps);
+                let candidate = &longest[idx..];
+                let check_action = |kw: &str| {
+                    self.state.source.has_action(kw)
+                        || (kw.chars().any(char::is_uppercase)
+                            && self.state.source.has_action(&kw.to_lowercase()))
+                };
+                let has_action = !instant_expand
+                    || check_action(candidate)
+                    || candidate
+                        .split_once(';')
+                        .map(|(base, _)| base.trim())
+                        .is_some_and(|base| !base.is_empty() && check_action(base));
 
-                return Some(ExpansionResult {
-                    delete_count,
-                    steps: expansion.steps,
-                    trigger: word,
-                    undo_trigger,
-                    is_calculation: expansion.is_calculation,
-                    stat_kind,
-                    track_usage: true,
-                    follow_up: None,
-                });
+                if has_action
+                    && let Some(expansion) = self.state.fetch_expansion_no_date_fallback_lazy(
+                        candidate,
+                        window,
+                        fetch_window.take(),
+                    )
+                {
+                    let delete_count = candidate.chars().count();
+                    let stat_kind = stat_kind_for_steps(expansion.is_calculation, &expansion.steps);
+                    self.buffer.clear();
+                    if let Some(template) = expansion.ai_transformer_template {
+                        let initial_text = self.get_initial_spinner_text(&template);
+                        return Some(ExpansionResult {
+                            delete_count,
+                            steps: vec![ExpansionStep::Text(initial_text)],
+                            trigger: candidate.to_string(),
+                            undo_trigger: None,
+                            is_calculation: false,
+                            stat_kind: TriggerStatKind::InlineAi,
+                            track_usage: true,
+                            follow_up: Some(ExpansionFollowUp::AiTransformer {
+                                template_with_markers: template,
+                            }),
+                        });
+                    }
+
+                    let undo_trigger = self.undo_trigger_for_steps(candidate, &expansion.steps);
+
+                    return Some(ExpansionResult {
+                        delete_count,
+                        steps: expansion.steps,
+                        trigger: candidate.to_string(),
+                        undo_trigger,
+                        is_calculation: expansion.is_calculation,
+                        stat_kind,
+                        track_usage: true,
+                        follow_up: None,
+                    });
+                }
             }
         }
 
