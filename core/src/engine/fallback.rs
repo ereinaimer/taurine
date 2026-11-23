@@ -4,12 +4,14 @@ use crate::stats::TriggerStatKind;
 
 impl crate::engine::evaluator::Evaluator {
     pub(crate) fn check_all_inline_fallbacks(&self) -> Option<ExpansionResult> {
-        let buf_str = self.buffer.buffer_string();
-        if buf_str.trim().is_empty() {
+        // 6-word intents: a 256-char whitespace-aligned tail covers any
+        // realistic intent phrase; identical to scanning the full buffer.
+        let tail = self.buffer.tail_str(256);
+        if tail.trim().is_empty() {
             return None;
         }
 
-        let words: Vec<&str> = buf_str.split_whitespace().collect();
+        let words: Vec<&str> = tail.split_whitespace().collect();
         let max_words = 6.min(words.len());
         if max_words == 0 {
             return None;

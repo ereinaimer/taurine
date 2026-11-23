@@ -282,9 +282,8 @@ impl Evaluator {
     }
 
     pub fn has_inline_ai_prefix(&self) -> bool {
-        let buf_str = self.buffer.buffer_string();
-        let line = buf_str.rsplit('\n').next().unwrap_or(&buf_str);
-        TAU_PREFIX_REGEX.is_match(line)
+        let line = self.buffer.last_line();
+        TAU_PREFIX_REGEX.is_match(&line)
     }
 
     pub fn set_captured_ai_clipboard(&mut self, text: String) {
@@ -298,9 +297,8 @@ impl Evaluator {
     }
 
     pub(crate) fn check_inline_ai_trigger(&mut self) -> Option<ExpansionResult> {
-        let buf_str = self.buffer.buffer_string();
-        let line = buf_str.rsplit('\n').next().unwrap_or(&buf_str);
-        let caps = TAU_AI_REGEX.captures(line)?;
+        let line = self.buffer.last_line();
+        let caps = TAU_AI_REGEX.captures(&line)?;
 
         let full_span = caps.name("full_span")?.as_str();
         let prompt_raw = caps.name("prompt")?.as_str().trim();

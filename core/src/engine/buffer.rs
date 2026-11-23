@@ -141,6 +141,57 @@ impl FastBuffer {
         result
     }
 
+    /// Content after the final newline, or the whole ring if none.
+    /// Bounded allocation: the last line, not the full ring.
+    pub fn last_line(&self) -> String {
+        let capacity = self.data.len();
+        if self.len == 0 {
+            return String::new();
+        }
+        let start = (self.head + capacity - self.len) % capacity;
+        // scan backward for '\n'
+        let mut line_len = 0;
+        while line_len < self.len {
+            let idx = (start + self.len - 1 - line_len) % capacity;
+            if self.data[idx] == '\n' {
+                break;
+            }
+            line_len += 1;
+        }
+        let line_start = (start + self.len - line_len) % capacity;
+        let mut result = String::with_capacity(line_len);
+        for i in 0..line_len {
+            result.push(self.data[(line_start + i) % capacity]);
+        }
+        result
+    }
+
+    /// Last max_chars chars; when truncated, the leading partial word is
+    /// dropped so word-boundary consumers match a full-buffer scan.
+    pub fn tail_str(&self, max_chars: usize) -> String {
+        let capacity = self.data.len();
+        if self.len == 0 || max_chars == 0 {
+            return String::new();
+        }
+        let take = self.len.min(max_chars);
+        let start = (self.head + capacity - self.len) % capacity;
+        let cut = (start + self.len - take) % capacity;
+        let mut result = String::with_capacity(take);
+        for i in 0..take {
+            result.push(self.data[(cut + i) % capacity]);
+        }
+        // align: if the char before the cut is not whitespace, the first
+        // tail word is a fragment — drop it unless it is also the only word.
+        let preceded_by_word = take < self.len && {
+            let before = (cut + capacity - 1) % capacity;
+            !self.data[before].is_whitespace()
+        };
+        if preceded_by_word && let Some(pos) = result.find(char::is_whitespace) {
+            result.replace_range(..pos + 1, "");
+        }
+        result
+    }
+
     pub fn as_str(&self) -> Cow<'_, str> {
         if self.len == 0 {
             return Cow::Borrowed("");
@@ -975,5 +1026,119 @@ mod tests {
         let mut b6 = FastBuffer::new();
         type_str(&mut b6, "opposite of hot");
         assert!(b6.has_dictionary_intent());
+    }
+
+    #[test]
+    fn last_line_matches_buffer_string_tail() {
+        let mut b = FastBuffer::new();
+        for c in "hello world\nsecond line".chars() {
+            b.push(c);
+        }
+        let full = b.buffer_string();
+        let expected = full.rsplit('\n').next().unwrap_or(&full).to_string();
+        assert_eq!(b.last_line(), expected);
+    }
+
+    #[test]
+    fn last_line_empty_buffer_is_empty() {
+        let b = FastBuffer::new();
+        assert_eq!(b.last_line(), "");
+    }
+
+    #[test]
+    fn tail_str_preserves_trailing_words() {
+        let mut b = FastBuffer::new();
+        for c in "the quick brown fox jumps over the lazy dog".chars() {
+            b.push(c);
+        }
+        // 6 trailing words must survive a tight window
+        let tail = b.tail_str(32);
+        let full = b.buffer_string();
+        let trailing: Vec<&str> = full
+            .split_whitespace()
+            .rev()
+            .take(6)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        let tail_words: Vec<&str> = tail
+            .split_whitespace()
+            .filter(|w| trailing.contains(w))
+            .collect();
+        assert_eq!(tail_words, trailing);
+    }
+
+    #[test]
+    fn last_line_no_newline_returns_full_buffer() {
+        let mut b = FastBuffer::new();
+        type_str(&mut b, "hello world without newline");
+        assert_eq!(b.last_line(), "hello world without newline");
+    }
+
+    #[test]
+    fn last_line_trailing_newline_returns_empty() {
+        let mut b = FastBuffer::new();
+        type_str(&mut b, "first line\n");
+        assert_eq!(b.last_line(), "");
+    }
+
+    #[test]
+    fn tail_str_zero_or_empty() {
+        let mut b = FastBuffer::new();
+        assert_eq!(b.tail_str(0), "");
+        assert_eq!(b.tail_str(10), "");
+        type_str(&mut b, "abc");
+        assert_eq!(b.tail_str(0), "");
+    }
+
+    #[test]
+    fn tail_str_larger_than_buffer_returns_full() {
+        let mut b = FastBuffer::new();
+        type_str(&mut b, "small buffer");
+        assert_eq!(b.tail_str(100), "small buffer");
+    }
+
+    #[test]
+    fn last_line_and_tail_str_wrapped_ring() {
+        let mut b = FastBuffer::new();
+        // Force wrap around
+        type_str(&mut b, "initial prefix to offset head");
+        b.pop_n(15);
+        for i in 0..600 {
+            if i % 50 == 0 {
+                b.push('\n');
+            } else if i % 7 == 0 {
+                b.push(' ');
+            } else {
+                b.push(char::from_u32(97 + (i % 26)).unwrap());
+            }
+        }
+        let full = b.buffer_string();
+        let expected_last_line = full.rsplit('\n').next().unwrap_or(&full);
+        assert_eq!(b.last_line(), expected_last_line);
+
+        // tail_str equivalence over wrapped ring
+        for window in [10, 25, 50, 100, 300, 700] {
+            let tail = b.tail_str(window);
+            let take = full.chars().count().min(window);
+            let raw_tail: String = full
+                .chars()
+                .rev()
+                .take(take)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+            let preceded_by_word = take < full.chars().count() && {
+                let before_char = full.chars().nth(full.chars().count() - take - 1).unwrap();
+                !before_char.is_whitespace()
+            };
+            let mut expected_tail = raw_tail;
+            if preceded_by_word && let Some(pos) = expected_tail.find(char::is_whitespace) {
+                expected_tail.replace_range(..pos + 1, "");
+            }
+            assert_eq!(tail, expected_tail, "mismatch at window {}", window);
+        }
     }
 }
