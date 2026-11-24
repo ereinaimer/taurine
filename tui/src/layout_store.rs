@@ -145,17 +145,17 @@ where
     TuiLayout::from_raw(&get(TUI_LAYOUT_KEY)?)
 }
 
-pub(crate) fn save_to<F>(put: F, layout: TuiLayout) -> taurine_core::Result<()>
+pub(crate) fn save_to<F>(put: F, layout: TuiLayout) -> nite_core::Result<()>
 where
-    F: FnOnce(&str, &str) -> taurine_core::Result<()>,
+    F: FnOnce(&str, &str) -> nite_core::Result<()>,
 {
     put(TUI_LAYOUT_KEY, &layout.to_raw())
 }
 
 pub(crate) fn load() -> Option<TuiLayout> {
-    let conn = taurine_core::db::init::setup().ok()?;
+    let conn = nite_core::db::init::setup().ok()?;
     load_from(
-        |key| match taurine_core::db::crud::get_setting_value(&conn, key) {
+        |key| match nite_core::db::crud::get_setting_value(&conn, key) {
             Ok(value) => value,
             Err(error) => {
                 tracing::warn!(%error, key, "failed to read the saved pane layout");
@@ -165,12 +165,11 @@ pub(crate) fn load() -> Option<TuiLayout> {
     )
 }
 
-pub(crate) fn save(layout: TuiLayout) -> taurine_core::Result<()> {
-    let conn = taurine_core::db::init::setup()?;
+pub(crate) fn save(layout: TuiLayout) -> nite_core::Result<()> {
+    let conn = nite_core::db::init::setup()?;
     save_to(
         |key, raw| {
-            taurine_core::db::crud::upsert_setting(&conn, key, raw)
-                .map_err(taurine_core::Error::Database)
+            nite_core::db::crud::upsert_setting(&conn, key, raw).map_err(nite_core::Error::Database)
         },
         layout,
     )
@@ -410,12 +409,12 @@ mod tests {
     #[test]
     fn save_to_propagates_write_error() {
         let result = save_to(
-            |_, _| Err(taurine_core::Error::Config("disk full".to_string())),
+            |_, _| Err(nite_core::Error::Config("disk full".to_string())),
             TuiLayout::default(),
         );
         assert!(matches!(
             result,
-            Err(taurine_core::Error::Config(message)) if message == "disk full"
+            Err(nite_core::Error::Config(message)) if message == "disk full"
         ));
     }
 }

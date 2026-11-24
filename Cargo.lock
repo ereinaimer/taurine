@@ -3331,6 +3331,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "nite_tui"
+version = "1.0.0-alpha.19"
+dependencies = [
+ "chrono",
+ "crossterm",
+ "image",
+ "keyring",
+ "libc",
+ "nite_core",
+ "ratatui",
+ "ratatui-image",
+ "resvg",
+ "serde_json",
+ "tachyonfx",
+ "tokio",
+ "tonic",
+ "tracing",
+ "tree-sitter",
+ "tree-sitter-bash",
+ "tree-sitter-batch",
+ "tree-sitter-highlight",
+ "tree-sitter-javascript",
+ "tree-sitter-powershell",
+ "tree-sitter-python",
+ "zeroize",
+]
+
+[[package]]
 name = "nix"
 version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5843,6 +5871,7 @@ dependencies = [
  "keyring",
  "nite_core",
  "nite_daemon",
+ "nite_tui",
  "notify-rust",
  "regex",
  "reqwest",
@@ -5853,7 +5882,6 @@ dependencies = [
  "service-manager",
  "sha2 0.11.0",
  "sysinfo",
- "taurine_tui",
  "tempfile",
  "time",
  "tokio",
@@ -5866,34 +5894,6 @@ dependencies = [
  "windows-sys 0.61.2",
  "winreg",
  "winres",
- "zeroize",
-]
-
-[[package]]
-name = "taurine_tui"
-version = "1.0.0-alpha.19"
-dependencies = [
- "chrono",
- "crossterm",
- "image",
- "keyring",
- "libc",
- "nite_core",
- "ratatui",
- "ratatui-image",
- "resvg",
- "serde_json",
- "tachyonfx",
- "tokio",
- "tonic",
- "tracing",
- "tree-sitter",
- "tree-sitter-bash",
- "tree-sitter-batch",
- "tree-sitter-highlight",
- "tree-sitter-javascript",
- "tree-sitter-powershell",
- "tree-sitter-python",
  "zeroize",
 ]
 

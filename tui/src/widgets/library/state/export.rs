@@ -36,8 +36,8 @@ pub(crate) struct LibraryExportModalState {
 }
 
 impl LibraryExportModalState {
-    pub fn new() -> taurine_core::Result<Self> {
-        let path = taurine_core::exchange::resolve_export_path(None)?
+    pub fn new() -> nite_core::Result<Self> {
+        let path = nite_core::exchange::resolve_export_path(None)?
             .to_string_lossy()
             .into_owned();
 
@@ -175,9 +175,9 @@ impl LibraryExportModalState {
         }
     }
 
-    fn build_pending_export(&self) -> taurine_core::Result<PendingLibraryExport> {
+    fn build_pending_export(&self) -> nite_core::Result<PendingLibraryExport> {
         if self.path.text().trim().is_empty() {
-            return Err(taurine_core::Error::Config(
+            return Err(nite_core::Error::Config(
                 "Export path is required.".to_string(),
             ));
         }
@@ -185,7 +185,7 @@ impl LibraryExportModalState {
         let password = if self.password.text().trim().is_empty() {
             None
         } else {
-            taurine_core::exchange::validate_export_password(self.password.text())?;
+            nite_core::exchange::validate_export_password(self.password.text())?;
             Some(self.password.text().to_string())
         };
 

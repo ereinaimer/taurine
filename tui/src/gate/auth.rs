@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
-use taurine_core::db::crud::UserTier;
+use nite_core::db::crud::UserTier;
 
 pub(crate) type LoginResult = Result<String, String>;
 
@@ -24,8 +24,8 @@ pub(crate) fn spawn(cancel: Arc<AtomicBool>) -> Receiver<LoginResult> {
 }
 
 fn run(cancel: &AtomicBool) -> LoginResult {
-    let (verifier, challenge) = taurine_core::cloud::generate_pkce_challenge();
-    let client = taurine_core::cloud::CloudClient::default_or_from_env();
+    let (verifier, challenge) = nite_core::cloud::generate_pkce_challenge();
+    let client = nite_core::cloud::CloudClient::default_or_from_env();
     let listener = TcpListener::bind("127.0.0.1:0")
         .map_err(|error| format!("Could not start the sign-in listener: {error}"))?;
     let port = listener
@@ -35,7 +35,7 @@ fn run(cancel: &AtomicBool) -> LoginResult {
     let redirect = format!("http://127.0.0.1:{port}/callback");
     let auth_url = client.auth_url_for_provider("google", &redirect, &challenge);
 
-    taurine_core::cloud::open_browser(&auth_url)
+    nite_core::cloud::open_browser(&auth_url)
         .map_err(|error| format!("Could not open your browser: {error}"))?;
 
     let code = wait_for_code(&listener, cancel)?;
@@ -47,7 +47,7 @@ fn run(cancel: &AtomicBool) -> LoginResult {
     let tokens = runtime
         .block_on(client.exchange_code_for_session(&code, &verifier, &redirect))
         .map_err(|error| format!("Sign-in failed: {error}"))?;
-    taurine_core::cloud::store_tokens(&tokens)
+    nite_core::cloud::store_tokens(&tokens)
         .map_err(|error| format!("Could not save your session: {error}"))?;
 
     let tier = match runtime.block_on(client.get_profile(&tokens.access_token, &tokens.user_id)) {
@@ -58,20 +58,20 @@ fn run(cancel: &AtomicBool) -> LoginResult {
         }
     };
 
-    let conn = taurine_core::db::init::setup()
+    let conn = nite_core::db::init::setup()
         .map_err(|error| format!("Could not open the local database: {error}"))?;
-    taurine_core::db::crud::set_user_tier(&conn, tier)
+    nite_core::db::crud::set_user_tier(&conn, tier)
         .map_err(|error| format!("Could not save your plan: {error}"))?;
-    let _ = taurine_core::db::crud::triggers::backfill_untracked_triggers_to_outbox(&conn);
+    let _ = nite_core::db::crud::triggers::backfill_untracked_triggers_to_outbox(&conn);
 
-    if taurine_core::service::is_service_running() {
-        taurine_core::system::rpc::notify_daemon_reload();
+    if nite_core::service::is_service_running() {
+        nite_core::system::rpc::notify_daemon_reload();
     } else {
-        let settings = taurine_core::settings::SettingsManager::new(&conn).load_all();
-        let _ = taurine_core::service::up(settings.start_on_boot);
+        let settings = nite_core::settings::SettingsManager::new(&conn).load_all();
+        let _ = nite_core::service::up(settings.start_on_boot);
     }
 
-    Ok(taurine_core::cloud::extract_jwt_email(&tokens.access_token)
+    Ok(nite_core::cloud::extract_jwt_email(&tokens.access_token)
         .unwrap_or_else(|| tokens.user_id.clone()))
 }
 
@@ -90,9 +90,9 @@ fn wait_for_code(listener: &TcpListener, cancel: &AtomicBool) -> Result<String, 
                 reader
                     .read_line(&mut request_line)
                     .map_err(|error| format!("Could not read the sign-in callback: {error}"))?;
-                let code = taurine_core::cloud::extract_code_from_request_line(&request_line)
+                let code = nite_core::cloud::extract_code_from_request_line(&request_line)
                     .ok_or_else(|| "The browser returned no authorization code.".to_string())?;
-                let body = "<!DOCTYPE html><html><head><title>Taurine Login</title></head><body><h1>Authentication Successful</h1><p>You can close this tab and return to your terminal.</p></body></html>";
+                let body = "<!DOCTYPE html><html><head><title>Nite Login</title></head><body><h1>Authentication Successful</h1><p>You can close this tab and return to your terminal.</p></body></html>";
                 let response = format!(
                     "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                     body.len(),

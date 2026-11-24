@@ -37,7 +37,7 @@ pub(crate) fn hotkey_value_rect(
     area: Rect,
     control_width: u16,
     key: SettingKey,
-    settings: &taurine_core::settings::Settings,
+    settings: &nite_core::settings::Settings,
 ) -> Option<Rect> {
     if key.editor_kind() != EditorKind::HotkeyCapture {
         return None;
@@ -86,7 +86,7 @@ pub(crate) fn inline_value_rect(
     area: Rect,
     control_width: u16,
     key: SettingKey,
-    settings: &taurine_core::settings::Settings,
+    settings: &nite_core::settings::Settings,
     inline_edit: Option<&InputModalState>,
 ) -> Option<Rect> {
     if !key.inline_edit() {
@@ -142,7 +142,7 @@ pub fn render_setting_row(
     frame: &mut Frame,
     area: Rect,
     key: &SettingKey,
-    settings: &taurine_core::settings::Settings,
+    settings: &nite_core::settings::Settings,
     selected: bool,
     control_width: u16,
     description_lines: &[String],
@@ -231,7 +231,7 @@ fn render_inline_value(
     frame: &mut Frame,
     theme: &Theme,
     key: &SettingKey,
-    settings: &taurine_core::settings::Settings,
+    settings: &nite_core::settings::Settings,
     selected: bool,
     area: Rect,
     inline_edit: Option<&InputModalState>,
@@ -320,7 +320,7 @@ fn render_hotkey_value(
     frame: &mut Frame,
     theme: &Theme,
     key: &SettingKey,
-    settings: &taurine_core::settings::Settings,
+    settings: &nite_core::settings::Settings,
     selected: bool,
     area: Rect,
     style: Style,
@@ -368,7 +368,7 @@ mod tests {
         use ratatui::{Terminal, backend::TestBackend};
 
         let area = Rect::new(0, 0, 60, 8);
-        let settings = taurine_core::settings::Settings::default();
+        let settings = nite_core::settings::Settings::default();
         let backend = TestBackend::new(area.width, area.height);
         let mut terminal = Terminal::new(backend).expect("test terminal");
         terminal
@@ -440,7 +440,7 @@ mod tests {
     #[test]
     fn inline_values_render_as_filled_fields_without_the_chevron() {
         let key = SettingKey::InlineDateFormat;
-        let settings = taurine_core::settings::Settings::default();
+        let settings = nite_core::settings::Settings::default();
         let buffer = row_buffer(key);
         let field = inline_value_rect(Rect::new(0, 0, 60, 8), 20, key, &settings, None)
             .expect("inline field");
@@ -459,7 +459,7 @@ mod tests {
         use ratatui::{Terminal, backend::TestBackend};
 
         let key = SettingKey::InlineDateFormat;
-        let settings = taurine_core::settings::Settings::default();
+        let settings = nite_core::settings::Settings::default();
         let editor = InputModalState::new(key, "YYYY-MM-DD".to_string());
         let area = Rect::new(0, 0, 60, 8);
         let backend = TestBackend::new(area.width, area.height);

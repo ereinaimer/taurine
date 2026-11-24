@@ -1,7 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use taurine_core::db::TargetOs;
-use taurine_core::db::crud::{ActionType, TriggerLimits, TriggerType, prepare_trigger_with_type};
-use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
+use nite_core::db::TargetOs;
+use nite_core::db::crud::{ActionType, TriggerLimits, TriggerType, prepare_trigger_with_type};
+use nite_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 
 use crate::widgets::field::TextField;
 use crate::widgets::library::actions::{PendingLibraryCreate, join_app_filters};
@@ -651,7 +651,7 @@ impl LibraryCreateModalState {
         }
     }
 
-    pub(crate) fn build_pending_create(&self) -> taurine_core::Result<PendingLibraryCreate> {
+    pub(crate) fn build_pending_create(&self) -> nite_core::Result<PendingLibraryCreate> {
         // honey: core validates the trigger rules and canonicalizes
         // hotkeys; the stored form is what gets created. No database
         // is touched here, so conflicts surface at apply time with

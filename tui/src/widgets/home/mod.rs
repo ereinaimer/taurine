@@ -1,4 +1,6 @@
 use chrono::{DateTime, Datelike, Local, NaiveDate, TimeZone, Timelike, Utc};
+use nite_core::db::crud::ActivityCategory;
+use nite_core::stats::{HomeStats, RecentActivity};
 use ratatui::{
     Frame,
     layout::Rect,
@@ -6,8 +8,6 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Clear, Paragraph},
 };
-use taurine_core::db::crud::ActivityCategory;
-use taurine_core::stats::{HomeStats, RecentActivity};
 
 use crate::theme::Theme;
 use crate::widgets::hotkey;
@@ -1533,7 +1533,7 @@ mod tests {
 
     #[test]
     fn home_splits_activity_and_account_panes() {
-        use taurine_core::db::crud::UserTier;
+        use nite_core::db::crud::UserTier;
 
         let mut state = sample_state();
         state.set_account_ratio(0.3);

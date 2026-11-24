@@ -7,6 +7,7 @@ use crate::widgets::library::{
     ButtonSelection, LibraryExportModalField, LibraryExportModalState, LibraryImportModalField,
     LibraryImportModalState,
 };
+use nite_core::exchange::{ExistingTriggerConflict, TriggerExport};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
@@ -14,7 +15,6 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Paragraph, Wrap},
 };
-use taurine_core::exchange::{ExistingTriggerConflict, TriggerExport};
 
 use self::actions::{fill_bg, render_action_buttons_overlay};
 use self::rows::{
@@ -447,8 +447,8 @@ pub(crate) fn render_conflict_popup(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use taurine_core::db::crud::{InvocationType, TriggerAliasRow, TriggerType};
-    use taurine_core::exchange::{AliasExport, ExistingTriggerConflict, TriggerExport};
+    use nite_core::db::crud::{InvocationType, TriggerAliasRow, TriggerType};
+    use nite_core::exchange::{AliasExport, ExistingTriggerConflict, TriggerExport};
 
     fn alias_row(invocation: &str, invocation_type: InvocationType) -> TriggerAliasRow {
         TriggerAliasRow {

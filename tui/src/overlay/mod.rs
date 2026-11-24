@@ -15,14 +15,14 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
+use nite_core::error::Result as CoreResult;
+use nite_core::exchange::{
+    ExistingTriggerConflict, ImportConflictAction, TriggerExport, decode_exchange_blob,
+};
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
-use taurine_core::error::Result as CoreResult;
-use taurine_core::exchange::{
-    ExistingTriggerConflict, ImportConflictAction, TriggerExport, decode_exchange_blob,
-};
 
 fn drain_stale_events() {
     loop {
@@ -80,7 +80,7 @@ pub struct ImportFormResult {
 
 pub fn run_export_overlay() -> CoreResult<Option<ExportFormResult>> {
     let mut session = OverlaySession::new()
-        .map_err(|e| taurine_core::Error::Service(format!("Failed to initialize overlay: {e}")))?;
+        .map_err(|e| nite_core::Error::Service(format!("Failed to initialize overlay: {e}")))?;
     let mut state = LibraryExportModalState::new()?;
     let mut last_move = Instant::now();
     const MOVE_DEBOUNCE: Duration = Duration::from_millis(100);
@@ -94,7 +94,7 @@ pub fn run_export_overlay() -> CoreResult<Option<ExportFormResult>> {
             session
                 .terminal
                 .show_cursor()
-                .map_err(|e| taurine_core::Error::Service(format!("Cursor show failed: {e}")))?;
+                .map_err(|e| nite_core::Error::Service(format!("Cursor show failed: {e}")))?;
         }
         session.terminal.draw(|f| {
             crate::overlay::ui::render_export_popup(f, &state);
@@ -103,11 +103,11 @@ pub fn run_export_overlay() -> CoreResult<Option<ExportFormResult>> {
             session
                 .terminal
                 .hide_cursor()
-                .map_err(|e| taurine_core::Error::Service(format!("Cursor hide failed: {e}")))?;
+                .map_err(|e| nite_core::Error::Service(format!("Cursor hide failed: {e}")))?;
         }
 
         let event = crossterm::event::read()
-            .map_err(|e| taurine_core::Error::Service(format!("Overlay event read failed: {e}")))?;
+            .map_err(|e| nite_core::Error::Service(format!("Overlay event read failed: {e}")))?;
 
         let interaction = match event {
             Event::Key(key) if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) => {
@@ -125,7 +125,7 @@ pub fn run_export_overlay() -> CoreResult<Option<ExportFormResult>> {
             }
             Event::Mouse(mouse) if mouse.kind == MouseEventKind::Down(MouseButton::Left) => {
                 let term_size = session.terminal.size().map_err(|e| {
-                    taurine_core::Error::Service(format!("Terminal size query failed: {e}"))
+                    nite_core::Error::Service(format!("Terminal size query failed: {e}"))
                 })?;
                 if let Some((field, button)) = crate::overlay::ui::export_field_at(
                     mouse.column,
@@ -186,7 +186,7 @@ pub fn run_export_overlay() -> CoreResult<Option<ExportFormResult>> {
 
 pub fn run_import_overlay(path: Option<&str>) -> CoreResult<Option<ImportFormResult>> {
     let mut session = OverlaySession::new()
-        .map_err(|e| taurine_core::Error::Service(format!("Failed to initialize overlay: {e}")))?;
+        .map_err(|e| nite_core::Error::Service(format!("Failed to initialize overlay: {e}")))?;
     let mut state = match path {
         Some(p) => LibraryImportModalState::with_path(p),
         None => LibraryImportModalState::new(),
@@ -203,7 +203,7 @@ pub fn run_import_overlay(path: Option<&str>) -> CoreResult<Option<ImportFormRes
             session
                 .terminal
                 .show_cursor()
-                .map_err(|e| taurine_core::Error::Service(format!("Cursor show failed: {e}")))?;
+                .map_err(|e| nite_core::Error::Service(format!("Cursor show failed: {e}")))?;
         }
         session.terminal.draw(|f| {
             crate::overlay::ui::render_import_popup(f, &state);
@@ -212,11 +212,11 @@ pub fn run_import_overlay(path: Option<&str>) -> CoreResult<Option<ImportFormRes
             session
                 .terminal
                 .hide_cursor()
-                .map_err(|e| taurine_core::Error::Service(format!("Cursor hide failed: {e}")))?;
+                .map_err(|e| nite_core::Error::Service(format!("Cursor hide failed: {e}")))?;
         }
 
         let event = crossterm::event::read()
-            .map_err(|e| taurine_core::Error::Service(format!("Overlay event read failed: {e}")))?;
+            .map_err(|e| nite_core::Error::Service(format!("Overlay event read failed: {e}")))?;
 
         let interaction = match event {
             Event::Key(key) if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) => {
@@ -234,7 +234,7 @@ pub fn run_import_overlay(path: Option<&str>) -> CoreResult<Option<ImportFormRes
             }
             Event::Mouse(mouse) if mouse.kind == MouseEventKind::Down(MouseButton::Left) => {
                 let term_size = session.terminal.size().map_err(|e| {
-                    taurine_core::Error::Service(format!("Terminal size query failed: {e}"))
+                    nite_core::Error::Service(format!("Terminal size query failed: {e}"))
                 })?;
                 if let Some((field, button)) = crate::overlay::ui::import_field_at(
                     mouse.column,
@@ -321,7 +321,7 @@ pub fn run_conflict_prompt(
     }
 
     let mut session = OverlaySession::new()
-        .map_err(|e| taurine_core::Error::Service(format!("Failed to initialize overlay: {e}")))?;
+        .map_err(|e| nite_core::Error::Service(format!("Failed to initialize overlay: {e}")))?;
     let mut selected: usize = 0;
     let mut last_move = Instant::now();
     const MOVE_DEBOUNCE: Duration = Duration::from_millis(100);
@@ -332,7 +332,7 @@ pub fn run_conflict_prompt(
         })?;
 
         if let Event::Key(key) = crossterm::event::read()
-            .map_err(|e| taurine_core::Error::Service(format!("Overlay event read failed: {e}")))?
+            .map_err(|e| nite_core::Error::Service(format!("Overlay event read failed: {e}")))?
         {
             if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
                 continue;

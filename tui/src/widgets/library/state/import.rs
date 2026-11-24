@@ -71,7 +71,7 @@ impl LibraryImportModalState {
             use std::io::Read;
             let mut header = [0u8; 5];
             f.read_exact(&mut header).ok()?;
-            if header[..4] != taurine_core::exchange::TAU_MAGIC {
+            if header[..4] != nite_core::exchange::NITE_MAGIC {
                 return None;
             }
             Some(header[4] & 0x01 == 0x01)
@@ -224,15 +224,15 @@ impl LibraryImportModalState {
         }
     }
 
-    fn build_pending_prepare(&self) -> taurine_core::Result<PendingLibraryImportPrepare> {
+    fn build_pending_prepare(&self) -> nite_core::Result<PendingLibraryImportPrepare> {
         if self.path.text().trim().is_empty() {
-            return Err(taurine_core::Error::Config(
+            return Err(nite_core::Error::Config(
                 "Import path is required.".to_string(),
             ));
         }
 
         if self.file_is_encrypted == Some(true) && self.password.is_empty() {
-            return Err(taurine_core::Error::Config(
+            return Err(nite_core::Error::Config(
                 "Password is required for encrypted file.".to_string(),
             ));
         }

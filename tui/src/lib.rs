@@ -51,7 +51,7 @@ const RECORDER_POLL_RATE: Duration = Duration::from_millis(33);
 /// Frame cadence while the home feed glides between scroll positions.
 const SCROLL_FRAME_RATE: Duration = Duration::from_millis(16);
 
-pub fn run() -> taurine_core::Result<()> {
+pub fn run() -> nite_core::Result<()> {
     let mut app = App::default();
     // honey: the saved layout lands before the first draw so the panes
     // open at their stored widths instead of flashing the defaults.
@@ -386,7 +386,7 @@ fn play_overlay_open(
     terminal: &mut TerminalGuard,
     app: &mut App,
     area: ratatui::layout::Rect,
-) -> taurine_core::Result<()> {
+) -> nite_core::Result<()> {
     use std::time::{Duration as StdDuration, Instant};
 
     use tachyonfx::EffectRenderer;
@@ -430,7 +430,7 @@ fn play_overlay_close(
     app: &mut App,
     area: ratatui::layout::Rect,
     closing_rects: &[ratatui::layout::Rect],
-) -> taurine_core::Result<()> {
+) -> nite_core::Result<()> {
     use std::time::{Duration as StdDuration, Instant};
 
     use tachyonfx::EffectRenderer;
@@ -928,7 +928,7 @@ fn execute_palette_command(app: &mut App, command: palette::PaletteCommand) {
             // honey: the service restart blocks up to ~10s; move it to
             // a worker if the pause starts feeling slow.
             let start_on_boot = app.settings_page().settings().start_on_boot;
-            match taurine_core::service::restart(start_on_boot) {
+            match nite_core::service::restart(start_on_boot) {
                 Ok(()) => {
                     // A restarted daemon always comes back unpaused.
                     app.set_daemon_paused(false);
@@ -940,7 +940,7 @@ fn execute_palette_command(app: &mut App, command: palette::PaletteCommand) {
         // timeout; move it to a worker if the UI starts feeling slow.
         PaletteCommand::TogglePause => {
             let paused = !app.daemon_paused();
-            match taurine_core::rpc::set_daemon_paused(paused) {
+            match nite_core::rpc::set_daemon_paused(paused) {
                 Ok(()) => app.set_daemon_paused(paused),
                 Err(err) => error!(error = %err, "Failed to toggle daemon pause"),
             }
@@ -1994,10 +1994,10 @@ fn apply_settings_interaction(app: &mut App, interaction: settings::SettingsInte
 
 /// Best-effort caret styling from the TUI-only cursor style setting.
 pub(crate) fn apply_saved_cursor_style() {
-    let Ok(conn) = taurine_core::db::init::setup() else {
+    let Ok(conn) = nite_core::db::init::setup() else {
         return;
     };
-    let style = taurine_core::settings::SettingsManager::new(&conn)
+    let style = nite_core::settings::SettingsManager::new(&conn)
         .load_all()
         .tui_cursor_style;
     let _ = execute!(
@@ -2029,7 +2029,7 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
             Ok(library::LibraryImportPreparedResult::Imported(outcome)) => {
                 app.library_page_mut().clear_modal();
                 if outcome.imported() > 0 {
-                    taurine_core::rpc::notify_daemon_reload();
+                    nite_core::rpc::notify_daemon_reload();
                 }
                 refresh_library_page(app);
                 app.library_page_mut().open_import_result_modal(&outcome);
@@ -2044,7 +2044,7 @@ fn apply_library_interaction(app: &mut App, interaction: library::LibraryInterac
             Ok(outcome) => {
                 app.library_page_mut().clear_modal();
                 if outcome.imported() > 0 {
-                    taurine_core::rpc::notify_daemon_reload();
+                    nite_core::rpc::notify_daemon_reload();
                 }
                 refresh_library_page(app);
                 app.library_page_mut().open_import_result_modal(&outcome);
@@ -2193,8 +2193,8 @@ fn persist_layout_if_needed(app: &mut App, force: bool) {
 }
 
 fn refresh_library_page(app: &mut App) {
-    match taurine_core::db::init::setup()
-        .and_then(|conn| taurine_core::db::crud::get_library_triggers(&conn).map_err(Into::into))
+    match nite_core::db::init::setup()
+        .and_then(|conn| nite_core::db::crud::get_library_triggers(&conn).map_err(Into::into))
     {
         Ok(items) => {
             let items = items
@@ -2232,26 +2232,26 @@ fn copy_selected_home_event(app: &mut App) {
 }
 
 fn refresh_home_page(app: &mut App) {
-    let loaded = taurine_core::db::init::setup().and_then(|conn| {
-        let stats = taurine_core::stats::load_home_stats(&conn)?;
+    let loaded = nite_core::db::init::setup().and_then(|conn| {
+        let stats = nite_core::stats::load_home_stats(&conn)?;
         // honey: account and quota come from local state only; the email
         // is read from the token claim, never fetched over the network.
-        let tokens = taurine_core::cloud::get_tokens().ok().flatten();
+        let tokens = nite_core::cloud::get_tokens().ok().flatten();
         let now = home::account::now_epoch();
-        let quota = taurine_core::db::key::get_or_create_db_key()
+        let quota = nite_core::db::key::get_or_create_db_key()
             .ok()
             .and_then(|key| {
-                taurine_core::db::crud::quota::get_or_init_quota_ledger(&conn, &key, now).ok()
+                nite_core::db::crud::quota::get_or_init_quota_ledger(&conn, &key, now).ok()
             })
             .map(|row| home::account::QuotaWindow::from_row(&row));
         let account = home::account::AccountInfo {
             authenticated: tokens.is_some(),
             email: tokens
                 .as_ref()
-                .and_then(|tokens| taurine_core::cloud::extract_jwt_email(&tokens.access_token)),
-            tier: taurine_core::db::crud::get_user_tier(&conn),
+                .and_then(|tokens| nite_core::cloud::extract_jwt_email(&tokens.access_token)),
+            tier: nite_core::db::crud::get_user_tier(&conn),
             quota,
-            device: taurine_core::cloud::get_device_name(),
+            device: nite_core::cloud::get_device_name(),
         };
         Ok((stats, account))
     });
@@ -2301,9 +2301,9 @@ fn sync_gate(app: &mut App) {
 }
 
 fn refresh_settings_page(app: &mut App) {
-    match taurine_core::db::init::setup() {
+    match nite_core::db::init::setup() {
         Ok(conn) => {
-            let settings = taurine_core::settings::SettingsManager::new(&conn).load_all();
+            let settings = nite_core::settings::SettingsManager::new(&conn).load_all();
             app.settings_page_mut().replace_settings(settings);
         }
         Err(error) => {
@@ -2524,7 +2524,7 @@ mod tests {
     #[test]
     fn depleted_free_plan_opens_the_gate_once() {
         use super::home::account::{AccountInfo, QuotaWindow};
-        use taurine_core::db::crud::UserTier;
+        use nite_core::db::crud::UserTier;
 
         let mut app = super::terminal::app::App::default();
         app.home_page_mut().replace_account(AccountInfo {
@@ -2553,7 +2553,7 @@ mod tests {
     #[test]
     fn unlimited_plan_never_opens_the_quota_gate() {
         use super::home::account::{AccountInfo, QuotaWindow};
-        use taurine_core::db::crud::UserTier;
+        use nite_core::db::crud::UserTier;
 
         let mut app = super::terminal::app::App::default();
         app.home_page_mut().replace_account(AccountInfo {
@@ -2574,7 +2574,7 @@ mod tests {
     #[test]
     fn healthy_free_plan_has_no_gate() {
         use super::home::account::{AccountInfo, QuotaWindow};
-        use taurine_core::db::crud::UserTier;
+        use nite_core::db::crud::UserTier;
 
         let mut app = super::terminal::app::App::default();
         app.home_page_mut().replace_account(AccountInfo {
@@ -2661,7 +2661,7 @@ mod tests {
     use crossterm::event::{
         KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
     };
-    use taurine_core::db::crud::{InvocationType, TriggerAliasRow, TriggerListItem};
+    use nite_core::db::crud::{InvocationType, TriggerAliasRow, TriggerListItem};
 
     use super::*;
     use crate::widgets::library::LibraryTrigger;
@@ -4278,8 +4278,8 @@ mod tests {
     }
 
     fn home_app_with_events(count: usize) -> App {
-        use taurine_core::db::crud::ActivityCategory;
-        use taurine_core::stats::{HomeStats, RecentActivity};
+        use nite_core::db::crud::ActivityCategory;
+        use nite_core::stats::{HomeStats, RecentActivity};
 
         let mut app = library_app();
         let home = nav_button(&app, NavRailItem::Home);

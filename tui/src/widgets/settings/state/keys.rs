@@ -1,6 +1,6 @@
-use taurine_core::settings::{Settings, TuiCursorStyle};
+use nite_core::settings::{Settings, TuiCursorStyle};
 
-pub(crate) use taurine_core::settings::SettingKey;
+pub(crate) use nite_core::settings::SettingKey;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SettingCategory {
@@ -109,10 +109,10 @@ impl SettingKeyMeta for SettingKey {
 
     fn description(self) -> &'static str {
         match self {
-            Self::PauseHotkey => "The keyboard shortcut used to pause Taurine globally",
+            Self::PauseHotkey => "The keyboard shortcut used to pause Nite globally",
             Self::AudioTheme => "Sound pack theme used for pause and resume audio cues",
             Self::AudioVolume => "Playback volume for pause and resume audio cues (0-100%)",
-            Self::StartOnBoot => "Start Taurine automatically when the system starts",
+            Self::StartOnBoot => "Start Nite automatically when the system starts",
             Self::AutoUpdate => {
                 "Automatically check for and install updates when the service starts"
             }

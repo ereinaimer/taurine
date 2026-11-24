@@ -1,6 +1,7 @@
 // Licensed under the Aimer Software License (ASL).
 // See LICENSE for details.
 
+use nite_core::ai::AiProvider;
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
@@ -8,7 +9,6 @@ use ratatui::{
     text::{Line, Span},
     widgets::Paragraph,
 };
-use taurine_core::ai::AiProvider;
 
 use super::{AddField, AddModalState, AiWizardState, EditModelModalState, ModalView};
 use crate::overlay::ui::actions::{fill_bg, render_action_buttons_overlay};

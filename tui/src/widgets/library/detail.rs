@@ -1,5 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use nite_core::engine::ScriptInterpreter;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -7,7 +8,6 @@ use ratatui::{
     text::{Line, Span},
     widgets::Paragraph,
 };
-use taurine_core::engine::ScriptInterpreter;
 
 use crate::theme::Theme;
 use crate::widgets::hotkey;

@@ -1,5 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use taurine_core::keys::{HotkeyPlatform, Modifier, danger_for_platform, parse_hotkey};
+use nite_core::keys::{HotkeyPlatform, Modifier, danger_for_platform, parse_hotkey};
 
 use super::{SettingKey, SettingsInteraction};
 
@@ -262,7 +262,7 @@ mod tests {
 
     #[test]
     fn current_value_is_prefilled_from_settings() {
-        let settings = taurine_core::settings::Settings::default();
+        let settings = nite_core::settings::Settings::default();
         let state = HotkeyCaptureModalState::new(
             SettingKey::PauseHotkey,
             SettingKey::PauseHotkey.edit_value(&settings),

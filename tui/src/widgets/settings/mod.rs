@@ -470,7 +470,7 @@ fn rows_origin(list_area: Rect, heights: &[u16], start: usize, end: usize) -> u1
     }
 }
 
-fn control_column_width(settings: &taurine_core::settings::Settings, area_width: u16) -> u16 {
+fn control_column_width(settings: &nite_core::settings::Settings, area_width: u16) -> u16 {
     use crate::widgets::settings::state::{SettingKey, SettingKeyMeta};
     use crate::widgets::slider::{PERCENT_WIDTH, TRACK_WIDTH};
 

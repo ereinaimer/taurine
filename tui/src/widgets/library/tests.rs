@@ -1,7 +1,7 @@
 use super::*;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use nite_core::db::crud::{InvocationType, TriggerAliasRow, TriggerListItem, TriggerType};
 use std::path::PathBuf;
-use taurine_core::db::crud::{InvocationType, TriggerAliasRow, TriggerListItem, TriggerType};
 
 fn toggle_frame(progress: f32, from_on: bool) -> crate::widgets::toggle::ToggleFrame {
     crate::widgets::toggle::ToggleFrame { progress, from_on }
@@ -151,7 +151,7 @@ fn hotkey_text_maps_to_hotkey_trigger() {
 
 #[test]
 fn all_invocation_action_combos_map_to_distinct_labels() {
-    use taurine_core::db::crud::InvocationType;
+    use nite_core::db::crud::InvocationType;
 
     let cases = [
         (InvocationType::Word, "text", "text trigger"),
@@ -563,9 +563,9 @@ fn import_modal_defaults_match_current_behavior() {
 
 #[test]
 fn import_modal_detects_passwordless_file_from_header() {
-    let path = std::env::temp_dir().join(format!("taurine-detect-nopw-{}.tau", std::process::id()));
-    let blob = taurine_core::exchange::encode_exchange_blob(
-        &taurine_core::exchange::ExchangePayload::new(vec![]),
+    let path = std::env::temp_dir().join(format!("nite-detect-nopw-{}.nx", std::process::id()));
+    let blob = nite_core::exchange::encode_exchange_blob(
+        &nite_core::exchange::ExchangePayload::new(vec![]),
         None,
     )
     .unwrap();
@@ -579,9 +579,9 @@ fn import_modal_detects_passwordless_file_from_header() {
 
 #[test]
 fn import_modal_detects_password_protected_file_from_header() {
-    let path = std::env::temp_dir().join(format!("taurine-detect-pw-{}.tau", std::process::id()));
-    let blob = taurine_core::exchange::encode_exchange_blob(
-        &taurine_core::exchange::ExchangePayload::new(vec![]),
+    let path = std::env::temp_dir().join(format!("nite-detect-pw-{}.nx", std::process::id()));
+    let blob = nite_core::exchange::encode_exchange_blob(
+        &nite_core::exchange::ExchangePayload::new(vec![]),
         Some("hunter22"),
     )
     .unwrap();
@@ -595,9 +595,8 @@ fn import_modal_detects_password_protected_file_from_header() {
 
 #[test]
 fn import_modal_treats_foreign_file_as_unknown() {
-    let path =
-        std::env::temp_dir().join(format!("taurine-detect-foreign-{}.tau", std::process::id()));
-    std::fs::write(&path, b"definitely not a taurine file").unwrap();
+    let path = std::env::temp_dir().join(format!("nite-detect-foreign-{}.nx", std::process::id()));
+    std::fs::write(&path, b"definitely not a nite file").unwrap();
 
     let state = LibraryImportModalState::with_path(path.to_string_lossy().into_owned());
 
@@ -718,7 +717,7 @@ fn import_result_modal_owns_input_and_keeps_search_inactive() {
 #[test]
 fn export_result_modal_body_matches_exactly() {
     let mut state = sample_state();
-    let path = PathBuf::from("backup.tau");
+    let path = PathBuf::from("backup.nx");
 
     state.open_export_result_modal(&path);
 
@@ -727,14 +726,14 @@ fn export_result_modal_body_matches_exactly() {
     };
     assert_eq!(
         modal.body(),
-        "Triggers are exported to: backup.tau as an encrypted export."
+        "Triggers are exported to: backup.nx as an encrypted export."
     );
 }
 
 #[test]
 fn export_result_modal_closes_on_enter() {
     let mut state = sample_state();
-    let path = PathBuf::from("backup.tau");
+    let path = PathBuf::from("backup.nx");
     state.open_export_result_modal(&path);
 
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
@@ -745,7 +744,7 @@ fn export_result_modal_closes_on_enter() {
 #[test]
 fn export_result_modal_closes_on_escape() {
     let mut state = sample_state();
-    let path = PathBuf::from("backup.tau");
+    let path = PathBuf::from("backup.nx");
     state.open_export_result_modal(&path);
 
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
@@ -756,7 +755,7 @@ fn export_result_modal_closes_on_escape() {
 #[test]
 fn export_result_modal_owns_input_and_keeps_search_inactive() {
     let mut state = sample_state();
-    let path = PathBuf::from("backup.tau");
+    let path = PathBuf::from("backup.nx");
     state.open_export_result_modal(&path);
 
     state.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
@@ -773,7 +772,7 @@ fn export_modal_defaults_match_cli_behavior() {
     let Some(LibraryModal::Export(modal)) = state.modal() else {
         panic!("expected export modal");
     };
-    assert!(modal.path().ends_with(".tau"));
+    assert!(modal.path().ends_with(".nx"));
     assert_eq!(modal.password_display_value(), "");
 }
 
@@ -908,7 +907,7 @@ fn import_enter_from_path_field_confirms_or_errors() {
     assert_eq!(modal.error(), Some("Import path is required."));
 
     // A typed path confirms from the field like the footer verb.
-    for ch in "path.tau".chars() {
+    for ch in "path.nx".chars() {
         state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
     }
     let interaction = state.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
@@ -919,7 +918,7 @@ fn import_enter_from_path_field_confirms_or_errors() {
 fn confirm_modal_footer_import_returns_prepare_interaction() {
     let mut state = sample_state();
     state.open_import_modal();
-    for ch in "path.tau".chars() {
+    for ch in "path.nx".chars() {
         state.handle_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
     }
 
@@ -992,10 +991,10 @@ fn import_modal_renders_footer_without_button_row() {
 }
 
 fn run_variables_exchange_file() -> std::path::PathBuf {
-    let path = std::env::temp_dir().join(format!("taurine-rwv-{}.tau", std::process::id()));
-    let trigger = taurine_core::exchange::TriggerExport {
+    let path = std::env::temp_dir().join(format!("nite-rwv-{}.nx", std::process::id()));
+    let trigger = nite_core::exchange::TriggerExport {
         description: None,
-        trigger_type: taurine_core::db::crud::TriggerType::default(),
+        trigger_type: nite_core::db::crud::TriggerType::default(),
         trigger: ";rwv".to_string(),
         output: "[run \"echo hi\"]".to_string(),
         action_type: "text".to_string(),
@@ -1006,8 +1005,8 @@ fn run_variables_exchange_file() -> std::path::PathBuf {
         assets: vec![],
         aliases: vec![],
     };
-    let blob = taurine_core::exchange::encode_exchange_blob(
-        &taurine_core::exchange::ExchangePayload::new(vec![trigger]),
+    let blob = nite_core::exchange::encode_exchange_blob(
+        &nite_core::exchange::ExchangePayload::new(vec![trigger]),
         None,
     )
     .unwrap();
@@ -1418,7 +1417,7 @@ fn expanded_rows_carry_all_aliases_and_usage() {
 
 #[test]
 fn expanded_rows_carry_auto_case_and_script_meta() {
-    use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
+    use nite_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 
     let mut item = multi_alias_list_item();
     item.auto_case = true;
@@ -3053,7 +3052,7 @@ fn select_first_window_bottom_on_empty_state_stays_zero() {
 }
 
 fn script_state() -> LibraryPageState {
-    use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
+    use nite_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 
     let mut item = list_item(
         "id-sh",
@@ -3117,7 +3116,7 @@ fn click_header_menu_confirms_clicked_option() {
     let pending = interaction.pending_edit().expect("pending language");
     assert_eq!(
         pending.field,
-        EditedField::Interpreter(taurine_core::engine::shell::ScriptInterpreter::Python)
+        EditedField::Interpreter(nite_core::engine::shell::ScriptInterpreter::Python)
     );
     assert!(state.modal().is_none());
 }
@@ -3182,7 +3181,7 @@ fn header_menu_arrows_wrap_and_enter_retypes() {
     assert_eq!(pending.trigger, "alt+r");
     assert_eq!(
         pending.field,
-        EditedField::InvocationType(taurine_core::db::crud::InvocationType::Word)
+        EditedField::InvocationType(nite_core::db::crud::InvocationType::Word)
     );
     assert!(state.modal().is_none());
 }
@@ -3226,7 +3225,7 @@ fn header_menu_interpreter_confirms_language() {
     let pending = interaction.pending_edit().expect("pending language");
     assert_eq!(
         pending.field,
-        EditedField::Interpreter(taurine_core::engine::shell::ScriptInterpreter::Python)
+        EditedField::Interpreter(nite_core::engine::shell::ScriptInterpreter::Python)
     );
     assert_eq!(pending.restore_index, 0);
     assert!(state.modal().is_none());
@@ -3243,7 +3242,7 @@ fn header_menu_action_type_parks_on_current_and_confirms() {
     let pending = interaction.pending_edit().expect("pending action type");
     assert_eq!(
         pending.field,
-        EditedField::ActionType(taurine_core::db::crud::ActionType::Text)
+        EditedField::ActionType(nite_core::db::crud::ActionType::Text)
     );
     assert!(state.modal().is_none());
 }
@@ -4250,8 +4249,8 @@ fn fg_app(
     exe: &str,
     title: &str,
     class: &str,
-) -> taurine_core::system::foreground_apps::ForegroundApp {
-    taurine_core::system::foreground_apps::ForegroundApp {
+) -> nite_core::system::foreground_apps::ForegroundApp {
+    nite_core::system::foreground_apps::ForegroundApp {
         exe: exe.to_string(),
         path: format!("C:\\bin\\{exe}"),
         class: class.to_string(),
@@ -6233,9 +6232,8 @@ fn export_result_dialog_uses_shared_overlay_chrome() {
     use crate::theme::default::DARK_THEME;
     use std::path::Path;
 
-    let modal = LibraryModal::ExportResult(LibraryExportResultModalState::new(Path::new(
-        "C:\\out.taurine",
-    )));
+    let modal =
+        LibraryModal::ExportResult(LibraryExportResultModalState::new(Path::new("C:\\out.nx")));
     let buffer = render_modal_buffer(&modal);
 
     assert!(buffer_row(&buffer, 13).contains("Export complete"));
@@ -6466,7 +6464,7 @@ fn create_tags_row_enter_opens_picker_with_draft() {
 
 #[test]
 fn create_app_filter_toggle_collects_into_draft() {
-    use taurine_core::system::foreground_apps::ForegroundApp;
+    use nite_core::system::foreground_apps::ForegroundApp;
 
     let mut state = sample_state();
     state.open_create_modal();

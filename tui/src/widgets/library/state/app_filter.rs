@@ -2,8 +2,8 @@ use ratatui::layout::{Margin, Rect};
 
 use crate::widgets::field::TextField;
 use crate::widgets::library::actions::{EditedField, PendingLibraryEdit};
-use taurine_core::db::crud::AppFilterPrefix;
-use taurine_core::system::foreground_apps::ForegroundApp;
+use nite_core::db::crud::AppFilterPrefix;
+use nite_core::system::foreground_apps::ForegroundApp;
 
 /// Explicit popup width for this overlay only; the height fits the
 /// content (capped). The shared overlay component keeps its defaults.

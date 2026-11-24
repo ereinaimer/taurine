@@ -9,6 +9,7 @@ mod matrix;
 mod platform;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers, ModifierKeyCode};
+use nite_core::keys::{Modifier, ModifierFamily, ModifierSide};
 use ratatui::{
     Frame,
     layout::{Alignment, Rect},
@@ -16,7 +17,6 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Paragraph},
 };
-use taurine_core::keys::{Modifier, ModifierFamily, ModifierSide};
 
 pub(crate) use matrix::{Layout, layout, popup};
 
@@ -42,7 +42,7 @@ pub(crate) enum HotkeyTarget {
     #[default]
     PrimaryTrigger,
     AliasIndex(usize),
-    Setting(taurine_core::settings::SettingKey),
+    Setting(nite_core::settings::SettingKey),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

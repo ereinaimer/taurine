@@ -11,11 +11,11 @@ pub(crate) use keys::{
 pub(crate) use modals::{ConfirmResetModalState, InputModalState, SelectChoice, SelectModalState};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ratatui::layout::Rect;
-use taurine_core::{
+use nite_core::{
     ai::supported_providers,
     settings::{Settings, apply_setting_input, reset_setting_to_default},
 };
+use ratatui::layout::Rect;
 
 const CURSOR_STYLE_OPTIONS: [&str; 3] = ["block", "bar", "underscore"];
 const AUDIO_THEME_OPTIONS: [&str; 7] = [
@@ -522,7 +522,7 @@ impl SettingsPageState {
                     .unwrap_or("");
                 // honey: query on open, not from a cache, so newly plugged
                 // microphones appear exactly like the tray menu.
-                let devices = taurine_core::voice::devices::list_input_devices();
+                let devices = nite_core::voice::devices::list_input_devices();
                 Some(SettingsModal::Select(SelectModalState::new_choices(
                     key,
                     voice_device_choices(devices),
@@ -598,7 +598,7 @@ pub(crate) struct PendingSettingSave {
 }
 
 impl PendingSettingSave {
-    pub(crate) fn apply(&self) -> taurine_core::Result<()> {
+    pub(crate) fn apply(&self) -> nite_core::Result<()> {
         apply_setting_input(self.key.storage_key(), self.value.as_deref())
     }
 }
@@ -609,7 +609,7 @@ pub(crate) struct PendingSettingReset {
 }
 
 impl PendingSettingReset {
-    pub(crate) fn apply(&self) -> taurine_core::Result<()> {
+    pub(crate) fn apply(&self) -> nite_core::Result<()> {
         reset_setting_to_default(self.key.storage_key())
     }
 }
@@ -859,7 +859,7 @@ mod tests {
 
     #[test]
     fn test_cursor_style_labels_and_terminal_mapping() {
-        use taurine_core::settings::TuiCursorStyle;
+        use nite_core::settings::TuiCursorStyle;
 
         assert_eq!(cursor_style_label(TuiCursorStyle::Block), "block");
         assert_eq!(cursor_style_label(TuiCursorStyle::Bar), "bar");

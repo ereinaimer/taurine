@@ -1,5 +1,5 @@
-use taurine_core::db::crud::{ActionType, InvocationType, TriggerAliasRow, TriggerListItem};
-use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
+use nite_core::db::crud::{ActionType, InvocationType, TriggerAliasRow, TriggerListItem};
+use nite_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 
 use crate::widgets::library::actions::{
     build_search_text, content_from_item, display_target_os, preview_from_item,

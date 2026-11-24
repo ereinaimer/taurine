@@ -6,11 +6,11 @@ pub mod ui;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
+use nite_core::ai::{AiProvider, CredentialStore, OsKeyringStore, configured_providers};
+use nite_core::db::init;
+use nite_core::error::Result as CoreResult;
+use nite_core::settings::SettingsManager;
 use ratatui::Frame;
-use taurine_core::ai::{AiProvider, CredentialStore, OsKeyringStore, configured_providers};
-use taurine_core::db::init;
-use taurine_core::error::Result as CoreResult;
-use taurine_core::settings::SettingsManager;
 
 use super::OverlaySession;
 use crate::widgets::field::TextField;
@@ -518,7 +518,7 @@ impl AiWizardState {
 
 pub fn run_ai_overlay() -> CoreResult<()> {
     let mut session = OverlaySession::new()
-        .map_err(|e| taurine_core::Error::Service(format!("Failed to initialize overlay: {e}")))?;
+        .map_err(|e| nite_core::Error::Service(format!("Failed to initialize overlay: {e}")))?;
     let mut state = AiWizardState::new()?;
     let mut last_move = Instant::now();
     const MOVE_DEBOUNCE: Duration = Duration::from_millis(80);
@@ -533,7 +533,7 @@ pub fn run_ai_overlay() -> CoreResult<()> {
         })?;
 
         let event = crossterm::event::read()
-            .map_err(|e| taurine_core::Error::Service(format!("Overlay event read failed: {e}")))?;
+            .map_err(|e| nite_core::Error::Service(format!("Overlay event read failed: {e}")))?;
 
         if let Event::Key(key) = event
             && matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat)

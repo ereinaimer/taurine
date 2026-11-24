@@ -1,6 +1,6 @@
-use taurine_core::db::TargetOs;
-use taurine_core::db::crud::ActionType;
-use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
+use nite_core::db::TargetOs;
+use nite_core::db::crud::ActionType;
+use nite_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 
 use crate::widgets::library::icons::os_icon;
 

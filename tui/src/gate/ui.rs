@@ -176,12 +176,12 @@ fn quota_geometry(area: Rect) -> Option<(Rect, Rect)> {
 fn signed_out_lines(state: &SignInState, theme: &Theme) -> Vec<Line<'static>> {
     let mut lines = vec![
         Line::from(Span::styled(
-            "T A U R I N E",
+            "N I T E",
             Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
         )),
         Line::default(),
         Line::from(Span::styled(
-            "Sign in to Taurine",
+            "Sign in to Nite",
             Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
         )),
         Line::default(),
@@ -299,12 +299,12 @@ mod tests {
         AccountInfo {
             authenticated: true,
             email: Some("user@example.com".to_string()),
-            tier: taurine_core::db::crud::UserTier::Free,
+            tier: nite_core::db::crud::UserTier::Free,
             quota: Some(QuotaWindow {
                 remaining_percentage: 0.0,
                 reset_epoch: 5 * 86_400 + 11 * 3_600,
             }),
-            device: "DESKTOP-TAURINE".to_string(),
+            device: "DESKTOP-NITE".to_string(),
         }
     }
 
@@ -334,8 +334,8 @@ mod tests {
     #[test]
     fn signed_out_shows_google_and_quit_buttons_without_a_cursor_glyph() {
         let text = draw(&Gate::signed_out(), 80, 24);
-        assert!(text.contains("T A U R I N E"));
-        assert!(text.contains("Sign in to Taurine"));
+        assert!(text.contains("N I T E"));
+        assert!(text.contains("Sign in to Nite"));
         assert!(text.contains("Sign in with Google"));
         assert!(text.contains("Quit"));
         assert!(!text.contains('>'), "gates use buttons, not list rows");

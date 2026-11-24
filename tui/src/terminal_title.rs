@@ -1,6 +1,6 @@
 //! Terminal tab title for fullscreen sessions.
 //!
-//! The tab reads `Taurine` while the TUI (or a CLI overlay dialog) owns
+//! The tab reads `Nite` while the TUI (or a CLI overlay dialog) owns
 //! the screen; the previous title comes back on exit. Every write is
 //! best-effort so a hostile stdout never blocks the session.
 
@@ -9,13 +9,13 @@ use std::sync::OnceLock;
 
 use crossterm::{execute, terminal::SetTitle};
 
-pub(crate) const TUI_TITLE: &str = "Taurine";
+pub(crate) const TUI_TITLE: &str = "Nite";
 
 /// Console title active before the first session this process opened.
 /// Every teardown path restores this same value.
 static PREVIOUS_TITLE: OnceLock<Option<String>> = OnceLock::new();
 
-/// Save the current title once and switch the tab to `Taurine`.
+/// Save the current title once and switch the tab to `Nite`.
 pub(crate) fn acquire() {
     let _ = PREVIOUS_TITLE.set(read_title());
     #[cfg(unix)]

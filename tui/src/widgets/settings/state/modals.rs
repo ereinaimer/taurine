@@ -1,6 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use taurine_core::settings::Settings;
+use nite_core::settings::Settings;
 
 use super::{EditorKind, SettingKey, SettingKeyMeta, SettingsInteraction};
 use crate::widgets::field::TextField;

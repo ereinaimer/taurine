@@ -1,12 +1,12 @@
 use std::path::PathBuf;
 use zeroize::Zeroize;
 
-use taurine_core::db::crud::{
+use nite_core::db::crud::{
     ActionType, InvocationType, NewEntry, TriggerListItem, TriggerType, create_entry,
     delete_trigger,
 };
-use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
-use taurine_core::exchange::{
+use nite_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
+use nite_core::exchange::{
     ExchangePayload, ImportConflictAction, decode_exchange_blob, encode_exchange_blob,
     export_triggers, import_payload_transactionally, payload_contains_run_variables,
     resolve_export_path,
@@ -55,14 +55,14 @@ impl PendingLibraryDelete {
         self.restore_index
     }
 
-    pub(crate) fn apply(&self) -> taurine_core::Result<()> {
-        let conn = taurine_core::db::init::setup()?;
+    pub(crate) fn apply(&self) -> nite_core::Result<()> {
+        let conn = nite_core::db::init::setup()?;
         if !delete_trigger(&conn, &self.trigger_id)? {
-            return Err(taurine_core::Error::NotFound(
+            return Err(nite_core::Error::NotFound(
                 "Trigger no longer exists.".to_string(),
             ));
         }
-        taurine_core::rpc::notify_daemon_reload();
+        nite_core::rpc::notify_daemon_reload();
         Ok(())
     }
 }
@@ -99,10 +99,10 @@ impl PendingLibraryCreate {
     /// Insert the draft as a new entry, returning its id so the page
     /// can select the new row. Conflict and validation failures
     /// surface with the modal still open.
-    pub(crate) fn apply(&self) -> taurine_core::Result<String> {
-        let conn = taurine_core::db::init::setup()?;
+    pub(crate) fn apply(&self) -> nite_core::Result<String> {
+        let conn = nite_core::db::init::setup()?;
         let tags_json = serde_json::to_string(&self.tags).map_err(|error| {
-            taurine_core::Error::Config(format!("Tags could not be encoded: {error}"))
+            nite_core::Error::Config(format!("Tags could not be encoded: {error}"))
         })?;
         let (id, _) = create_entry(
             &conn,
@@ -120,7 +120,7 @@ impl PendingLibraryCreate {
                 invocations: vec![(self.invocation_type(), self.trigger.clone(), false)],
             },
         )?;
-        taurine_core::rpc::notify_daemon_reload();
+        nite_core::rpc::notify_daemon_reload();
         Ok(id)
     }
 }
@@ -133,10 +133,10 @@ pub(crate) struct PendingLibraryToggle {
 }
 
 impl PendingLibraryToggle {
-    pub(crate) fn apply(&self) -> taurine_core::Result<()> {
-        let conn = taurine_core::db::init::setup()?;
-        taurine_core::db::crud::set_trigger_enabled(&conn, &self.trigger_id, self.enabled)?;
-        taurine_core::rpc::notify_daemon_reload();
+    pub(crate) fn apply(&self) -> nite_core::Result<()> {
+        let conn = nite_core::db::init::setup()?;
+        nite_core::db::crud::set_trigger_enabled(&conn, &self.trigger_id, self.enabled)?;
+        nite_core::rpc::notify_daemon_reload();
         Ok(())
     }
 }
@@ -198,7 +198,7 @@ pub(crate) fn read_clipboard() -> Option<String> {
 /// Read the system clipboard through core like the daemon listener.
 #[cfg(not(test))]
 pub(crate) fn read_clipboard() -> Option<String> {
-    taurine_core::engine::variables::system::clipboard::resolve("")
+    nite_core::engine::variables::system::clipboard::resolve("")
 }
 
 /// Write the system clipboard (mocked in unit tests, see above).
@@ -210,109 +210,105 @@ pub(crate) fn write_clipboard(text: &str) {
 /// Write the system clipboard through core like the daemon listener.
 #[cfg(not(test))]
 pub(crate) fn write_clipboard(text: &str) {
-    taurine_core::engine::variables::system::clipboard::store(text);
+    nite_core::engine::variables::system::clipboard::store(text);
 }
 
 impl PendingLibraryEdit {
     /// Renaming an invocation changes what the expander matches, so the
     /// daemon reloads. Descriptions never reach the expander, so no
     /// daemon reload. Content changes reload so expansion picks them up.
-    pub(crate) fn apply(&self) -> taurine_core::Result<()> {
-        let conn = taurine_core::db::init::setup()?;
+    pub(crate) fn apply(&self) -> nite_core::Result<()> {
+        let conn = nite_core::db::init::setup()?;
         match &self.field {
             EditedField::Trigger(trigger) => {
-                taurine_core::db::crud::rename_alias_invocation(
+                nite_core::db::crud::rename_alias_invocation(
                     &conn,
                     &self.trigger_id,
                     &self.trigger,
                     trigger,
                 )?;
-                taurine_core::rpc::notify_daemon_reload();
+                nite_core::rpc::notify_daemon_reload();
             }
             EditedField::Description(description) => {
-                taurine_core::db::crud::set_trigger_description(
+                nite_core::db::crud::set_trigger_description(
                     &conn,
                     &self.trigger_id,
                     description.as_deref(),
                 )?;
             }
             EditedField::Content(body) => {
-                taurine_core::db::crud::set_trigger_content(&conn, &self.trigger_id, body)?;
-                taurine_core::rpc::notify_daemon_reload();
+                nite_core::db::crud::set_trigger_content(&conn, &self.trigger_id, body)?;
+                nite_core::rpc::notify_daemon_reload();
             }
             // honey: invocation, action type, language, and behavior all
             // change what the expander matches or runs, so the daemon
             // reloads.
             EditedField::InvocationType(invocation_type) => {
-                taurine_core::db::crud::set_alias_invocation_type(
+                nite_core::db::crud::set_alias_invocation_type(
                     &conn,
                     &self.trigger_id,
                     &self.trigger,
                     *invocation_type,
                 )?;
-                taurine_core::rpc::notify_daemon_reload();
+                nite_core::rpc::notify_daemon_reload();
             }
             EditedField::ActionType(action_type) => {
-                taurine_core::db::crud::set_trigger_action_type(
+                nite_core::db::crud::set_trigger_action_type(
                     &conn,
                     &self.trigger_id,
                     *action_type,
                 )?;
-                taurine_core::rpc::notify_daemon_reload();
+                nite_core::rpc::notify_daemon_reload();
             }
             EditedField::Interpreter(interpreter) => {
-                taurine_core::db::crud::set_script_interpreter(
-                    &conn,
-                    &self.trigger_id,
-                    *interpreter,
-                )?;
-                taurine_core::rpc::notify_daemon_reload();
+                nite_core::db::crud::set_script_interpreter(&conn, &self.trigger_id, *interpreter)?;
+                nite_core::rpc::notify_daemon_reload();
             }
             EditedField::Behavior(behavior) => {
-                taurine_core::db::crud::set_script_behavior(&conn, &self.trigger_id, *behavior)?;
-                taurine_core::rpc::notify_daemon_reload();
+                nite_core::db::crud::set_script_behavior(&conn, &self.trigger_id, *behavior)?;
+                nite_core::rpc::notify_daemon_reload();
             }
             EditedField::AutoCase(auto_case) => {
-                taurine_core::db::crud::set_trigger_auto_case(&conn, &self.trigger_id, *auto_case)?;
-                taurine_core::rpc::notify_daemon_reload();
+                nite_core::db::crud::set_trigger_auto_case(&conn, &self.trigger_id, *auto_case)?;
+                nite_core::rpc::notify_daemon_reload();
             }
             // honey: confirmation gates voice expansion like auto-case
             // gates text, so the daemon reloads too.
             EditedField::RequireConfirmation(confirm) => {
-                taurine_core::db::crud::set_alias_require_confirmation(
+                nite_core::db::crud::set_alias_require_confirmation(
                     &conn,
                     &self.trigger_id,
                     &self.trigger,
                     *confirm,
                 )?;
-                taurine_core::rpc::notify_daemon_reload();
+                nite_core::rpc::notify_daemon_reload();
             }
             EditedField::TargetOs(target_os) => {
-                taurine_core::db::crud::set_trigger_target_os(&conn, &self.trigger_id, target_os)?;
-                taurine_core::rpc::notify_daemon_reload();
+                nite_core::db::crud::set_trigger_target_os(&conn, &self.trigger_id, target_os)?;
+                nite_core::rpc::notify_daemon_reload();
             }
             // honey: tags never reach the expander, so no daemon reload.
             EditedField::Tags(tags) => {
-                taurine_core::db::crud::set_trigger_tags(&conn, &self.trigger_id, tags)?;
+                nite_core::db::crud::set_trigger_tags(&conn, &self.trigger_id, tags)?;
             }
             // honey: app filters gate expansion, so the daemon reloads.
             EditedField::OnlyApps(apps) => {
                 let value = (!apps.is_empty()).then(|| join_app_filters(apps));
-                taurine_core::db::crud::set_trigger_only_apps(
+                nite_core::db::crud::set_trigger_only_apps(
                     &conn,
                     &self.trigger_id,
                     value.as_deref(),
                 )?;
-                taurine_core::rpc::notify_daemon_reload();
+                nite_core::rpc::notify_daemon_reload();
             }
             EditedField::ExceptApps(apps) => {
                 let value = (!apps.is_empty()).then(|| join_app_filters(apps));
-                taurine_core::db::crud::set_trigger_except_apps(
+                nite_core::db::crud::set_trigger_except_apps(
                     &conn,
                     &self.trigger_id,
                     value.as_deref(),
                 )?;
-                taurine_core::rpc::notify_daemon_reload();
+                nite_core::rpc::notify_daemon_reload();
             }
         }
         Ok(())
@@ -326,9 +322,9 @@ pub(crate) struct PendingLibraryExport {
 }
 
 impl PendingLibraryExport {
-    pub(crate) fn apply(&self) -> taurine_core::Result<PathBuf> {
+    pub(crate) fn apply(&self) -> nite_core::Result<PathBuf> {
         let path = resolve_export_path(Some(PathBuf::from(self.path.as_str())))?;
-        let conn = taurine_core::db::init::setup()?;
+        let conn = nite_core::db::init::setup()?;
         let payload = export_triggers(&conn)?;
         let mut pw = self.password.clone();
         let encoded_res = encode_exchange_blob(&payload, pw.as_deref());
@@ -336,7 +332,7 @@ impl PendingLibraryExport {
             p.zeroize();
         }
         let encoded = encoded_res?;
-        taurine_core::exchange::write_export_file(&path, &encoded)?;
+        nite_core::exchange::write_export_file(&path, &encoded)?;
         Ok(path)
     }
 }
@@ -382,24 +378,29 @@ pub(crate) enum LibraryImportPreparedResult {
 }
 
 impl PendingLibraryImportPrepare {
-    pub(crate) fn prepare(&self) -> taurine_core::Result<LibraryImportPreparedResult> {
+    pub(crate) fn prepare(&self) -> nite_core::Result<LibraryImportPreparedResult> {
         let path = self.path.trim();
         let bytes = std::fs::read(path)?;
         let payload = match decode_exchange_blob(&bytes, self.password.as_deref()) {
             Ok(payload) => payload,
             Err(err) if err.to_string().contains("password required") => {
-                return Err(taurine_core::Error::Config(
+                return Err(nite_core::Error::Config(
                     "A password is required to import this file.".to_string(),
                 ));
             }
             Err(err) if err.to_string() == "wrong password" => {
-                return Err(taurine_core::Error::Config(
+                return Err(nite_core::Error::Config(
                     "Wrong password, try again.".to_string(),
                 ));
             }
             Err(err) if err.to_string().contains("corrupted") => {
-                return Err(taurine_core::Error::Config(
+                return Err(nite_core::Error::Config(
                     "File is corrupted and cannot be imported.".to_string(),
+                ));
+            }
+            Err(err) if err.to_string().contains("bad file header") => {
+                return Err(nite_core::Error::Config(
+                    "Not a valid .nx export file.".to_string(),
                 ));
             }
             Err(err) => return Err(err),
@@ -428,8 +429,8 @@ impl PreparedLibraryImport {
         &self.path
     }
 
-    pub(crate) fn apply(&self) -> taurine_core::Result<LibraryImportOutcome> {
-        let mut conn = taurine_core::db::init::setup()?;
+    pub(crate) fn apply(&self) -> nite_core::Result<LibraryImportOutcome> {
+        let mut conn = nite_core::db::init::setup()?;
         let imported = import_payload_transactionally(&mut conn, &self.payload, |_, _| {
             Ok(self.conflict_mode.to_action())
         })?;
@@ -729,7 +730,7 @@ fn is_script_placeholder(value: &str) -> bool {
 }
 
 pub(crate) fn display_target_os(target_os: &str) -> &str {
-    if let Some(os) = taurine_core::db::TargetOs::parse_str(target_os) {
+    if let Some(os) = nite_core::db::TargetOs::parse_str(target_os) {
         os.display_name()
     } else {
         target_os

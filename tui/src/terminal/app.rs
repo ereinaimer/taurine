@@ -225,7 +225,7 @@ impl App {
     /// Re-reads the pause flag from the daemon before the palette draws
     /// its toggle. Offline or unreachable keeps the last known value.
     pub(crate) fn refresh_daemon_paused(&mut self) {
-        if let Some(paused) = taurine_core::rpc::daemon_paused() {
+        if let Some(paused) = nite_core::rpc::daemon_paused() {
             self.daemon_paused = paused;
         }
     }

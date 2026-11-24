@@ -22,7 +22,7 @@ tempfile = "3.10"
 [dependencies]
 taurine_core = { package = "nite_core", path = "../core", default-features = false }
 taurine_daemon = { package = "nite_daemon", path = "../daemon", default-features = false }
-taurine_tui = { path = "../tui", default-features = false }
+taurine_tui = { package = "nite_tui", path = "../tui", default-features = false }
 clap = { version = "4", features = ["derive"] }
 time = { version = "0.3", features = ["macros", "local-offset"] }
 tracing = { workspace = true }

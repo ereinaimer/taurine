@@ -544,7 +544,7 @@ impl LibraryPageState {
         };
         let split = |value: Option<&str>| {
             value
-                .map(taurine_core::db::crud::split_app_filters)
+                .map(nite_core::db::crud::split_app_filters)
                 .unwrap_or_default()
         };
         let menu = LibraryAppFilterState::new(
@@ -553,7 +553,7 @@ impl LibraryPageState {
             side,
             split(stored),
             split(other),
-            taurine_core::system::foreground_apps::list_foreground_apps(),
+            nite_core::system::foreground_apps::list_foreground_apps(),
         );
         self.modal = Some(LibraryModal::AppFilter(menu));
     }
@@ -570,7 +570,7 @@ impl LibraryPageState {
             (Some(LibraryModal::AppFilter(mut state)), Some((only, except))) => {
                 let split = |value: Option<&str>| {
                     value
-                        .map(taurine_core::db::crud::split_app_filters)
+                        .map(nite_core::db::crud::split_app_filters)
                         .unwrap_or_default()
                 };
                 let (stored, other) = match state.side() {
@@ -999,21 +999,21 @@ impl LibraryPageState {
         }
         let field = match menu.kind() {
             HeaderMenuKind::InvocationType => {
-                taurine_core::db::crud::InvocationType::parse_str(&option)
+                nite_core::db::crud::InvocationType::parse_str(&option)
                     .map(EditedField::InvocationType)
             }
             HeaderMenuKind::ActionType => {
-                taurine_core::db::crud::ActionType::parse_str(&option).map(EditedField::ActionType)
+                nite_core::db::crud::ActionType::parse_str(&option).map(EditedField::ActionType)
             }
             HeaderMenuKind::Interpreter => {
-                taurine_core::engine::shell::ScriptInterpreter::parse_str(&option)
+                nite_core::engine::shell::ScriptInterpreter::parse_str(&option)
                     .map(EditedField::Interpreter)
             }
             HeaderMenuKind::Behavior => {
-                taurine_core::engine::shell::ScriptBehavior::parse_str(&option)
+                nite_core::engine::shell::ScriptBehavior::parse_str(&option)
                     .map(EditedField::Behavior)
             }
-            HeaderMenuKind::Platform => taurine_core::db::TargetOs::parse_str(&option)
+            HeaderMenuKind::Platform => nite_core::db::TargetOs::parse_str(&option)
                 .map(|os| EditedField::TargetOs(os.to_db_str().to_string())),
         };
         let Some(field) = field else {
@@ -1259,7 +1259,7 @@ impl LibraryPageState {
             side,
             stored.to_vec(),
             other.to_vec(),
-            taurine_core::system::foreground_apps::list_foreground_apps(),
+            nite_core::system::foreground_apps::list_foreground_apps(),
         )
         .with_create_draft(draft);
         self.modal = Some(LibraryModal::AppFilter(menu));

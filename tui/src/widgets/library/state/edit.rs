@@ -1,4 +1,4 @@
-use taurine_core::db::crud::{MAX_TRIGGER_LENGTH, TriggerLimits};
+use nite_core::db::crud::{MAX_TRIGGER_LENGTH, TriggerLimits};
 
 use crate::widgets::field::TextField;
 use crate::widgets::library::actions::LibraryInteraction;

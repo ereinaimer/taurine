@@ -1,5 +1,5 @@
+use nite_core::stats::HomeStats;
 use ratatui::layout::Rect;
-use taurine_core::stats::HomeStats;
 
 use crate::widgets::home::account::{self, AccountInfo};
 use crate::widgets::panes::{DividerPointer, DividerSide};
@@ -307,8 +307,8 @@ fn contains(area: Rect, column: u16, row: u16) -> bool {
 mod tests {
     use super::*;
     use crate::widgets::scroll::STEP_LINES;
-    use taurine_core::db::crud::ActivityCategory;
-    use taurine_core::stats::RecentActivity;
+    use nite_core::db::crud::ActivityCategory;
+    use nite_core::stats::RecentActivity;
 
     fn event(index: usize) -> RecentActivity {
         RecentActivity {

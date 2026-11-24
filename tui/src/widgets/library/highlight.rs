@@ -7,11 +7,11 @@
 use std::ops::Range;
 use std::sync::{Mutex, OnceLock};
 
+use nite_core::engine::ScriptInterpreter;
+use nite_core::engine::variables::system::transformers;
+use nite_core::engine::variables::{parse_system_call, tags};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::Span;
-use taurine_core::engine::ScriptInterpreter;
-use taurine_core::engine::variables::system::transformers;
-use taurine_core::engine::variables::{parse_system_call, tags};
 use tree_sitter_highlight::{HighlightConfiguration, HighlightEvent, Highlighter};
 
 use crate::theme::Theme;
@@ -482,7 +482,7 @@ fn paint_base_segment(
     }
 
     if let Some((_key_code, _count)) =
-        taurine_core::engine::variables::system::parse_key_action(segment)
+        nite_core::engine::variables::system::parse_key_action(segment)
     {
         let tokens: Vec<&str> = segment.split_whitespace().collect();
         if let Some(first) = tokens.first()

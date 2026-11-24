@@ -2,6 +2,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use nite_core::db::crud::UserTier;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -9,7 +10,6 @@ use ratatui::{
     text::{Line, Span},
     widgets::Paragraph,
 };
-use taurine_core::db::crud::UserTier;
 
 use crate::theme::Theme;
 use crate::widgets::wrap::wrap_line;
@@ -41,7 +41,7 @@ pub(crate) struct QuotaWindow {
 }
 
 impl QuotaWindow {
-    pub(crate) fn from_row(row: &taurine_core::db::crud::QuotaLedgerRow) -> Self {
+    pub(crate) fn from_row(row: &nite_core::db::crud::QuotaLedgerRow) -> Self {
         Self {
             remaining_percentage: row.remaining_percentage,
             reset_epoch: row.week_start_epoch.saturating_add(WEEK_SECONDS),

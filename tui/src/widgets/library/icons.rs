@@ -16,12 +16,12 @@ pub(crate) const ADD_ICON: &str = "\u{ea60}";
 pub(crate) const ADD_CHIP: &str = " \u{ea60} ";
 
 pub(crate) fn os_icon(target_os_display: &str) -> &'static str {
-    match taurine_core::db::TargetOs::parse_str(target_os_display) {
-        Some(taurine_core::db::TargetOs::Windows) => WINDOWS_ICON,
-        Some(taurine_core::db::TargetOs::MacOs) => MACOS_ICON,
-        Some(taurine_core::db::TargetOs::Linux) => LINUX_ICON,
-        Some(taurine_core::db::TargetOs::Android) => ANDROID_ICON,
-        Some(taurine_core::db::TargetOs::Ios) => IOS_ICON,
+    match nite_core::db::TargetOs::parse_str(target_os_display) {
+        Some(nite_core::db::TargetOs::Windows) => WINDOWS_ICON,
+        Some(nite_core::db::TargetOs::MacOs) => MACOS_ICON,
+        Some(nite_core::db::TargetOs::Linux) => LINUX_ICON,
+        Some(nite_core::db::TargetOs::Android) => ANDROID_ICON,
+        Some(nite_core::db::TargetOs::Ios) => IOS_ICON,
         _ => ALL_ICON,
     }
 }
