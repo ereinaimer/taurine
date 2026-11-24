@@ -955,10 +955,11 @@ pub(super) fn with_evaluator_lock<T>(
             return None;
         }
         Err(std::sync::TryLockError::WouldBlock) => {
-            // Contention backoff: brief spin-wait for up to 1.5ms
+            // Contention backoff: bounded wait up to 1.5ms. yield_now keeps the CPU
+            // available to the lock holder (a busy spin inside the LL hook starves
+            // the very thread we are waiting for and risks the Windows hook timeout).
             let mut acquired = None;
             while lock_wait_started.elapsed() < Duration::from_micros(1500) {
-                std::hint::spin_loop();
                 match evaluator.try_lock() {
                     Ok(guard) => {
                         acquired = Some(guard);
@@ -972,7 +973,10 @@ pub(super) fn with_evaluator_lock<T>(
                         );
                         return None;
                     }
-                    Err(std::sync::TryLockError::WouldBlock) => {}
+                    Err(std::sync::TryLockError::WouldBlock) => {
+                        std::hint::spin_loop();
+                        std::thread::yield_now();
+                    }
                 }
             }
 
