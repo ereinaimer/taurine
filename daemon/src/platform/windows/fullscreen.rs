@@ -183,6 +183,68 @@ fn check_fullscreen_state() {
     });
 }
 
+const PROGMAN_WIDE: &[u16] = &[
+    b'P' as u16,
+    b'r' as u16,
+    b'o' as u16,
+    b'g' as u16,
+    b'm' as u16,
+    b'a' as u16,
+    b'n' as u16,
+];
+const WORKER_W_WIDE: &[u16] = &[
+    b'W' as u16,
+    b'o' as u16,
+    b'r' as u16,
+    b'k' as u16,
+    b'e' as u16,
+    b'r' as u16,
+    b'W' as u16,
+];
+const SHELL_TRAY_WND_WIDE: &[u16] = &[
+    b'S' as u16,
+    b'h' as u16,
+    b'e' as u16,
+    b'l' as u16,
+    b'l' as u16,
+    b'_' as u16,
+    b'T' as u16,
+    b'r' as u16,
+    b'a' as u16,
+    b'y' as u16,
+    b'W' as u16,
+    b'n' as u16,
+    b'd' as u16,
+];
+const CORE_WINDOW_WIDE: &[u16] = &[
+    b'W' as u16,
+    b'i' as u16,
+    b'n' as u16,
+    b'd' as u16,
+    b'o' as u16,
+    b'w' as u16,
+    b's' as u16,
+    b'.' as u16,
+    b'U' as u16,
+    b'I' as u16,
+    b'.' as u16,
+    b'C' as u16,
+    b'o' as u16,
+    b'r' as u16,
+    b'e' as u16,
+    b'.' as u16,
+    b'C' as u16,
+    b'o' as u16,
+    b'r' as u16,
+    b'e' as u16,
+    b'W' as u16,
+    b'i' as u16,
+    b'n' as u16,
+    b'd' as u16,
+    b'o' as u16,
+    b'w' as u16,
+];
+
 fn check_borderless_fullscreen() -> bool {
     // SAFETY: All Win32 calls here operate on the foreground window retrieved
     // by GetForegroundWindow. GetClassNameW writes into a stack buffer (256
@@ -200,11 +262,11 @@ fn check_borderless_fullscreen() -> bool {
         let mut class_name = [0u16; 256];
         let len = GetClassNameW(hwnd, class_name.as_mut_ptr(), class_name.len() as i32);
         if len > 0 {
-            let class_str = String::from_utf16_lossy(&class_name[..len as usize]);
-            if class_str == "Progman"
-                || class_str == "WorkerW"
-                || class_str == "Shell_TrayWnd"
-                || class_str == "Windows.UI.Core.CoreWindow"
+            let class_wide: &[u16] = &class_name[..len as usize];
+            if class_wide == PROGMAN_WIDE
+                || class_wide == WORKER_W_WIDE
+                || class_wide == SHELL_TRAY_WND_WIDE
+                || class_wide == CORE_WINDOW_WIDE
             {
                 return false;
             }
@@ -258,5 +320,32 @@ fn check_borderless_fullscreen() -> bool {
             && client_top <= mi.rcMonitor.top
             && client_right >= mi.rcMonitor.right
             && client_bottom >= mi.rcMonitor.bottom
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_wide_class_literals_match_utf16_encodings() {
+        assert_eq!(
+            PROGMAN_WIDE,
+            &"Progman".encode_utf16().collect::<Vec<_>>()[..]
+        );
+        assert_eq!(
+            WORKER_W_WIDE,
+            &"WorkerW".encode_utf16().collect::<Vec<_>>()[..]
+        );
+        assert_eq!(
+            SHELL_TRAY_WND_WIDE,
+            &"Shell_TrayWnd".encode_utf16().collect::<Vec<_>>()[..]
+        );
+        assert_eq!(
+            CORE_WINDOW_WIDE,
+            &"Windows.UI.Core.CoreWindow"
+                .encode_utf16()
+                .collect::<Vec<_>>()[..]
+        );
     }
 }

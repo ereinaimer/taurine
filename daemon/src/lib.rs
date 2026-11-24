@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
 use taurine_core::db::init;
 use taurine_core::rpc::daemon_control_server::DaemonControlServer;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tonic::transport::Server;
 use tracing::{debug, error, info, warn};
 
@@ -608,9 +608,11 @@ pub fn start() -> taurine_core::error::Result<()> {
 
         loop {
             let shutdown_requested_clone = shutdown_requested.clone();
+            let (shutdown_watch_tx, shutdown_watch_rx) = watch::channel(false);
 
             let watcher_task = {
                 let shutdown_requested_clone = shutdown_requested_clone.clone();
+                let shutdown_watch_tx = shutdown_watch_tx.clone();
                 tokio::spawn(async move {
                     #[cfg(unix)]
                     let mut sigterm = match tokio::signal::unix::signal(
@@ -627,10 +629,12 @@ pub fn start() -> taurine_core::error::Result<()> {
                     tokio::select! {
                         _ = shutdown_rx.recv() => {
                             shutdown_requested_clone.store(true, Ordering::Relaxed);
+                            let _ = shutdown_watch_tx.send(true);
                         }
                         _ = tokio::signal::ctrl_c() => {
                             info!("System Ctrl+C received, initiating shutdown...");
                             shutdown_requested_clone.store(true, Ordering::Relaxed);
+                            let _ = shutdown_watch_tx.send(true);
                         }
                         _ = async {
                             if let Some(ref mut sig) = sigterm {
@@ -641,6 +645,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                         } => {
                             info!("System SIGTERM received, initiating shutdown...");
                             shutdown_requested_clone.store(true, Ordering::Relaxed);
+                            let _ = shutdown_watch_tx.send(true);
                         }
                     }
 
@@ -648,10 +653,12 @@ pub fn start() -> taurine_core::error::Result<()> {
                     tokio::select! {
                         _ = shutdown_rx.recv() => {
                             shutdown_requested_clone.store(true, Ordering::Relaxed);
+                            let _ = shutdown_watch_tx.send(true);
                         }
                         _ = tokio::signal::ctrl_c() => {
                             info!("System Ctrl+C received, initiating shutdown...");
                             shutdown_requested_clone.store(true, Ordering::Relaxed);
+                            let _ = shutdown_watch_tx.send(true);
                         }
                     }
                 })
@@ -672,14 +679,16 @@ pub fn start() -> taurine_core::error::Result<()> {
                 .build()
                 .map_err(taurine_core::error::Error::Config)?;
 
-            let shutdown_requested_for_signal = shutdown_requested.clone();
+            let mut shutdown_watch_rx = shutdown_watch_rx.clone();
             let shutdown_signal = async move {
                 loop {
-                    if shutdown_requested_for_signal.load(Ordering::Relaxed) {
+                    if *shutdown_watch_rx.borrow_and_update() {
                         debug!("Shutdown signal received, initiating gRPC server shutdown...");
                         break;
                     }
-                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                    if shutdown_watch_rx.changed().await.is_err() {
+                        break;
+                    }
                 }
             };
 

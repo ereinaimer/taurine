@@ -242,6 +242,8 @@ mod win_notify {
     // Process-lifetime registration pointer (atomics are Send+Sync, no wrapper needed).
     static CLIENT_PTR: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
     static STOP_FLAG: AtomicBool = AtomicBool::new(false);
+    static WAKE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    static WAKE_CVAR: std::sync::Condvar = std::sync::Condvar::new();
 
     pub fn start() {
         if !CLIENT_PTR.load(Ordering::SeqCst).is_null() {
@@ -305,9 +307,14 @@ mod win_notify {
                         return;
                     }
                     ((*vtbl).base.Release)(enumerator_raw);
+                    let mut guard = WAKE_LOCK.lock().unwrap_or_else(|p| p.into_inner());
                     while !STOP_FLAG.load(Ordering::SeqCst) {
-                        std::thread::sleep(std::time::Duration::from_millis(100));
+                        let (ng, _timeout) = WAKE_CVAR
+                            .wait_timeout(guard, std::time::Duration::from_secs(30))
+                            .unwrap_or_else(|p| p.into_inner());
+                        guard = ng;
                     }
+                    drop(guard);
                     CoUninitialize();
                 }
             })
@@ -316,6 +323,8 @@ mod win_notify {
 
     pub fn stop() {
         STOP_FLAG.store(true, Ordering::SeqCst);
+        let _guard = WAKE_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        WAKE_CVAR.notify_all();
         // SAFETY: the swapped pointer is either null (never started) or the
         // leaked client from start(); COM is initialized/uninitialized
         // symmetrically on this thread and every created pointer is released.
