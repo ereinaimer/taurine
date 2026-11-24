@@ -525,7 +525,7 @@ fn is_basic_stop_word(w: &str) -> bool {
 }
 
 /// Returns true if a lowercase ASCII word is a common English functional/stop word,
-/// a number, or an authentic English word in Taurine's offline lexicon.
+/// a number, or an authentic English word in Nite's offline lexicon.
 ///
 /// Phonetic sound-alike matching (Pass 3) must never hijack valid English
 /// words or standard numbers (e.g. "this" -> "Tether", "thirty" -> "Taurine",
@@ -626,7 +626,7 @@ impl VoiceDictionary {
         }
     }
 
-    /// Parse comma-separated dictionary terms (e.g. "Taurine, PostgreSQL, Kubernetes, API").
+    /// Parse comma-separated dictionary terms (e.g. "Nite, PostgreSQL, Kubernetes, API").
     pub fn from_csv(csv: &str) -> Self {
         let terms: Vec<String> = csv
             .split(',')

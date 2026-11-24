@@ -83,7 +83,7 @@ pub fn encrypt(plaintext: &[u8], password: Option<&str>) -> crate::Result<Vec<u8
     let payload_ct = seal(&dek, &payload_nonce, plaintext)?;
 
     let mut blob = Vec::with_capacity(payload_ct.len() + MIN_LEGACY_PW_BLOB_LEN);
-    blob.extend_from_slice(&super::TAU_MAGIC);
+    blob.extend_from_slice(&super::NITE_MAGIC);
     blob.push(if has_password { FLAG_HAS_PASSWORD } else { 0 });
 
     if let Some(pw) = password {
@@ -117,9 +117,9 @@ pub fn decrypt(blob: &[u8], password: Option<&str>) -> crate::Result<Vec<u8>> {
     if blob.len() < 4 + 1 {
         return Err(crate::Error::Config("encrypted file too short".to_string()));
     }
-    if blob[..4] != super::TAU_MAGIC {
+    if blob[..4] != super::NITE_MAGIC {
         return Err(crate::Error::Config(
-            "bad file header, expected TAU".to_string(),
+            "bad file header, expected NITE".to_string(),
         ));
     }
     let flags = blob[4];
@@ -253,7 +253,7 @@ mod tests {
     #[test]
     fn encrypt_decrypt_round_trips_passwordless() {
         let blob = encrypt(br#"{"schema_version":1,"triggers":[]}"#, None).unwrap();
-        assert_eq!(&blob[..4], b"TAU\x00");
+        assert_eq!(&blob[..4], b"NITE");
         assert_eq!(blob[4], 0x00);
 
         let plaintext = decrypt(&blob, None).unwrap();
@@ -263,7 +263,7 @@ mod tests {
     #[test]
     fn encrypt_decrypt_round_trips_with_password() {
         let blob = encrypt(br#"{"schema_version":1,"triggers":[]}"#, Some("hunter22")).unwrap();
-        assert_eq!(&blob[..4], b"TAU\x00");
+        assert_eq!(&blob[..4], b"NITE");
         assert_eq!(blob[4] & 0x01, 0x01);
 
         let plaintext = decrypt(&blob, Some("hunter22")).unwrap();
@@ -344,10 +344,10 @@ mod tests {
     #[test]
     fn decrypt_rejects_invalid_magic_bytes() {
         let mut blob = vec![0u8; 128];
-        blob[..4].copy_from_slice(b"TAUP");
+        blob[..4].copy_from_slice(b"NITX");
 
         let err = decrypt(&blob, None).unwrap_err();
-        assert!(err.to_string().contains("TAU"));
+        assert!(err.to_string().contains("NITE"));
     }
 
     #[test]
@@ -431,7 +431,7 @@ mod tests {
 
         // Legacy format: TAU\0 + FLAG_HAS_PASSWORD + salt + payload_nonce + nonce_a + wrap_app + nonce_p + wrap_pw + payload_ct
         let mut legacy_blob = Vec::new();
-        legacy_blob.extend_from_slice(&crate::exchange::TAU_MAGIC);
+        legacy_blob.extend_from_slice(&crate::exchange::NITE_MAGIC);
         legacy_blob.push(FLAG_HAS_PASSWORD);
         legacy_blob.extend_from_slice(&salt);
         legacy_blob.extend_from_slice(&payload_nonce);

@@ -59,7 +59,7 @@ pub fn record_trigger_stat(event: TriggerStatEvent) {
     let tx = STATS_TX.get_or_init(|| {
         let (tx, rx) = mpsc::channel::<TriggerStatEvent>();
         let spawn_result = thread::Builder::new()
-            .name("tau-stats".to_string())
+            .name("nite-stats".to_string())
             .spawn(move || {
                 while let Ok(evt) = rx.recv() {
                     match crate::db::get_conn() {

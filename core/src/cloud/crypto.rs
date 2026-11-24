@@ -1,4 +1,4 @@
-//! Zero-Knowledge End-to-End Encryption (E2EE) module for Taurine Cloud.
+//! Zero-Knowledge End-to-End Encryption (E2EE) module for Nite Cloud.
 //!
 //! Provides client-side AEAD encryption (AES-256-GCM) for synchronization payloads,
 //! deterministic Argon2id key derivation from user credentials, and OS keyring persistence
@@ -18,7 +18,7 @@ const NONCE_LEN: usize = 12;
 const SALT_LEN: usize = 16;
 const ENVELOPE_VERSION: u32 = 1;
 
-const KEYRING_SERVICE: &str = "taurine-cloud";
+const KEYRING_SERVICE: &str = "nite-cloud";
 const KEYRING_USER_DEK: &str = "vault-dek";
 
 /// An authenticated, encrypted envelope wrapping synchronized payload data.
@@ -49,7 +49,7 @@ pub fn derive_vault_keys(
 
     // Derive deterministic 16-byte salt from user_id using SHA-256 domain separation
     let mut hasher = Sha256::new();
-    hasher.update(b"taurine:vault:salt:v1:");
+    hasher.update(b"nite:vault:salt:v1:");
     hasher.update(user_id.as_bytes());
     let salt_hash = hasher.finalize();
     let salt = &salt_hash[..SALT_LEN];

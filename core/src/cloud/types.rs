@@ -27,10 +27,10 @@ pub const DEFAULT_SUPABASE_ANON_KEY: &str = "sb_publishable_2iMn33fLtz8BtePGIGzG
 impl CloudConfig {
     /// Loads configuration from environment variables, falling back to built-in project defaults.
     pub fn default_or_from_env() -> Self {
-        let supabase_url = std::env::var("TAURINE_SUPABASE_URL")
+        let supabase_url = std::env::var("NITE_SUPABASE_URL")
             .or_else(|_| std::env::var("SUPABASE_URL"))
             .unwrap_or_else(|_| DEFAULT_SUPABASE_URL.to_string());
-        let anon_key = std::env::var("TAURINE_SUPABASE_ANON_KEY")
+        let anon_key = std::env::var("NITE_SUPABASE_ANON_KEY")
             .or_else(|_| std::env::var("SUPABASE_ANON_KEY"))
             .unwrap_or_else(|_| DEFAULT_SUPABASE_ANON_KEY.to_string());
         Self {
@@ -40,18 +40,18 @@ impl CloudConfig {
     }
 
     pub fn from_env() -> crate::Result<Self> {
-        let supabase_url = std::env::var("TAURINE_SUPABASE_URL")
+        let supabase_url = std::env::var("NITE_SUPABASE_URL")
             .or_else(|_| std::env::var("SUPABASE_URL"))
             .map_err(|_| {
                 crate::Error::Config(
-                    "Missing TAURINE_SUPABASE_URL or SUPABASE_URL environment variable".to_string(),
+                    "Missing NITE_SUPABASE_URL or SUPABASE_URL environment variable".to_string(),
                 )
             })?;
-        let anon_key = std::env::var("TAURINE_SUPABASE_ANON_KEY")
+        let anon_key = std::env::var("NITE_SUPABASE_ANON_KEY")
             .or_else(|_| std::env::var("SUPABASE_ANON_KEY"))
             .map_err(|_| {
                 crate::Error::Config(
-                    "Missing TAURINE_SUPABASE_ANON_KEY or SUPABASE_ANON_KEY environment variable"
+                    "Missing NITE_SUPABASE_ANON_KEY or SUPABASE_ANON_KEY environment variable"
                         .to_string(),
                 )
             })?;

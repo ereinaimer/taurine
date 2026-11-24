@@ -21,8 +21,8 @@ use winreg::enums::*;
 use crate::rpc::{ShutdownRequest, StatusRequest};
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
-const TASK_NAME: &str = "TaurineStartup";
-const BOOT_REG_KEY: &str = r"Software\Taurine";
+const TASK_NAME: &str = "NiteStartup";
+const BOOT_REG_KEY: &str = r"Software\Nite";
 const BOOT_VALUE: &str = "StartupExe";
 
 const STARTUP_RUNNER_BYTES: &[u8] = include_bytes!(env!("STARTUP_RUNNER_PATH"));
@@ -39,7 +39,7 @@ fn delete_startup_launcher() {
     if exe_path.exists()
         && let Err(e) = std::fs::remove_file(&exe_path)
     {
-        debug!("Failed to delete taurine-startup.exe: {}", e);
+        debug!("Failed to delete nite-startup.exe: {}", e);
     }
 }
 
@@ -52,7 +52,7 @@ fn set_autorun() -> std::io::Result<()> {
     let (key, _) = hkcu.create_subkey(path)?;
 
     let val = format!("\"{}\"", exe_path.to_string_lossy());
-    key.set_value("Taurine", &val)?;
+    key.set_value("Nite", &val)?;
     Ok(())
 }
 
@@ -65,7 +65,7 @@ fn is_autorun_registered() -> bool {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let path = r#"Software\Microsoft\Windows\CurrentVersion\Run"#;
     hkcu.open_subkey(path)
-        .and_then(|key| key.get_value::<String, _>("Taurine"))
+        .and_then(|key| key.get_value::<String, _>("Nite"))
         .is_ok()
 }
 
@@ -73,7 +73,7 @@ fn remove_autorun() -> std::io::Result<()> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let path = r#"Software\Microsoft\Windows\CurrentVersion\Run"#;
     let key = hkcu.open_subkey_with_flags(path, KEY_WRITE)?;
-    let _ = key.delete_value("Taurine");
+    let _ = key.delete_value("Nite");
     Ok(())
 }
 
@@ -146,7 +146,7 @@ fn get_task_xml(exe_path: &std::path::Path, user_id: Option<&str>) -> String {
         r#"<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>Starts Taurine background text expansion service at user logon.</Description>
+    <Description>Starts Nite background text expansion service at user logon.</Description>
   </RegistrationInfo>
   <Triggers>
     <LogonTrigger>
@@ -297,7 +297,7 @@ fn refresh_processes(sys: &mut System) {
     );
 }
 
-/// Every live Taurine daemon process, excluding this one.
+/// Every live Nite daemon process, excluding this one.
 fn daemon_pids(sys: &mut System) -> Vec<sysinfo::Pid> {
     refresh_processes(sys);
     let current_pid = sysinfo::Pid::from_u32(std::process::id());
@@ -307,7 +307,7 @@ fn daemon_pids(sys: &mut System) -> Vec<sysinfo::Pid> {
         .filter(|(pid, process)| {
             **pid != current_pid && {
                 let name = process.name().to_string_lossy().to_lowercase();
-                (name == "taurine.exe" || name == "taurine")
+                (name == "nite.exe" || name == "nite")
                     && process
                         .cmd()
                         .iter()
@@ -334,7 +334,7 @@ fn kill_daemon(sys: &mut System) -> usize {
             if process.kill() {
                 killed += 1;
             } else {
-                warn!("Failed to terminate Taurine process {pid}; it may need elevated privileges");
+                warn!("Failed to terminate Nite process {pid}; it may need elevated privileges");
             }
         }
     }
@@ -375,7 +375,7 @@ pub fn sync_boot(enabled: bool) -> crate::error::Result<()> {
         if is_task_scheduler_registered() || is_autorun_registered() {
             debug!("Startup hook already registered; skipping.");
         } else {
-            debug!("Registering Taurine to start on login via Task Scheduler...");
+            debug!("Registering Nite to start on login via Task Scheduler...");
             match register_task_scheduler() {
                 Ok(_) => {
                     info!("Startup hook registered via Task Scheduler.");
@@ -419,7 +419,7 @@ pub fn up(start_on_boot: bool) -> crate::error::Result<()> {
     let current_exe = env::current_exe()?;
 
     if is_daemon_running(&mut sys) {
-        info!("Taurine service is already running.");
+        info!("Nite service is already running.");
     } else {
         Command::new(&current_exe)
             .arg("--daemon")
@@ -428,7 +428,7 @@ pub fn up(start_on_boot: bool) -> crate::error::Result<()> {
             .stderr(std::process::Stdio::null())
             .creation_flags(CREATE_NO_WINDOW)
             .spawn()?;
-        info!("Taurine service started successfully.");
+        info!("Nite service started successfully.");
     }
 
     sync_boot(start_on_boot)?;
@@ -463,13 +463,13 @@ pub fn down() -> crate::error::Result<()> {
 
     if grpc_success && wait_until_stopped(&mut sys, Duration::from_secs(5)) {
         remove_startup_hooks();
-        info!("Taurine service has been stopped.");
+        info!("Nite service has been stopped.");
         return Ok(());
     }
 
     if !is_daemon_running(&mut sys) {
         remove_startup_hooks();
-        info!("Taurine service is already stopped.");
+        info!("Nite service is already stopped.");
         return Ok(());
     }
 
@@ -481,12 +481,12 @@ pub fn down() -> crate::error::Result<()> {
         // Keep the startup hooks registered: the service is still running, and
         // removing them here would silently disable autostart for a live app.
         return Err(crate::error::Error::Service(
-            "Failed to kill Taurine process. It might still be running.".to_string(),
+            "Failed to kill Nite process. It might still be running.".to_string(),
         ));
     }
 
     remove_startup_hooks();
-    info!("Taurine has been stopped.");
+    info!("Nite has been stopped.");
     Ok(())
 }
 
@@ -521,7 +521,7 @@ pub fn restart(start_on_boot: bool) -> crate::error::Result<()> {
                 // exit on the liveness guard while the old process keeps
                 // serving, making the restart a silent no-op.
                 return Err(crate::error::Error::Service(
-                    "Failed to stop the running Taurine process; refusing to start another instance."
+                    "Failed to stop the running Nite process; refusing to start another instance."
                         .to_string(),
                 ));
             }
@@ -536,9 +536,9 @@ pub fn restart(start_on_boot: bool) -> crate::error::Result<()> {
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
     {
-        Ok(_) => info!("Taurine has been restarted."),
+        Ok(_) => info!("Nite has been restarted."),
         Err(e) => {
-            error!("Failed to restart Taurine: {}", e);
+            error!("Failed to restart Nite: {}", e);
             return Err(e.into());
         }
     }
@@ -564,21 +564,18 @@ pub fn status() -> crate::error::Result<()> {
 
     if let Some(status) = grpc_status {
         if status.paused {
-            info!(
-                "Taurine is paused. Press {} to resume!",
-                status.pause_hotkey
-            );
+            info!("Nite is paused. Press {} to resume!", status.pause_hotkey);
         } else {
-            info!("Taurine is running.");
+            info!("Nite is running.");
         }
         return Ok(());
     }
 
     let mut sys = System::new();
     if is_daemon_running(&mut sys) {
-        info!("Taurine is running.");
+        info!("Nite is running.");
     } else {
-        info!("Taurine is stopped.");
+        info!("Nite is stopped.");
     }
 
     Ok(())
@@ -594,7 +591,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         crate::logs::init_tracing_for_tests();
-        let test_dir = std::env::temp_dir().join("taurine_exe_lifecycle_test");
+        let test_dir = std::env::temp_dir().join("nite_exe_lifecycle_test");
         unsafe { std::env::set_var("NITE_DATA_DIR", test_dir.to_str().unwrap()) };
 
         let exe_path = crate::paths::get_startup_exe_path();
@@ -618,9 +615,9 @@ mod tests {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         crate::logs::init_tracing_for_tests();
-        const TEST_KEY: &str = r"Software\TaurineTestStartupExe";
+        const TEST_KEY: &str = r"Software\NiteTestStartupExe";
 
-        let target = std::path::Path::new(r"C:\Users\tester\Downloads\taurine.exe");
+        let target = std::path::Path::new(r"C:\Users\tester\Downloads\nite.exe");
         set_startup_exe_in(TEST_KEY, target).expect("write must succeed");
 
         let stored: String = RegKey::predef(HKEY_CURRENT_USER)
@@ -631,7 +628,7 @@ mod tests {
         assert_eq!(stored, target.to_string_lossy());
 
         // Last-`up`-wins: overwrite with a new path.
-        let newer = std::path::Path::new(r"C:\Users\tester\Desktop\taurine.exe");
+        let newer = std::path::Path::new(r"C:\Users\tester\Desktop\nite.exe");
         set_startup_exe_in(TEST_KEY, newer).expect("overwrite must succeed");
         let stored: String = RegKey::predef(HKEY_CURRENT_USER)
             .open_subkey(TEST_KEY)
@@ -654,7 +651,7 @@ mod tests {
 
     #[test]
     fn test_task_xml_structure() {
-        let fake_path = std::path::Path::new(r"C:\Program Files\Taurine\taurine-startup.exe");
+        let fake_path = std::path::Path::new(r"C:\Program Files\Nite\nite-startup.exe");
         let xml = get_task_xml(fake_path, Some(r"DOMAIN\User"));
 
         assert!(xml.contains("<LogonTrigger>"));
@@ -667,7 +664,7 @@ mod tests {
         assert!(xml.contains("<RestartOnFailure>"));
         assert!(xml.contains("<Interval>PT1M</Interval>"));
         assert!(xml.contains("<Count>999</Count>"));
-        assert!(xml.contains(r"<Command>C:\Program Files\Taurine\taurine-startup.exe</Command>"));
+        assert!(xml.contains(r"<Command>C:\Program Files\Nite\nite-startup.exe</Command>"));
     }
 
     #[test]
@@ -710,7 +707,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         crate::logs::init_tracing_for_tests();
-        const TEST_KEY: &str = r"Software\TaurineTestBootPin";
+        const TEST_KEY: &str = r"Software\NiteTestBootPin";
 
         record_boot_pin_in(TEST_KEY).expect("pin write must succeed");
 

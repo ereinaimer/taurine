@@ -58,14 +58,16 @@ impl DangerousHotkey {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TaurineReservedHotkey {
+pub enum NiteReservedHotkey {
     PauseToggle,
 }
 
-impl TaurineReservedHotkey {
+pub type TaurineReservedHotkey = NiteReservedHotkey;
+
+impl NiteReservedHotkey {
     pub const fn description(self) -> &'static str {
         match self {
-            Self::PauseToggle => "Taurine pause hotkey",
+            Self::PauseToggle => "Nite pause hotkey",
         }
     }
 }
@@ -170,13 +172,17 @@ pub fn danger_for_platform(hotkey: Hotkey, platform: HotkeyPlatform) -> Option<D
     }
 }
 
-pub fn conflicts_with_taurine_global_hotkey(hotkey: Hotkey) -> Option<TaurineReservedHotkey> {
-    hotkeys_overlap(hotkey, taurine_pause_hotkey()).then_some(TaurineReservedHotkey::PauseToggle)
+pub fn conflicts_with_nite_global_hotkey(hotkey: Hotkey) -> Option<NiteReservedHotkey> {
+    hotkeys_overlap(hotkey, nite_pause_hotkey()).then_some(NiteReservedHotkey::PauseToggle)
 }
 
-pub fn taurine_pause_hotkey() -> Hotkey {
+pub use conflicts_with_nite_global_hotkey as conflicts_with_taurine_global_hotkey;
+
+pub fn nite_pause_hotkey() -> Hotkey {
     hotkey_with(&[Modifier::Alt], LogicalKey::Backquote)
 }
+
+pub use nite_pause_hotkey as taurine_pause_hotkey;
 
 fn insert_modifier(modifiers: &mut Modifiers, modifier: Modifier) -> Result<(), KeyParseError> {
     match modifiers.insert(modifier) {
@@ -563,7 +569,7 @@ mod tests {
     }
 
     #[test]
-    fn detects_taurine_pause_hotkey_conflicts_for_generic_and_side_specific_alt() {
+    fn detects_nite_pause_hotkey_conflicts_for_generic_and_side_specific_alt() {
         let pause = parse_hotkey("alt+`").unwrap();
         let left_pause = parse_hotkey("lalt+`").unwrap();
         let right_pause = parse_hotkey("ralt+`").unwrap();
@@ -571,19 +577,19 @@ mod tests {
         let alt_escape = parse_hotkey("alt+esc").unwrap();
 
         assert_eq!(
-            conflicts_with_taurine_global_hotkey(pause),
-            Some(TaurineReservedHotkey::PauseToggle)
+            conflicts_with_nite_global_hotkey(pause),
+            Some(NiteReservedHotkey::PauseToggle)
         );
         assert_eq!(
-            conflicts_with_taurine_global_hotkey(left_pause),
-            Some(TaurineReservedHotkey::PauseToggle)
+            conflicts_with_nite_global_hotkey(left_pause),
+            Some(NiteReservedHotkey::PauseToggle)
         );
         assert_eq!(
-            conflicts_with_taurine_global_hotkey(right_pause),
-            Some(TaurineReservedHotkey::PauseToggle)
+            conflicts_with_nite_global_hotkey(right_pause),
+            Some(NiteReservedHotkey::PauseToggle)
         );
-        assert_eq!(conflicts_with_taurine_global_hotkey(alt_enter), None);
-        assert_eq!(conflicts_with_taurine_global_hotkey(alt_escape), None);
+        assert_eq!(conflicts_with_nite_global_hotkey(alt_enter), None);
+        assert_eq!(conflicts_with_nite_global_hotkey(alt_escape), None);
     }
 
     #[test]

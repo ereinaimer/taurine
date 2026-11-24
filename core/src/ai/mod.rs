@@ -5,7 +5,7 @@ use keyring::Entry;
 
 use crate::error::{Error, Result};
 
-pub const AI_KEYRING_SERVICE: &str = "taurine.inline_ai";
+pub const AI_KEYRING_SERVICE: &str = "nite.inline_ai";
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
@@ -183,7 +183,7 @@ impl FromStr for AiProvider {
                 crate::diagnostic::Diagnostic::problem(format!("{s} is not a valid AI provider"))
                     .suggest(s, &Self::ALL_NAMES)
                     .options("Supported providers", &Self::ALL_NAMES)
-                    .example("taurine ai --provider groq");
+                    .example("nite ai --provider groq");
             Error::Config(diag.render())
         })
     }
@@ -449,10 +449,7 @@ mod tests {
             err.contains("Supported providers: openai, claude, gemini, xai, groq"),
             "Error was: {err}"
         );
-        assert!(
-            err.contains("taurine ai --provider groq"),
-            "Error was: {err}"
-        );
+        assert!(err.contains("nite ai --provider groq"), "Error was: {err}");
         assert!(!err.contains('`'), "Must not contain backticks: {err}");
         assert!(!err.contains('\''), "Must not contain single quotes: {err}");
     }

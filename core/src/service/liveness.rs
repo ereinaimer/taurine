@@ -10,8 +10,8 @@ mod platform {
     const SYNCHRONIZE: u32 = 0x00100000;
 
     fn get_mutex_name_wide() -> Vec<u16> {
-        let name = crate::paths::dev_env_var("TAURINE_SERVICE_LIVENESS_NAME")
-            .unwrap_or_else(|| r"Local\TaurineServiceLiveness".to_string());
+        let name = crate::paths::dev_env_var("NITE_SERVICE_LIVENESS_NAME")
+            .unwrap_or_else(|| r"Local\NiteServiceLiveness".to_string());
         name.encode_utf16().chain(std::iter::once(0)).collect()
     }
 
@@ -92,18 +92,18 @@ mod platform {
     use std::path::PathBuf;
 
     fn get_lock_path() -> PathBuf {
-        if let Some(custom) = crate::paths::dev_env_var("TAURINE_SERVICE_LIVENESS_PATH")
+        if let Some(custom) = crate::paths::dev_env_var("NITE_SERVICE_LIVENESS_PATH")
             && !custom.trim().is_empty()
         {
             PathBuf::from(custom)
         } else if let Ok(runtime_dir) = std::env::var("XDG_RUNTIME_DIR")
             && !runtime_dir.trim().is_empty()
         {
-            PathBuf::from(runtime_dir).join("taurine.lock")
+            PathBuf::from(runtime_dir).join("nite.lock")
         } else {
             let data_dir = crate::paths::get_data_dir();
             let _ = std::fs::create_dir_all(&data_dir);
-            data_dir.join("taurine.lock")
+            data_dir.join("nite.lock")
         }
     }
 
@@ -179,21 +179,19 @@ mod tests {
         #[cfg(target_os = "windows")]
         unsafe {
             std::env::set_var(
-                "TAURINE_SERVICE_LIVENESS_NAME",
-                format!("Local\\TaurineTestLiveness_{}", test_id),
+                "NITE_SERVICE_LIVENESS_NAME",
+                format!("Local\\NiteTestLiveness_{}", test_id),
             );
         }
 
         #[cfg(not(target_os = "windows"))]
         let temp_dir = tempfile::tempdir().unwrap();
         #[cfg(not(target_os = "windows"))]
-        let lock_file = temp_dir
-            .path()
-            .join(format!("taurine_test_{}.lock", test_id));
+        let lock_file = temp_dir.path().join(format!("nite_test_{}.lock", test_id));
         #[cfg(not(target_os = "windows"))]
         unsafe {
             std::env::set_var(
-                "TAURINE_SERVICE_LIVENESS_PATH",
+                "NITE_SERVICE_LIVENESS_PATH",
                 lock_file.to_string_lossy().to_string(),
             );
         }
@@ -233,11 +231,11 @@ mod tests {
 
         #[cfg(target_os = "windows")]
         unsafe {
-            std::env::remove_var("TAURINE_SERVICE_LIVENESS_NAME");
+            std::env::remove_var("NITE_SERVICE_LIVENESS_NAME");
         }
         #[cfg(not(target_os = "windows"))]
         unsafe {
-            std::env::remove_var("TAURINE_SERVICE_LIVENESS_PATH");
+            std::env::remove_var("NITE_SERVICE_LIVENESS_PATH");
         }
     }
 
@@ -252,8 +250,8 @@ mod tests {
         #[cfg(target_os = "windows")]
         unsafe {
             std::env::set_var(
-                "TAURINE_SERVICE_LIVENESS_NAME",
-                format!("Local\\TaurineTestLiveness_Conc_{}", test_id),
+                "NITE_SERVICE_LIVENESS_NAME",
+                format!("Local\\NiteTestLiveness_Conc_{}", test_id),
             );
         }
 
@@ -262,11 +260,11 @@ mod tests {
         #[cfg(not(target_os = "windows"))]
         let lock_file = temp_dir
             .path()
-            .join(format!("taurine_test_conc_{}.lock", test_id));
+            .join(format!("nite_test_conc_{}.lock", test_id));
         #[cfg(not(target_os = "windows"))]
         unsafe {
             std::env::set_var(
-                "TAURINE_SERVICE_LIVENESS_PATH",
+                "NITE_SERVICE_LIVENESS_PATH",
                 lock_file.to_string_lossy().to_string(),
             );
         }
@@ -293,11 +291,11 @@ mod tests {
 
         #[cfg(target_os = "windows")]
         unsafe {
-            std::env::remove_var("TAURINE_SERVICE_LIVENESS_NAME");
+            std::env::remove_var("NITE_SERVICE_LIVENESS_NAME");
         }
         #[cfg(not(target_os = "windows"))]
         unsafe {
-            std::env::remove_var("TAURINE_SERVICE_LIVENESS_PATH");
+            std::env::remove_var("NITE_SERVICE_LIVENESS_PATH");
         }
     }
 }

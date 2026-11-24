@@ -65,16 +65,16 @@ fn test_cloud_config_from_env() {
     let _guard = lock_test();
 
     // Save previous env vars
-    let orig_t_url = std::env::var("TAURINE_SUPABASE_URL").ok();
-    let orig_t_key = std::env::var("TAURINE_SUPABASE_ANON_KEY").ok();
+    let orig_t_url = std::env::var("NITE_SUPABASE_URL").ok();
+    let orig_t_key = std::env::var("NITE_SUPABASE_ANON_KEY").ok();
     let orig_s_url = std::env::var("SUPABASE_URL").ok();
     let orig_s_key = std::env::var("SUPABASE_ANON_KEY").ok();
 
     // Clear all
     // SAFETY: Mutating process environment variables is serialized via TEST_LOCK; isolated to this test.
     unsafe {
-        std::env::remove_var("TAURINE_SUPABASE_URL");
-        std::env::remove_var("TAURINE_SUPABASE_ANON_KEY");
+        std::env::remove_var("NITE_SUPABASE_URL");
+        std::env::remove_var("NITE_SUPABASE_ANON_KEY");
         std::env::remove_var("SUPABASE_URL");
         std::env::remove_var("SUPABASE_ANON_KEY");
     }
@@ -86,22 +86,22 @@ fn test_cloud_config_from_env() {
         "expected Error::Config, got: {err:?}"
     );
 
-    // Test with TAURINE_SUPABASE_* (with trailing slash on URL to verify trimming)
+    // Test with NITE_SUPABASE_* (with trailing slash on URL to verify trimming)
     // SAFETY: Mutating process environment variables is serialized via TEST_LOCK; isolated to this test.
     unsafe {
-        std::env::set_var("TAURINE_SUPABASE_URL", "https://xyzcompany.supabase.co/");
-        std::env::set_var("TAURINE_SUPABASE_ANON_KEY", "taurine-anon-key-123");
+        std::env::set_var("NITE_SUPABASE_URL", "https://xyzcompany.supabase.co/");
+        std::env::set_var("NITE_SUPABASE_ANON_KEY", "nite-anon-key-123");
     }
 
-    let cfg = CloudConfig::from_env().expect("from_env with TAURINE_* vars must succeed");
+    let cfg = CloudConfig::from_env().expect("from_env with NITE_* vars must succeed");
     assert_eq!(cfg.supabase_url, "https://xyzcompany.supabase.co");
-    assert_eq!(cfg.anon_key, "taurine-anon-key-123");
+    assert_eq!(cfg.anon_key, "nite-anon-key-123");
 
-    // Clear TAURINE_* and test fallback to SUPABASE_*
+    // Clear NITE_* and test fallback to SUPABASE_*
     // SAFETY: Mutating process environment variables is serialized via TEST_LOCK; isolated to this test.
     unsafe {
-        std::env::remove_var("TAURINE_SUPABASE_URL");
-        std::env::remove_var("TAURINE_SUPABASE_ANON_KEY");
+        std::env::remove_var("NITE_SUPABASE_URL");
+        std::env::remove_var("NITE_SUPABASE_ANON_KEY");
         std::env::set_var("SUPABASE_URL", "https://fallback.supabase.co");
         std::env::set_var("SUPABASE_ANON_KEY", "fallback-anon-key-456");
     }
@@ -124,8 +124,8 @@ fn test_cloud_config_from_env() {
             }
         }
     };
-    restore("TAURINE_SUPABASE_URL", orig_t_url);
-    restore("TAURINE_SUPABASE_ANON_KEY", orig_t_key);
+    restore("NITE_SUPABASE_URL", orig_t_url);
+    restore("NITE_SUPABASE_ANON_KEY", orig_t_key);
     restore("SUPABASE_URL", orig_s_url);
     restore("SUPABASE_ANON_KEY", orig_s_key);
 }
@@ -134,15 +134,15 @@ fn test_cloud_config_from_env() {
 fn test_cloud_config_default_or_from_env() {
     let _guard = lock_test();
 
-    let orig_t_url = std::env::var("TAURINE_SUPABASE_URL").ok();
-    let orig_t_key = std::env::var("TAURINE_SUPABASE_ANON_KEY").ok();
+    let orig_t_url = std::env::var("NITE_SUPABASE_URL").ok();
+    let orig_t_key = std::env::var("NITE_SUPABASE_ANON_KEY").ok();
     let orig_s_url = std::env::var("SUPABASE_URL").ok();
     let orig_s_key = std::env::var("SUPABASE_ANON_KEY").ok();
 
     // SAFETY: Mutating process environment variables is serialized via TEST_LOCK; isolated to this test.
     unsafe {
-        std::env::remove_var("TAURINE_SUPABASE_URL");
-        std::env::remove_var("TAURINE_SUPABASE_ANON_KEY");
+        std::env::remove_var("NITE_SUPABASE_URL");
+        std::env::remove_var("NITE_SUPABASE_ANON_KEY");
         std::env::remove_var("SUPABASE_URL");
         std::env::remove_var("SUPABASE_ANON_KEY");
     }
@@ -172,8 +172,8 @@ fn test_cloud_config_default_or_from_env() {
             }
         }
     };
-    restore("TAURINE_SUPABASE_URL", orig_t_url);
-    restore("TAURINE_SUPABASE_ANON_KEY", orig_t_key);
+    restore("NITE_SUPABASE_URL", orig_t_url);
+    restore("NITE_SUPABASE_ANON_KEY", orig_t_key);
     restore("SUPABASE_URL", orig_s_url);
     restore("SUPABASE_ANON_KEY", orig_s_key);
 }

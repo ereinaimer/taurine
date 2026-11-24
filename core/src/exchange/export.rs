@@ -87,19 +87,21 @@ pub fn resolve_export_path(path: Option<PathBuf>) -> crate::Result<PathBuf> {
                 let now = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
                 Ok(get_unique_export_path(&path, now))
             } else {
-                Ok(ensure_tau_extension(path))
+                Ok(ensure_nx_extension(path))
             }
         }
         None => default_export_path(),
     }
 }
 
-pub fn ensure_tau_extension(mut path: PathBuf) -> PathBuf {
+pub fn ensure_nx_extension(mut path: PathBuf) -> PathBuf {
     if path.extension().is_none() {
-        path.set_extension("tau");
+        path.set_extension("nx");
     }
     path
 }
+
+pub use ensure_nx_extension as ensure_tau_extension;
 
 pub fn encode_exchange_blob(
     payload: &ExchangePayload,
@@ -236,19 +238,19 @@ where
     }
 }
 
-fn default_export_filename_for_timestamp(now: OffsetDateTime) -> String {
+pub fn default_export_filename_for_timestamp(now: OffsetDateTime) -> String {
     let year = now.year() % 100;
-    format!("tx-{:02}{:02}{:02}.tau", year, now.month() as u8, now.day())
+    format!("nx-{:02}{:02}{:02}.nx", year, now.month() as u8, now.day())
 }
 
 fn get_unique_export_path(directory: &Path, now: OffsetDateTime) -> PathBuf {
     let year = now.year() % 100;
-    let base_name = format!("tx-{:02}{:02}{:02}", year, now.month() as u8, now.day());
+    let base_name = format!("nx-{:02}{:02}{:02}", year, now.month() as u8, now.day());
 
-    let mut candidate = directory.join(format!("{}.tau", base_name));
+    let mut candidate = directory.join(format!("{}.nx", base_name));
     let mut counter = 1;
     while candidate.exists() {
-        candidate = directory.join(format!("{}_{}.tau", base_name, counter));
+        candidate = directory.join(format!("{}_{}.nx", base_name, counter));
         counter += 1;
     }
     candidate
@@ -264,34 +266,34 @@ mod tests {
     use time::macros::datetime;
 
     #[test]
-    fn ensure_tau_extension_appends_when_missing() {
-        let resolved = ensure_tau_extension(PathBuf::from("my_scripts"));
-        assert_eq!(resolved, PathBuf::from("my_scripts.tau"));
+    fn ensure_nx_extension_appends_when_missing() {
+        let resolved = ensure_nx_extension(PathBuf::from("my_scripts"));
+        assert_eq!(resolved, PathBuf::from("my_scripts.nx"));
     }
 
     #[test]
-    fn ensure_tau_extension_preserves_existing_extension() {
-        let resolved = ensure_tau_extension(PathBuf::from("custom-pack.tau"));
-        assert_eq!(resolved, PathBuf::from("custom-pack.tau"));
+    fn ensure_nx_extension_preserves_existing_extension() {
+        let resolved = ensure_nx_extension(PathBuf::from("custom-pack.nx"));
+        assert_eq!(resolved, PathBuf::from("custom-pack.nx"));
     }
 
     #[test]
-    fn default_export_filename_uses_tau_extension() {
+    fn default_export_filename_uses_nx_extension() {
         let filename = default_export_filename_for_timestamp(datetime!(2026-04-30 09:15:00 +05:30));
-        assert_eq!(filename, "tx-260430.tau");
+        assert_eq!(filename, "nx-260430.nx");
     }
 
     #[test]
     fn default_export_path_uses_current_working_directory() {
         let path =
             default_export_path_for_cwd(Path::new("C:/tmp"), datetime!(2026-04-30 09:15:00 +05:30));
-        assert_eq!(path, PathBuf::from("C:/tmp/tx-260430.tau"));
+        assert_eq!(path, PathBuf::from("C:/tmp/nx-260430.nx"));
     }
 
     #[test]
     fn encode_exchange_blob_is_always_encrypted_tau2() {
         let blob = encode_exchange_blob(&ExchangePayload::new(vec![]), None).unwrap();
-        assert_eq!(&blob[..4], b"TAU\x00");
+        assert_eq!(&blob[..4], b"NITE");
         assert!(
             !blob
                 .windows(b"schema_version".len())
@@ -303,7 +305,7 @@ mod tests {
     #[test]
     fn encode_exchange_blob_with_password_sets_flag() {
         let blob = encode_exchange_blob(&ExchangePayload::new(vec![]), Some("hunter222")).unwrap();
-        assert_eq!(&blob[..4], b"TAU\x00");
+        assert_eq!(&blob[..4], b"NITE");
         assert_eq!(blob[4] & 0x01, 0x01);
         assert!(
             !blob
@@ -318,7 +320,7 @@ mod tests {
     fn test_write_export_file_sets_0600_permissions() {
         use std::os::unix::fs::PermissionsExt;
         let temp_dir = tempfile::tempdir().unwrap();
-        let file_path = temp_dir.path().join("test_export.tau");
+        let file_path = temp_dir.path().join("test_export.nx");
         write_export_file(&file_path, b"test_content").unwrap();
         let metadata = std::fs::metadata(&file_path).unwrap();
         assert_eq!(metadata.permissions().mode() & 0o777, 0o600);

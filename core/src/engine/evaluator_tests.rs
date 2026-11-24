@@ -1273,23 +1273,23 @@ fn test_inline_math_whitespace_and_newline_do_not_multiply() {
 }
 
 #[test]
-fn inline_ai_tau_comma_trigger_expands_prompt() {
+fn inline_ai_nite_comma_trigger_expands_prompt() {
     let state = Arc::new(EngineState::new());
     let mut eval = Evaluator::new(state);
 
-    for c in "tau, what is the capital of france?".chars() {
+    for c in "nite, what is the capital of france?".chars() {
         assert_eq!(eval.process(EngineEvent::Char(c)), None);
     }
 
     let result = eval
         .process(EngineEvent::ActionKey)
-        .expect("tau, prompt followed by Enter should trigger inline AI");
+        .expect("nite, prompt followed by Enter should trigger inline AI");
 
     assert_eq!(
         result.delete_count,
-        "tau, what is the capital of france?".chars().count()
+        "nite, what is the capital of france?".chars().count()
     );
-    assert_eq!(result.trigger, "tau,");
+    assert_eq!(result.trigger, "nite,");
     assert_eq!(result.stat_kind, TriggerStatKind::InlineAi);
     assert_eq!(
         result.steps,
@@ -1299,32 +1299,32 @@ fn inline_ai_tau_comma_trigger_expands_prompt() {
 }
 
 #[test]
-fn inline_ai_tau_without_comma_is_rejected_and_does_not_conflict_with_cli_alias() {
+fn inline_ai_nite_without_comma_is_rejected_and_does_not_conflict_with_cli_alias() {
     let state = Arc::new(EngineState::new());
     let mut eval = Evaluator::new(state);
 
-    // Typing `tau what is the capital of france?` or `tau config list` without comma
-    // must NOT trigger inline AI, preventing conflicts with the `tau` CLI alias.
-    for c in "tau what is the capital of france?".chars() {
+    // Typing `nite what is the capital of france?` or `nite config list` without comma
+    // must NOT trigger inline AI, preventing conflicts with the `nite` CLI alias.
+    for c in "nite what is the capital of france?".chars() {
         assert_eq!(eval.process(EngineEvent::Char(c)), None);
     }
 
     assert_eq!(
         eval.process(EngineEvent::ActionKey),
         None,
-        "tau without comma must not trigger inline AI"
+        "nite without comma must not trigger inline AI"
     );
 }
 
 #[test]
-fn inline_ai_tau_case_insensitive_variants() {
+fn inline_ai_nite_case_insensitive_variants() {
     let state = Arc::new(EngineState::new());
 
     for input in [
-        "tau, write a poem",
-        "Tau, write a poem",
-        "TAu, write a poem",
-        "TAU, write a poem",
+        "nite, write a poem",
+        "Nite, write a poem",
+        "NIte, write a poem",
+        "NITE, write a poem",
     ] {
         let mut eval = Evaluator::new(state.clone());
         for c in input.chars() {
@@ -1334,36 +1334,36 @@ fn inline_ai_tau_case_insensitive_variants() {
             .process(EngineEvent::ActionKey)
             .unwrap_or_else(|| panic!("failed for input {input}"));
         assert_eq!(result.delete_count, input.chars().count());
-        assert_eq!(result.trigger, "tau,");
+        assert_eq!(result.trigger, "nite,");
         assert_inline_ai_follow_up(&result, "write a poem", None);
     }
 }
 
 #[test]
-fn inline_ai_tau_colon_is_rejected() {
+fn inline_ai_nite_colon_is_rejected() {
     let state = Arc::new(EngineState::new());
     let mut eval = Evaluator::new(state);
 
-    for c in "tau: write a poem".chars() {
+    for c in "nite: write a poem".chars() {
         assert_eq!(eval.process(EngineEvent::Char(c)), None);
     }
 
     assert_eq!(
         eval.process(EngineEvent::ActionKey),
         None,
-        "tau: must not trigger inline AI"
+        "nite: must not trigger inline AI"
     );
 }
 
 #[test]
-fn inline_ai_tau_empty_prompt_is_rejected() {
+fn inline_ai_nite_empty_prompt_is_rejected() {
     let state = Arc::new(EngineState::new());
 
     for input in [
-        "tau",
-        "tau,",
-        "tau,   ",
-        "tau   ",
+        "nite",
+        "nite,",
+        "nite,   ",
+        "nite   ",
         "the greek letter is tau",
     ] {
         let mut eval = Evaluator::new(state.clone());
@@ -1379,12 +1379,12 @@ fn inline_ai_tau_empty_prompt_is_rejected() {
 }
 
 #[test]
-fn inline_ai_tau_mid_line_partial_deletion() {
+fn inline_ai_nite_mid_line_partial_deletion() {
     let state = Arc::new(EngineState::new());
     let mut eval = Evaluator::new(state);
 
     let prefix = "Dear Sarah, ";
-    let trigger_prompt = "tau, summarize the meeting";
+    let trigger_prompt = "nite, summarize the meeting";
     let full = format!("{prefix}{trigger_prompt}");
 
     for c in full.chars() {
@@ -1393,7 +1393,7 @@ fn inline_ai_tau_mid_line_partial_deletion() {
 
     let result = eval
         .process(EngineEvent::ActionKey)
-        .expect("mid-line tau, should trigger");
+        .expect("mid-line nite, should trigger");
 
     // delete_count must ONLY count trigger_prompt, leaving prefix untouched!
     assert_eq!(result.delete_count, trigger_prompt.chars().count());
@@ -1405,14 +1405,14 @@ fn inline_ai_evaluates_unconditionally() {
     let state = Arc::new(EngineState::new());
     let mut eval = Evaluator::new(state);
 
-    for c in "tau, write a poem".chars() {
+    for c in "nite, write a poem".chars() {
         assert_eq!(eval.process(EngineEvent::Char(c)), None);
     }
 
     let result = eval
         .process(EngineEvent::ActionKey)
         .expect("inline AI must trigger unconditionally");
-    assert_eq!(result.trigger, "tau,");
+    assert_eq!(result.trigger, "nite,");
     assert_inline_ai_follow_up(&result, "write a poem", None);
 }
 
@@ -1435,7 +1435,7 @@ fn inline_ai_has_prefix_detection() {
 
     assert!(!eval.has_inline_ai_prefix());
 
-    for c in "tau,".chars() {
+    for c in "nite,".chars() {
         eval.process(EngineEvent::Char(c));
     }
     assert!(eval.has_inline_ai_prefix());
@@ -1448,19 +1448,19 @@ fn inline_ai_has_prefix_detection() {
     eval.reset();
     assert!(!eval.has_inline_ai_prefix());
 
-    for c in "Hello world, tau, explain".chars() {
+    for c in "Hello world, nite, explain".chars() {
         eval.process(EngineEvent::Char(c));
     }
     assert!(eval.has_inline_ai_prefix());
 
     eval.reset();
-    for c in "tau without comma".chars() {
+    for c in "nite without comma".chars() {
         eval.process(EngineEvent::Char(c));
     }
     assert!(!eval.has_inline_ai_prefix());
 
     eval.reset();
-    for c in "tau: with colon".chars() {
+    for c in "nite: with colon".chars() {
         eval.process(EngineEvent::Char(c));
     }
     assert!(!eval.has_inline_ai_prefix());
@@ -1474,7 +1474,7 @@ fn inline_ai_placeholder_formatting_matches_spec() {
     assert_eq!(format_clipboard_placeholder("   "), "[clip: 0 words]");
     assert_eq!(format_clipboard_placeholder("single"), "[clip: 1 word]");
     assert_eq!(
-        format_clipboard_placeholder("hello world from taurine inline ai copilot test suite"),
+        format_clipboard_placeholder("hello world from nite inline ai copilot test suite"),
         "[clip: 9 words]"
     );
     assert_eq!(format_clipboard_placeholder("one\ntwo"), "[clip: 2 lines]");
@@ -1490,14 +1490,14 @@ fn inline_ai_manual_clip_token_substitutes_clipboard() {
     let state = Arc::new(EngineState::new());
     let mut eval = Evaluator::new(state);
 
-    let input = "tau, reformat this: [clip]";
+    let input = "nite, reformat this: [clip]";
     for c in input.chars() {
         eval.process(EngineEvent::Char(c));
     }
 
     let result = eval
         .process(EngineEvent::ActionKey)
-        .expect("tau, with [clip] should trigger");
+        .expect("nite, with [clip] should trigger");
 
     assert_eq!(result.delete_count, input.chars().count());
     assert_inline_ai_follow_up(&result, "reformat this: const x = 1;", None);
@@ -1510,7 +1510,7 @@ fn inline_ai_captured_clipboard_placeholder_substitutes_payload() {
     let state = Arc::new(EngineState::new());
     let mut eval = Evaluator::new(state);
 
-    for c in "tau, reformat this: ".chars() {
+    for c in "nite, reformat this: ".chars() {
         eval.process(EngineEvent::Char(c));
     }
 
@@ -1520,11 +1520,11 @@ fn inline_ai_captured_clipboard_placeholder_substitutes_payload() {
 
     let result = eval
         .process(EngineEvent::ActionKey)
-        .expect("tau, with clip placeholder should trigger");
+        .expect("nite, with clip placeholder should trigger");
 
     assert_eq!(
         result.delete_count,
-        "tau, reformat this: [clip: 3 lines]".chars().count()
+        "nite, reformat this: [clip: 3 lines]".chars().count()
     );
     assert_inline_ai_follow_up(&result, &format!("reformat this: {payload}"), None);
 }
@@ -1535,14 +1535,14 @@ fn inline_ai_empty_clip_token_does_not_trigger() {
     let state = Arc::new(EngineState::new());
     let mut eval = Evaluator::new(state);
 
-    for c in "tau, [clip]".chars() {
+    for c in "nite, [clip]".chars() {
         eval.process(EngineEvent::Char(c));
     }
 
     assert_eq!(
         eval.process(EngineEvent::ActionKey),
         None,
-        "tau, [clip] with empty clipboard must not trigger"
+        "nite, [clip] with empty clipboard must not trigger"
     );
 
     crate::engine::variables::system::clipboard::set_mock_clip(None);

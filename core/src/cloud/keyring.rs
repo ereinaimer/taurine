@@ -1,6 +1,6 @@
 use super::types::AuthTokens;
 
-const KEYRING_SERVICE: &str = "taurine-cloud";
+const KEYRING_SERVICE: &str = "nite-cloud";
 const KEYRING_USER: &str = "session";
 
 /// Stores the user's cloud authentication tokens in the OS credential vault.

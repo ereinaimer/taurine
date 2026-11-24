@@ -1308,11 +1308,11 @@ fn test_prepare_trigger_dangerous_hotkey_diagnostic() {
 }
 
 #[test]
-fn test_prepare_trigger_taurine_pause_conflict_diagnostic() {
+fn test_prepare_trigger_nite_pause_conflict_diagnostic() {
     let err = prepare_trigger("alt+`", true, "all").unwrap_err();
     let msg = err.to_string();
     assert!(
-        msg.contains("conflicts with Taurine's global pause hotkey"),
+        msg.contains("conflicts with Nite's global pause hotkey"),
         "expected pause conflict message, got: {msg}"
     );
     assert!(

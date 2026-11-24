@@ -14,7 +14,7 @@ use tracing::{error, warn};
 ///
 /// If the database file is corrupted (e.g. disk image is malformed or unreadable),
 /// the file and its associated WAL/SHM artifacts are automatically quarantined
-/// to `taurine.db.corrupted.<timestamp>`, and a fresh database is initialized
+/// to `nite.db.corrupted.<timestamp>`, and a fresh database is initialized
 /// to ensure the daemon never gets stuck in a boot loop.
 pub fn setup() -> Result<Connection> {
     ensure_data_dir();
@@ -233,7 +233,7 @@ fn quarantine_with_suffix(
     let file_name = db_path
         .file_name()
         .and_then(|f| f.to_str())
-        .unwrap_or("taurine.db");
+        .unwrap_or("nite.db");
 
     let mut quarantined_path =
         db_path.with_file_name(quarantine_file_name(file_name, suffix, timestamp, pid(), 0));
@@ -324,7 +324,7 @@ fn move_sidecar(
 /// Actionable error for wrong-key opens: never quarantines the file.
 fn key_mismatch_error() -> crate::error::Error {
     crate::error::Error::Service(
-        "Database key mismatch: the OS keystore key cannot decrypt the database file. Restore from an encrypted export; Taurine will not quarantine or overwrite it.".to_string(),
+        "Database key mismatch: the OS keystore key cannot decrypt the database file. Restore from an encrypted export; Nite will not quarantine or overwrite it.".to_string(),
     )
 }
 
@@ -404,7 +404,7 @@ mod tests {
         let _guard = lock();
         use_mock_keyring();
         let temp_dir = TempDir::new().expect("failed to create temp dir");
-        let db_path = temp_dir.path().join("taurine.db");
+        let db_path = temp_dir.path().join("nite.db");
 
         let conn = setup_at_path(&db_path).expect("fresh setup must succeed");
 
@@ -433,7 +433,7 @@ mod tests {
         let _guard = lock();
         use_mock_keyring();
         let temp_dir = TempDir::new().expect("failed to create temp dir");
-        let db_path = temp_dir.path().join("taurine.db");
+        let db_path = temp_dir.path().join("nite.db");
 
         // Build a REAL plaintext DB: plain open without key.
         {
@@ -464,7 +464,7 @@ mod tests {
             .collect();
         assert_eq!(
             entries,
-            vec!["taurine.db".to_string()],
+            vec!["nite.db".to_string()],
             "no quarantine must be created, found: {:?}",
             entries
         );
@@ -508,7 +508,7 @@ mod tests {
         let _guard = lock();
         use_mock_keyring();
         let temp_dir = TempDir::new().expect("failed to create temp dir");
-        let db_path = temp_dir.path().join("taurine.db");
+        let db_path = temp_dir.path().join("nite.db");
 
         // Non-SQLite garbage: damaged header, surfaces as a key error by design.
         std::fs::write(&db_path, b"THIS IS COMPLETELY CORRUPTED GARBAGE DATA").unwrap();
@@ -541,7 +541,7 @@ mod tests {
         let _guard = lock();
         use_mock_keyring();
         let temp_dir = TempDir::new().expect("failed to create temp dir");
-        let db_path = temp_dir.path().join("taurine.db");
+        let db_path = temp_dir.path().join("nite.db");
 
         // First initialize a valid database
         {
@@ -591,9 +591,9 @@ mod tests {
     fn test_quarantine_cleans_up_wal_and_shm() {
         let _guard = lock();
         let temp_dir = TempDir::new().expect("failed to create temp dir");
-        let db_path = temp_dir.path().join("taurine.db");
-        let wal_path = temp_dir.path().join("taurine.db-wal");
-        let shm_path = temp_dir.path().join("taurine.db-shm");
+        let db_path = temp_dir.path().join("nite.db");
+        let wal_path = temp_dir.path().join("nite.db-wal");
+        let shm_path = temp_dir.path().join("nite.db-shm");
 
         std::fs::write(&db_path, b"CORRUPTED DB").unwrap();
         std::fs::write(&wal_path, b"DUMMY WAL DATA").unwrap();
@@ -612,14 +612,14 @@ mod tests {
         assert!(
             file_names
                 .iter()
-                .any(|n| n.starts_with("taurine.db.corrupted.") && n.ends_with("-wal")),
+                .any(|n| n.starts_with("nite.db.corrupted.") && n.ends_with("-wal")),
             "Quarantined WAL file must exist, found: {:?}",
             file_names
         );
         assert!(
             file_names
                 .iter()
-                .any(|n| n.starts_with("taurine.db.corrupted.") && n.ends_with("-shm")),
+                .any(|n| n.starts_with("nite.db.corrupted.") && n.ends_with("-shm")),
             "Quarantined SHM file must exist, found: {:?}",
             file_names
         );
@@ -630,12 +630,12 @@ mod tests {
     #[test]
     fn test_quarantine_file_name_shapes() {
         assert_eq!(
-            quarantine_file_name("taurine.db", "corrupted", 123, 456, 0),
-            "taurine.db.corrupted.123"
+            quarantine_file_name("nite.db", "corrupted", 123, 456, 0),
+            "nite.db.corrupted.123"
         );
         assert_eq!(
-            quarantine_file_name("taurine.db", "corrupted", 123, 456, 2),
-            "taurine.db.corrupted.123.p456.2"
+            quarantine_file_name("nite.db", "corrupted", 123, 456, 2),
+            "nite.db.corrupted.123.p456.2"
         );
     }
 
@@ -643,7 +643,7 @@ mod tests {
     fn test_double_quarantine_keeps_both_with_distinct_names() {
         let _guard = lock();
         let temp_dir = TempDir::new().expect("failed to create temp dir");
-        let db_path = temp_dir.path().join("taurine.db");
+        let db_path = temp_dir.path().join("nite.db");
 
         std::fs::write(&db_path, b"FIRST GARBAGE").unwrap();
         let first = quarantine_corrupted_db(&db_path)
@@ -663,10 +663,10 @@ mod tests {
     fn test_quarantine_sidecars_derive_from_final_main_name() {
         let _guard = lock();
         let temp_dir = TempDir::new().expect("failed to create temp dir");
-        let db_path = temp_dir.path().join("taurine.db");
+        let db_path = temp_dir.path().join("nite.db");
         std::fs::write(&db_path, b"CORRUPTED DB").unwrap();
-        std::fs::write(temp_dir.path().join("taurine.db-wal"), b"DUMMY WAL").unwrap();
-        std::fs::write(temp_dir.path().join("taurine.db-shm"), b"DUMMY SHM").unwrap();
+        std::fs::write(temp_dir.path().join("nite.db-wal"), b"DUMMY WAL").unwrap();
+        std::fs::write(temp_dir.path().join("nite.db-shm"), b"DUMMY SHM").unwrap();
 
         let quarantined = quarantine_corrupted_db(&db_path)
             .expect("quarantine must succeed")
@@ -720,7 +720,7 @@ mod tests {
         let _guard = lock();
         use_mock_keyring();
         let temp_dir = TempDir::new().expect("temp dir");
-        let db_path = temp_dir.path().join("taurine.db");
+        let db_path = temp_dir.path().join("nite.db");
 
         let conn = setup_at_path(&db_path).expect("first setup must succeed");
         drop(conn);

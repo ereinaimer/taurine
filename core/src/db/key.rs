@@ -1,7 +1,7 @@
 use std::path::Path;
 use zeroize::{Zeroize, Zeroizing};
 
-const KEYRING_SERVICE: &str = "taurine";
+const KEYRING_SERVICE: &str = "nite";
 const KEYRING_USER: &str = "db-key";
 
 /// Process-wide cache of the per-install database encryption key.
@@ -126,13 +126,13 @@ fn open_with_key(db_path: &Path, key: &[u8; 32]) -> crate::Result<rusqlite::Conn
 
 fn keystore_unavailable(err: keyring::Error) -> crate::Error {
     crate::Error::Service(format!(
-        "Database key unavailable from the OS keystore ({err}). Start the secret service (Linux), unlock the login keychain (macOS), or sign in so Credential Manager is available (Windows); headless sessions without a secret daemon are unsupported. Taurine will not open the database without its key."
+        "Database key unavailable from the OS keystore ({err}). Start the secret service (Linux), unlock the login keychain (macOS), or sign in so Credential Manager is available (Windows); headless sessions without a secret daemon are unsupported. Nite will not open the database without its key."
     ))
 }
 
 fn invalid_stored_key() -> crate::Error {
     crate::Error::Service(
-        "Stored database key in the OS keystore is invalid (expected 64 hex characters decoding to 32 bytes). Taurine will not overwrite it: restore the taurine db-key entry from backup or re-import from an encrypted export.".to_string(),
+        "Stored database key in the OS keystore is invalid (expected 64 hex characters decoding to 32 bytes). Nite will not overwrite it: restore the nite db-key entry from backup or re-import from an encrypted export.".to_string(),
     )
 }
 
@@ -226,7 +226,7 @@ mod tests {
         let _guard = lock();
         use_mock_keyring();
         let dir = tempfile::TempDir::new().expect("temp dir must be created");
-        let db_path = dir.path().join("taurine.db");
+        let db_path = dir.path().join("nite.db");
         let stale = Zeroizing::new(rand::random::<[u8; 32]>());
         let current = get_or_create_db_key().expect("key must exist");
         assert_ne!(*stale, *current, "test needs distinct keys");
@@ -253,7 +253,7 @@ mod tests {
         let _guard = lock();
         use_mock_keyring();
         let dir = tempfile::TempDir::new().expect("temp dir must be created");
-        let db_path = dir.path().join("taurine.db");
+        let db_path = dir.path().join("nite.db");
         let wrong = Zeroizing::new(rand::random::<[u8; 32]>());
         open_with_key(&db_path, &wrong).expect("seed with wrong key must succeed");
 
@@ -266,7 +266,7 @@ mod tests {
             .filter_map(|entry| entry.ok())
             .any(|entry| {
                 let name = entry.file_name().to_string_lossy().into_owned();
-                name.starts_with("taurine.db.corrupted.")
+                name.starts_with("nite.db.corrupted.")
             });
         assert!(!quarantined, "fail-closed must not quarantine, got: {err}");
     }
@@ -276,7 +276,7 @@ mod tests {
         let _guard = lock();
         use_mock_keyring();
         let dir = tempfile::TempDir::new().expect("temp dir must be created");
-        let db_path = dir.path().join("taurine.db");
+        let db_path = dir.path().join("nite.db");
         let conn = open_keyed_connection(&db_path).expect("keyed open must succeed");
         conn.execute_batch("CREATE TABLE t (id INTEGER); INSERT INTO t VALUES (1);")
             .expect("write must succeed");
@@ -294,7 +294,7 @@ mod tests {
         let entry = test_entry();
         let key = get_or_create_key_with(&entry).expect("get-or-create must succeed");
         let dir = tempfile::TempDir::new().expect("temp dir must be created");
-        let db_path = dir.path().join("taurine.db");
+        let db_path = dir.path().join("nite.db");
 
         {
             let conn = open_with_key(&db_path, &key).expect("keyed open must succeed");

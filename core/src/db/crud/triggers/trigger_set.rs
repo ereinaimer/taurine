@@ -17,7 +17,7 @@ use crate::engine::{
     variables::system::validate_output,
 };
 use crate::keys::{
-    HotkeyPlatform, conflicts_with_taurine_global_hotkey, danger_for_platform, parse_hotkey,
+    HotkeyPlatform, conflicts_with_nite_global_hotkey, danger_for_platform, parse_hotkey,
 };
 
 use super::TriggerType;
@@ -112,12 +112,12 @@ pub fn prepare_trigger_with_type(
         .map_err(|error| crate::Error::Config(format!("Invalid hotkey {trigger}: {error}")))?;
     let canonical = hotkey.canonical_string();
 
-    if conflicts_with_taurine_global_hotkey(hotkey).is_some() {
+    if conflicts_with_nite_global_hotkey(hotkey).is_some() {
         let diag = crate::diagnostic::Diagnostic::problem(format!(
-            "Hotkey {canonical} conflicts with Taurine's global pause hotkey"
+            "Hotkey {canonical} conflicts with Nite's global pause hotkey"
         ))
-        .help("alt+` is reserved globally to pause and resume Taurine expansion.")
-        .example("taurine config set pause_hotkey <NEW_HOTKEY>")
+        .help("alt+` is reserved globally to pause and resume Nite expansion.")
+        .example("nite config set pause_hotkey <NEW_HOTKEY>")
         .render();
         return Err(crate::Error::Config(diag));
     }

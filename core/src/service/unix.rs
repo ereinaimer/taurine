@@ -13,7 +13,8 @@ use tracing::{debug, error, info};
 
 use crate::rpc::{ShutdownRequest, StatusRequest};
 
-const TAURINE_SERVICE_LABEL: &str = "com.ereinaimer.taurine";
+const NITE_SERVICE_LABEL: &str = "com.ereinaimer.nite";
+const TAURINE_SERVICE_LABEL: &str = NITE_SERVICE_LABEL;
 
 fn get_manager() -> crate::error::Result<Box<dyn ServiceManager>> {
     let mut manager = native_service_manager().map_err(|e| {
@@ -120,7 +121,7 @@ fn ensure_linux_permissions() -> crate::error::Result<()> {
     let mut needs_udev_fix = false;
 
     // 1. Check udev rules
-    let udev_path = std::path::Path::new("/etc/udev/rules.d/99-taurine.rules");
+    let udev_path = std::path::Path::new("/etc/udev/rules.d/99-nite.rules");
     if !udev_path.exists() {
         needs_udev_fix = true;
     } else {
@@ -197,7 +198,7 @@ fn ensure_linux_permissions() -> crate::error::Result<()> {
 
         if !status.success() {
             return Err(crate::Error::Service(
-                "Failed to obtain administrative permissions. Taurine cannot start without these privileges.".to_string(),
+                "Failed to obtain administrative permissions. Nite cannot start without these privileges.".to_string(),
             ));
         }
 
@@ -250,12 +251,12 @@ fn systemd_daemon_reload() {
 /// accumulate zombie `systemctl` processes.
 #[cfg(target_os = "linux")]
 pub fn request_systemd_stop() {
-    let service_name = TAURINE_SERVICE_LABEL
+    let service_name = NITE_SERVICE_LABEL
         .parse::<ServiceLabel>()
         .map(|label| format!("{}.service", label.to_script_name()))
-        .unwrap_or_else(|_| "ereinaimer-taurine.service".to_string());
+        .unwrap_or_else(|_| "ereinaimer-nite.service".to_string());
     if let Err(e) = std::thread::Builder::new()
-        .name("tau-systemd-stop".to_string())
+        .name("nite-systemd-stop".to_string())
         .spawn(move || {
             let _ = std::process::Command::new("systemctl")
                 .arg("--user")
@@ -380,7 +381,7 @@ fn reject_sudo_service_command(command: &str) -> crate::error::Result<()> {
         && !user.trim().is_empty()
     {
         return Err(crate::Error::Service(format!(
-            "taurine {command} must be run as {user}, not with sudo."
+            "nite {command} must be run as {user}, not with sudo."
         )));
     }
     Ok(())
@@ -442,7 +443,7 @@ fn linux_direct_install(autostart: bool, label: &ServiceLabel) -> crate::error::
     let exe_path = current_exe.to_string_lossy();
     let service_content = format!(
         "[Unit]\n\
-         Description=Taurine\n\n\
+         Description=Nite\n\n\
          [Service]\n\
          ExecStart=\"{}\" --daemon\n\
          Restart=on-failure\n\
@@ -507,7 +508,7 @@ fn linux_direct_install(autostart: bool, label: &ServiceLabel) -> crate::error::
 pub fn sync_boot(enabled: bool) -> crate::error::Result<()> {
     let manager = get_manager()?;
     let label: ServiceLabel =
-        TAURINE_SERVICE_LABEL
+        NITE_SERVICE_LABEL
             .parse()
             .map_err(|e: <ServiceLabel as std::str::FromStr>::Err| {
                 crate::Error::Service(e.to_string())
@@ -517,7 +518,7 @@ pub fn sync_boot(enabled: bool) -> crate::error::Result<()> {
         label: label.clone(),
     }) {
         Ok(ServiceStatus::NotInstalled) | Err(_) => {
-            debug!("Taurine service is not installed; skipping boot sync.");
+            debug!("Nite service is not installed; skipping boot sync.");
             Ok(())
         }
         _ => {
@@ -561,7 +562,7 @@ pub fn up(start_on_boot: bool) -> crate::error::Result<()> {
 
     let manager = get_manager()?;
     let label: ServiceLabel =
-        TAURINE_SERVICE_LABEL
+        NITE_SERVICE_LABEL
             .parse()
             .map_err(|e: <ServiceLabel as std::str::FromStr>::Err| {
                 crate::Error::Service(e.to_string())
@@ -571,10 +572,10 @@ pub fn up(start_on_boot: bool) -> crate::error::Result<()> {
         label: label.clone(),
     }) {
         Ok(ServiceStatus::Running) => {
-            info!("Taurine service is already running.");
+            info!("Nite service is already running.");
         }
         Ok(ServiceStatus::Stopped(_)) => {
-            debug!("Taurine service found but stopped. Starting...");
+            debug!("Nite service found but stopped. Starting...");
             #[cfg(target_os = "linux")]
             systemd_daemon_reload();
             manager
@@ -582,10 +583,10 @@ pub fn up(start_on_boot: bool) -> crate::error::Result<()> {
                     label: label.clone(),
                 })
                 .map_err(|e| crate::Error::Service(e.to_string()))?;
-            info!("Taurine service started successfully.");
+            info!("Nite service started successfully.");
         }
         Ok(ServiceStatus::NotInstalled) | Err(_) => {
-            debug!("Taurine service not found. Installing...");
+            debug!("Nite service not found. Installing...");
 
             #[cfg(target_os = "linux")]
             {
@@ -615,7 +616,7 @@ pub fn up(start_on_boot: bool) -> crate::error::Result<()> {
                     label: label.clone(),
                 })
                 .map_err(|e| crate::Error::Service(e.to_string()))?;
-            info!("Taurine service started successfully.");
+            info!("Nite service started successfully.");
         }
     }
 
@@ -647,7 +648,7 @@ pub fn down() -> crate::error::Result<()> {
 
     let manager = get_manager()?;
     let label: ServiceLabel =
-        TAURINE_SERVICE_LABEL
+        NITE_SERVICE_LABEL
             .parse()
             .map_err(|e: <ServiceLabel as std::str::FromStr>::Err| {
                 crate::Error::Service(e.to_string())
@@ -676,7 +677,7 @@ pub fn down() -> crate::error::Result<()> {
                 && wait_for_manager_stop(&*manager, &label, 10)
                 && confirm_stays_stopped(&*manager, &label, needs_settle)
             {
-                info!("Taurine has been stopped.");
+                info!("Nite has been stopped.");
                 return Ok(());
             }
             debug!("Manager stop did not settle; falling through to graceful shutdown...");
@@ -696,14 +697,14 @@ pub fn down() -> crate::error::Result<()> {
                     #[cfg(target_os = "linux")]
                     {
                         if confirm_stays_stopped(&*manager, &label, needs_settle) {
-                            info!("Taurine has been stopped.");
+                            info!("Nite has been stopped.");
                             return Ok(());
                         }
                         break;
                     }
                     #[cfg(not(target_os = "linux"))]
                     {
-                        info!("Taurine service has been stopped.");
+                        info!("Nite service has been stopped.");
                         return Ok(());
                     }
                 }
@@ -720,12 +721,12 @@ pub fn down() -> crate::error::Result<()> {
         Ok(ServiceStatus::Stopped(_)) | Ok(ServiceStatus::NotInstalled) | Err(_)
             if confirm_stays_stopped(&*manager, &label, needs_settle) =>
         {
-            info!("Taurine service is already stopped.");
+            info!("Nite service is already stopped.");
             return Ok(());
         }
         #[cfg(not(target_os = "linux"))]
         Ok(ServiceStatus::Stopped(_)) | Ok(ServiceStatus::NotInstalled) | Err(_) => {
-            info!("Taurine service is already stopped.");
+            info!("Nite service is already stopped.");
             return Ok(());
         }
         _ => {}
@@ -745,17 +746,17 @@ pub fn down() -> crate::error::Result<()> {
                 if wait_for_manager_stop(&*manager, &label, 10)
                     && confirm_stays_stopped(&*manager, &label, needs_settle)
                 {
-                    info!("Taurine service has been stopped (fallback).");
+                    info!("Nite service has been stopped (fallback).");
                     return Ok(());
                 }
                 error!("Service was stopped but did not stay stopped.");
                 Err(crate::Error::Service(
-                    "Taurine did not stay stopped.".to_string(),
+                    "Nite did not stay stopped.".to_string(),
                 ))
             }
             #[cfg(not(target_os = "linux"))]
             {
-                info!("Taurine service has been stopped (fallback).");
+                info!("Nite service has been stopped (fallback).");
                 Ok(())
             }
         }
@@ -775,7 +776,7 @@ pub fn restart(start_on_boot: bool) -> crate::error::Result<()> {
 
     let manager = get_manager()?;
     let label: ServiceLabel =
-        TAURINE_SERVICE_LABEL
+        NITE_SERVICE_LABEL
             .parse()
             .map_err(|e: <ServiceLabel as std::str::FromStr>::Err| {
                 crate::Error::Service(e.to_string())
@@ -851,9 +852,9 @@ pub fn restart(start_on_boot: bool) -> crate::error::Result<()> {
     match manager.start(ServiceStartCtx {
         label: label.clone(),
     }) {
-        Ok(_) => info!("Taurine has been restarted."),
+        Ok(_) => info!("Nite has been restarted."),
         Err(e) => {
-            error!("Failed to restart Taurine: {}", e);
+            error!("Failed to restart Nite: {}", e);
             return Err(crate::Error::Service(e.to_string()));
         }
     }
@@ -877,19 +878,16 @@ pub fn status() -> crate::error::Result<()> {
 
     if let Some(status) = grpc_status {
         if status.paused {
-            info!(
-                "Taurine is paused. Press {} to resume!",
-                status.pause_hotkey
-            );
+            info!("Nite is paused. Press {} to resume!", status.pause_hotkey);
         } else {
-            info!("Taurine is running.");
+            info!("Nite is running.");
         }
         return Ok(());
     }
 
     let manager = get_manager()?;
     let label: ServiceLabel =
-        TAURINE_SERVICE_LABEL
+        NITE_SERVICE_LABEL
             .parse()
             .map_err(|e: <ServiceLabel as std::str::FromStr>::Err| {
                 crate::Error::Service(e.to_string())
@@ -898,8 +896,8 @@ pub fn status() -> crate::error::Result<()> {
     match manager.status(ServiceStatusCtx {
         label: label.clone(),
     }) {
-        Ok(ServiceStatus::Running) => info!("Taurine is running."),
-        _ => info!("Taurine is stopped."),
+        Ok(ServiceStatus::Running) => info!("Nite is running."),
+        _ => info!("Nite is stopped."),
     }
 
     Ok(())
@@ -951,7 +949,7 @@ pub fn linux_setup() -> crate::error::Result<()> {
     // 2. Write udev rules
     let rule_content =
         "KERNEL==\"uinput\", GROUP=\"input\", MODE=\"0660\", OPTIONS+=\"static_node=uinput\"\n";
-    std::fs::write("/etc/udev/rules.d/99-taurine.rules", rule_content)
+    std::fs::write("/etc/udev/rules.d/99-nite.rules", rule_content)
         .map_err(|err| crate::Error::Service(format!("Failed to write udev rule: {}", err)))?;
 
     // 3. Write Polkit policy file
@@ -959,21 +957,21 @@ pub fn linux_setup() -> crate::error::Result<()> {
 <!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
 "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
 <policyconfig>
-  <action id="com.ereinaimer.taurine.setup">
-    <description>Configure system permissions for Taurine</description>
-    <message>Taurine needs administrative access to configure hardware permissions.</message>
+  <action id="com.ereinaimer.nite.setup">
+    <description>Configure system permissions for Nite</description>
+    <message>Nite needs administrative access to configure hardware permissions.</message>
     <defaults>
       <allow_any>no</allow_any>
       <allow_inactive>no</allow_inactive>
       <allow_active>auth_admin</allow_active>
     </defaults>
-    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/taurine</annotate>
-    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/taurine</annotate>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/nite</annotate>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/nite</annotate>
   </action>
 </policyconfig>
 "#;
     std::fs::write(
-        "/usr/share/polkit-1/actions/com.ereinaimer.taurine.policy",
+        "/usr/share/polkit-1/actions/com.ereinaimer.nite.policy",
         policy_content,
     )
     .map_err(|err| crate::Error::Service(format!("Failed to write Polkit policy: {}", err)))?;
@@ -996,8 +994,8 @@ mod tests {
 
     #[test]
     fn test_service_name_matches_label() {
-        let label: ServiceLabel = TAURINE_SERVICE_LABEL.parse().unwrap();
-        assert_eq!(label.to_script_name(), "ereinaimer-taurine");
+        let label: ServiceLabel = NITE_SERVICE_LABEL.parse().unwrap();
+        assert_eq!(label.to_script_name(), "ereinaimer-nite");
         // Verify that the file name used in linux_direct_install will match this expected script name
     }
 
@@ -1026,7 +1024,7 @@ mod tests {
         }
         let _env_guard = EnvGuard(old_xdg);
 
-        let label: ServiceLabel = TAURINE_SERVICE_LABEL.parse().unwrap();
+        let label: ServiceLabel = NITE_SERVICE_LABEL.parse().unwrap();
         linux_direct_install(false, &label).unwrap();
         let content = std::fs::read_to_string(linux_unit_path(&label).expect("unit path")).unwrap();
         assert!(
@@ -1054,7 +1052,7 @@ mod tests {
         std::os::unix::fs::symlink(&path, &link_path).unwrap();
         std::fs::write(
             &path,
-            "[Unit]\nDescription=Taurine\n\n[Service]\nExecStart=\"/custom/location/taurine\" --daemon\nRestart=always\n\n[Install]\nWantedBy=default.target\n",
+            "[Unit]\nDescription=Nite\n\n[Service]\nExecStart=\"/custom/location/nite\" --daemon\nRestart=always\n\n[Install]\nWantedBy=default.target\n",
         )
         .unwrap();
         assert!(migrate_linux_restart_policy(&label));
@@ -1062,7 +1060,7 @@ mod tests {
         assert!(migrated.contains("Restart=on-failure"));
         assert!(!migrated.contains("Restart=always"));
         assert!(
-            migrated.contains("ExecStart=\"/custom/location/taurine\" --daemon"),
+            migrated.contains("ExecStart=\"/custom/location/nite\" --daemon"),
             "migration must preserve the installed binary path"
         );
         assert!(

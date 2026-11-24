@@ -11,14 +11,15 @@ use serde::{Deserialize, Serialize};
 
 pub use crypto::{MIN_EXPORT_PASSWORD_LEN, validate_export_password};
 pub use export::{
-    default_export_filename, default_export_path, encode_exchange_blob, ensure_tau_extension,
-    export_triggers, resolve_export_path, write_export_file,
+    default_export_filename, default_export_path, encode_exchange_blob, ensure_nx_extension,
+    ensure_tau_extension, export_triggers, resolve_export_path, write_export_file,
 };
 pub use import::{
     ExistingTriggerConflict, ImportConflictAction, import_payload_transactionally, import_triggers,
 };
 
-pub const TAU_MAGIC: [u8; 4] = *b"TAU\x00";
+pub const NITE_MAGIC: [u8; 4] = *b"NITE";
+pub const TAU_MAGIC: [u8; 4] = NITE_MAGIC;
 pub const EXCHANGE_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -298,13 +299,13 @@ mod tests {
         }]);
 
         let encoded = crate::exchange::export::encode_exchange_blob(&payload, None).unwrap();
-        assert_eq!(&encoded[..TAU_MAGIC.len()], &TAU_MAGIC);
+        assert_eq!(&encoded[..NITE_MAGIC.len()], &NITE_MAGIC);
         assert_eq!(decode_exchange_blob(&encoded, None).unwrap(), payload);
 
         let mut bad = vec![0u8; 128];
         bad[..4].copy_from_slice(b"BADS");
         let err = decode_exchange_blob(&bad, None).unwrap_err();
-        assert!(err.to_string().contains("TAU"));
+        assert!(err.to_string().contains("NITE"));
     }
 
     #[test]

@@ -283,7 +283,7 @@ impl Evaluator {
 
     pub fn has_inline_ai_prefix(&self) -> bool {
         let line = self.buffer.last_line();
-        TAU_PREFIX_REGEX.is_match(&line)
+        NITE_PREFIX_REGEX.is_match(&line)
     }
 
     pub fn set_captured_ai_clipboard(&mut self, text: String) {
@@ -298,7 +298,7 @@ impl Evaluator {
 
     pub(crate) fn check_inline_ai_trigger(&mut self) -> Option<ExpansionResult> {
         let line = self.buffer.last_line();
-        let caps = TAU_AI_REGEX.captures(&line)?;
+        let caps = NITE_AI_REGEX.captures(&line)?;
 
         let full_span = caps.name("full_span")?.as_str();
         let prompt_raw = caps.name("prompt")?.as_str().trim();
@@ -338,7 +338,7 @@ impl Evaluator {
         Some(ExpansionResult {
             delete_count,
             steps: vec![ExpansionStep::Text(self.get_thinking_text())],
-            trigger: "tau,".to_string(),
+            trigger: "nite,".to_string(),
             undo_trigger: None,
             is_calculation: false,
             stat_kind: TriggerStatKind::InlineAi,
@@ -365,8 +365,8 @@ pub fn format_clipboard_placeholder(clip_text: &str) -> String {
     }
 }
 
-static TAU_PREFIX_REGEX: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-    regex::Regex::new(r"(?i)(?:^|[\s])tau,").expect("Valid tau prefix regex")
+static NITE_PREFIX_REGEX: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new(r"(?i)(?:^|[\s])nite,").expect("Valid nite prefix regex")
 });
 
 static AI_CLIPBOARD_PLACEHOLDER_REGEX: std::sync::LazyLock<regex::Regex> =
@@ -374,7 +374,7 @@ static AI_CLIPBOARD_PLACEHOLDER_REGEX: std::sync::LazyLock<regex::Regex> =
         regex::Regex::new(r"\[clip:\s*\d+\s*(?:lines?|words?)\]").expect("Valid placeholder regex")
     });
 
-static TAU_AI_REGEX: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-    regex::Regex::new(r"(?i)(?:^|[\s])(?P<full_span>(?P<prefix>tau,)\s*(?P<prompt>\S.*))$")
-        .expect("Valid tau inline AI regex")
+static NITE_AI_REGEX: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new(r"(?i)(?:^|[\s])(?P<full_span>(?P<prefix>nite,)\s*(?P<prompt>\S.*))$")
+        .expect("Valid nite inline AI regex")
 });
