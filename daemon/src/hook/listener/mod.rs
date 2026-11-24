@@ -58,6 +58,37 @@ pub(super) static LISTENER_EPOCH: std::sync::atomic::AtomicU64 =
 static PAUSE_KEY_DOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 #[cfg(not(target_os = "linux"))]
+static VOICE_POOL: std::sync::OnceLock<crossbeam_channel::Sender<Box<dyn FnOnce() + Send>>> =
+    std::sync::OnceLock::new();
+
+#[cfg(not(target_os = "linux"))]
+fn voice_pool() -> &'static crossbeam_channel::Sender<Box<dyn FnOnce() + Send>> {
+    VOICE_POOL.get_or_init(|| {
+        let (tx, rx) = crossbeam_channel::unbounded::<Box<dyn FnOnce() + Send>>();
+        std::thread::Builder::new()
+            .name("tau-voice-dispatch".to_string())
+            .spawn(move || {
+                for job in rx {
+                    let _ = crate::platform::panic::catch_worker_panic(
+                        "tau-voice-dispatch",
+                        std::panic::AssertUnwindSafe(job),
+                    );
+                }
+            })
+            .expect("voice dispatch worker spawn");
+        tx
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
+fn dispatch_voice_job<F>(f: F)
+where
+    F: FnOnce() + Send + 'static,
+{
+    let _ = voice_pool().send(Box::new(f));
+}
+
+#[cfg(not(target_os = "linux"))]
 use crate::input::hotkey::{
     HANDSFREE_KEY_DOWN, PTT_KEY_DOWN, cached_voice_handsfree_spec, cached_voice_ptt_spec,
 };
@@ -361,7 +392,7 @@ pub fn process_keyboard_event(
             let was_down = PTT_KEY_DOWN.swap(false, Ordering::Relaxed);
             if was_down && let Some(session) = crate::VOICE_SESSION.get() {
                 let session = session.clone();
-                std::thread::spawn(move || {
+                dispatch_voice_job(move || {
                     if let Err(e) = session.stop_ptt() {
                         warn!("Voice PTT stop error: {e}");
                     }
@@ -511,7 +542,7 @@ pub fn process_keyboard_event(
                 if key == Key::Escape && session.is_active() {
                     let session = session.clone();
                     let pass_through = state.fullscreen_suppressed();
-                    std::thread::spawn(move || {
+                    dispatch_voice_job(move || {
                         if let Err(e) = session.on_escape_pressed() {
                             warn!("Voice Escape handler error: {e}");
                         }
@@ -542,16 +573,11 @@ pub fn process_keyboard_event(
                     {
                         if !PTT_KEY_DOWN.swap(true, Ordering::Relaxed) {
                             let session = session.clone();
-                            if let Err(e) = std::thread::Builder::new()
-                                .name("taurine-voice-ptt-start".to_string())
-                                .spawn(move || {
-                                    if let Err(e) = session.start_ptt() {
-                                        warn!("Voice PTT start error: {e}");
-                                    }
-                                })
-                            {
-                                warn!("Voice PTT start spawn error: {e}");
-                            }
+                            dispatch_voice_job(move || {
+                                if let Err(e) = session.start_ptt() {
+                                    warn!("Voice PTT start error: {e}");
+                                }
+                            });
                         }
                         if is_modifier_key(key) {
                             return Some(event);
@@ -565,7 +591,7 @@ pub fn process_keyboard_event(
                     {
                         if !HANDSFREE_KEY_DOWN.swap(true, Ordering::Relaxed) {
                             let session = session.clone();
-                            std::thread::spawn(move || {
+                            dispatch_voice_job(move || {
                                 if let Err(e) = session.toggle_handsfree() {
                                     warn!("Voice HandsFree toggle error: {e}");
                                 }
