@@ -3,7 +3,7 @@ title: Calculation
 description: Perform inline arithmetic and numerical calculations directly within templates.
 ---
 
-The calculation system in Taurine allows you to perform inline arithmetic and numerical calculations directly within variable templates, either as a direct tag or as a pipeline transformer.
+The calculation system in Nite allows you to perform inline arithmetic and numerical calculations directly within variable templates, either as a direct tag or as a pipeline transformer.
 
 ### Direct Tag Syntax
 
@@ -22,7 +22,7 @@ Evaluate mathematical expressions directly:
 ```
 
 #### 1. Operator Prefix Chaining
-When the argument starts with an arithmetic operator (`+`, `-`, `*`, `/`, `%`, `^`), Taurine automatically evaluates the base expression against the right-hand side operation.
+When the argument starts with an arithmetic operator (`+`, `-`, `*`, `/`, `%`, `^`), Nite automatically evaluates the base expression against the right-hand side operation.
 
 | Example Template | Base Input | Result | Use Case |
 | :--- | :--- | :--- | :--- |
@@ -40,7 +40,7 @@ You can use `$`, `_`, or `x` inside the expression to represent the incoming bas
 ```
 
 #### 3. Parameterless Evaluation
-If no argument is provided, Taurine evaluates the incoming string directly as a math expression:
+If no argument is provided, Nite evaluates the incoming string directly as a math expression:
 
 ```text
 ["10 + 20" | calc]  -> 30

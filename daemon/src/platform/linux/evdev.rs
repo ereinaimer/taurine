@@ -463,7 +463,7 @@ fn process_frame(
             // involvement. Predicts the entering state; a settled-even burst
             // may sound without toggling, by design (press acknowledgment).
             // Repeats (value == 2) never reach here; each press queues one
-            // token and the tau-pause-count thread owns the toggle.
+            // token and the nite-pause-count thread owns the toggle.
             if pause_audio_enabled.load(Ordering::Relaxed) {
                 crate::services::audio::play_pause_cue(!paused.load(Ordering::Relaxed));
             }

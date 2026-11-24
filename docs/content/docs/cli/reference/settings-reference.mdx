@@ -1,11 +1,11 @@
 ---
 title: Settings Reference
-description: Comprehensive reference for Taurine configuration keys, aliases, and defaults.
+description: Comprehensive reference for Nite configuration keys, aliases, and defaults.
 ---
 
 import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
 
-Taurine provides a set of configuration keys to customize its behavior. You can manage these settings using the [`taurine config`](/docs/cli/reference/cli-reference#configuration) command or through the interactive TUI settings screen.
+Nite provides a set of configuration keys to customize its behavior. You can manage these settings using the [`nite config`](/docs/cli/reference/cli-reference#configuration) command or through the interactive TUI settings screen.
 
 ## Core & System
 
@@ -13,41 +13,41 @@ Manage system startup, service toggling, and core engine behavior.
 
 <Accordions>
 <Accordion title="pause_hotkey">
-  The global keyboard shortcut used to toggle the Taurine service on and off.
+  The global keyboard shortcut used to toggle the Nite service on and off.
   
   - **Key**: `pause_hotkey`
   - **Alias**: `hotkey`
   - **Default**: `Alt + \``
-  - **Example**: `taurine config set hotkey "Ctrl + Alt + P"`
+  - **Example**: `nite config set hotkey "Ctrl + Alt + P"`
 </Accordion>
 
 <Accordion title="start_on_boot">
-  Determines if Taurine should automatically start when your operating system boots.
+  Determines if Nite should automatically start when your operating system boots.
   
   - **Key**: `start_on_boot`
   - **Alias**: `boot`
   - **Default**: `true`
   - **Values**: `true`, `false`
-  - **Example**: `taurine config set boot false`
+  - **Example**: `nite config set boot false`
 </Accordion>
 
 <Accordion title="auto_update">
-  Automatically checks for and installs updates when the Taurine service starts.
+  Automatically checks for and installs updates when the Nite service starts.
   
   - **Key**: `auto_update`
   - **Default**: `true`
   - **Values**: `true`, `false`
-  - **Example**: `taurine config set auto_update false`
+  - **Example**: `nite config set auto_update false`
 </Accordion>
 
 <Accordion title="system_tray_enabled">
-  Show or hide the system tray icon in the operating system taskbar when the Taurine daemon is running.
+  Show or hide the system tray icon in the operating system taskbar when the Nite daemon is running.
   
   - **Key**: `system_tray_enabled`
   - **Alias**: `system_tray`, `tray`
   - **Default**: `true`
   - **Values**: `true`, `false`
-  - **Example**: `taurine config set tray false`
+  - **Example**: `nite config set tray false`
 </Accordion>
 
 <Accordion title="instant_expand">
@@ -57,16 +57,16 @@ Manage system startup, service toggling, and core engine behavior.
   - **Alias**: `instant`
   - **Default**: `false`
   - **Values**: `true`, `false`
-  - **Example**: `taurine config set instant true`
+  - **Example**: `nite config set instant true`
 </Accordion>
 
 <Accordion title="ignore_fullscreen">
-  Disables Taurine's text expansion engine, hotkeys, and voice dictation while a fullscreen application (such as a game or presentation) is focused.
+  Disables Nite's text expansion engine, hotkeys, and voice dictation while a fullscreen application (such as a game or presentation) is focused.
   
   - **Key**: `ignore_fullscreen`
   - **Default**: `true`
   - **Values**: `true`, `false`
-  - **Example**: `taurine config set ignore_fullscreen false`
+  - **Example**: `nite config set ignore_fullscreen false`
 </Accordion>
 </Accordions>
 
@@ -81,7 +81,7 @@ Configure date, time, and combined timestamp templates for inline expansion.
   - **Key**: `inline_date_format`
   - **Aliases**: `date_format`, `inline_datetime_date_format`, `inline_date_time_date_format`
   - **Default**: `MMMM D, YYYY`
-  - **Example**: `taurine config set date_format "YYYY-MM-DD"`
+  - **Example**: `nite config set date_format "YYYY-MM-DD"`
 </Accordion>
 
 <Accordion title="inline_time_format">
@@ -90,7 +90,7 @@ Configure date, time, and combined timestamp templates for inline expansion.
   - **Key**: `inline_time_format`
   - **Aliases**: `time_format`, `inline_datetime_time_format`, `inline_date_time_time_format`
   - **Default**: `h:mm A`
-  - **Example**: `taurine config set time_format "HH:mm"`
+  - **Example**: `nite config set time_format "HH:mm"`
 </Accordion>
 
 <Accordion title="inline_datetime_format">
@@ -99,7 +99,7 @@ Configure date, time, and combined timestamp templates for inline expansion.
   - **Key**: `inline_datetime_format`
   - **Aliases**: `datetime_format`, `date_time_format`, `inline_datetime_datetime_format`, `inline_date_time_datetime_format`
   - **Default**: `MMMM D, YYYY 'at' h:mm A`
-  - **Example**: `taurine config set datetime_format "YYYY-MM-DD HH:mm"`
+  - **Example**: `nite config set datetime_format "YYYY-MM-DD HH:mm"`
 </Accordion>
 </Accordions>
 
@@ -115,7 +115,7 @@ Control audio sound packs and cue volume for system feedback.
   - **Aliases**: `sound_theme`, `audio_pack`, `sound_pack`
   - **Default**: `minimal`
   - **Values**: `minimal`, `arcade`, `mechanical`, `organic`, `scifi`, `rubber`, `zen`
-  - **Example**: `taurine config set audio_theme mechanical`
+  - **Example**: `nite config set audio_theme mechanical`
 </Accordion>
 
 <Accordion title="audio_volume">
@@ -125,7 +125,7 @@ Control audio sound packs and cue volume for system feedback.
   - **Aliases**: `sound_volume`, `volume`
   - **Default**: `50`
   - **Values**: `0` – `100`
-  - **Example**: `taurine config set volume 75`
+  - **Example**: `nite config set volume 75`
 </Accordion>
 </Accordions>
 
@@ -140,15 +140,15 @@ Configure AI service provider integrations and custom endpoints.
   - **Key**: `ai_provider`
   - **Default**: `unset`
   - **Values**: `openai`, `claude`, `gemini`, `deepseek`, `groq`, `mistral`, `ollama`, `custom`, etc. (See [AI Copilot](/docs/cli/inline-ai-copilot) for full list)
-  - **Example**: `taurine config set ai_provider openai`
+  - **Example**: `nite config set ai_provider openai`
 </Accordion>
 
 <Accordion title="ai_model">
-  The specific LLM model used for AI requests. If unset, Taurine uses the provider's default model.
+  The specific LLM model used for AI requests. If unset, Nite uses the provider's default model.
   
   - **Key**: `ai_model`
   - **Default**: `unset`
-  - **Example**: `taurine config set ai_model gpt-4o`
+  - **Example**: `nite config set ai_model gpt-4o`
 </Accordion>
 
 <Accordion title="ai_custom_endpoint">
@@ -157,7 +157,7 @@ Configure AI service provider integrations and custom endpoints.
   - **Key**: `ai_custom_endpoint`
   - **Aliases**: `endpoint`, `custom_endpoint`
   - **Default**: `unset`
-  - **Example**: `taurine config set endpoint http://localhost:11434/v1`
+  - **Example**: `nite config set endpoint http://localhost:11434/v1`
 </Accordion>
 </Accordions>
 
@@ -172,7 +172,7 @@ Configure hotkeys, vocabulary, device capture, and media playback behavior for v
   - **Key**: `voice_ptt_hotkey`
   - **Aliases**: `voice_ptt`, `ptt_hotkey`, `ptt`
   - **Default**: `win+lctrl`
-  - **Example**: `taurine config set ptt "Ctrl + Shift + D"`
+  - **Example**: `nite config set ptt "Ctrl + Shift + D"`
 </Accordion>
 
 <Accordion title="voice_handsfree_hotkey">
@@ -181,7 +181,7 @@ Configure hotkeys, vocabulary, device capture, and media playback behavior for v
   - **Key**: `voice_handsfree_hotkey`
   - **Aliases**: `voice_handsfree`, `handsfree_hotkey`, `handsfree`
   - **Default**: `win+lctrl+lalt`
-  - **Example**: `taurine config set handsfree "Ctrl + Shift + H"`
+  - **Example**: `nite config set handsfree "Ctrl + Shift + H"`
 </Accordion>
 
 <Accordion title="voice_dictionary">
@@ -190,16 +190,16 @@ Configure hotkeys, vocabulary, device capture, and media playback behavior for v
   - **Key**: `voice_dictionary`
   - **Aliases**: `voice_vocab`, `voice_words`
   - **Default**: `""` (empty)
-  - **Example**: `taurine config set voice_dictionary "Kubernetes, Taurine, Rust, GraphQL"`
+  - **Example**: `nite config set voice_dictionary "Kubernetes, Nite, Rust, GraphQL"`
 </Accordion>
 
 <Accordion title="voice_input_device">
-  Specific audio recording input device name to use for speech capture. If unset, Taurine uses the system default recording device.
+  Specific audio recording input device name to use for speech capture. If unset, Nite uses the system default recording device.
   
   - **Key**: `voice_input_device`
   - **Aliases**: `voice_device`, `voice_mic`, `input_device`, `mic`, `microphone`
   - **Default**: `unset`
-  - **Example**: `taurine config set mic "Yeti Nano"`
+  - **Example**: `nite config set mic "Yeti Nano"`
 </Accordion>
 
 <Accordion title="pause_media_while_dictating">
@@ -209,6 +209,6 @@ Configure hotkeys, vocabulary, device capture, and media playback behavior for v
   - **Alias**: `pause_media`
   - **Default**: `true`
   - **Values**: `true`, `false`
-  - **Example**: `taurine config set pause_media false`
+  - **Example**: `nite config set pause_media false`
 </Accordion>
 </Accordions>

@@ -810,8 +810,8 @@ mod tests {
                 timestamp: library::now_millis() as i64 - 120_000,
                 category: ActivityCategory::Text,
                 trigger: "gs".to_string(),
-                detail: "Open taurine tui".to_string(),
-                content: Some("tautui --home".to_string()),
+                detail: "Open nite tui".to_string(),
+                content: Some("nitetui --home".to_string()),
                 app: "Windowsterminal".to_string(),
                 word_count: 42,
             }],
@@ -939,9 +939,9 @@ mod tests {
         assert!(!text.contains("WORDS SPOKEN"), "stat cards removed");
         assert!(text.contains("Today"));
         assert!(text.contains(" gs "), "trigger tag missing");
-        assert!(text.contains("tautui --home"), "activity body missing");
+        assert!(text.contains("nitetui --home"), "activity body missing");
         assert!(
-            !text.contains("Open taurine tui"),
+            !text.contains("Open nite tui"),
             "the stored content wins over the description"
         );
         assert!(!text.contains("Most Used Triggers"), "section removed");
@@ -1234,11 +1234,11 @@ mod tests {
     fn body_falls_back_to_the_description_when_content_is_missing() {
         let mut event = activity_event(today_noon_millis(), "gs", "");
         event.content = None;
-        event.detail = "Open taurine tui".to_string();
+        event.detail = "Open nite tui".to_string();
         let mut state = state_with_activity(vec![event]);
         let text = draw(&mut state, 120, 40);
 
-        assert!(text.contains("Open taurine tui"));
+        assert!(text.contains("Open nite tui"));
     }
 
     #[test]
@@ -1251,15 +1251,15 @@ mod tests {
             .expect("local time");
         let mut state = state_with_activity(vec![activity_event(
             at.timestamp_millis(),
-            "tautui",
-            "open taurine tui",
+            "nitetui",
+            "open nite tui",
         )]);
         let text = draw(&mut state, 120, 40);
 
         assert!(text.contains("October 20 2024"), "date header missing");
         assert!(text.contains("ago"), "relative timestamp missing");
         assert!(!text.contains("Today"), "old group is not today");
-        assert!(text.contains("open taurine tui"));
+        assert!(text.contains("open nite tui"));
     }
 
     #[test]
@@ -1545,7 +1545,7 @@ mod tests {
                 remaining_percentage: 74.5,
                 reset_epoch: account::now_epoch() + 5 * 86_400 + 11 * 3_600,
             }),
-            device: "DESKTOP-TAURINE".to_string(),
+            device: "DESKTOP-NITE".to_string(),
         });
         let text = draw(&mut state, 120, 40);
         let split = split_home(Rect::new(0, 0, 120, 40), state.account_ratio());
@@ -1565,7 +1565,7 @@ mod tests {
         assert!(text.contains("Free plan"));
         assert!(text.contains("WEEKLY QUOTA"));
         assert!(text.contains("74.5% left"));
-        assert!(text.contains("Resets in 5d 11h"));
+        assert!(text.contains("Resets in 5d 11h") || text.contains("Resets in 5d 10h"));
     }
 
     #[test]

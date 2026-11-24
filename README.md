@@ -1,4 +1,4 @@
-# Taurine
+# Nite
 
 A fast, secure cross-platform text expander built in Rust.
 
@@ -23,8 +23,6 @@ irm https://raw.githubusercontent.com/ereinaimer/taurine/main/install.ps1 | iex
 curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/ereinaimer/taurine/main/install.sh | sh
 ```
 
-After installation, you can use `tau` as a handy alias for `taurine`
-
 <details>
 <summary><b>Alternative installs</b></summary>
 
@@ -33,7 +31,7 @@ After installation, you can use `tau` as a handy alias for `taurine`
 **Install via Cargo:**
 
 ```bash
-cargo install --git https://github.com/ereinaimer/taurine
+cargo install --git https://github.com/ereinaimer/taurine -p nite
 ```
 
 **Build from source:**
@@ -41,31 +39,31 @@ cargo install --git https://github.com/ereinaimer/taurine
 ```bash
 git clone https://github.com/ereinaimer/taurine.git
 cd taurine
-cargo build -r
-./target/release/taurine --help
+cargo build -r -p nite
+./target/release/nite --help
 ```
 
 </details>
 
 ## Quick demo
 
-Get Taurine running in under a minute:
+Get Nite running in under a minute:
 
-1.  **Start the Taurine service**:
+1.  **Start the Nite service**:
     ```bash
-    taurine up
+    nite up
     ```
 
 2.  **Add your first shortcut**:
     ```bash
-    taurine add hello "Hello, world!"
+    nite add hello "Hello, world!"
     ```
 
 3.  **Try it anywhere**:
     Type `hello` anywhere and press **Enter**. It instantly expands to: `Hello, world!`
 
 > [!TIP]
-> **Prefer a UI?** Simply run `taurine` to open the interactive Terminal UI and manage your triggers visually.
+> **Prefer a UI?** Simply run `nite` to open the interactive Terminal UI and manage your triggers visually.
 
 ## Features
 
@@ -83,14 +81,14 @@ Get Taurine running in under a minute:
 
 ## Documentation
 
-To learn more about Taurine, see the [documentation](docs/).
+To learn more about Nite, see the [documentation](docs/).
 
 ## Contributing
 
-Taurine is open to contributions. Read [CONTRIBUTING.md](CONTRIBUTING.md) to get started, and see [CREDITS.md](CREDITS.md) for the open source projects it's built on.
+Nite is open to contributions. Read [CONTRIBUTING.md](CONTRIBUTING.md) to get started, and see [CREDITS.md](CREDITS.md) for the open source projects it's built on.
 
 ## License
 
-Taurine is source-available under the **Aimer Software License (ASL)**. It is free for non-commercial personal use. Commercial rights are reserved.
+Nite is source-available under the **Aimer Software License (ASL)**. It is free for non-commercial personal use. Commercial rights are reserved.
 
 See the [LICENSE](https://github.com/ereinaimer/taurine/blob/main/LICENSE) file for full terms.

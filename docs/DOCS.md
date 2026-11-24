@@ -1,6 +1,6 @@
-# Taurine Docs Manual
+# Nite Docs Manual
 
-This directory contains the isolated Next.js + Fumadocs documentation site for Taurine. All
+This directory contains the isolated Next.js + Fumadocs documentation site for Nite. All
 Node.js tooling, dependencies, and framework configuration must stay inside `docs/`.
 
 ## Prerequisites
@@ -128,7 +128,7 @@ Every page should declare at least a title and description.
 ```mdx
 ---
 title: CLI Overview
-description: Learn how Taurine commands are organized and invoked.
+description: Learn how Nite commands are organized and invoked.
 ---
 ```
 

@@ -1,39 +1,39 @@
 ---
 title: Configuration
-description: View and change Taurine settings from the command line.
+description: View and change Nite settings from the command line.
 ---
 
 ## List Current Settings
 
 ```bash
-taurine config list
-taurine config ls
+nite config list
+nite config ls
 ```
 
 ## Set A Value
 
 ```bash
-taurine config set start_on_boot true
-taurine config set inline_ai_enabled false
+nite config set start_on_boot true
+nite config set inline_ai_enabled false
 ```
 
 ## Reset A Value
 
 ```bash
-taurine config reset instant_expand
+nite config reset instant_expand
 ```
 
 Reset everything:
 
 ```bash
-taurine config reset --all
+nite config reset --all
 ```
 
 ## Common Settings
 
 | Setting | Default | Description |
 | :--- | :--- | :--- |
-| `pause_hotkey` | ``Alt + ` `` | Global hotkey to pause/resume the Taurine engine. |
+| `pause_hotkey` | ``Alt + ` `` | Global hotkey to pause/resume the Nite engine. |
 | `pause_notifications_enabled` | `false` | Whether to show system notifications when pausing. |
 | `start_on_boot` | `true` | Enables/disables automatic startup on login. |
 | `system_tray_enabled` | `true` | Show or hide the system tray icon when running. |
@@ -46,7 +46,7 @@ taurine config reset --all
 
 ## Helpful Aliases
 
-You can use these shorter aliases when running `taurine config set`:
+You can use these shorter aliases when running `nite config set`:
 
 | Alias | Real Setting |
 | :--- | :--- |

@@ -5,7 +5,7 @@ description: Convert everyday physical units and currencies directly in any text
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Taurine features a built-in unit conversion engine that lets you convert physical units and currencies directly as you type. Simply type a conversion pattern and press **Enter**.
+Nite features a built-in unit conversion engine that lets you convert physical units and currencies directly as you type. Simply type a conversion pattern and press **Enter**.
 
 For example, typing `100c=f ` will instantly expand to `212f`.
 
@@ -24,7 +24,7 @@ Type a value followed by a unit, an equals sign `=`, and the target unit:
 
 ### Natural Language Conversions
 
-Taurine also supports natural language unit and currency conversions. You can express conversions using common separators: `to`, `in`, `into`, or `as`.
+Nite also supports natural language unit and currency conversions. You can express conversions using common separators: `to`, `in`, `into`, or `as`.
 
 * **Example:** `100 dollars to Euros`, `$100 to Euros`, `1.5 gigabytes to megabytes`, `32 celsius in fahrenheit`, `5 miles into kilometers`.
 * **Casing & Spacing Preservation:** The converter respects the casing, spelling, and spacing style of your query. For example, `1.5 gigabytes to megabytes` outputs `1500 megabytes` (with a space and written-out unit), while `1.5gb=mb` outputs `1500mb` (compact syntax).
@@ -35,7 +35,7 @@ Taurine also supports natural language unit and currency conversions. You can ex
 
 ## Supported Physical Units
 
-Taurine supports both standard short abbreviations and their corresponding long aliases.
+Nite supports both standard short abbreviations and their corresponding long aliases.
 
 ### Temperature
 * **Celsius:** `c`, `celsius`
@@ -197,7 +197,7 @@ Convert colors between formats using either compact or natural language syntax:
 
 ## Dynamic Currency Conversions
 
-Taurine can convert between any standard 3-letter ISO currency codes (e.g. `usd=eur`, `eur=inr`, `gbp=jpy`).
+Nite can convert between any standard 3-letter ISO currency codes (e.g. `usd=eur`, `eur=inr`, `gbp=jpy`).
 
-* **Dynamic Caching:** Taurine fetches real-time rates dynamically from a public API and caches them locally. To prevent UI delays, conversions are served instantly from the local cache. If the cache is older than 24 hours, a background thread updates it in the background.
-* **Offline Fallback:** If you are offline and have no cache file, Taurine automatically falls back to built-in, approximate exchange rates for major currencies (USD, EUR, INR, GBP, JPY, CAD, AUD, CNY).
+* **Dynamic Caching:** Nite fetches real-time rates dynamically from a public API and caches them locally. To prevent UI delays, conversions are served instantly from the local cache. If the cache is older than 24 hours, a background thread updates it in the background.
+* **Offline Fallback:** If you are offline and have no cache file, Nite automatically falls back to built-in, approximate exchange rates for major currencies (USD, EUR, INR, GBP, JPY, CAD, AUD, CNY).

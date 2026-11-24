@@ -340,7 +340,7 @@ impl SyncWorker {
                     }
                 });
             })
-            .expect("spawn tau-sync thread")
+            .expect("spawn nite-sync thread")
     }
 
     pub fn log_sync_status(status: SyncStatus) {

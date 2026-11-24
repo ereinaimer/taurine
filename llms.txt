@@ -1,6 +1,6 @@
-# Taurine
+# Nite
 
-A fast, secure and easy-to-use text expander built in Rust. Taurine helps you type less, automate repetitive work, and run keyboard shortcuts from anywhere on your computer via a robust CLI and background service.
+A fast, secure and easy-to-use text expander built in Rust. Nite helps you type less, automate repetitive work, and run keyboard shortcuts from anywhere on your computer via a robust CLI and background service.
 
 - [README](https://raw.githubusercontent.com/ereinaimer/taurine/refs/heads/main/README.md)
 - [Contributing Guide](https://raw.githubusercontent.com/ereinaimer/taurine/refs/heads/main/CONTRIBUTING.md)
@@ -14,54 +14,54 @@ A fast, secure and easy-to-use text expander built in Rust. Taurine helps you ty
 
 | Command | Action | One-liner |
 |---------|--------|-----------|
-| **up** | Start the service | `taurine up` |
-| **add** | Create a new text expansion | `taurine add "trigger" "output"` |
-| **add script** | Create a script trigger | `taurine add script "trigger" -f script.ps1` |
-| **add --regex** | Create a regex trigger | `taurine add "https://github.com/issues/[0]" --regex "issue-(\d+)"` |
-| **add --hotkey** | Create a global hotkey | `taurine add "git status[key(enter)]" --hotkey "ctrl+shift+g"` |
-| **add --include-apps** | App-specific trigger | `taurine add pr "git pull" --include-apps "title:GitHub"` |
-| **ls** | List expansions | `taurine ls --sort usage --desc` |
-| **export/import** | Back up / restore triggers | `taurine export backup.tau` |
-| **update** | Self-update to latest release | `taurine update` |
-| **ai add** | Add AI provider keys | `taurine ai add --provider gemini` |
-| **config** | Manage system settings | `taurine config ls` |
-| **completions** | Install shell completions | `taurine completions install` |
-| **status** | Check service health | `taurine status` |
-| **down** | Stop the service | `taurine down` |
+| **up** | Start the service | `nite up` |
+| **add** | Create a new text expansion | `nite add "trigger" "output"` |
+| **add script** | Create a script trigger | `nite add script "trigger" -f script.ps1` |
+| **add --regex** | Create a regex trigger | `nite add "https://github.com/issues/[0]" --regex "issue-(\d+)"` |
+| **add --hotkey** | Create a global hotkey | `nite add "git status[key(enter)]" --hotkey "ctrl+shift+g"` |
+| **add --include-apps** | App-specific trigger | `nite add pr "git pull" --include-apps "title:GitHub"` |
+| **ls** | List expansions | `nite ls --sort usage --desc` |
+| **export/import** | Back up / restore triggers | `nite export backup.nx` |
+| **update** | Self-update to latest release | `nite update` |
+| **ai add** | Add AI provider keys | `nite ai add --provider gemini` |
+| **config** | Manage system settings | `nite config ls` |
+| **completions** | Install shell completions | `nite completions install` |
+| **status** | Check service health | `nite status` |
+| **down** | Stop the service | `nite down` |
 
 ---
 
 ## 2. Command Reference
 
 ### 2.1 Managing the Service
-*   `taurine up` (alias `start`): Installs and starts the background service. Use `taurine down` (alias `stop`) to stop it.
-*   `taurine restart` (alias `reboot`): Restarts the service to apply changes or refresh the engine.
-*   `taurine status`: Reports whether the engine is online and if it's currently paused (shows the pause hotkey).
-*   `taurine update`: Self-updates the CLI and service to the latest version.
+*   `nite up` (alias `start`): Installs and starts the background service. Use `nite down` (alias `stop`) to stop it.
+*   `nite restart` (alias `reboot`): Restarts the service to apply changes or refresh the engine.
+*   `nite status`: Reports whether the engine is online and if it's currently paused (shows the pause hotkey).
+*   `nite update`: Self-updates the CLI and service to the latest version.
 *   Global flags: `-v/--verbose`, `-q/--quiet`, `--no-log-file`, `--no-color`, `--json`.
 
 ### 2.2 Managing Triggers
-*   `taurine add <trigger>... <output> [--hotkey <combo>] [--regex <pattern>] [--voice <phrase>] [--os <target>] [--tag <tags>]`: Add or auto-update an entry grouping word, hotkey, regex, and voice invocations. Use `--os` (`windows`, `linux`, `macos`, `all`, `current`) for per-platform variants and `--tag` (repeatable or comma-separated) for labels.
-*   `taurine add --regex <pattern> <output>`: Add a regex trigger (see 3.3).
-*   `taurine add --hotkey <combo> <output>`: Treat the trigger as a global keyboard shortcut (e.g., `alt+y`).
-*   `taurine add script <trigger>... <body> [-f file] [-l lang] [-m mode] [--hotkey <combo>] [--regex <pattern>] [--voice <phrase>]`: Adds a shell script trigger (see section 5).
-*   One entry can group word, hotkey, regex, and voice invocations: `taurine add hi hello 'Hello!' --hotkey ctrl+h --voice 'say hi'` (repeatable flags, one invocation each). Shown as `hi (+3)`; deleting an entry's last invocation deletes the entry.
+*   `nite add <trigger>... <output> [--hotkey <combo>] [--regex <pattern>] [--voice <phrase>] [--os <target>] [--tag <tags>]`: Add or auto-update an entry grouping word, hotkey, regex, and voice invocations. Use `--os` (`windows`, `linux`, `macos`, `all`, `current`) for per-platform variants and `--tag` (repeatable or comma-separated) for labels.
+*   `nite add --regex <pattern> <output>`: Add a regex trigger (see 3.3).
+*   `nite add --hotkey <combo> <output>`: Treat the trigger as a global keyboard shortcut (e.g., `alt+y`).
+*   `nite add script <trigger>... <body> [-f file] [-l lang] [-m mode] [--hotkey <combo>] [--regex <pattern>] [--voice <phrase>]`: Adds a shell script trigger (see section 5).
+*   One entry can group word, hotkey, regex, and voice invocations: `nite add hi hello 'Hello!' --hotkey ctrl+h --voice 'say hi'` (repeatable flags, one invocation each). Shown as `hi (+3)`; deleting an entry's last invocation deletes the entry.
 *   Voice triggers support named slots using the same `$` prefix as output variables: `--voice "say hi to [$person]"` with output `"Hello, [$person=there]!"`. Bare `[person]` slots are rejected.
-*   `taurine add --include-apps <list> | --exclude-apps <list>`: Restrict a trigger to specific applications (see 3.5).
-*   `taurine list` (or `ls`): Displays a formatted table of all active triggers. Supports `--sort` (`alpha`, `usage`, `created`, `recent`), `--asc`/`--desc`, `--tag`, and `--json`.
-*   `taurine delete` (or `rm`/`remove`) `<trigger>...`: Removes one or more triggers. 
+*   `nite add --include-apps <list> | --exclude-apps <list>`: Restrict a trigger to specific applications (see 3.5).
+*   `nite list` (or `ls`): Displays a formatted table of all active triggers. Supports `--sort` (`alpha`, `usage`, `created`, `recent`), `--asc`/`--desc`, `--tag`, and `--json`.
+*   `nite delete` (or `rm`/`remove`) `<trigger>...`: Removes one or more triggers. 
 
 Validation limits: trigger string ≤200 chars, text output ≤100 KB, script content ≤1 MB, description ≤1000. Tags are normalized (trimmed, lowercased, deduped; max 20 per trigger, 50 chars each). App filters accept only `exe:`/`class:`/`title:` prefixes. Dead `[use("name")]` references are rejected at save time.
 
 ### 2.3 Import / Export
-*   `taurine export [path] [-y]`: Exports triggers to a backup file `.tau`. Files are always AES-256-GCM encrypted and only open in Taurine. Setting a password in the TUI adds a second lock (required to import); without one the file still never sits as plaintext. `-s` includes settings, `-t` includes usage stats, `-x` includes sensitive settings. `-y` skips the TUI (no password). Interactive TUI by default.
-*   `taurine import <path> [-y] [--conflict prompt|skip|overwrite] [-s] [-t merge|ignore|overwrite] [-x]`: Imports a backup. Conflicts are keyed on Trigger + Target OS; stats default to `merge`. Imports are atomic — any failure rolls back everything.
+*   `nite export [path] [-y]`: Exports triggers to a backup file `.nx`. Files are always AES-256-GCM encrypted and only open in Nite. Setting a password in the TUI adds a second lock (required to import); without one the file still never sits as plaintext. `-s` includes settings, `-t` includes usage stats, `-x` includes sensitive settings. `-y` skips the TUI (no password). Interactive TUI by default.
+*   `nite import <path> [-y] [--conflict prompt|skip|overwrite] [-s] [-t merge|ignore|overwrite] [-x]`: Imports a backup. Conflicts are keyed on Trigger + Target OS; stats default to `merge`. Imports are atomic — any failure rolls back everything.
 *   Sensitive settings (containing `password`, `secret`, `token`, or `api_key`) are excluded by default.
 
 ### 2.4 Configuration
-*   `taurine config set <key> <value>`: Updates a specific setting.
-*   `taurine config list` (or `ls`): Lists all current settings.
-*   `taurine config reset <key>`: Resets a setting to factory defaults (`--all` resets everything).
+*   `nite config set <key> <value>`: Updates a specific setting.
+*   `nite config list` (or `ls`): Lists all current settings.
+*   `nite config reset <key>`: Resets a setting to factory defaults (`--all` resets everything).
 *   Key aliases: `hotkey`→`pause_hotkey`, `boot`→`start_on_boot`, `tray`→`system_tray_enabled`, `spinner`→`spinner_style`, `notifications`→`pause_notifications_enabled`, `inline_ai`→`inline_ai_enabled`, `ai`→`inline_ai_enabled`, `inline_tab_completion`→`inline_tab_completion_enabled` and `instant`→`instant_expand`.
 
 | Category | Keys (default) |
@@ -72,15 +72,15 @@ Validation limits: trigger string ≤200 chars, text output ≤100 KB, script co
 | Inline Assist | `inline_tab_completion_enabled` (`true`), `inline_emoji_enabled` (`true`), `inline_emoji_trigger_char` (`:`), `inline_datetime_enabled` (`true`), `inline_currency_to_words_enabled` (`false`) |
 
 ### 2.5 AI Copilot
-*   `taurine ai` (or `tau ai`): Launches the interactive Ratatui overlay configuration wizard. Hotkeys: `j`/`k` (navigate), `n` (add new provider), `Enter` (select active & edit model), `d` (remove provider from keyring), `q`/`Esc` (exit).
-*   `taurine ai -y` (headless): Non-interactive command execution. Supports `--provider <name>`, `--key <key>`, `--model <name>`, `--endpoint <url>`, `--remove <name>`, `--remove-all`, and `--json`.
+*   `nite ai` (or `nite ai`): Launches the interactive Ratatui overlay configuration wizard. Hotkeys: `j`/`k` (navigate), `n` (add new provider), `Enter` (select active & edit model), `d` (remove provider from keyring), `q`/`Esc` (exit).
+*   `nite ai -y` (headless): Non-interactive command execution. Supports `--provider <name>`, `--key <key>`, `--model <name>`, `--endpoint <url>`, `--remove <name>`, `--remove-all`, and `--json`.
 *   Supported providers and default models: openai (`gpt-4o`), claude/anthropic (`claude-3-5-sonnet-latest`), gemini (`gemini-2.5-flash`), xai (`grok-2-latest`), deepseek (`deepseek-chat`), groq (`llama-3.3-70b-versatile`), cohere (`command-r-plus`), together (`meta-llama/Llama-3.3-70B-Instruct-Turbo`), fireworks (`llama-v3p3-70b-instruct`), nebius (`Meta-Llama-3.1-70B-Instruct`), github_copilot (`gpt-4o`), mimo (`mimo-2`), zai (`glm-4`), custom (`gpt-3.5-turbo`).
 *   Provider selection: explicit `ai_provider` wins; otherwise a single configured provider is auto-used; multiple providers without a default prompt you to set `ai_provider`.
 
 ### 2.6 Shell Completions
-*   `taurine completions install`: Auto-detects the shell/platform and installs completion scripts (`bash`, `elvish`, `fish`, `powershell`, `zsh`).
-*   `taurine completions [shell] > file`: Manually generate a completion file.
-*   `taurine completions uninstall`: Removes installed completions.
+*   `nite completions install`: Auto-detects the shell/platform and installs completion scripts (`bash`, `elvish`, `fish`, `powershell`, `zsh`).
+*   `nite completions [shell] > file`: Manually generate a completion file.
+*   `nite completions uninstall`: Removes installed completions.
 
 ---
 
@@ -101,14 +101,14 @@ Validation limits: trigger string ≤200 chars, text output ≤100 KB, script co
 
 ### 3.3 Regex Triggers
 *   Attach a trigger to a regex matching the suffix of typed text; capture groups map to numbered slots `[0]`, `[1]`, ...
-*   `taurine add --regex "issue-(\d+)" "https://github.com/issues/[0]"` → typing `issue-42 ` expands to the URL.
+*   `nite add --regex "issue-(\d+)" "https://github.com/issues/[0]"` → typing `issue-42 ` expands to the URL.
 *   Patterns are suffix-anchored automatically, so multi-word patterns like `bind:(\w+)=(\w+)` work (`bind:foo=bar ` → `Mapping foo to bar`).
 *   Fully compatible with Backspace Undo, but **not** with autocomplete. Avoid exponential backtracking (`(a+)+`).
 
 ### 3.4 Backspace Undo
 *   Pressing Backspace within **5 seconds** of an expansion reverts it to the original trigger text; the window then expires and Backspace returns to normal.
 *   Undo locks in (disabled) if you type any alphanumeric/symbol key, use arrow keys/Home/End/Page keys, or click the mouse.
-*   `Shift + Backspace` = regular Undo; `Ctrl + Backspace` (Win/Linux) / `Alt + Backspace` (macOS) = native word-delete, not Taurine undo.
+*   `Shift + Backspace` = regular Undo; `Ctrl + Backspace` (Win/Linux) / `Alt + Backspace` (macOS) = native word-delete, not Nite undo.
 *   Never offered for: structural templates using `[cursor]` or simulated arrow keys, AI-generated text, clipboard pastes >64 KB, or script/command triggers. Use native `Ctrl+Z`/`Cmd+Z` as fallback.
 
 ### 3.5 App-Specific Triggers
@@ -124,7 +124,7 @@ Validation limits: trigger string ≤200 chars, text output ≤100 KB, script co
 
 Flexible snippets use `[$variable_name=default]` placeholders. The `$` prefix and `=` are mandatory. Arguments are passed by appending `;value` to the trigger: `>hi;Erein ` → "Hello, Erein!".
 
-*   **Ordered bare values**: bare values fill `[$name=default]` fields in template order (`meet;2pm;lobby`); explicit `key=value` always wins, case-insensitively (`>gh;name=erein;repo=taurine`). Missing values use defaults.
+*   **Ordered bare values**: bare values fill `[$name=default]` fields in template order (`meet;2pm;lobby`); explicit `key=value` always wins, case-insensitively (`>gh;name=erein;repo=nite`). Missing values use defaults.
 *   **Quoting**: wrap arguments with spaces/semicolons in single or double quotes (`>hi;"John Doe" `). Unquoted spaces are fine; `:` is ordinary text (`meet;12:30;lobby` needs no quoting).
 *   **Skip placeholders** with an empty segment (`;;`) to keep their defaults.
 *   **Escaping**: `\[` `\]` escape brackets; `\n`, `\t`, `\r` are escaped literals.
@@ -174,13 +174,13 @@ Global transformers apply with Unix pipe syntax right after any variable, positi
 
 ## 6. Shell Script Triggers
 
-Taurine's background engine runs arbitrary scripts (Bash, Python, PowerShell, Node, Cmd) from word, hotkey, or regex triggers.
+Nite's background engine runs arbitrary scripts (Bash, Python, PowerShell, Node, Cmd) from word, hotkey, or regex triggers.
 
 *   **Languages**: `bash` (`.sh`), `powershell` (`.ps1`), `python` (`.py`), `node` (`.js`, `.cjs`), `cmd` (`.bat`, `.cmd`). Inference order: file extension → shebang → explicit `--lang`.
 *   **Execution modes** (`-m`, `--mode`): `inline` (default — stdout injected as text via a clipboard-first "injection" mechanism) or `silent` (background only, for notifications/builds).
 *   **Storage**: `zstd`-compressed BLOBs inside the SQLite DB; script files (`-f`) are copied in — the original file isn't needed afterward.
 *   **"Interpolation First"**: variables are replaced in the script body *before* the interpreter runs — `[$var=default]`, `[env(USERNAME)]`, transformers, and named/bare values all work, including inside script files.
-*   **Examples**: `taurine add script url 'start https://[$url=google.com]' --lang powershell --os windows`; `taurine add script --hotkey "ctrl+shift+w" winget "winget install [$pkg=git]"`.
+*   **Examples**: `nite add script url 'start https://[$url=google.com]' --lang powershell --os windows`; `nite add script --hotkey "ctrl+shift+w" winget "winget install [$pkg=git]"`.
 *   Hard limit: 20s max execution time (then terminated). Scripts run with the service's environment in a temporary directory; interpreters must be on `PATH`.
 
 ---
@@ -195,10 +195,10 @@ Evaluate expressions typed into any text field prefixed by the trigger char.
 
 ### 7.2 Inline AI Copilot
 Stream LLM responses directly into the active text field.
-1.  Configure a provider: `taurine ai add --provider gemini` (and optionally `taurine config set ai_provider gemini`).
-2.  Type `tau, <prompt>` anywhere on a line and press **Enter** (e.g. `tau, summarize this paragraph`). The trigger and prompt are replaced by the streamed AI response.
-3.  The trailing comma is strictly required (`tau,`) to prevent collision with the `tau` CLI alias. Case-insensitive variants (`tau,`, `Tau,`, `TAu,`, `TAU,`) are supported; `tau <prompt>` and `tau: <prompt>` are rejected. Empty prompts (`tau,` followed by Enter) pass through without triggering. Custom endpoints (`taurine config set ai_custom_endpoint http://localhost:11434/v1` for Ollama/LM Studio) and disabling via `taurine config set inline_ai_enabled false` are supported.
-4.  Clipboard context: Pass copied text or code as context to your prompt by typing `[clip]` (e.g. `tau, reformat this: [clip]`) or pressing `Ctrl + V` / `Cmd + V` after `tau,` (automatically inserts `[clip: N lines]` or `[clip: N words]` and binds the clipboard payload without dumping raw text into the field). Substitutes the raw clipboard text directly into the prompt on Enter.
+1.  Configure a provider: `nite ai add --provider gemini` (and optionally `nite config set ai_provider gemini`).
+2.  Type `nite, <prompt>` anywhere on a line and press **Enter** (e.g. `nite, summarize this paragraph`). The trigger and prompt are replaced by the streamed AI response.
+3.  The trailing comma is strictly required (`nite,`) to prevent collision with the `nite` CLI alias. Case-insensitive variants (`nite,`, `Nite,`, `NIte,`, `NITE,`) are supported; `nite <prompt>` and `nite: <prompt>` are rejected. Empty prompts (`nite,` followed by Enter) pass through without triggering. Custom endpoints (`nite config set ai_custom_endpoint http://localhost:11434/v1` for Ollama/LM Studio) and disabling via `nite config set inline_ai_enabled false` are supported.
+4.  Clipboard context: Pass copied text or code as context to your prompt by typing `[clip]` (e.g. `nite, reformat this: [clip]`) or pressing `Ctrl + V` / `Cmd + V` after `nite,` (automatically inserts `[clip: N lines]` or `[clip: N words]` and binds the clipboard payload without dumping raw text into the field). Substitutes the raw clipboard text directly into the prompt on Enter.
 
 ### 7.3 Inline Trigger Assist
 Headless assist for word triggers (no popups):
@@ -234,11 +234,11 @@ Headless assist for word triggers (no popups):
 
 ## 8. Rich Text
 
-When HTML is detected in a snippet's output, Taurine writes both styled HTML and a plain-text fallback to the clipboard, so signatures render correctly in Outlook/Gmail/Word while degrading cleanly in Notepad/terminals.
+When HTML is detected in a snippet's output, Nite writes both styled HTML and a plain-text fallback to the clipboard, so signatures render correctly in Outlook/Gmail/Word while degrading cleanly in Notepad/terminals.
 
 *   Line breaks: `<br>` (legacy `\n` is no longer supported inside rich text).
 *   Tags: `<b>`/`<strong>`, `<i>`/`<em>`, `<u>`, `<a href="…">`, `<p>`.
-*   Example: `taurine add ";sig" "<b>My Name</b><br><i>Software Engineer</i><br><a href='https://example.com'>example.com</a>"`.
+*   Example: `nite add ";sig" "<b>My Name</b><br><i>Software Engineer</i><br><a href='https://example.com'>example.com</a>"`.
 
 ---
 
@@ -258,7 +258,7 @@ When HTML is detected in a snippet's output, Taurine writes both styled HTML and
 
 ## 11. Project Architecture
 
-Taurine is a modular Rust workspace designed for performance and security with a split-process design — a single binary acts as either the background service (`--daemon`) or the CLI frontend, communicating over local gRPC.
+Nite is a modular Rust workspace designed for performance and security with a split-process design — a single binary acts as either the background service (`--daemon`) or the CLI frontend, communicating over local gRPC.
 
 *   **core**: Foundations, SQLite database (rusqlite), and the custom interpolation/math engine.
 *   **cli**: Front-facing tool (clap) and OS service manager (`axoupdater` for updates).
@@ -268,10 +268,10 @@ Taurine is a modular Rust workspace designed for performance and security with a
 *   **tui**: Interactive terminal interface (built with `ratatui`).
 
 ### 11.1 System Paths
-*   **Windows**: `%LOCALAPPDATA%\Taurine`
-*   **Linux**: `~/.local/share/taurine`
-*   **macOS**: `~/Library/Application Support/Taurine`
-*   Contains `taurine.db` (Primary SQLite storage) and `logs/` (Daily rotating log files).
+*   **Windows**: `%LOCALAPPDATA%\Nite`
+*   **Linux**: `~/.local/share/nite`
+*   **macOS**: `~/Library/Application Support/Nite`
+*   Contains `nite.db` (Primary SQLite storage) and `logs/` (Daily rotating log files).
 
 ### 11.2 Engine Toggle
 *   Toggle the entire engine on/off with the global hotkey `Alt + \`` (backtick). The service keeps running but stops intercepting keystrokes while paused.
@@ -280,9 +280,9 @@ Taurine is a modular Rust workspace designed for performance and security with a
 
 ## 12. AI Agent Best Practices & Coding Guidelines
 
-When assisting with Taurine's codebase or usage, strictly adhere to these rules:
-1.  **User Interaction**: Use the `taurine` CLI commands directly for trigger management. Do not suggest manual edits to `taurine.db`.
+When assisting with Nite's codebase or usage, strictly adhere to these rules:
+1.  **User Interaction**: Use the `nite` CLI commands directly for trigger management. Do not suggest manual edits to `nite.db`.
 2.  **Linux Permissions**: Never suggest X11 tools (`xdotool`, `xmodmap`) or running the service as root. The service uses `setcap` for permissions and drops them after acquiring file descriptors.
 3.  **Error Handling**: Use `color-eyre` for application-level error reporting and `tracing` for logging.
 4.  **Performance**: Prefer zero-copy string references (`&str`) over allocations (`String`) in the hot path of the `FastBuffer` keystroke evaluator.
-5.  **Feature Reference**: This file is the canonical digest of Taurine's feature set. For detailed behavior, consult the `docs/content/docs/cli/` source or the published manual.
+5.  **Feature Reference**: This file is the canonical digest of Nite's feature set. For detailed behavior, consult the `docs/content/docs/cli/` source or the published manual.

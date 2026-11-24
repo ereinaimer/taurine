@@ -5,7 +5,7 @@ description: Automatically convert typed currency amounts into their spelled-out
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Taurine features a built-in currency expansion engine that converts numeric currency inputs (e.g., `$1,200.50`, `₹1,00,000.50`, or `USD 3,200`) into their spelled-out English equivalents (e.g., `One thousand two hundred dollars and fifty cents` or `One lakh rupees and fifty paise`).
+Nite features a built-in currency expansion engine that converts numeric currency inputs (e.g., `$1,200.50`, `₹1,00,000.50`, or `USD 3,200`) into their spelled-out English equivalents (e.g., `One thousand two hundred dollars and fifty cents` or `One lakh rupees and fifty paise`).
 
 This feature is disabled by default to prevent accidental triggers in code or config files.
 
@@ -23,7 +23,7 @@ Simply type a currency-prefixed amount (using a currency symbol or a 3-letter IS
 
 ## Supported Currencies
 
-Taurine supports major currency symbols internationally as well as a curated list of ~40 major ISO 4217 currency codes (such as `USD`, `EUR`, `GBP`, `JPY`, `INR`, `CAD`, `AUD`, `CHF`, `CNY`, `RUB`, `BTC`, `BDT`, etc.).
+Nite supports major currency symbols internationally as well as a curated list of ~40 major ISO 4217 currency codes (such as `USD`, `EUR`, `GBP`, `JPY`, `INR`, `CAD`, `AUD`, `CHF`, `CNY`, `RUB`, `BTC`, `BDT`, etc.).
 
 | Symbol | Currency | Major Singular / Plural | Minor Singular / Plural | Format System |
 | :--- | :--- | :--- | :--- | :--- |
@@ -58,10 +58,10 @@ You can enable or disable this feature from the CLI, TUI, or database settings.
 
 To enable the feature via the CLI:
 ```bash
-tau config set inline_currency_to_words_enabled true
+nite config set inline_currency_to_words_enabled true
 ```
 
 To reset the toggle to its default disabled state:
 ```bash
-tau config reset inline_currency_to_words_enabled
+nite config reset inline_currency_to_words_enabled
 ```

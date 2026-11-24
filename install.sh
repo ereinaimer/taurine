@@ -18,7 +18,7 @@ if [ "$OS" = "Linux" ]; then
         echo "Error: Unsupported architecture $ARCH on Linux"
         exit 1
     fi
-    INSTALL_DIR="$HOME/.local/share/taurine/bin"
+    INSTALL_DIR="$HOME/.local/share/nite/bin"
 elif [ "$OS" = "Darwin" ]; then
     if [ "$ARCH" = "x86_64" ]; then
         PLATFORM="macos-x86_64"
@@ -28,7 +28,7 @@ elif [ "$OS" = "Darwin" ]; then
         echo "Error: Unsupported architecture $ARCH on macOS"
         exit 1
     fi
-    INSTALL_DIR="$HOME/Library/Application Support/Taurine/bin"
+    INSTALL_DIR="$HOME/Library/Application Support/Nite/bin"
 else
     echo "Error: Unsupported OS $OS"
     exit 1
@@ -408,34 +408,6 @@ configure_profile() {
         fi
     fi
 
-    # 2. Handle Alias (Ensure only ONE entry of the alias exists, and it's correct)
-    alias_line="alias tau='taurine'"
-    alias_prefix="alias tau="
-    if [ "$shell_type" = "csh" ]; then
-        alias_line="alias tau taurine"
-        alias_prefix="alias tau "
-    fi
-
-    if [ -f "$profile" ]; then
-        matches=$(grep -F "$alias_prefix" "$profile" || true)
-        count=$(echo "$matches" | grep -c . || true)
-        trimmed_match=$(trim "$matches")
-
-        if [ "$count" -eq 1 ] && [ "$trimmed_match" = "$alias_line" ]; then
-            : # Already correct
-        else
-            tmp_profile=$(mktemp)
-            grep -Fv "$alias_prefix" "$profile" > "$tmp_profile" || true
-            cat "$tmp_profile" > "$profile"
-            rm -f "$tmp_profile"
-            printf "\n%s\n" "$alias_line" >> "$profile"
-            modified=true
-        fi
-    else
-        printf "\n%s\n" "$alias_line" >> "$profile"
-        modified=true
-    fi
-
     if [ "$modified" = true ]; then
         return 0 # Modified
     else
@@ -450,9 +422,9 @@ URL=""
 SHA256=""
 
 # 1. Local Check First
-if [ -x "$INSTALL_DIR/taurine" ]; then
+if [ -x "$INSTALL_DIR/nite" ]; then
     IS_INSTALLED=true
-    LOCAL_VERSION=$("$INSTALL_DIR/taurine" --version 2>/dev/null | awk '{print $2}') || true
+    LOCAL_VERSION=$("$INSTALL_DIR/nite" --version 2>/dev/null | awk '{print $2}') || true
     if [ -n "$LOCAL_VERSION" ]; then
         # Try fetching manifest silently to check if up to date
         if curl -fsSL -H 'Accept: application/vnd.github+json' --max-time 10 https://api.github.com/repos/ereinaimer/taurine/releases -o "$TMP_DIR/releases.json" >/dev/null 2>&1; then
@@ -476,7 +448,7 @@ if [ -x "$INSTALL_DIR/taurine" ]; then
 
         if [ -n "$VERSION" ] && [ -n "$URL" ]; then
             if [ "$LOCAL_VERSION" = "$VERSION" ] || version_gt "$LOCAL_VERSION" "$VERSION"; then
-                printf "\x1b[32m✓\x1b[0m Taurine is up to date (v%s)\n" "$LOCAL_VERSION"
+                printf "\x1b[32m✓\x1b[0m Nite is up to date (v%s)\n" "$LOCAL_VERSION"
             fi
         fi
     fi
@@ -516,19 +488,19 @@ fi
 if [ "$IS_INSTALLED" = true ]; then
     if [ -n "${VERSION:-}" ] && [ -n "${LOCAL_VERSION:-}" ]; then
         if [ "$LOCAL_VERSION" != "$VERSION" ] && ! version_gt "$LOCAL_VERSION" "$VERSION"; then
-            printf "Taurine is already installed but a newer version (v%s) is available. Please run 'tau update' to update.\n" "$VERSION"
+            printf "Nite is already installed but a newer version (v%s) is available. Please run 'nite update' to update.\n" "$VERSION"
         fi
     elif [ -z "${LOCAL_VERSION:-}" ]; then
-        printf "Taurine is already installed. If you want to update to the latest version (v%s), please run 'tau update'.\n" "$VERSION"
+        printf "Nite is already installed. If you want to update to the latest version (v%s), please run 'nite update'.\n" "$VERSION"
     fi
 fi
 
 # 4. Perform fresh install if not installed
 if [ "$IS_INSTALLED" = false ]; then
-    ARCHIVE="$TMP_DIR/taurine.tar.xz"
+    ARCHIVE="$TMP_DIR/nite.tar.xz"
 
     # Download archive with retry and live two-line progress
-    download_with_retry "$URL" "$ARCHIVE" "Downloading taurine v$VERSION" "Downloaded taurine v$VERSION" || exit 1
+    download_with_retry "$URL" "$ARCHIVE" "Downloading nite v$VERSION" "Downloaded nite v$VERSION" || exit 1
 
     # Verify checksum if available
     if [ -n "$SHA256" ]; then
@@ -546,14 +518,14 @@ if [ "$IS_INSTALLED" = false ]; then
     }
 
     # Copy binary
-    cp "$TMP_DIR/taurine" "$INSTALL_DIR/"
-    chmod +x "$INSTALL_DIR/taurine"
+    cp "$TMP_DIR/nite" "$INSTALL_DIR/"
+    chmod +x "$INSTALL_DIR/nite"
 
     # Download the uninstaller before reporting a successful installation.
     UNINSTALL_SCRIPT="$INSTALL_DIR/uninstall.sh"
     if ! curl -fsSL --max-time 30 "https://raw.githubusercontent.com/ereinaimer/taurine/main/uninstall.sh" -o "$UNINSTALL_SCRIPT" >/dev/null 2>&1; then
         rm -f "$UNINSTALL_SCRIPT"
-        echo "Error: Failed to download the Taurine uninstaller script." >&2
+        echo "Error: Failed to download the Nite uninstaller script." >&2
         exit 1
     fi
     chmod +x "$UNINSTALL_SCRIPT"
@@ -561,11 +533,11 @@ if [ "$IS_INSTALLED" = false ]; then
     IS_INSTALLED=true
     IS_FRESH_INSTALL=true
 
-    printf "\x1b[32m✓\x1b[0m taurine v%s installed\n" "$VERSION"
+    printf "\x1b[32m✓\x1b[0m nite v%s installed\n" "$VERSION"
 
     # Start the service after installation
-    if [ -x "$INSTALL_DIR/taurine" ]; then
-        "$INSTALL_DIR/taurine" up || true
+    if [ -x "$INSTALL_DIR/nite" ]; then
+        "$INSTALL_DIR/nite" up || true
     fi
 fi
 
@@ -615,14 +587,14 @@ if [ "$IS_INSTALLED" = true ]; then
 
     if [ "$IS_FRESH_INSTALL" = true ]; then
         if [ "$ADDED_PATH" = true ]; then
-            printf "Added to PATH and set up alias tau in your shell profiles:\n"
+            printf "Added to PATH in your shell profiles:\n"
             for p in $MODIFIED_PROFILES; do
                 printf "  %s\n" "$p"
             done
             printf "Please restart your shell or source your profile to apply the changes.\n"
         else
             ON_PATH=false
-            if command -v taurine >/dev/null 2>&1; then
+            if command -v nite >/dev/null 2>&1; then
                 ON_PATH=true
             fi
             case ":$PATH:" in
@@ -630,12 +602,12 @@ if [ "$IS_INSTALLED" = true ]; then
             esac
 
             if [ "$ON_PATH" = true ]; then
-                printf "\x1b[32m✓\x1b[0m Taurine binary is already on your PATH.\n"
+                printf "\x1b[32m✓\x1b[0m Nite binary is already on your PATH.\n"
             else
-                printf "Taurine binary is configured in your profile, but not in your current shell session.\n"
+                printf "Nite binary is configured in your profile, but not in your current shell session.\n"
                 printf "Please restart your shell or source your profile.\n"
             fi
-            printf "\x1b[32m✓\x1b[0m alias 'tau' is already set up.\n"
         fi
+        printf "Now you can run 'nite --help' for more details.\n"
     fi
 fi

@@ -1,4 +1,4 @@
-$ErrorActionPreference = "Stop"
+﻿$ErrorActionPreference = "Stop"
 
 # Ensure TLS 1.2 is enabled for secure downloads
 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
@@ -214,44 +214,6 @@ function Get-VersionBase {
     if ($idx -ge 0) { return $v.Substring(0, $idx) } else { return $v }
 }
 
-function Update-PowerShellProfile {
-    param([string]$ProfilePath)
-
-    $tauFuncLine = "function tau { taurine @args }"
-    $modified = $false
-
-    if (Test-Path $ProfilePath) {
-        $lines = Get-Content $ProfilePath -ErrorAction SilentlyContinue
-        $matchingLines = @($lines | Where-Object { $_ -match '^\s*function\s+tau\b' })
-
-        if ($matchingLines.Count -eq 1 -and $matchingLines[0].Trim() -eq $tauFuncLine) {
-            # Already set up perfectly
-            return $false
-        }
-
-        # Filter out all function tau lines and rewrite profile with exactly one correct function tau
-        $newLines = $lines | Where-Object { $_ -notmatch '^\s*function\s+tau\b' }
-        $newContent = ($newLines -join "`r`n").Trim()
-        if ($newContent) {
-            $newContent = "$newContent`r`n`r`n$tauFuncLine"
-        } else {
-            $newContent = "$tauFuncLine"
-        }
-        Set-Content -Path $ProfilePath -Value $newContent -Force
-        $modified = $true
-    } else {
-        # Profile file does not exist. Create parent directory and set file contents.
-        $parentDir = Split-Path $ProfilePath -Parent
-        if (-not (Test-Path $parentDir)) {
-            New-Item -ItemType Directory -Path $parentDir -Force | Out-Null
-        }
-        Set-Content -Path $ProfilePath -Value "`n$tauFuncLine`n" -NoNewLine
-        $modified = $true
-    }
-
-    return $modified
-}
-
 function Compare-Versions ($v1, $v2) {
     if ($v1 -eq $v2) { return 0 }
     
@@ -303,8 +265,8 @@ function Compare-Versions ($v1, $v2) {
 }
 
 function Main {
-    $InstallDir = Join-Path $env:LOCALAPPDATA "Taurine\bin"
-    $ExePath = Join-Path $InstallDir "taurine.exe"
+    $InstallDir = Join-Path $env:LOCALAPPDATA "Nite\bin"
+    $ExePath = Join-Path $InstallDir "nite.exe"
 
     $IsInstalled = $false
     $IsFreshInstall = $false
@@ -350,7 +312,7 @@ function Main {
                                 $cmp = Compare-Versions $LocalVersion $Version
                                 if ($cmp -ge 0) {
                                     Write-Host -ForegroundColor Green -NoNewline "$([char]0x2713) "
-                                    Write-Host "Taurine is up to date (v$LocalVersion)"
+                                    Write-Host "Nite is up to date (v$LocalVersion)"
                                 }
                             }
                         }
@@ -407,13 +369,13 @@ function Main {
         if ($LocalVersion) {
             if ($Version) {
                 if ((Compare-Versions $LocalVersion $Version) -lt 0) {
-                    Write-Host "A newer version of Taurine (v$Version) is available. Please run 'tau update' to update."
+                    Write-Host "A newer version of Nite (v$Version) is available. Please run 'nite update' to update."
                 }
             } else {
-                Write-Host "Taurine is already installed. If you want to update to the latest version, please run 'tau update'."
+                Write-Host "Nite is already installed. If you want to update to the latest version, please run 'nite update'."
             }
         } else {
-            Write-Host "Taurine is already installed. If you want to update to the latest version (v$Version), please run 'tau update'."
+            Write-Host "Nite is already installed. If you want to update to the latest version (v$Version), please run 'nite update'."
         }
     }
 
@@ -422,10 +384,10 @@ function Main {
 
     if (-not $IsInstalled) {
         try {
-            $TempZip = Join-Path $env:TEMP "taurine-$([guid]::NewGuid()).zip"
+            $TempZip = Join-Path $env:TEMP "nite-$([guid]::NewGuid()).zip"
 
             # Download archive with retry and live two-line progress
-            Invoke-DownloadWithRetry -Url $Url -Out $TempZip -Label "Downloading taurine v$Version" -SuccessLabel "Downloaded taurine v$Version"
+            Invoke-DownloadWithRetry -Url $Url -Out $TempZip -Label "Downloading nite v$Version" -SuccessLabel "Downloaded nite v$Version"
 
             # Verify checksum if available
             if ($Sha256) {
@@ -447,7 +409,7 @@ function Main {
                 }
             }
 
-            $TempDir = Join-Path $env:TEMP "taurine-ext-$([guid]::NewGuid())"
+            $TempDir = Join-Path $env:TEMP "nite-ext-$([guid]::NewGuid())"
             $ExtractJob = {
                 param($zip, $dest)
                 $ErrorActionPreference = "Stop"
@@ -460,7 +422,7 @@ function Main {
                 New-Item -ItemType Directory -Path $InstallDir | Out-Null
             }
 
-            Copy-Item -Path (Join-Path $TempDir "taurine.exe") -Destination $InstallDir -Force
+            Copy-Item -Path (Join-Path $TempDir "nite.exe") -Destination $InstallDir -Force
 
             # Download uninstall.ps1 script silently in the background
             $UninstallScriptPath = Join-Path $InstallDir "uninstall.ps1"
@@ -476,7 +438,7 @@ function Main {
             $IsFreshInstall = $true
 
             Write-Host -ForegroundColor Green -NoNewline "$([char]0x2713) "
-            Write-Host "taurine v$Version installed"
+            Write-Host "nite v$Version installed"
         } finally {
             if ($TempZip -and (Test-Path $TempZip)) {
                 Remove-Item -Path $TempZip -Force -ErrorAction SilentlyContinue
@@ -531,65 +493,17 @@ public static extern IntPtr SendMessageTimeout(
                 Write-Host -ForegroundColor Green -NoNewline "$([char]0x2713) "
                 Write-Host "PATH updated in registry."
                 Write-Host -ForegroundColor Yellow -NoNewline "$([char]0x2713) "
-                Write-Host "You may need to restart your terminal to use taurine directly."
+                Write-Host "You may need to restart your terminal to use nite directly."
             } elseif ($PathInEnv) {
                 Write-Host -ForegroundColor Green -NoNewline "$([char]0x2713) "
-                Write-Host "Taurine binary is already on your PATH."
+                Write-Host "Nite binary is already on your PATH."
             } else {
                 Write-Host -ForegroundColor Green -NoNewline "$([char]0x2713) "
-                Write-Host "Taurine binary is configured in registry PATH."
+                Write-Host "Nite binary is configured in registry PATH."
                 Write-Host -ForegroundColor Yellow -NoNewline "$([char]0x2713) "
                 Write-Host "Please restart your terminal to apply the change."
             }
-        }
-
-        # Configure PowerShell Profiles
-        $ProfilesToUpdate = @()
-        if ($PROFILE) {
-            $ProfilesToUpdate += $PROFILE
-            $allHosts = $PROFILE.CurrentUserAllHosts
-            if ($allHosts -and ($ProfilesToUpdate -notcontains $allHosts)) {
-                $ProfilesToUpdate += $allHosts
-            }
-        }
-
-        # Check other common PowerShell locations if parent directories exist
-        $DocsDir = [Environment]::GetFolderPath("MyDocuments")
-        if (-not $DocsDir -and $env:USERPROFILE) {
-            $DocsDir = Join-Path $env:USERPROFILE "Documents"
-        }
-        if ($DocsDir) {
-            $CommonProfiles = @(
-                (Join-Path $DocsDir "PowerShell\Microsoft.PowerShell_profile.ps1"),
-                (Join-Path $DocsDir "PowerShell\profile.ps1"),
-                (Join-Path $DocsDir "WindowsPowerShell\Microsoft.PowerShell_profile.ps1"),
-                (Join-Path $DocsDir "WindowsPowerShell\profile.ps1")
-            )
-            foreach ($p in $CommonProfiles) {
-                if ($ProfilesToUpdate -notcontains $p) {
-                    $parent = Split-Path $p -Parent
-                    if (Test-Path $parent) {
-                        $ProfilesToUpdate += $p
-                    }
-                }
-            }
-        }
-
-        $AliasUpdated = $false
-        foreach ($profilePath in $ProfilesToUpdate) {
-            if (Update-PowerShellProfile -ProfilePath $profilePath) {
-                $AliasUpdated = $true
-            }
-        }
-
-        if ($IsFreshInstall) {
-            Write-Host -ForegroundColor Green -NoNewline "$([char]0x2713) "
-            if ($AliasUpdated) {
-                Write-Host "Added alias 'tau' to your PowerShell profile(s)."
-            } else {
-                Write-Host "alias 'tau' is already set up in your profile(s)."
-            }
-            Write-Host "Now you can run 'tau --help' for more details."
+            Write-Host "Now you can run 'nite --help' for more details."
         }
 
         if ($IsFreshInstall) {
@@ -598,23 +512,23 @@ public static extern IntPtr SendMessageTimeout(
                     & $ExePath up
                 }
             } catch {
-                Write-Host "Warning: Failed to start Taurine service automatically."
+                Write-Host "Warning: Failed to start Nite service automatically."
             }
         }
 
         # Write registry uninstall keys to register in Add or Remove Programs
         $UninstallScriptPath = Join-Path $InstallDir "uninstall.ps1"
         try {
-            $UninstallKeyPath = "Software\Microsoft\Windows\CurrentVersion\Uninstall\Taurine"
+            $UninstallKeyPath = "Software\Microsoft\Windows\CurrentVersion\Uninstall\Nite"
             $UninstallKey = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($UninstallKeyPath)
-            $UninstallKey.SetValue("DisplayName", "Taurine")
+            $UninstallKey.SetValue("DisplayName", "Nite")
             $UninstallKey.SetValue("DisplayVersion", $Manifest.version)
             $UninstallKey.SetValue("Publisher", "Erein Aimer")
             $UninstallKey.SetValue("InstallLocation", $InstallDir)
             $UninstallKey.SetValue("DisplayIcon", $ExePath)
             $UninstallKey.SetValue("UninstallString", "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$UninstallScriptPath`"")
         } catch {
-            Write-Host "Warning: Failed to register Taurine in Add or Remove Programs."
+            Write-Host "Warning: Failed to register Nite in Add or Remove Programs."
         }
     }
 }

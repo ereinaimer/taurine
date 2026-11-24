@@ -1,12 +1,12 @@
 ---
 title: Shell Script Triggers
-description: Unlock infinite possibilities by connecting Taurine triggers to your local system's interpreters.
+description: Unlock infinite possibilities by connecting Nite triggers to your local system's interpreters.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 
-Shell Script Triggers are the most powerful feature in Taurine. They allow you to bridge the gap between simple text expansion and full system triggers. By mapping a trigger to a script, you can open applications, manage files, fetch data from APIs, or trigger complex devops pipelines—all without leaving your text editor.
+Shell Script Triggers are the most powerful feature in Nite. They allow you to bridge the gap between simple text expansion and full system triggers. By mapping a trigger to a script, you can open applications, manage files, fetch data from APIs, or trigger complex devops pipelines—all without leaving your text editor.
 
 <Callout title="Infinite Possibilities" type="info">
   While standard snippets are for text, scripts are for **actions**. This feature opens the door to infinite possibilities for customizing your OS and workflow.
@@ -20,7 +20,7 @@ You can add scripts directly from the command line or by pointing to an existing
 Use for quick, one-line commands.
 
 ```bash
-taurine add script url 'start https://[url=google.com]' --lang powershell --os windows
+nite add script url 'start https://[url=google.com]' --lang powershell --os windows
 ```
 
 - Typing `url ` opens **google.com** in your default browser.
@@ -31,17 +31,17 @@ taurine add script url 'start https://[url=google.com]' --lang powershell --os w
 Trigger complex system actions with a keyboard shortcut.
 
 ```bash
-taurine add script winget-install -l powershell "winget install [pkg=git]" --hotkey "ctrl+shift+w"
+nite add script winget-install -l powershell "winget install [pkg=git]" --hotkey "ctrl+shift+w"
 ```
 
 You can also use **side-specific modifiers** to distinguish between left and right keys:
 
 ```bash
 # Right Alt + M opens monkeytype
-taurine add script "Start-Process https://monkeytype.com" --hotkey "ralt+m" -l powershell -m silent
+nite add script "Start-Process https://monkeytype.com" --hotkey "ralt+m" -l powershell -m silent
 
 # Left Alt + M opens Gmail
-taurine add script "Start-Process https://mail.google.com" --hotkey "lalt+m" -l powershell -m silent
+nite add script "Start-Process https://mail.google.com" --hotkey "lalt+m" -l powershell -m silent
 ```
 
 <Callout title="No Arguments for Hotkeys" type="warn">
@@ -49,19 +49,19 @@ taurine add script "Start-Process https://mail.google.com" --hotkey "lalt+m" -l 
 </Callout>
 
 ### Script Files
-Use for complex logic. Taurine will read the file, compress it, and store it in its internal database.
+Use for complex logic. Nite will read the file, compress it, and store it in its internal database.
 
 ```bash
-taurine add script deploy -f ./scripts/deploy.py
+nite add script deploy -f ./scripts/deploy.py
 ```
 
 <Callout title="File Persistence" type="warn">
-  When you add a script via `-f`, Taurine copies and compresses the content into its database. You do **not** need to keep the original file on your disk for the trigger to work.
+  When you add a script via `-f`, Nite copies and compresses the content into its database. You do **not** need to keep the original file on your disk for the trigger to work.
 </Callout>
 
 ## Language Support & Inference
 
-Taurine supports all major system interpreters. If you don't specify a language with `--lang`, Taurine will attempt to infer it.
+Nite supports all major system interpreters. If you don't specify a language with `--lang`, Nite will attempt to infer it.
 
 | Language | Identifier | Inference Extensions |
 | :--- | :--- | :--- |
@@ -72,8 +72,8 @@ Taurine supports all major system interpreters. If you don't specify a language 
 | **Windows CMD** | `cmd` | `.bat`, `.cmd` |
 
 ### How Inference Works
-1. **Extension**: Taurine first looks at the file extension if added via `-f`.
-2. **Shebang**: If no extension is found (or it's an inline script), Taurine inspects the first line for a shebang (e.g., `#!/bin/bash`).
+1. **Extension**: Nite first looks at the file extension if added via `-f`.
+2. **Shebang**: If no extension is found (or it's an inline script), Nite inspects the first line for a shebang (e.g., `#!/bin/bash`).
 3. **Fallback**: If both fail, you must provide the `--lang` flag explicitly.
 
 ## Execution Modes
@@ -85,10 +85,10 @@ The `--mode` (or `-m`) flag determines how the script's output interacts with yo
 
 ```bash
 # Inline: Injects "Hello, World" into your text
-taurine add script hi "echo 'Hello, World'" -m inline
+nite add script hi "echo 'Hello, World'" -m inline
 
 # Silent: Deletes a file quietly without typing anything
-taurine add script cleanup "rm temp.log" -m silent
+nite add script cleanup "rm temp.log" -m silent
 ```
 
 ## Powering Scripts with Variables
@@ -97,13 +97,13 @@ The true power of scripting comes from combining it with [Dynamic Variables](/do
 
 ### The "Interpolation First" Rule
 
-Before your script is passed to the system interpreter (like PowerShell or Bash), Taurine runs its expansion engine over the entire script body. This means any dynamic variable like `[var=default]` or system variable like `[env(USER)]` is replaced with its actual value **before** the script starts executing.
+Before your script is passed to the system interpreter (like PowerShell or Bash), Nite runs its expansion engine over the entire script body. This means any dynamic variable like `[var=default]` or system variable like `[env(USER)]` is replaced with its actual value **before** the script starts executing.
 
 This allows you to pass user input or system metadata directly into your script logic without writing complex argument-parsing code.
 
 ### Using Variables in Script Files
 
-Variable interpolation is **not** limited to inline scripts. When you add a script using a file (`-f`), Taurine will still search for and replace variables inside that file every time it is triggered.
+Variable interpolation is **not** limited to inline scripts. When you add a script using a file (`-f`), Nite will still search for and replace variables inside that file every time it is triggered.
 
 **Example: `hi.ps1`**
 ```powershell
@@ -111,9 +111,9 @@ Variable interpolation is **not** limited to inline scripts. When you add a scri
 Write-Host "Hello, [var=friend | case(upper)]!"
 ```
 
-**Adding it to Taurine:**
+**Adding it to Nite:**
 ```bash
-taurine add script hi -f ./hi.ps1 --lang powershell
+nite add script hi -f ./hi.ps1 --lang powershell
 ```
 
 - Typing `hi ` results in: `Hello, FRIEND!`
@@ -126,21 +126,21 @@ taurine add script hi -f ./hi.ps1 --lang powershell
     **Smart URL Opener**
     Uses a dynamic variable with a default value.
     ```bash
-    taurine add script url 'start https://[url=google.com]' --lang powershell
+    nite add script url 'start https://[url=google.com]' --lang powershell
     ```
   </Tab>
   <Tab value="Env Aware">
     **System Metadata**
     Access metadata like your current user using `[env(USER)]`.
     ```bash
-    taurine add script whoami "echo 'Hello, [env(USER) | case(title)]!'" --lang bash
+    nite add script whoami "echo 'Hello, [env(USER) | case(title)]!'" --lang bash
     ```
   </Tab>
   <Tab value="Dynamic Logic">
     **Transformation in Script**
     You can even chain transformers within your script body.
     ```bash
-    taurine add script shout "echo '[text=text | case(upper)]!!!'" --lang bash
+    nite add script shout "echo '[text=text | case(upper)]!!!'" --lang bash
     ```
   </Tab>
 </Tabs>
@@ -151,26 +151,26 @@ taurine add script hi -f ./hi.ps1 --lang powershell
   <Tab value="System Navigation">
     **Open a Projects Folder (Windows)**
     ```bash
-    taurine add script pro 'explorer C:\Users\[env(USERNAME)]\Projects' --lang powershell --os windows
+    nite add script pro 'explorer C:\Users\[env(USERNAME)]\Projects' --lang powershell --os windows
     ```
   </Tab>
   <Tab value="Developer Tools">
     **Quick Git Commit & Push**
     ```bash
-    taurine add script gpp 'git add . && git commit -m "[msg=update]" && git push' --lang bash
+    nite add script gpp 'git add . && git commit -m "[msg=update]" && git push' --lang bash
     ```
   </Tab>
   <Tab value="Notifications">
     **Silent Timer (MacOS)**
     ```bash
-    taurine add script timer 'sleep [secs=60] && osascript -e "display notification \"Timer Up!\""' --lang bash --mode silent
+    nite add script timer 'sleep [secs=60] && osascript -e "display notification \"Timer Up!\""' --lang bash --mode silent
     ```
   </Tab>
 </Tabs>
 
 ## Technical Details
 
-- **Timeouts**: Every script expansion is limited by the `script_timeout` setting (default **15 seconds**). If it takes longer, Taurine will terminate the process and return an error. Set `script_timeout` to `0` to disable the timeout entirely and let scripts run until they finish on their own.
-- **Environment**: Scripts are executed with the same environment as the Taurine service. Ensure your interpreters (`python`, `node`, etc.) are available in your system's `PATH`.
+- **Timeouts**: Every script expansion is limited by the `script_timeout` setting (default **15 seconds**). If it takes longer, Nite will terminate the process and return an error. Set `script_timeout` to `0` to disable the timeout entirely and let scripts run until they finish on their own.
+- **Environment**: Scripts are executed with the same environment as the Nite service. Ensure your interpreters (`python`, `node`, etc.) are available in your system's `PATH`.
 - **CWD**: Scripts are executed in a temporary directory. Always use absolute paths (via variables like `[env(USERPROFILE)]`) when interacting with specific files on your system.
 - **Cross-Platform**: Use the `--os` flag to define different versions of a trigger for `windows`, `linux`, or `macos`.

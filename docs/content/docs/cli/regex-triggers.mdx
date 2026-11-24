@@ -5,7 +5,7 @@ description: Learn how to activate triggers using regular expression patterns an
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Taurine entries fire from four invocation kinds: **Word**, **Hotkey**, **Regex**, and **Voice** — one entry can mix them (see [Managing Triggers](/docs/cli/trigger-management)).
+Nite entries fire from four invocation kinds: **Word**, **Hotkey**, **Regex**, and **Voice** — one entry can mix them (see [Managing Triggers](/docs/cli/trigger-management)).
 
 While Word Triggers are static words (e.g., `gs`), **Regex Triggers** allow you to match complex text patterns (e.g., `issue-(\d+)` or `[^@]+@[^@]+\.[^@]+`) and dynamically interpolate captured groups into your trigger output.
 
@@ -22,7 +22,7 @@ Capture groups in your regular expression are mapped directly to engine-internal
 
 ```bash
 # Add a regex expansion for issue tracking links
-taurine add "https://github.com/issues/[0]" --regex "issue-(\d+)"
+nite add "https://github.com/issues/[0]" --regex "issue-(\d+)"
 ```
 
 When you type `issue-42`, it will instantly expand to `https://github.com/issues/42`.
@@ -32,12 +32,12 @@ Pass capture groups directly into shell script triggers.
 
 ```bash
 # Trigger a shell script to fetch user details
-taurine add script user-details -l powershell "Get-UserDetail -Username [0]" --regex "user:([a-zA-Z0-9]+)"
+nite add script user-details -l powershell "Get-UserDetail -Username [0]" --regex "user:([a-zA-Z0-9]+)"
 ```
 
 ## How Capture Groups Work
 
-Taurine maps standard regular expression capture groups to numbered slots:
+Nite maps standard regular expression capture groups to numbered slots:
 
 *   **Group 1** maps to **`[0]`**
 *   **Group 2** maps to **`[1]`**
@@ -52,7 +52,7 @@ Taurine maps standard regular expression capture groups to numbered slots:
 
 ```bash
 # Bind regex trigger matching: key=value
-taurine add "Mapping [0] to [1]" --regex "bind:(\w+)=(\w+)"
+nite add "Mapping [0] to [1]" --regex "bind:(\w+)=(\w+)"
 ```
 
 If you type `bind:foo=bar`, it will expand to `Mapping foo to bar`.
@@ -60,7 +60,7 @@ If you type `bind:foo=bar`, it will expand to `Mapping foo to bar`.
 ## Compatibility & Features
 
 ### Backspace Undo
-Regex triggers are fully compatible with Taurine's Backspace Undo. If an expansion occurs, pressing `Backspace` immediately afterwards will restore the matched keyword (e.g., restoring `issue-42` rather than the regex pattern `issue-(\d+)`).
+Regex triggers are fully compatible with Nite's Backspace Undo. If an expansion occurs, pressing `Backspace` immediately afterwards will restore the matched keyword (e.g., restoring `issue-42` rather than the regex pattern `issue-(\d+)`).
 
 ### Space & Multi-word Matching
 Keystroke delimiters (like spaces) do not automatically clear the keystroke buffer. Patterns that contain spaces (e.g., `hello\s+world`) are fully supported and will match successfully across word boundaries.

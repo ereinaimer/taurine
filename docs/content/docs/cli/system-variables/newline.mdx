@@ -29,11 +29,11 @@ Erin
 ## Raw `\n` vs `[newline]`
 
 > [!WARNING]
-> In Taurine, raw `\n` (the two characters: backslash `\` and `n`) is **not** unescaped. It is treated as literal text to ensure Windows paths (like `C:\Users\name\documents`) expand correctly without corruption.
+> In Nite, raw `\n` (the two characters: backslash `\` and `n`) is **not** unescaped. It is treated as literal text to ensure Windows paths (like `C:\Users\name\documents`) expand correctly without corruption.
 
 If you need a newline in your trigger expansions, you should:
 * Use the `[newline]` or `[newline count]` system variable.
-* Insert literal newlines in multi-line GUI editors (like the Taurine TUI or settings fields).
+* Insert literal newlines in multi-line GUI editors (like the Nite TUI or settings fields).
 * Use standard JSON/YAML escaping during imports (which the deserializer automatically converts to literal line breaks).
 
 ## Examples

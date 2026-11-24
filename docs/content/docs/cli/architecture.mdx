@@ -1,10 +1,10 @@
 ---
 title: Architecture
-description: Understanding the split-process design and gRPC communication in Taurine.
+description: Understanding the split-process design and gRPC communication in Nite.
 icon: Cpu
 ---
 
-Taurine is built with a high-performance, split-process architecture designed to ensure that text expansion and keyboard shortcuts never lag your system, even during complex script executions.
+Nite is built with a high-performance, split-process architecture designed to ensure that text expansion and keyboard shortcuts never lag your system, even during complex script executions.
 
 ## Single Binary, Two Roles
 
@@ -17,15 +17,15 @@ Despite being a single binary file, the application behaves differently dependin
 
 The CLI and the service communicate using **gRPC** (Google Remote Procedure Call) over a local loopback connection. 
 
-- When you run `taurine add ...`, the CLI serializes your request and sends it to the service.
+- When you run `nite add ...`, the CLI serializes your request and sends it to the service.
 - The service validates the request, updates its internal database, and reloads its state instantly without needing a restart.
 - This ensures that your triggers are available system-wide the moment you press Enter on a CLI command.
 
 ## The Engine Toggle
 
-Sometimes you might want to temporarily disable Taurine (e.g., when playing a game or in a terminal where text expansion would interfere). 
+Sometimes you might want to temporarily disable Nite (e.g., when playing a game or in a terminal where text expansion would interfere). 
 
-Taurine provides a configurable global system hotkey to toggle the expansion engine on and off:
+Nite provides a configurable global system hotkey to toggle the expansion engine on and off:
 
 | Action | Hotkey |
 | :--- | :--- |
@@ -35,9 +35,9 @@ When the engine is toggled off, the service continues to run but stops intercept
 
 ## Performance & Security
 
-- **Security & Privacy First**: Taurine is designed to be invisible and secure. It does not require administrative privileges for standard text expansion and respects your system's security boundaries.
-- **Memory Safety**: Written entirely in Rust, Taurine leverages memory safety and zero-cost abstractions for extremely low resource usage.
+- **Security & Privacy First**: Nite is designed to be invisible and secure. It does not require administrative privileges for standard text expansion and respects your system's security boundaries.
+- **Memory Safety**: Written entirely in Rust, Nite leverages memory safety and zero-cost abstractions for extremely low resource usage.
 - **Process Isolation**: Shell scripts and background tasks are executed in isolated child processes with strict timeouts to prevent system-wide stalls.
-- **Local First**: All data is stored in a local SQLite database and all communication stays on your machine. Taurine does not "call home" or send your keystrokes to any external servers.
-- **No Vendor Lock-in**: You own your data. You can export your entire trigger database at any time using the `taurine export` command, ensuring you can move your triggers to another system or backup if needed.
+- **Local First**: All data is stored in a local SQLite database and all communication stays on your machine. Nite does not "call home" or send your keystrokes to any external servers.
+- **No Vendor Lock-in**: You own your data. You can export your entire trigger database at any time using the `nite export` command, ensuring you can move your triggers to another system or backup if needed.
 

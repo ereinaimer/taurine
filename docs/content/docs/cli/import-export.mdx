@@ -6,7 +6,7 @@ description: Seamlessly move your triggers between machines with secure exchange
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 
-Taurine provides a robust exchange system that allows you to back up your local triggers or sync them across different machines. Files are stored with the `.tau` extension and are always encrypted.
+Nite provides a robust exchange system that allows you to back up your local triggers or sync them across different machines. Files are stored with the `.nx` extension and are always encrypted.
 
 ## Exporting Data
 
@@ -14,13 +14,13 @@ The `export` command bundles your triggers into a single portable exchange file.
 
 ```bash
 # Opens an interactive TUI (default)
-taurine export
+nite export
 
 # Export to a specific file (opens TUI)
-taurine export backup.tau
+nite export backup.nx
 
 # Non-interactive — skips the TUI, uses provided flags directly
-taurine export backup.tau -y
+nite export backup.nx -y
 ```
 
 ### Interactive vs Headless
@@ -28,22 +28,22 @@ taurine export backup.tau -y
 By default, `export` opens an interactive TUI overlay where you can set the file path and an optional password before proceeding. All CLI flags are optional and pre-fill the form.
 
 Pass `-y` / `--yes` to skip the TUI entirely and run non-interactively. With `--yes`:
-- The file path defaults to `tx-YYMMDD.tau` if not provided.
+- The file path defaults to `nx-YYMMDD.nx` if not provided.
 - The export is passwordless but still encrypted.
 
 ### Encryption & Security
-Exports are always encrypted using **AES-256-GCM** and only open in Taurine. You may set a password (minimum 8 characters) for a second lock — it is required on import and cannot be recovered if forgotten.
+Exports are always encrypted using **AES-256-GCM** and only open in Nite. You may set a password (minimum 8 characters) for a second lock — it is required on import and cannot be recovered if forgotten.
 
 ## Importing Data
 
-The `import` command allows you to load an exchange file into your local Taurine database.
+The `import` command allows you to load an exchange file into your local Nite database.
 
 ```bash
 # Opens an interactive TUI (default)
-taurine import backup.tau
+nite import backup.nx
 
 # Non-interactive — skips the TUI
-taurine import backup.tau -y --conflict skip
+nite import backup.nx -y --conflict skip
 ```
 
 ### Interactive vs Headless
@@ -53,7 +53,7 @@ Like `export`, `import` opens an interactive TUI overlay by default. All CLI fla
 Pass `-y` / `--yes` to skip the TUI. A file path is always required with `--yes`. If the file has a password, the command errors because it can't be prompted for — use the interactive TUI.
 
 ### Conflict Resolution
-When an imported invocation shares the same **invocation and type** with overlapping scope as an existing local invocation, Taurine triggers a conflict resolution flow.
+When an imported invocation shares the same **invocation and type** with overlapping scope as an existing local invocation, Nite triggers a conflict resolution flow.
 
 - **`prompt` (Default)**: Opens an interactive menu for each conflict.
 - **`overwrite`**: Automatically replaces local triggers with the imported versions.
@@ -65,7 +65,7 @@ When an imported invocation shares the same **invocation and type** with overlap
 
 ## Technical Specifications
 
-Taurine's exchange engine is designed for reliability and consistency:
+Nite's exchange engine is designed for reliability and consistency:
 
 | Feature | Specification |
 | :--- | :--- |

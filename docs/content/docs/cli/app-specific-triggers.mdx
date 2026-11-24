@@ -8,7 +8,7 @@ App-Specific Triggers allow you to define triggers that only execute when certai
 
 ## How it works
 
-When a trigger specifies app filters, Taurine inspects the active window's details at the exact moment the trigger is matched. You can configure filters using two command-line flags:
+When a trigger specifies app filters, Nite inspects the active window's details at the exact moment the trigger is matched. You can configure filters using two command-line flags:
 
 * `--include-apps <list>`: A comma-separated list of application rules. The trigger will **only** fire if the active window matches at least one of these rules.
 * `--exclude-apps <list>`: A comma-separated list of application rules. The trigger will **never** fire if the active window matches any of these rules.
@@ -47,21 +47,21 @@ To configure your filters accurately, look up the target application label in th
 Create a hotkey that only works when editing code in VS Code or browsing in Google Chrome:
 
 ```bash
-taurine add "Insert current date" --hotkey "ctrl+shift+e" --include-apps "exe:code,exe:chrome"
+nite add "Insert current date" --hotkey "ctrl+shift+e" --include-apps "exe:code,exe:chrome"
 ```
 
 ### Restricting based on website / window title
 Create a snippet that only expands when you are actively viewing GitHub in your browser:
 
 ```bash
-taurine add pr "git pull" --include-apps "title:GitHub"
+nite add pr "git pull" --include-apps "title:GitHub"
 ```
 
 ### Blocking in specific apps
 Create a trigger that works everywhere *except* inside Slack and terminal windows:
 
 ```bash
-taurine add "!deploy" "curl -X POST https://api.example.com/deploy" --exclude-apps "exe:slack,exe:cmd,exe:windowsterminal"
+nite add "!deploy" "curl -X POST https://api.example.com/deploy" --exclude-apps "exe:slack,exe:cmd,exe:windowsterminal"
 ```
 
 ### Reusing the same hotkey
@@ -69,19 +69,19 @@ Because filters prevent overlap, you can bind the same hotkey to different actio
 
 ```bash
 # In VS Code, trigger quick open file
-taurine add "workbench.action.quickOpen" --hotkey "ctrl+p" --include-apps "exe:code"
+nite add "workbench.action.quickOpen" --hotkey "ctrl+p" --include-apps "exe:code"
 
 # In Google Chrome, print the page
-taurine add "window.print()" --hotkey "ctrl+p" --include-apps "exe:chrome"
+nite add "window.print()" --hotkey "ctrl+p" --include-apps "exe:chrome"
 ```
 
 <Callout title="Trigger Conflicts" type="warning">
-  If you attempt to map the same hotkey/trigger on overlapping applications (for example, mapping one to run only in Chrome and another to run globally), Taurine will reject it with a `Trigger conflict` error to protect your key bindings from colliding.
+  If you attempt to map the same hotkey/trigger on overlapping applications (for example, mapping one to run only in Chrome and another to run globally), Nite will reject it with a `Trigger conflict` error to protect your key bindings from colliding.
 </Callout>
 
 ---
 
 ## Safety & Fail-Safes
 
-* **Strict Mode on Query Failure:** If the operating system fails to determine the active window (due to secure screens, lock screens, OS transitions, or permission limits), Taurine **safely blocks** any restricted trigger from firing. This ensures that sensitive expansions never leak into untrusted windows.
+* **Strict Mode on Query Failure:** If the operating system fails to determine the active window (due to secure screens, lock screens, OS transitions, or permission limits), Nite **safely blocks** any restricted trigger from firing. This ensures that sensitive expansions never leak into untrusted windows.
 * **Wayland Support (Linux):** Because Wayland restricts global active window queries, active application filtering is bypassed on Wayland (restricted triggers are safely blocked), defaulting to standard global behavior for unrestricted triggers.

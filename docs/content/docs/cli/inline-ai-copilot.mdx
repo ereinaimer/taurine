@@ -1,19 +1,19 @@
 ---
 title: Inline AI Copilot
-description: Set up AI providers, use quoted prompts, and run interactive AI capture directly from Taurine.
+description: Set up AI providers, use quoted prompts, and run interactive AI capture directly from Nite.
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 
-Taurine's **Inline AI Copilot** brings powerful Large Language Models directly to your cursor. Whether you need to rewrite a sentence, generate a function, or brainstorm ideas, you can trigger AI assistance without leaving your active window.
+Nite's **Inline AI Copilot** brings powerful Large Language Models directly to your cursor. Whether you need to rewrite a sentence, generate a function, or brainstorm ideas, you can trigger AI assistance without leaving your active window.
 
 ## Configuration Wizard
 
 Launch the interactive AI configuration wizard from any terminal:
 
 ```bash
-tau ai
+nite ai
 ```
 
 ### Interactive Hotkeys
@@ -32,52 +32,52 @@ For headless environments, automated setups, and scripts, pass the `-y` flag:
 
 ```bash
 # Check active and configured providers
-tau ai -y
+nite ai -y
 
 # Output status in JSON format
-tau ai -y --json
+nite ai -y --json
 
 # Configure a provider
-tau ai -y --provider gemini --key <YOUR_API_KEY>
+nite ai -y --provider gemini --key <YOUR_API_KEY>
 
 # Configure a provider with a specific model
-tau ai -y --provider openai --key <YOUR_API_KEY> --model gpt-4o
+nite ai -y --provider openai --key <YOUR_API_KEY> --model gpt-4o
 
 # Configure a custom local endpoint (e.g. Ollama or LM Studio)
-tau ai -y --provider custom --endpoint http://localhost:11434/v1 --model llama3
+nite ai -y --provider custom --endpoint http://localhost:11434/v1 --model llama3
 
 # Remove a provider
-tau ai -y --remove gemini
+nite ai -y --remove gemini
 
 # Remove all configured providers
-tau ai -y --remove-all
+nite ai -y --remove-all
 ```
 
 ## Usage
 
-Taurine operates inline anywhere you can type. There are no special delimiters, modal states, or capture modes to remember. Simply use the natural prefix **`tau,`** followed by your prompt, and hit **Enter**:
+Nite operates inline anywhere you can type. There are no special delimiters, modal states, or capture modes to remember. Simply use the natural prefix **`nite,`** followed by your prompt, and hit **Enter**:
 
 ```text
-tau, what is the capital of France?[Enter]
+nite, what is the capital of France?[Enter]
 ```
 
 Or for code generation:
 
 ```text
-tau, write a rust function to parse json[Enter]
+nite, write a rust function to parse json[Enter]
 ```
 
 ### Prefix Requirements
 
-To prevent conflicts with Taurine's CLI alias `tau`, the trailing comma is strictly required. Any case-insensitive variation of `tau,` is supported:
+To prevent conflicts with Nite CLI usage, the trailing comma is strictly required. Any case-insensitive variation of `nite,` is supported:
 
-- `tau, <prompt>`
-- `Tau, <prompt>`
-- `TAu, <prompt>`
-- `TAU, <prompt>`
+- `nite, <prompt>`
+- `Nite, <prompt>`
+- `NIte, <prompt>`
+- `NITE, <prompt>`
 
 <Callout title="Comma Required" type="warning">
-  Taurine strictly requires the trailing comma (`tau,`). Prompts typed as `tau <prompt>` or `tau: <prompt>` will not trigger inline AI, ensuring that daily CLI usage like `tau add` or `tau config` in terminals is never intercepted.
+  Nite strictly requires the trailing comma (`nite,`). Prompts typed as `nite <prompt>` or `nite: <prompt>` will not trigger inline AI, ensuring that daily CLI usage like `nite add` or `nite config` in terminals is never intercepted.
 </Callout>
 
 ### Mid-Line Typing
@@ -85,31 +85,31 @@ To prevent conflicts with Taurine's CLI alias `tau`, the trailing comma is stric
 You do not need to be at the beginning of a line to invoke AI assistance. If you are drafting a message or document:
 
 ```text
-The team discussed the launch timeline. tau, summarize key risks[Enter]
+The team discussed the launch timeline. nite, summarize key risks[Enter]
 ```
 
-Taurine precisely backspaces only the `tau, summarize key risks` portion, leaving `"The team discussed the launch timeline. "` completely intact, and streams the AI output directly after it.
+Nite precisely backspaces only the `nite, summarize key risks` portion, leaving `"The team discussed the launch timeline. "` completely intact, and streams the AI output directly after it.
 
 ### Clipboard Context
 
 You can provide copied text or code as context to your inline AI prompt in two seamless ways:
 
-1. **Paste Shortcut (`Ctrl + V` / `Cmd + V`)**: When typing after a `tau,` prefix, pressing your paste shortcut automatically intercepts the paste, preventing large code or multi-line text from flooding your editor. Instead, Taurine types a compact placeholder token:
+1. **Paste Shortcut (`Ctrl + V` / `Cmd + V`)**: When typing after a `nite,` prefix, pressing your paste shortcut automatically intercepts the paste, preventing large code or multi-line text from flooding your editor. Instead, Nite types a compact placeholder token:
    - For multi-line text: `[clip: 34 lines]`
    - For single-line text: `[clip: 18 words]` (or `[clip: 1 word]`)
 2. **Explicit Token (`[clip]`)**: You can also manually type `[clip]` anywhere inside your prompt:
-   - `tau, summarize this text: [clip]`
-   - `tau, rewrite in python: [clip | ai(add unit tests)]`
+   - `nite, summarize this text: [clip]`
+   - `nite, rewrite in python: [clip | ai(add unit tests)]`
 
-When you hit **Enter**, Taurine deletes only the concise single line on screen, substitutes the raw clipboard content directly into the prompt as-is, and streams the AI response directly into your active window.
+When you hit **Enter**, Nite deletes only the concise single line on screen, substitutes the raw clipboard content directly into the prompt as-is, and streams the AI response directly into your active window.
 
 <Callout title="Atomic Erasure & Chat Apps" type="info">
-  By replacing large pastes with compact placeholder tokens, Taurine only needs to backspace a single line of text on Enter. This avoids the multi-line backspace lag and accidental message sends common when pasting raw multi-line text into chat applications like Slack or Discord.
+  By replacing large pastes with compact placeholder tokens, Nite only needs to backspace a single line of text on Enter. This avoids the multi-line backspace lag and accidental message sends common when pasting raw multi-line text into chat applications like Slack or Discord.
 </Callout>
 
 ### Empty Prompt Safety
 
-If you type `tau` or `tau,` and press **Enter** without a prompt, Taurine treats it as standard typing and lets your Enter key pass straight through to the operating system.
+If you type `nite` or `nite,` and press **Enter** without a prompt, Nite treats it as standard typing and lets your Enter key pass straight through to the operating system.
 
 ## Configuration
 
@@ -118,7 +118,7 @@ If you type `tau` or `tau,` and press **Enter** without a prompt, Taurine treats
 Inline AI is enabled by default. You can toggle it at any time:
 
 ```bash
-taurine config set inline_ai_enabled false
+nite config set inline_ai_enabled false
 ```
 
 ### Custom Endpoints
@@ -126,13 +126,13 @@ taurine config set inline_ai_enabled false
 If you are using the `custom` provider (e.g., Local LLMs via Ollama or LM Studio), configure your endpoint:
 
 ```bash
-taurine config set ai_custom_endpoint http://localhost:11434/v1
+nite config set ai_custom_endpoint http://localhost:11434/v1
 ```
 
 ## Provider Selection
 
-Taurine determines which provider to use based on your active configuration:
+Nite determines which provider to use based on your active configuration:
 
-1. **Explicit Setting**: If `ai_provider` is set via `taurine config set ai_provider <name>`, that provider is always used.
-2. **Auto-Selection**: If `ai_provider` is not set but you have exactly **one** provider configured (via `tau ai`), Taurine will use it automatically.
-3. **Manual Conflict**: If multiple providers are configured but no default is set, Taurine will prompt you to set an `ai_provider` before it can execute a request.
+1. **Explicit Setting**: If `ai_provider` is set via `nite config set ai_provider <name>`, that provider is always used.
+2. **Auto-Selection**: If `ai_provider` is not set but you have exactly **one** provider configured (via `nite ai`), Nite will use it automatically.
+3. **Manual Conflict**: If multiple providers are configured but no default is set, Nite will prompt you to set an `ai_provider` before it can execute a request.

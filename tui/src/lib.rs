@@ -924,7 +924,7 @@ fn execute_palette_command(app: &mut App, command: palette::PaletteCommand) {
                 app.open_settings_overlay();
             }
         }
-        PaletteCommand::RestartTaurine => {
+        PaletteCommand::RestartNite => {
             // honey: the service restart blocks up to ~10s; move it to
             // a worker if the pause starts feeling slow.
             let start_on_boot = app.settings_page().settings().start_on_boot;
@@ -933,7 +933,7 @@ fn execute_palette_command(app: &mut App, command: palette::PaletteCommand) {
                     // A restarted daemon always comes back unpaused.
                     app.set_daemon_paused(false);
                 }
-                Err(err) => error!(error = %err, "Failed to restart Taurine"),
+                Err(err) => error!(error = %err, "Failed to restart Nite"),
             }
         }
         // honey: the pause/resume RPC blocks up to the 2s transport
@@ -2385,7 +2385,7 @@ impl TerminalGuard {
 
         apply_saved_cursor_style();
 
-        // honey: tab reads Taurine for the session; Drop restores it.
+        // honey: tab reads Nite for the session; Drop restores it.
         crate::terminal_title::acquire();
 
         Ok(Self { terminal })

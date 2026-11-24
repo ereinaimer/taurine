@@ -5,7 +5,7 @@ description: Provide fallbacks in case an argument is not specified.
 
 ## Mandatory Default Values
 
-To ensure that variables always have a predictable fallback, Taurine requires that every unique dynamic variable defines a default value using the `=` symbol on its first appearance: `[$name = "there"]`.
+To ensure that variables always have a predictable fallback, Nite requires that every unique dynamic variable defines a default value using the `=` symbol on its first appearance: `[$name = "there"]`.
 
 Subsequent occurrences of the same variable in the template automatically inherit the default and do not require repeating it:
 
@@ -27,8 +27,8 @@ Subsequent occurrences of the same variable in the template automatically inheri
   ]}
 />
 
-If no value is provided via input, Taurine will use the assigned default.
+If no value is provided via input, Nite will use the assigned default.
 
 <Callout type="warning" title="Strict Declaration Rule">
-  Taurine will reject your template at save time if a dynamic variable lacks a default value on its declaration (e.g., `[$name]` with no prior definition) or if an unquoted empty default is provided (e.g., `[$name=]`).
+  Nite will reject your template at save time if a dynamic variable lacks a default value on its declaration (e.g., `[$name]` with no prior definition) or if an unquoted empty default is provided (e.g., `[$name=]`).
 </Callout>

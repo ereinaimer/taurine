@@ -3,7 +3,7 @@ title: Basic Variables
 description: Use dynamic placeholders to drop values directly into your text.
 ---
 
-Dynamic variables make your Taurine snippets truly flexible. Instead of static text, they allow you to create templates that react to the context of your input—turning simple macros into powerful trigger tools.
+Dynamic variables make your Nite snippets truly flexible. Instead of static text, they allow you to create templates that react to the context of your input—turning simple macros into powerful trigger tools.
 
 The core syntax uses square brackets with a leading `$` symbol and a mandatory `=` to declare the variable and its fallback value: `[$variable_name = "default"]`.
 
@@ -17,10 +17,10 @@ Result: \[0\] + 1 = [$value = "1"]
 → Result: [0] + 1 = 1
 ```
 
-When Taurine encounters a bracketed dynamic variable, it converts it into an **input mapping**. Anything you type after the semicolon (`;`) in your trigger is captured and injected directly into that placeholder at the moment of expansion.
+When Nite encounters a bracketed dynamic variable, it converts it into an **input mapping**. Anything you type after the semicolon (`;`) in your trigger is captured and injected directly into that placeholder at the moment of expansion.
 
 ### Basic Mapping
-If your snippet has a single variable, Taurine maps your terminal argument to that specific placeholder.
+If your snippet has a single variable, Nite maps your terminal argument to that specific placeholder.
 
 <Transformation
   template='Hello, [$name = "stranger"]!'

@@ -1,5 +1,5 @@
 /**
- * Taurine Variable Engine Simulator
+ * Nite Variable Engine Simulator
  * This mocks the Rust variable engine logic for the documentation playground.
  * Supports the canonical `[base | category(action, ...)]` transformer syntax only.
  */

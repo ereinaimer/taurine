@@ -5,7 +5,7 @@ description: Cycle the capitalization of expanded text using arrow keys.
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Taurine provides a quick, mouse-free way to change the capitalization of your expanded text directly within the active [Backspace Undo](/docs/cli/backspace-undo) window. 
+Nite provides a quick, mouse-free way to change the capitalization of your expanded text directly within the active [Backspace Undo](/docs/cli/backspace-undo) window. 
 
 Instead of re-typing a trigger or manually editing casing when you need UPPERCASE, lowercase, or Title Case, you can cycle through variations instantly.
 
@@ -15,20 +15,20 @@ When a trigger expands, a **5-second active window** opens. Pressing the **Left*
 
 ### Casing Variants
 
-Taurine dynamically generates and cycles through four standard casing forms:
+Nite dynamically generates and cycles through four standard casing forms:
 *   `UPPERCASE` (e.g., `GOOD MORNING`)
 *   `lowercase` (e.g., `good morning`)
 *   `Sentence case` (e.g., `Good morning`)
 *   `Title Case` (e.g., `Good Morning`)
 
 <Callout title="Smart Redundancy Skipping" type="info">
-  If a casing change results in the exact same string (for instance, when cycling numbers, punctuation, or already capitalized acronyms like `USA`), Taurine automatically skips that variant. It will never get stuck in an infinite cycle.
+  If a casing change results in the exact same string (for instance, when cycling numbers, punctuation, or already capitalized acronyms like `USA`), Nite automatically skips that variant. It will never get stuck in an infinite cycle.
 </Callout>
 
 ## Cycling Mechanics
 
-*   **Swallowing Arrow Keys:** The Left and Right arrow keys are swallowed while cycling. They will not move your editor's text cursor. Instead, Taurine intercepts them and rewrites the expanded text block.
-*   **Backspace Length Synchronization:** As the text length fluctuates between variants (e.g., casing changes that alter character counts like `ß` becoming `SS` in German), Taurine synchronizes the undo length in lockstep. Pressing **Backspace** at any point will still delete the entire block and restore your original trigger.
+*   **Swallowing Arrow Keys:** The Left and Right arrow keys are swallowed while cycling. They will not move your editor's text cursor. Instead, Nite intercepts them and rewrites the expanded text block.
+*   **Backspace Length Synchronization:** As the text length fluctuates between variants (e.g., casing changes that alter character counts like `ß` becoming `SS` in German), Nite synchronizes the undo length in lockstep. Pressing **Backspace** at any point will still delete the entire block and restore your original trigger.
 *   **Locking In Casing:** Typing any alphanumeric key, clicking the mouse, or pressing the `Up`/`Down` arrow keys instantly locks in the selected casing and closes the undo window.
 
 ## Configuration
@@ -36,7 +36,7 @@ Taurine dynamically generates and cycles through four standard casing forms:
 Case cycling is enabled by default. You can disable this feature globally using the CLI:
 
 ```bash
-taurine config set inline_case_transform_enabled false
+nite config set inline_case_transform_enabled false
 ```
 
 Alternatively, you can toggle **Inline Case Transform** in the TUI Settings screen.

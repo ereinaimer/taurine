@@ -1,11 +1,11 @@
 ---
 title: Managing Triggers
-description: How to add, list, and remove your Taurine triggers
+description: How to add, list, and remove your Nite triggers
 ---
 
 ## Invocation Types
 
-Taurine entries fire from four kinds of invocations:
+Nite entries fire from four kinds of invocations:
 
 1. **Word**: Typed words expanded directly with Enter (e.g., `brb`).
 2. **Hotkey**: Global keyboard shortcuts (e.g., `ctrl+shift+g`).
@@ -19,10 +19,10 @@ Taurine entries fire from four kinds of invocations:
 To create a new text expansion triggered by a typed word, use the `add` or `set` command:
 
 ```bash
-taurine add brb "Be right back"
+nite add brb "Be right back"
 ```
 
-If you add a trigger that already exists, Taurine will automatically update it with the new content.
+If you add a trigger that already exists, Nite will automatically update it with the new content.
 
 ### Multiple Invocations per Entry
 
@@ -30,7 +30,7 @@ One entry can fire from many invocations of any kind. List extra word triggers a
 additional positionals, and attach hotkey, regex, and voice invocations with repeatable flags:
 
 ```bash
-taurine add hi hello "Hello!" --hotkey ctrl+h --hotkey ctrl+j --voice "say hi" --regex "h+i+"
+nite add hi hello "Hello!" --hotkey ctrl+h --hotkey ctrl+j --voice "say hi" --regex "h+i+"
 ```
 
 Typing `hi` or `hello`, pressing `ctrl+h` or `ctrl+j`, saying "say hi", or typing text
@@ -44,7 +44,7 @@ To create a trigger configured as a keyboard shortcut, pass the combo to the `--
 (repeatable — one combo per occurrence):
 
 ```bash
-taurine add "git status[key(enter)]" --hotkey "ctrl+shift+g"
+nite add "git status[key(enter)]" --hotkey "ctrl+shift+g"
 ```
 
 For more details on hotkey syntax and validation, see the [Hotkey Triggers](/docs/cli/hotkey-triggers) page.
@@ -53,16 +53,16 @@ For more details on hotkey syntax and validation, see the [Hotkey Triggers](/doc
 You can restrict triggers to specific operating systems, or make them universal:
 
 ```bash
-taurine add sig "Sent from Taurine" --os all      # Works everywhere
-taurine add sig "Sent from Windows" --os windows  # Windows only
+nite add sig "Sent from Nite" --os all      # Works everywhere
+nite add sig "Sent from Windows" --os windows  # Windows only
 ```
 
 ### Tagging Snippets
 You can organize your triggers using tags. Add tags using the `--tag` flag when adding a word trigger, hotkey trigger, or script:
 
 ```bash
-taurine add gm "Good morning!" --tag work,email
-taurine add brb "Be right back" --tag casual --tag priority
+nite add gm "Good morning!" --tag work,email
+nite add brb "Be right back" --tag casual --tag priority
 ```
 
 You can specify the `--tag` option multiple times or pass a comma-separated list of tags.
@@ -70,7 +70,7 @@ You can specify the `--tag` option multiple times or pass a comma-separated list
 ## How to Trigger
 
 ### Word Triggers
-Taurine is natively triggerless — there is no prefix character. Type the **word** and press **Enter** to expand it.
+Nite is natively triggerless — there is no prefix character. Type the **word** and press **Enter** to expand it.
 
 ```text
 brb[Enter]
@@ -85,7 +85,7 @@ Hotkey triggers execute immediately when the keyboard shortcut is pressed. They 
 
 ## Inline Trigger Assist
 
-Taurine provides a headless **inline trigger assist** to help you quickly find and select your word triggers as you type. This feature works directly inside your active text field—no popups, overlays, or command palettes are required. It includes **Tab completion** for matching triggers.
+Nite provides a headless **inline trigger assist** to help you quickly find and select your word triggers as you type. This feature works directly inside your active text field—no popups, overlays, or command palettes are required. It includes **Tab completion** for matching triggers.
 
 ### Usage
 
@@ -114,7 +114,7 @@ Completion works on the typed word directly — there is no prefix character. Af
 
 ### Control Keys
 
-While assist is active, Taurine manages several keys to ensure a smooth experience:
+While assist is active, Nite manages several keys to ensure a smooth experience:
 
 * **Escape / other keys**: While a suggestion is active, cancels assist and passes the key through, keeping the current selection.
 * **Backspace**: If a Tab suggestion is selected, deletes the last character of your typed input so you can refine your search.
@@ -135,25 +135,25 @@ Tab completion is enabled by default. If you prefer to disable it (e.g., to prev
 
 ```bash
 # Disable Tab completion
-taurine config set inline_tab_completion false
+nite config set inline_tab_completion false
 ```
 
 When disabled, the `Tab` key is passed through to the system normally. Disabling assist does not affect your ability to expand word triggers using `Enter` or use the inline AI copilot.
 
 ## Viewing Your Triggers
 
-List all configured triggers with `taurine list` (alias: `ls`). You can sort them to find your most used snippets:
+List all configured triggers with `nite list` (alias: `ls`). You can sort them to find your most used snippets:
 
 ```bash
-taurine list --sort usage --desc  # See your most used triggers first
-taurine ls --sort recent          # Alias 'ls' also works
+nite list --sort usage --desc  # See your most used triggers first
+nite ls --sort recent          # Alias 'ls' also works
 ```
 
 ### Filtering by Tag
 You can filter listed triggers to only show those that have a specific tag:
 
 ```bash
-taurine list --tag work
+nite list --tag work
 ```
 
 ## Deleting Triggers
@@ -161,8 +161,8 @@ taurine list --tag work
 Remove one or more invocations using the `rm` command (aliases: `remove`, `delete`):
 
 ```bash
-taurine rm brb gm sig
-taurine delete obsolete_trigger
+nite rm brb gm sig
+nite delete obsolete_trigger
 ```
 
 Deleting removes that single invocation. When an entry's last invocation is removed, the whole
@@ -172,12 +172,12 @@ entry (including any attached script) is deleted with it.
 You can remove all triggers that have a specific tag by using the `--tag` flag:
 
 ```bash
-taurine delete --tag obsolete_trigger
+nite delete --tag obsolete_trigger
 ```
 
 ## Validation & Limits
 
-Taurine enforces several guardrails when creating or updating triggers to prevent data corruption and ensure reliable behavior across all platforms.
+Nite enforces several guardrails when creating or updating triggers to prevent data corruption and ensure reliable behavior across all platforms.
 
 ### Size Limits
 

@@ -71,16 +71,16 @@ jobs:
           shared-key: "v4-cache"
 
       - name: Build
-        run: cargo build --release --locked --target ${{ matrix.target }} -p taurine
+        run: cargo build --release --locked --target ${{ matrix.target }} -p nite
 
       - name: Package (Windows)
         if: matrix.archive == 'zip'
         shell: bash
         run: |
           VERSION=${GITHUB_REF_NAME#v}
-          ARCHIVE_NAME="taurine-v${VERSION}-${{ matrix.platform_key }}.zip"
+          ARCHIVE_NAME="nite-v${VERSION}-${{ matrix.platform_key }}.zip"
           mkdir -p package
-          cp target/${{ matrix.target }}/release/taurine.exe package/
+          cp target/${{ matrix.target }}/release/nite.exe package/
           cp README.md package/
           cp CHANGELOG.md package/
           cp LICENSE package/
@@ -93,9 +93,9 @@ jobs:
         shell: bash
         run: |
           VERSION=${GITHUB_REF_NAME#v}
-          ARCHIVE_NAME="taurine-v${VERSION}-${{ matrix.platform_key }}.tar.xz"
+          ARCHIVE_NAME="nite-v${VERSION}-${{ matrix.platform_key }}.tar.xz"
           mkdir -p package
-          cp target/${{ matrix.target }}/release/taurine package/
+          cp target/${{ matrix.target }}/release/nite package/
           cp README.md package/
           cp CHANGELOG.md package/
           cp LICENSE package/
@@ -201,19 +201,19 @@ jobs:
               'version': version,
               'artifacts': {
                   'windows-x86_64': {
-                      'url': f'{base_url}/taurine-v{version}-windows-x86_64.zip',
+                      'url': f'{base_url}/nite-v{version}-windows-x86_64.zip',
                       'sha256': clean_hash('$windows_sha256')
                   },
                   'linux-x86_64': {
-                      'url': f'{base_url}/taurine-v{version}-linux-x86_64.tar.xz',
+                      'url': f'{base_url}/nite-v{version}-linux-x86_64.tar.xz',
                       'sha256': clean_hash('$linux_sha256')
                   },
                   'macos-x86_64': {
-                      'url': f'{base_url}/taurine-v{version}-macos-x86_64.tar.xz',
+                      'url': f'{base_url}/nite-v{version}-macos-x86_64.tar.xz',
                       'sha256': clean_hash('$macos_x64_sha256')
                   },
                   'macos-aarch64': {
-                      'url': f'{base_url}/taurine-v{version}-macos-aarch64.tar.xz',
+                      'url': f'{base_url}/nite-v{version}-macos-aarch64.tar.xz',
                       'sha256': clean_hash('$macos_arm_sha256')
                   },
               }

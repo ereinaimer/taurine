@@ -70,7 +70,7 @@ impl MediaSuspender for FakeMediaSuspender {
 }
 
 /// Windows SMTC backend. All WinRT calls run on the caller's thread, which
-/// is always the dedicated `tau-media-suspend` background thread (never the
+/// is always the dedicated `nite-media-suspend` background thread (never the
 /// hotkey path). Total budget ~2s; every failure degrades to debug-silence.
 #[cfg(all(windows, not(test)))]
 pub struct SmtcMediaSuspender;

@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a bug in Taurine
+about: Report a bug in Nite
 title: '[Bug] '
 labels: bug
 assignees: ''

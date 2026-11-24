@@ -1,17 +1,17 @@
 ---
 title: Quick Start
-description: Getting Started with Taurine
+description: Getting Started with Nite
 icon: Rocket
 ---
 ## Introduction
 
-Taurine is a fast and secure text expander and trigger tool
+Nite is a fast and secure text expander and trigger tool
 
 import { InteractiveExpander } from '@/components/interactive-expander';
 
 ## How it Works
 
-To use Taurine, you type a trigger word and press Enter to expand it. Here, try it for yourself!
+To use Nite, you type a trigger word and press Enter to expand it. Here, try it for yourself!
 
 Tweak the trigger word and the expansion to whatever you like.
 
@@ -23,12 +23,12 @@ Prebuilt binaries can be installed instantly using our quick-install scripts:
 
 ### Windows (PowerShell)
 ```powershell
-irm https://raw.githubusercontent.com/ereinaimer/taurine/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/ereinaimer/nite/main/install.ps1 | iex
 ```
 
 ### macOS / Linux (Bash)
 ```bash
-curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/ereinaimer/taurine/main/install.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/ereinaimer/nite/main/install.sh | sh
 ```
 
 ## CLI Basics
@@ -38,25 +38,25 @@ Ready to use the real tool? Here are the four commands you'll use most:
 <Steps>
 ### Start the Engine
 ```bash
-taurine up
+nite up
 ```
 This boots the background service.
 
 ### Add your first expansion
 ```bash
-taurine add gm "Good morning!"
+nite add gm "Good morning!"
 ```
 Now type `gm` followed by `Space` in any app. You can also use `Tab` to cycle through matching triggers.
 
 ### List your triggers
 ```bash
-taurine list
+nite list
 ```
 See everything you've configured so far.
 
 ### Remove a trigger
 ```bash
-taurine rm gm
+nite rm gm
 ```
 Clean up triggers you no longer need.
 </Steps>

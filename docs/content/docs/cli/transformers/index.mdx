@@ -20,12 +20,12 @@ Transformers allow you to manipulate the casing, encoding, lines, formatting, an
 
 ### Chaining Transformers
 
-Taurine supports recursive transformation chaining using unix pipes. This allows you to perform complex cleanup and formatting in a single tag.
+Nite supports recursive transformation chaining using unix pipes. This allows you to perform complex cleanup and formatting in a single tag.
 
 <Transformation
   template="[text=text | strip(whitespace) | case(upper) | repeat(2)]"
-  input="text;'  taurine  '"
-  result="TAURINETAURINE"
+  input="text;'  nite  '"
+  result="NITENITE"
 />
 
 ### Quoted Literals

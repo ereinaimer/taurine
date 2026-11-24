@@ -47,7 +47,7 @@ impl OverlaySession {
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
         terminal.hide_cursor()?;
-        // honey: same Taurine tab title as the main TUI; Drop restores it.
+        // honey: same Nite tab title as the main TUI; Drop restores it.
         crate::terminal_title::acquire();
         drain_stale_events();
         Ok(Self { terminal })

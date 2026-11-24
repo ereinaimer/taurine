@@ -33,17 +33,17 @@ function Run-Step ($Label, [scriptblock]$Action) {
     Write-Host $Label
 }
 
-$InstallDir = Join-Path $env:LOCALAPPDATA "Taurine\bin"
-$ExePath = Join-Path $InstallDir "taurine.exe"
-$DataDir = Join-Path $env:LOCALAPPDATA "Taurine"
+$InstallDir = Join-Path $env:LOCALAPPDATA "Nite\bin"
+$ExePath = Join-Path $InstallDir "nite.exe"
+$DataDir = Join-Path $env:LOCALAPPDATA "Nite"
 
 $isDataDirEmpty = (-not (Test-Path $DataDir)) -or ((Get-ChildItem -Path $DataDir -Recurse -File -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0)
 $hasExeInDataDir = Test-Path $ExePath
-$hasExeInPath = $null -ne (Get-Command taurine -ErrorAction SilentlyContinue)
+$hasExeInPath = $null -ne (Get-Command nite -ErrorAction SilentlyContinue)
 
 if ($isDataDirEmpty -and (-not $hasExeInDataDir) -and (-not $hasExeInPath)) {
     Write-Host -ForegroundColor Green -NoNewline "$([char]0x2713) "
-    Write-Host "Taurine is not installed on this system."
+    Write-Host "Nite is not installed on this system."
     exit 0
 }
 
@@ -54,35 +54,35 @@ if ([Environment]::UserInteractive -and (-not [Console]::IsInputRedirected)) {
 }
 
 # Stop service and kill leftover processes
-Run-Step "Stopping Taurine" {
-    $exe = Join-Path $env:LOCALAPPDATA "Taurine\bin\taurine.exe"
+Run-Step "Stopping Nite" {
+    $exe = Join-Path $env:LOCALAPPDATA "Nite\bin\nite.exe"
     if (Test-Path $exe) {
         try { & $exe down | Out-Null } catch {}
     }
-    Stop-Process -Name "taurine" -Force -ErrorAction SilentlyContinue
-    Stop-Process -Name "taurine-startup" -Force -ErrorAction SilentlyContinue
+    Stop-Process -Name "nite" -Force -ErrorAction SilentlyContinue
+    Stop-Process -Name "nite-startup" -Force -ErrorAction SilentlyContinue
 }
 
-# Remove startup hooks directly (covers a missing or broken binary, where taurine down cannot run)
+# Remove startup hooks directly (covers a missing or broken binary, where nite down cannot run)
 Run-Step "Removing startup hooks" {
-    Unregister-ScheduledTask -TaskName "TaurineStartup" -Confirm:$false -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask -TaskName "NiteStartup" -Confirm:$false -ErrorAction SilentlyContinue
     $RunKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Software\Microsoft\Windows\CurrentVersion\Run", $true)
     if ($null -ne $RunKey) {
-        $RunKey.DeleteValue("Taurine", $false)
+        $RunKey.DeleteValue("Nite", $false)
         $RunKey.Close()
     }
-    $TaurineKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Software\Taurine", $true)
-    if ($null -ne $TaurineKey) {
-        $TaurineKey.DeleteValue("StartupExe", $false)
-        $TaurineKey.Close()
+    $NiteKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Software\Nite", $true)
+    if ($null -ne $NiteKey) {
+        $NiteKey.DeleteValue("StartupExe", $false)
+        $NiteKey.Close()
     }
-    $StartupDir = Join-Path $env:LOCALAPPDATA "Taurine\startup"
-    Remove-Item -Path (Join-Path $StartupDir "taurine-startup.exe") -Force -ErrorAction SilentlyContinue
+    $StartupDir = Join-Path $env:LOCALAPPDATA "Nite\startup"
+    Remove-Item -Path (Join-Path $StartupDir "nite-startup.exe") -Force -ErrorAction SilentlyContinue
 }
 
 # Uninstall shell completions
 Run-Step "Removing shell completions" {
-    $exe = Join-Path $env:LOCALAPPDATA "Taurine\bin\taurine.exe"
+    $exe = Join-Path $env:LOCALAPPDATA "Nite\bin\nite.exe"
     if (Test-Path $exe) {
         try { & $exe completions uninstall | Out-Null } catch {}
     }
@@ -90,7 +90,7 @@ Run-Step "Removing shell completions" {
 
 # Remove bin directory from Registry PATH and broadcast change
 Run-Step "Removing PATH entry" {
-    $InstallDir = Join-Path $env:LOCALAPPDATA "Taurine\bin"
+    $InstallDir = Join-Path $env:LOCALAPPDATA "Nite\bin"
     $PathRegKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment", $true)
     if ($null -ne $PathRegKey) {
         $CurrentPath = $PathRegKey.GetValue("Path", $null, "DoNotExpandEnvironmentNames")
@@ -164,23 +164,23 @@ Run-Step "Removing registry entry" {
     $UninstallKeyPath = "Software\Microsoft\Windows\CurrentVersion\Uninstall"
     $UninstallKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($UninstallKeyPath, $true)
     if ($null -ne $UninstallKey) {
-        $UninstallKey.DeleteSubKeyTree("Taurine", $false)
+        $UninstallKey.DeleteSubKeyTree("Nite", $false)
     }
 }
 
 # Remove all configured API keys and the database key from OS keyring
 if ($PurgeData) {
-    $exe = Join-Path $env:LOCALAPPDATA "Taurine\bin\taurine.exe"
+    $exe = Join-Path $env:LOCALAPPDATA "Nite\bin\nite.exe"
     if (Test-Path $exe) {
         try { & $exe ai remove --all --yes --json | Out-Null } catch {}
     }
-    try { cmdkey /delete:taurine:db-key | Out-Null } catch {}
+    try { cmdkey /delete:nite:db-key | Out-Null } catch {}
 }
 
 # Always remove the binary, even when configuration and data files are kept
 Run-Step "Removing binary" {
-    $InstallDir = Join-Path $env:LOCALAPPDATA "Taurine\bin"
-    Remove-Item -Path (Join-Path $InstallDir "taurine.exe") -Force -ErrorAction SilentlyContinue
+    $InstallDir = Join-Path $env:LOCALAPPDATA "Nite\bin"
+    Remove-Item -Path (Join-Path $InstallDir "nite.exe") -Force -ErrorAction SilentlyContinue
     Remove-Item -Path (Join-Path $InstallDir "uninstall.ps1") -Force -ErrorAction SilentlyContinue
     if ((Test-Path $InstallDir) -and ((Get-ChildItem -Path $InstallDir -Force -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0)) {
         Remove-Item -Path $InstallDir -Force -ErrorAction SilentlyContinue
@@ -190,7 +190,7 @@ Run-Step "Removing binary" {
 # Delete remaining data (config, database, logs) via background process to avoid file locking
 if ($PurgeData) {
     Run-Step "Removing data files" {
-        $DataDir = Join-Path $env:LOCALAPPDATA "Taurine"
+        $DataDir = Join-Path $env:LOCALAPPDATA "Nite"
         $EscapedDataDir = $DataDir -replace "'", "''"
         $cleanupCmd = "Start-Sleep -Seconds 1; Remove-Item -Path '$EscapedDataDir' -Recurse -Force -ErrorAction SilentlyContinue"
         Start-Process powershell.exe -ArgumentList "-NoProfile -Command $cleanupCmd" -WindowStyle Hidden
@@ -200,4 +200,4 @@ if ($PurgeData) {
     Write-Host "Kept configuration and data files."
 }
 
-Write-Host -ForegroundColor Green "Taurine has been uninstalled successfully."
+Write-Host -ForegroundColor Green "Nite has been uninstalled successfully."

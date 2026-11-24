@@ -10,18 +10,18 @@ fi
 # Detect OS and setup paths
 OS="$(uname -s)"
 if [ "$OS" = "Linux" ]; then
-    INSTALL_DIR="$HOME/.local/share/taurine/bin"
-    DATA_DIR="$HOME/.local/share/taurine"
+    INSTALL_DIR="$HOME/.local/share/nite/bin"
+    DATA_DIR="$HOME/.local/share/nite"
 elif [ "$OS" = "Darwin" ]; then
-    INSTALL_DIR="$HOME/Library/Application Support/Taurine/bin"
-    DATA_DIR="$HOME/Library/Application Support/Taurine"
+    INSTALL_DIR="$HOME/Library/Application Support/Nite/bin"
+    DATA_DIR="$HOME/Library/Application Support/Nite"
 else
     echo "Error: Unsupported OS $OS"
     exit 1
 fi
 
-if [ ! -x "$INSTALL_DIR/taurine" ] && ! command -v taurine >/dev/null 2>&1 && [ ! -e "$DATA_DIR" ]; then
-    printf "\x1b[32m✓\x1b[0m Taurine is not installed on this system.\n"
+if [ ! -x "$INSTALL_DIR/nite" ] && ! command -v nite >/dev/null 2>&1 && [ ! -e "$DATA_DIR" ]; then
+    printf "\x1b[32m✓\x1b[0m Nite is not installed on this system.\n"
     exit 0
 fi
 
@@ -75,34 +75,34 @@ clean_profile() {
     if [ -f "$profile" ]; then
         temp_file=$(mktemp)
         grep -v -F "export PATH=\"$INSTALL_DIR:\$PATH\"" "$profile" | \
-        grep -v -F "alias tau='taurine'" | \
+        grep -v -E "alias[[:space:]]+tau(=|[[:space:]])" | \
         grep -v -F "fish_add_path \"$INSTALL_DIR\"" | \
-        grep -v -F "set path = ( \$path \"$INSTALL_DIR\" )" | \
-        grep -v -F "alias tau taurine" > "$temp_file" || true
+        grep -v -F "set path = ( \$path \"$INSTALL_DIR\" )" > "$temp_file" || true
         cat "$temp_file" > "$profile"
         rm -f "$temp_file"
     fi
 }
 
 stop_service() {
-    if [ -x "$INSTALL_DIR/taurine" ]; then
-        "$INSTALL_DIR/taurine" down >/dev/null 2>&1 || true
+    if [ -x "$INSTALL_DIR/nite" ]; then
+        "$INSTALL_DIR/nite" down >/dev/null 2>&1 || true
     fi
     if command -v pkill >/dev/null 2>&1; then
-        pkill -x taurine >/dev/null 2>&1 || true
+        pkill -x nite >/dev/null 2>&1 || true
+        pkill -x nite-startup >/dev/null 2>&1 || true
     fi
 }
 
 remove_background_service() {
     if [ "$OS" = "Linux" ] && command -v systemctl >/dev/null 2>&1; then
-        systemctl --user stop ereinaimer-taurine.service >/dev/null 2>&1 || true
-        systemctl --user disable ereinaimer-taurine.service >/dev/null 2>&1 || true
-        rm -f "$HOME/.config/systemd/user/ereinaimer-taurine.service" || true
-        rm -f "$HOME/.config/systemd/user/default.target.wants/ereinaimer-taurine.service" || true
+        systemctl --user stop ereinaimer-nite.service >/dev/null 2>&1 || true
+        systemctl --user disable ereinaimer-nite.service >/dev/null 2>&1 || true
+        rm -f "$HOME/.config/systemd/user/ereinaimer-nite.service" || true
+        rm -f "$HOME/.config/systemd/user/default.target.wants/ereinaimer-nite.service" || true
         systemctl --user daemon-reload >/dev/null 2>&1 || true
     fi
     if [ "$OS" = "Darwin" ] && command -v launchctl >/dev/null 2>&1; then
-        LAUNCH_AGENT="$HOME/Library/LaunchAgents/com.ereinaimer.taurine.plist"
+        LAUNCH_AGENT="$HOME/Library/LaunchAgents/com.ereinaimer.nite.plist"
         if [ -f "$LAUNCH_AGENT" ]; then
             USER_ID=$(id -u)
             launchctl bootout "gui/$USER_ID" "$LAUNCH_AGENT" >/dev/null 2>&1 || \
@@ -113,8 +113,8 @@ remove_background_service() {
 }
 
 remove_completions() {
-    if [ -x "$INSTALL_DIR/taurine" ]; then
-        "$INSTALL_DIR/taurine" completions uninstall >/dev/null 2>&1 || true
+    if [ -x "$INSTALL_DIR/nite" ]; then
+        "$INSTALL_DIR/nite" completions uninstall >/dev/null 2>&1 || true
     fi
 }
 
@@ -129,16 +129,20 @@ clean_all_profiles() {
 }
 
 remove_credentials() {
-    if [ -x "$INSTALL_DIR/taurine" ]; then
-        "$INSTALL_DIR/taurine" ai remove --all --yes --json >/dev/null 2>&1 || true
+    if [ -x "$INSTALL_DIR/nite" ]; then
+        "$INSTALL_DIR/nite" ai remove --all --yes --json >/dev/null 2>&1 || true
     fi
     if command -v secret-tool >/dev/null 2>&1; then
-        secret-tool clear service taurine >/dev/null 2>&1 || true
-        secret-tool clear service taurine username db-key >/dev/null 2>&1 || true
+        secret-tool clear service nite >/dev/null 2>&1 || true
+        secret-tool clear service nite username db-key >/dev/null 2>&1 || true
+        secret-tool clear service nite-cloud >/dev/null 2>&1 || true
+        secret-tool clear service nite.inline_ai >/dev/null 2>&1 || true
     fi
     if [ "$OS" = "Darwin" ]; then
-        security delete-generic-password -s taurine >/dev/null 2>&1 || true
-        security delete-generic-password -s taurine -a db-key >/dev/null 2>&1 || true
+        security delete-generic-password -s nite >/dev/null 2>&1 || true
+        security delete-generic-password -s nite -a db-key >/dev/null 2>&1 || true
+        security delete-generic-password -s nite-cloud >/dev/null 2>&1 || true
+        security delete-generic-password -s nite.inline_ai >/dev/null 2>&1 || true
     fi
 }
 
@@ -150,7 +154,7 @@ remove_files() {
 
 remove_binary() {
     if [ -n "${INSTALL_DIR:-}" ] && [ "$INSTALL_DIR" != "/" ]; then
-        rm -f "$INSTALL_DIR/taurine" "$INSTALL_DIR/uninstall.sh" || true
+        rm -f "$INSTALL_DIR/nite" "$INSTALL_DIR/uninstall.sh" || true
         rmdir "$INSTALL_DIR" >/dev/null 2>&1 || true
     fi
 }
@@ -164,7 +168,7 @@ if [ -t 0 ]; then
     esac
 fi
 
-run_with_spinner "Stopping Taurine" "stop_service" || true
+run_with_spinner "Stopping Nite" "stop_service" || true
 run_with_spinner "Removing background service" "remove_background_service" || true
 run_with_spinner "Removing shell completions" "remove_completions" || true
 run_with_spinner "Cleaning shell profiles" "clean_all_profiles" || true
@@ -178,4 +182,4 @@ else
     printf "\x1b[32m✓\x1b[0m Kept configuration and data files.\n"
 fi
 
-printf "\x1b[32m✓\x1b[0m Taurine has been uninstalled successfully.\n"
+printf "\x1b[32m✓\x1b[0m Nite has been uninstalled successfully.\n"

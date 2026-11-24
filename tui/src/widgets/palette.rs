@@ -35,7 +35,7 @@ pub(crate) enum PaletteCommand {
     /// One state-aware row: the label and icon flip with the daemon's
     /// pause flag instead of listing pause and resume separately.
     TogglePause,
-    RestartTaurine,
+    RestartNite,
     Quit,
 }
 
@@ -51,7 +51,7 @@ impl PaletteCommand {
         Self::ExportTriggers,
         Self::OpenSettings,
         Self::TogglePause,
-        Self::RestartTaurine,
+        Self::RestartNite,
         Self::Quit,
     ];
 
@@ -65,9 +65,9 @@ impl PaletteCommand {
             Self::ImportTriggers => "Import triggers",
             Self::ExportTriggers => "Export triggers",
             Self::OpenSettings => "Open settings",
-            Self::TogglePause if paused => "Resume Taurine",
-            Self::TogglePause => "Pause Taurine",
-            Self::RestartTaurine => "Restart Taurine",
+            Self::TogglePause if paused => "Resume Nite",
+            Self::TogglePause => "Pause Nite",
+            Self::RestartNite => "Restart Nite",
             Self::Quit => "Quit TUI",
         }
     }
@@ -85,7 +85,7 @@ impl PaletteCommand {
             Self::OpenSettings => "Open the settings overlay",
             Self::TogglePause if paused => "Resume trigger expansion and hotkeys",
             Self::TogglePause => "Pause trigger expansion until you resume",
-            Self::RestartTaurine => "Restart the background Taurine service",
+            Self::RestartNite => "Restart the background Nite service",
             Self::Quit => "Close the terminal interface",
         }
     }
@@ -642,8 +642,8 @@ mod tests {
                 "Import triggers",
                 "Export triggers",
                 "Open settings",
-                "Pause Taurine",
-                "Restart Taurine",
+                "Pause Nite",
+                "Restart Nite",
                 "Quit TUI",
             ]
         );
@@ -663,8 +663,8 @@ mod tests {
 
     #[test]
     fn pause_row_flips_with_the_daemon_state() {
-        assert_eq!(PaletteCommand::TogglePause.label(false), "Pause Taurine");
-        assert_eq!(PaletteCommand::TogglePause.label(true), "Resume Taurine");
+        assert_eq!(PaletteCommand::TogglePause.label(false), "Pause Nite");
+        assert_eq!(PaletteCommand::TogglePause.label(true), "Resume Nite");
     }
 
     #[test]
@@ -769,10 +769,7 @@ mod tests {
         for ch in "service".chars() {
             state.handle_key(key(KeyCode::Char(ch)));
         }
-        assert_eq!(
-            state.visible_commands(),
-            vec![PaletteCommand::RestartTaurine]
-        );
+        assert_eq!(state.visible_commands(), vec![PaletteCommand::RestartNite]);
 
         let mut state = CommandPaletteState::default();
         for ch in "properties".chars() {
@@ -980,8 +977,8 @@ mod tests {
         let restart_y = content_y(list, &rows, start, 9);
 
         let pause = row_text(&buffer, pause_y);
-        assert!(pause.contains("Resume Taurine"));
-        assert!(!pause.contains("Pause Taurine"));
+        assert!(pause.contains("Resume Nite"));
+        assert!(!pause.contains("Pause Nite"));
         assert!(
             row_text(&buffer, pause_y + 1).contains("Resume trigger expansion"),
             "{:?}",
@@ -989,7 +986,7 @@ mod tests {
         );
         // Still one row: the next entry is Restart, not a second toggle.
         let restart = row_text(&buffer, restart_y);
-        assert!(restart.contains("Restart Taurine"));
+        assert!(restart.contains("Restart Nite"));
 
         // The configured chord splits into three pills, right-aligned
         // with the other shortcut rows.

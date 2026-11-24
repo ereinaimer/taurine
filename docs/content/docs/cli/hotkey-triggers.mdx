@@ -5,17 +5,17 @@ description: Learn how to activate triggers using global keyboard shortcuts inst
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
-Taurine entries fire from four invocation kinds: **Word**, **Hotkey**, **Regex**, and **Voice** — one entry can mix them (see [Managing Triggers](/docs/cli/trigger-management)).
+Nite entries fire from four invocation kinds: **Word**, **Hotkey**, **Regex**, and **Voice** — one entry can mix them (see [Managing Triggers](/docs/cli/trigger-management)).
 
 While Word Triggers are activated by typing a word directly (e.g., `gs `) and pressing Enter, **Hotkey Triggers** are global keyboard shortcuts that execute a trigger immediately when pressed, regardless of your current text state.
 
 <Callout title="Global Shortcuts" type="info">
-  Hotkey triggers are global while the Taurine service is running. They do not require typed text and do not use the "Backspace Undo" mechanism because no trigger text was typed.
+  Hotkey triggers are global while the Nite service is running. They do not require typed text and do not use the "Backspace Undo" mechanism because no trigger text was typed.
 </Callout>
 
 ## Side-Specific Modifiers
 
-Taurine supports **side-specific modifier** triggers, allowing you to bind different triggers to the left and right physical keys (e.g., Left Shift vs. Right Shift).
+Nite supports **side-specific modifier** triggers, allowing you to bind different triggers to the left and right physical keys (e.g., Left Shift vs. Right Shift).
 
 ### Generic vs. Specific Matching
 
@@ -24,7 +24,7 @@ Taurine supports **side-specific modifier** triggers, allowing you to bind diffe
 
 ### Conflict & Overlap Rules
 
-Taurine prevents ambiguous triggers by checking for overlaps:
+Nite prevents ambiguous triggers by checking for overlaps:
 *   **Overlap**: `alt+m` conflicts with `lalt+m` because the generic `alt` requirement overlaps with the specific `lalt`.
 *   **Independence**: `lalt+m` and `ralt+m` are considered separate identities and can coexist.
 *   **Invalid Combinations**: You cannot combine a generic and side-specific version of the same family (e.g., `ctrl+lctrl+k` is rejected).
@@ -37,21 +37,21 @@ To create a hotkey trigger, pass the combo to the `--hotkey` flag with the `add`
 Map a keyboard shortcut to a text snippet.
 
 ```bash
-taurine add "git status[key(enter)]" --hotkey "ctrl+shift+g"
+nite add "git status[key(enter)]" --hotkey "ctrl+shift+g"
 ```
 
 ### Combined with Word Triggers
 Attach a hotkey to an existing word entry so either one fires it:
 
 ```bash
-taurine add gs "git status[key(enter)]" --hotkey "ctrl+shift+g"
+nite add gs "git status[key(enter)]" --hotkey "ctrl+shift+g"
 ```
 
 ### Script Triggers
 Trigger a shell script with a hotkey.
 
 ```bash
-taurine add script winget-install -l powershell "winget install [pkg=git]" --hotkey "ctrl+shift+w" --hotkey "ctrl+alt+w"
+nite add script winget-install -l powershell "winget install [pkg=git]" --hotkey "ctrl+shift+w" --hotkey "ctrl+alt+w"
 ```
 
 ### Side-Specific Examples
@@ -59,15 +59,15 @@ Bind different productivity tools to the same base key using different sides:
 
 ```bash
 # Bind Right Alt + M to open a typing test
-taurine add script "Start-Process https://monkeytype.com" --hotkey "ralt+m" -l powershell -m silent
+nite add script "Start-Process https://monkeytype.com" --hotkey "ralt+m" -l powershell -m silent
 
 # Bind Left Alt + M to open Gmail
-taurine add script "Start-Process https://mail.google.com" --hotkey "lalt+m" -l powershell -m silent
+nite add script "Start-Process https://mail.google.com" --hotkey "lalt+m" -l powershell -m silent
 ```
 
 ## Hotkey Syntax & Canonicalization
 
-Taurine automatically normalizes (canonicalizes) your hotkey strings before storing them. This ensures that different ways of writing the same shortcut are treated as identical.
+Nite automatically normalizes (canonicalizes) your hotkey strings before storing them. This ensures that different ways of writing the same shortcut are treated as identical.
 
 These are all equivalent and will be stored as `ctrl+shift+g`:
 - `Ctrl + ShIFT + G`
@@ -75,7 +75,7 @@ These are all equivalent and will be stored as `ctrl+shift+g`:
 - `control + shift + g`
 
 ### Modifier Order
-Taurine enforces a canonical order for modifiers:
+Nite enforces a canonical order for modifiers:
 1. `ctrl`
 2. `shift`
 3. `alt`
@@ -87,7 +87,7 @@ Example: `meta+alt+ctrl+shift+g` becomes `ctrl+shift+alt+meta+g`.
 
 ### Modifiers
 
-Taurine recognizes generic modifiers and their side-specific variants.
+Nite recognizes generic modifiers and their side-specific variants.
 
 | Family | Generic | Left Side Aliases | Right Side Aliases |
 | :--- | :--- | :--- | :--- |
@@ -97,7 +97,7 @@ Taurine recognizes generic modifiers and their side-specific variants.
 | **Meta** | `meta`, `cmd`, `win`, `super`, `mod` | `lmeta`, `lwin`, `leftsuper`, `leftcmd` | `rmeta`, `rwin`, `rightsuper`, `rightcmd` |
 
 <Callout title="Platform Implementation" type="info">
-  On Linux, Taurine uses `evdev` to track physical hardware scan codes directly. On Windows and macOS, it uses system-level hooks (`rdev`) to distinguish between virtual key codes for left/right variants.
+  On Linux, Nite uses `evdev` to track physical hardware scan codes directly. On Windows and macOS, it uses system-level hooks (`rdev`) to distinguish between virtual key codes for left/right variants.
 </Callout>
 
 ### Special Keys
@@ -110,17 +110,17 @@ Taurine recognizes generic modifiers and their side-specific variants.
 | **Backtick** | `` ` ``, `backtick`, `grave`, `~`, `tilde` |
 
 ### Numpad vs. Top-Row
-Taurine distinguishes between the top-row number keys and the numeric keypad.
+Nite distinguishes between the top-row number keys and the numeric keypad.
 - `ctrl+1`: Top-row digit 1.
 - `ctrl+num1`: Numpad digit 1.
 
 ## Validation & Safety
 
-To prevent accidental system lockouts or conflicts, Taurine validates every hotkey against several safety rules.
+To prevent accidental system lockouts or conflicts, Nite validates every hotkey against several safety rules.
 
 ### Rejected Hotkeys
 
-Taurine will reject the following shortcuts:
+Nite will reject the following shortcuts:
 - **Modifier-only**: e.g., `ctrl+shift` (must include a base key).
 - **Multi-base chords**: e.g., `ctrl+k+p` (only one non-modifier key allowed).
 - **Unknown keys**: Any key not recognized by the parser.
@@ -129,7 +129,7 @@ Taurine will reject the following shortcuts:
   - `cmd+c`, `cmd+v`, `cmd+x`, etc. (macOS)
   - `alt+tab`, `alt+f4` (Windows/Linux)
   - `cmd+tab`, `cmd+q` (macOS)
-- **Taurine Reserved**: `alt+` ` is reserved for Taurine's global pause hotkey.
+- **Nite Reserved**: `alt+` ` is reserved for Nite's global pause hotkey.
 
 <Callout title="Side-Specific Safety" type="warning">
   Safety rules and reservations apply to **both generic and side-specific variants**. For example, both `ctrl+c` and `lctrl+c` are rejected to prevent interfering with your system's copy command. Similarly, `lalt+` ` and `ralt+` ` are also reserved.
@@ -146,6 +146,6 @@ Unlike word triggers, hotkeys accept no typed arguments at all.
 Hotkey triggers are **desktop-only**. They are not supported for `android` or `ios` target operating systems. You can, however, bind the same hotkey to different actions on different desktop platforms:
 
 ```bash
-taurine add "Windows Project" --hotkey "ctrl+shift+p" --os windows
-taurine add "Linux Project" --hotkey "ctrl+shift+p" --os linux
+nite add "Windows Project" --hotkey "ctrl+shift+p" --os windows
+nite add "Linux Project" --hotkey "ctrl+shift+p" --os linux
 ```

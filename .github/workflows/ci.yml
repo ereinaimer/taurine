@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  TAURINE_DATA_DIR: ${{ github.workspace }}/temp_data
+  NITE_DATA_DIR: ${{ github.workspace }}/temp_data
 
 jobs:
   lint:

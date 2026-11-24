@@ -206,7 +206,7 @@ mod tests {
                 remaining_percentage: 74.5,
                 reset_epoch: 5 * 86_400 + 11 * 3_600,
             }),
-            device: "DESKTOP-TAURINE".to_string(),
+            device: "DESKTOP-NITE".to_string(),
         }
     }
 

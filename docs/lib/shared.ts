@@ -1,4 +1,4 @@
-export const appName = 'Taurine';
+export const appName = 'Nite';
 export const appDescription =
   'A fast, secure and easy to use software for text expansion and keyboard triggers.';
 export const docsRoute = '/docs';

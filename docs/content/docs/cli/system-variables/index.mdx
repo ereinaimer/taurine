@@ -1,11 +1,11 @@
 ---
 title: Introduction
-description: Overview of System Variables in Taurine
+description: Overview of System Variables in Nite
 ---
 
 import { Clock, Clipboard, Folder, Fingerprint, MousePointer2, Keyboard, Terminal, Dices, Type, Network, FileText, Image, CornerDownLeft } from 'lucide-react';
 
-Taurine provides a comprehensive suite of **System Variables** that allow you to inject dynamic data, execute shell commands, and control your machine directly from any trigger template.
+Nite provides a comprehensive suite of **System Variables** that allow you to inject dynamic data, execute shell commands, and control your machine directly from any trigger template.
 
 Every system variable uses a unified `namespace(args)` call syntax with hybrid positional and named arguments.
 
@@ -94,7 +94,7 @@ Every system variable uses a unified `namespace(args)` call syntax with hybrid p
 
 ## Syntax Rules
 
-To ensure consistency and prevent collisions, Taurine enforces the following rules for system variables:
+To ensure consistency and prevent collisions, Nite enforces the following rules for system variables:
 
 - **Unified Call Syntax**: All system variables use `[namespace(args)]` syntax (or bare `[namespace]` as `()` sugar). Dotted namespaces (e.g. `date.utc`) are save-time errors that suggest canonical syntax.
 - **Hybrid Arguments**: Positionals are listed first, followed by `name=value` keyword parameters (e.g. `[execute(python, /s.py, file=true)]`). Positional arguments after named arguments are rejected.

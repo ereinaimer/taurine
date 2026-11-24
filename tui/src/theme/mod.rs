@@ -51,7 +51,7 @@ pub struct Theme {
     /// Muted fill for progress tracks and empty gauges.
     pub track: Color,
     // Syntax scale: Atom One Dark roles shared by script code and
-    // Taurine's own `[vars]` / `| transformers` markup. Commands read
+    // Nite's own `[vars]` / `| transformers` markup. Commands read
     // blue, quoted text green, keywords purple, numbers orange.
     pub syntax_comment: Color,
     pub syntax_keyword: Color,

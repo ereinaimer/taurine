@@ -1,11 +1,11 @@
 ---
 title: CLI Reference
-description: Exact command, alias, and flag reference for the Taurine command line interface.
+description: Exact command, alias, and flag reference for the Nite command line interface.
 ---
 
 import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
 
-This reference provides a comprehensive list of all commands, flags, and aliases available in the Taurine CLI.
+This reference provides a comprehensive list of all commands, flags, and aliases available in the Nite CLI.
 
 ## Global Flags
 
@@ -23,34 +23,34 @@ These flags can be used with any command to modify the CLI's behavior.
 
 ## Service Management
 
-Commands for managing the Taurine background service.
+Commands for managing the Nite background service.
 
 <Accordions>
 <Accordion title="up / start">
-  Starts the Taurine background service.
+  Starts the Nite background service.
   ```bash
-  taurine up
+  nite up
   ```
 </Accordion>
 
 <Accordion title="down / stop">
-  Stops the Taurine background service.
+  Stops the Nite background service.
   ```bash
-  taurine down
+  nite down
   ```
 </Accordion>
 
 <Accordion title="restart / reboot">
-  Restarts the Taurine background service.
+  Restarts the Nite background service.
   ```bash
-  taurine restart
+  nite restart
   ```
 </Accordion>
 
 <Accordion title="status">
-  Checks if the Taurine service is currently running.
+  Checks if the Nite service is currently running.
   ```bash
-  taurine status
+  nite status
   ```
 </Accordion>
 </Accordions>
@@ -67,13 +67,13 @@ Commands for creating, viewing, and deleting your snippets and scripts.
   
   **Standard Text:**
   ```bash
-  taurine add <trigger>... <output> [--hotkey <combo>] [--regex <pattern>] [--voice <phrase>] [--os <target>]
+  nite add <trigger>... <output> [--hotkey <combo>] [--regex <pattern>] [--voice <phrase>] [--os <target>]
   ```
   
   **Shell Script:**
   ```bash
-  taurine add script <trigger>... <body> [--hotkey <combo>] [--regex <pattern>] [--voice <phrase>] [-l <lang>] [-m <mode>]
-  taurine add script <trigger>... -f <path> [--hotkey <combo>] [--regex <pattern>] [--voice <phrase>]
+  nite add script <trigger>... <body> [--hotkey <combo>] [--regex <pattern>] [--voice <phrase>] [-l <lang>] [-m <mode>]
+  nite add script <trigger>... -f <path> [--hotkey <combo>] [--regex <pattern>] [--voice <phrase>]
   ```
   
   **Optional Flags:**
@@ -89,14 +89,14 @@ Commands for creating, viewing, and deleting your snippets and scripts.
 <Accordion title="list / ls">
   Lists all active triggers.
   ```bash
-  taurine list [--sort <alpha|usage|created|recent>] [--asc|--desc] [--json]
+  nite list [--sort <alpha|usage|created|recent>] [--asc|--desc] [--json]
   ```
 </Accordion>
 
 <Accordion title="delete / rm / remove">
   Removes one or more invocations by their trigger. Removing an entry's last invocation deletes the whole entry.
   ```bash
-  taurine delete <trigger>...
+  nite delete <trigger>...
   ```
 </Accordion>
 </Accordions>
@@ -105,20 +105,20 @@ Commands for creating, viewing, and deleting your snippets and scripts.
 
 ## Data Exchange
 
-Commands for backing up and restoring your Taurine environment.
+Commands for backing up and restoring your Nite environment.
 
 <Accordions>
 <Accordion title="export">
   Exports triggers to an always-encrypted file.
   ```bash
-  taurine export [path] [-y, --yes]
+  nite export [path] [-y, --yes]
   ```
 </Accordion>
 
 <Accordion title="import">
-  Imports triggers from a Taurine exchange file.
+  Imports triggers from a Nite exchange file.
   ```bash
-  taurine import [path] [-c, --conflict <prompt|skip|overwrite>] [-y, --yes]
+  nite import [path] [-c, --conflict <prompt|skip|overwrite>] [-y, --yes]
   ```
 </Accordion>
 </Accordions>
@@ -133,22 +133,22 @@ Manage internal application settings.
 <Accordion title="config set">
   Sets a configuration value.
   ```bash
-  taurine config set <key> <value>
+  nite config set <key> <value>
   ```
 </Accordion>
 
 <Accordion title="config list / ls">
   Lists all current settings and their values.
   ```bash
-  taurine config list
+  nite config list
   ```
 </Accordion>
 
 <Accordion title="config reset">
   Resets a setting to factory defaults.
   ```bash
-  taurine config reset <key>
-  taurine config reset --all
+  nite config reset <key>
+  nite config reset --all
   ```
 </Accordion>
 </Accordions>
@@ -163,28 +163,28 @@ Manage AI providers.
 <Accordion title="ai add">
   Adds a provider credential. You will be prompted for the API key.
   ```bash
-  taurine ai add --provider <name>
+  nite ai add --provider <name>
   ```
 </Accordion>
 
 <Accordion title="ai models">
   Lists models supported by a specific provider.
   ```bash
-  taurine ai models --provider <name>
+  nite ai models --provider <name>
   ```
 </Accordion>
 
 <Accordion title="ai list / ls">
   Lists all configured AI providers.
   ```bash
-  taurine ai list
+  nite ai list
   ```
 </Accordion>
 
 <Accordion title="ai remove">
   Removes a provider's credentials from the OS keyring.
   ```bash
-  taurine ai remove --provider <name>
+  nite ai remove --provider <name>
   ```
 </Accordion>
 
@@ -200,15 +200,15 @@ Generate or install shell completion scripts.
 <Accordion title="Manual Generation">
   Prints the completion script for your shell to stdout.
   ```bash
-  taurine completions <bash|elvish|fish|powershell|zsh>
+  nite completions <bash|elvish|fish|powershell|zsh>
   ```
 </Accordion>
 
 <Accordion title="Automatic Installation">
   Installs completions for your current shell and platform automatically.
   ```bash
-  taurine completions install
-  taurine completions uninstall
+  nite completions install
+  nite completions uninstall
   ```
 </Accordion>
 </Accordions>

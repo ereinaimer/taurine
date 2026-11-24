@@ -19,15 +19,15 @@ Explicitly assign a value to a label using the `key=value` format when typing yo
 
 <Transformation
   template='Repo: [$repo = "default_repo"] by [$name = "default_name"]'
-  input="gh;name=ereinaimer;repo=taurine"
-  result="Repo: taurine by ereinaimer"
+  input="gh;name=ereinaimer;repo=nite"
+  result="Repo: nite by ereinaimer"
 />
 
 Named arguments override position. Even though `name` was typed first, it correctly filled the `[$name = "default_name"]` placeholder.
 
 ## Quoted Arguments
 
-Quotes allow arguments to contain spaces or semicolons without breaking the trigger parsing. Taurine supports both double quotes (`"`) and single quotes (`'`).
+Quotes allow arguments to contain spaces or semicolons without breaking the trigger parsing. Nite supports both double quotes (`"`) and single quotes (`'`).
 
 <Transformation
   template='Quote: [$message = "empty"]'
@@ -42,7 +42,7 @@ Quotes allow arguments to contain spaces or semicolons without breaking the trig
 Bare values fill named fields in the order the fields appear in the template, skipping fields already satisfied by an explicit `key=value`. Missing values use their defaults. An empty segment (`;;`) keeps the default value, allowing you to skip a placeholder.
 
 <Transformation
-  template='Repo: [$repo = "taurine"] / User: [$user = "erein"]'
+  template='Repo: [$repo = "nite"] / User: [$user = "erein"]'
   input="gh;;aimer"
-  result="Repo: taurine / User: aimer"
+  result="Repo: nite / User: aimer"
 />
