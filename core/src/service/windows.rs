@@ -4,7 +4,7 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
-use tokio::runtime::Runtime;
+use tokio::runtime::Builder;
 use tracing::{debug, error, info, warn};
 use windows::Win32::System::Com::{
     CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
@@ -440,7 +440,7 @@ pub fn down() -> crate::error::Result<()> {
     debug!("Attempting graceful shutdown via gRPC...");
 
     let mut grpc_success = false;
-    if let Ok(rt) = Runtime::new() {
+    if let Ok(rt) = Builder::new_current_thread().enable_all().build() {
         rt.block_on(async {
             if let Ok(mut client) = crate::rpc::get_client().await {
                 let request = tonic::Request::new(ShutdownRequest {});
@@ -498,7 +498,7 @@ pub fn restart(start_on_boot: bool) -> crate::error::Result<()> {
 
     if was_running {
         let mut grpc_success = false;
-        if let Ok(rt) = Runtime::new() {
+        if let Ok(rt) = Builder::new_current_thread().enable_all().build() {
             rt.block_on(async {
                 if let Ok(mut client) = crate::rpc::get_client().await {
                     let request = tonic::Request::new(ShutdownRequest {});
@@ -551,7 +551,7 @@ pub fn restart(start_on_boot: bool) -> crate::error::Result<()> {
 pub fn status() -> crate::error::Result<()> {
     let mut grpc_status = None;
 
-    if let Ok(rt) = Runtime::new() {
+    if let Ok(rt) = Builder::new_current_thread().enable_all().build() {
         rt.block_on(async {
             if let Ok(mut client) = crate::rpc::get_client().await {
                 let request = tonic::Request::new(StatusRequest {});
