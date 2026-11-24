@@ -813,7 +813,7 @@ mod tests {
 
     #[test]
     fn quoted_values_read_green() {
-        let runs = &plain_runs("[env(\"HOME\")]")[0];
+        let runs = &plain_runs("[env \"HOME\"]")[0];
         assert!(
             runs.iter()
                 .any(|run| run.style.fg == Some(DARK_THEME.syntax_string)),
@@ -835,7 +835,7 @@ mod tests {
 
     #[test]
     fn directive_name_and_value_highlight() {
-        let line = "cd C:\\Projects\\taurine[key(enter)]";
+        let line = "cd C:\\Projects\\taurine[enter 2]";
         let runs = &plain_runs(line)[0];
         assert!(
             runs.iter()
