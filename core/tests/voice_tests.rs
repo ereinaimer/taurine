@@ -119,7 +119,7 @@ mod mock_keystore {
     }
 }
 
-/// Points TAURINE_DATA_DIR at a temp dir for the test body, restoring the
+/// Points NITE_DATA_DIR at a temp dir for the test body, restoring the
 /// previous value on drop, so global-DB stats writes never reach the real DB.
 /// Serialized via TEST_LOCK by callers: the env var is process-global.
 struct TempDataDir {
@@ -133,8 +133,8 @@ impl TempDataDir {
     fn isolated() -> Self {
         // SAFETY: callers hold TEST_LOCK across the isolated section.
         let dir = tempfile::tempdir().expect("temp data dir");
-        let prev = std::env::var("TAURINE_DATA_DIR").ok();
-        unsafe { std::env::set_var("TAURINE_DATA_DIR", dir.path()) };
+        let prev = std::env::var("NITE_DATA_DIR").ok();
+        unsafe { std::env::set_var("NITE_DATA_DIR", dir.path()) };
         Self { _dir: dir, prev }
     }
 }
@@ -144,8 +144,8 @@ impl Drop for TempDataDir {
         // SAFETY: callers hold TEST_LOCK across the isolated section.
         unsafe {
             match &self.prev {
-                Some(prev) => std::env::set_var("TAURINE_DATA_DIR", prev),
-                None => std::env::remove_var("TAURINE_DATA_DIR"),
+                Some(prev) => std::env::set_var("NITE_DATA_DIR", prev),
+                None => std::env::remove_var("NITE_DATA_DIR"),
             }
         }
     }
@@ -236,7 +236,7 @@ fn test_voice_formatting_pipeline() {
 #[test]
 fn test_voice_trigger_database_crud_lifecycle() {
     // Hermetic: usage-log writes below go through the global DB handle, so
-    // isolate TAURINE_DATA_DIR. The env var is process-global: hold the lock
+    // isolate NITE_DATA_DIR. The env var is process-global: hold the lock
     // for the whole test.
     let _lock = nite_core::testing::TEST_LOCK
         .lock()
@@ -338,16 +338,16 @@ fn test_voice_trigger_database_crud_lifecycle() {
 fn test_phonetic_dictionary_pipeline() {
     // Lexicon immunity needs the offline DB; seed a temp one so the test is
     // hermetic and never touches the real data dir. Serialized via TEST_LOCK
-    // since TAURINE_DATA_DIR and the dictionary connection cache are global.
+    // since NITE_DATA_DIR and the dictionary connection cache are global.
     let _lock = nite_core::testing::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let _data_dir = TempDataDir::isolated();
     {
         use nite_core::settings::{InlineDictionaryMode, set_cached_inline_dictionary_mode};
-        let dict_dir = std::env::var("TAURINE_DATA_DIR")
+        let dict_dir = std::env::var("NITE_DATA_DIR")
             .map(std::path::PathBuf::from)
-            .expect("TAURINE_DATA_DIR must be set")
+            .expect("NITE_DATA_DIR must be set")
             .join("dict");
         std::fs::create_dir_all(&dict_dir).expect("create dict dir");
         let conn = Connection::open(dict_dir.join("dictionary_lite.db")).expect("open dict db");
