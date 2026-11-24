@@ -77,11 +77,9 @@ fn persistent_startup_target_dir() -> PathBuf {
 
 fn startup_exe_path(base: &Path, target: &str, out_profile: &str) -> PathBuf {
     if target.is_empty() {
-        base.join(out_profile).join("taurine-startup.exe")
+        base.join(out_profile).join("nite-startup.exe")
     } else {
-        base.join(target)
-            .join(out_profile)
-            .join("taurine-startup.exe")
+        base.join(target).join(out_profile).join("nite-startup.exe")
     }
 }
 
