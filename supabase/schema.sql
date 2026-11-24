@@ -1,5 +1,5 @@
 -- ============================================================================
--- Taurine Baseline Schema
+-- Nite Baseline Schema
 -- Execute in Supabase SQL Editor or apply via Supabase CLI.
 -- ============================================================================
 

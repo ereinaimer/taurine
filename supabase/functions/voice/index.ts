@@ -1,5 +1,5 @@
 // Supabase Edge Function: voice
-// Secure gateway for Taurine voice dictation.
+// Secure gateway for Nite voice dictation.
 // Authenticates users via Supabase Auth and delegates speech-to-text to ElevenLabs Scribe v3
 // and post-processing formatting to Groq Llama 3.3 70B without client-side API keys.
 
