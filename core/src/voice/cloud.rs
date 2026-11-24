@@ -299,6 +299,9 @@ impl CloudVoiceClient {
             Error::Config(diag.render())
         })?;
 
+        let wav_shared = bytes::Bytes::copy_from_slice(wav_bytes);
+        let wav_len = wav_shared.len() as u64;
+
         let build_form = || -> Result<reqwest::multipart::Form> {
             let mut form = reqwest::multipart::Form::new().text(
                 "cleanup",
@@ -331,7 +334,7 @@ impl CloudVoiceClient {
 
             form = form.part(
                 "file",
-                reqwest::multipart::Part::bytes(wav_bytes.to_vec())
+                reqwest::multipart::Part::stream_with_length(wav_shared.clone(), wav_len)
                     .file_name("dictation.wav")
                     .mime_str("audio/wav")
                     .map_err(|e| {
@@ -479,7 +482,8 @@ impl CloudVoiceClient {
             let mut chunk_texts = Vec::new();
             let mut dynamic_prompt = prompt.map(str::to_string);
 
-            for (idx, chunk) in chunks.iter().enumerate() {
+            for (idx, range) in chunks.iter().enumerate() {
+                let chunk = &samples[range.clone()];
                 if !crate::voice::has_voice_activity(chunk) {
                     tracing::debug!(
                         "Skipping chunk {}/{} due to lack of voice activity",
@@ -588,29 +592,27 @@ impl CloudVoiceClient {
             }
             Ok(_) => {
                 let this = self.clone();
-                let samples_vec = samples.to_vec();
-                let prompt = prompt.map(str::to_string);
-                let custom_terms = custom_terms.map(|t| t.to_vec());
-                let preferred_languages = preferred_languages.map(str::to_string);
-                std::thread::spawn(move || {
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .map_err(|e| {
-                            Error::Service(format!("Failed to create async runtime: {e}"))
-                        })?;
-                    rt.block_on(this.transcribe_samples(
-                        &samples_vec,
-                        sample_rate,
-                        prompt.as_deref(),
-                        custom_terms.as_deref(),
-                        preferred_languages.as_deref(),
-                    ))
+                std::thread::scope(|s| {
+                    s.spawn(|| {
+                        let rt = tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                            .map_err(|e| {
+                                Error::Service(format!("Failed to create async runtime: {e}"))
+                            })?;
+                        rt.block_on(this.transcribe_samples(
+                            samples,
+                            sample_rate,
+                            prompt,
+                            custom_terms,
+                            preferred_languages,
+                        ))
+                    })
+                    .join()
+                    .map_err(|_| {
+                        Error::Service("Voice transcription worker thread panicked".to_string())
+                    })?
                 })
-                .join()
-                .map_err(|_| {
-                    Error::Service("Voice transcription worker thread panicked".to_string())
-                })?
             }
             Err(_) => {
                 let rt = tokio::runtime::Builder::new_current_thread()

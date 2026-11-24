@@ -78,9 +78,10 @@ pub fn split_audio_into_chunks(
     samples: &[f32],
     max_samples: usize,
     min_split_samples: usize,
-) -> Vec<Vec<f32>> {
+) -> Vec<std::ops::Range<usize>> {
     if samples.len() <= max_samples {
-        return vec![samples.to_vec()];
+        #[allow(clippy::single_range_in_vec_init)]
+        return vec![0..samples.len()];
     }
 
     let mut chunks = Vec::new();
@@ -89,7 +90,7 @@ pub fn split_audio_into_chunks(
     while offset < samples.len() {
         let remaining = samples.len() - offset;
         if remaining <= max_samples {
-            chunks.push(samples[offset..].to_vec());
+            chunks.push(offset..samples.len());
             break;
         }
 
@@ -102,7 +103,7 @@ pub fn split_audio_into_chunks(
         let slice_len = split_point.saturating_sub(offset).max(VAD_FRAME_SAMPLES);
         let actual_end = (offset + slice_len).min(samples.len());
 
-        chunks.push(samples[offset..actual_end].to_vec());
+        chunks.push(offset..actual_end);
         offset = actual_end;
     }
 
@@ -152,7 +153,8 @@ mod tests {
         let audio = vec![0.02f32; 1000];
         let chunks = split_audio_into_chunks(&audio, 5000, 2000);
         assert_eq!(chunks.len(), 1);
-        assert_eq!(chunks[0].len(), 1000);
+        assert_eq!(chunks[0], 0..1000);
+        assert_eq!(&audio[chunks[0].clone()], &audio[..]);
     }
 
     #[test]
@@ -169,6 +171,11 @@ mod tests {
         assert!(chunks[0].len() <= 6000);
         assert!(chunks[0].len() >= 4000);
         assert_eq!(chunks[0].len() + chunks[1].len(), 10000);
+        assert_eq!(chunks[0].start, 0);
+        assert_eq!(chunks[0].end, chunks[1].start);
+        assert_eq!(chunks[1].end, 10000);
+        assert_eq!(&audio[chunks[0].clone()], &audio[..chunks[0].end]);
+        assert_eq!(&audio[chunks[1].clone()], &audio[chunks[1].start..]);
     }
 
     #[test]
@@ -177,8 +184,15 @@ mod tests {
         // min_split (7000) > max_samples (5000) should be clamped safely
         let chunks = split_audio_into_chunks(&audio, 5000, 7000);
         assert!(chunks.len() >= 2);
-        for chunk in &chunks {
+        let mut total_samples = 0;
+        for (i, chunk) in chunks.iter().enumerate() {
             assert!(chunk.len() <= 5000);
+            assert_eq!(&audio[chunk.clone()], &audio[chunk.start..chunk.end]);
+            if i > 0 {
+                assert_eq!(chunks[i - 1].end, chunk.start);
+            }
+            total_samples += chunk.len();
         }
+        assert_eq!(total_samples, 10000);
     }
 }

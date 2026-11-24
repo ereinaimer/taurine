@@ -575,9 +575,57 @@ fn split_word_punct(word: &str) -> (&str, &str, &str) {
 #[derive(Debug, Clone, Default)]
 pub struct VoiceDictionary {
     terms: Vec<String>,
+    term_phonetics: Vec<(String, String, String)>,
+    term_splits: Vec<(String, String, String)>,
+}
+
+fn compute_term_phonetics(terms: &[String]) -> Vec<(String, String, String)> {
+    terms
+        .iter()
+        .filter(|t| !t.contains(' ') && t.len() >= 3 && !t.chars().all(|c| c.is_ascii_uppercase()))
+        .map(|t| {
+            let (primary, alt) = crate::voice::phonetic::double_metaphone(&t.to_lowercase());
+            (t.clone(), primary, alt)
+        })
+        .filter(|(_, p, _)| p.len() >= 2)
+        .collect()
+}
+
+fn compute_term_splits(terms: &[String]) -> Vec<(String, String, String)> {
+    let mut term_splits = Vec::new();
+    for term in terms {
+        if term.contains(' ') || term.len() < 4 || term.chars().all(|c| c.is_ascii_uppercase()) {
+            continue;
+        }
+        let term_lower = term.to_lowercase();
+        // Test char boundary cuts between prefix and suffix
+        for (idx, _) in term_lower.char_indices().skip(1) {
+            if idx >= 2 && term_lower.len().saturating_sub(idx) >= 2 {
+                let prefix = &term_lower[..idx];
+                let suffix = &term_lower[idx..];
+                let (p_pre, _) = crate::voice::phonetic::double_metaphone(prefix);
+                let (p_suf, _) = crate::voice::phonetic::double_metaphone(suffix);
+                if p_pre.len() >= 2 && p_suf.len() >= 2 {
+                    term_splits.push((term.clone(), p_pre, p_suf));
+                }
+            }
+        }
+    }
+    term_splits
 }
 
 impl VoiceDictionary {
+    /// Create a new dictionary from a list of terms, precomputing phonetic lookup tables.
+    pub fn new(terms: Vec<String>) -> Self {
+        let term_phonetics = compute_term_phonetics(&terms);
+        let term_splits = compute_term_splits(&terms);
+        Self {
+            terms,
+            term_phonetics,
+            term_splits,
+        }
+    }
+
     /// Parse comma-separated dictionary terms (e.g. "Taurine, PostgreSQL, Kubernetes, API").
     pub fn from_csv(csv: &str) -> Self {
         let terms: Vec<String> = csv
@@ -586,7 +634,7 @@ impl VoiceDictionary {
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string())
             .collect();
-        Self { terms }
+        Self::new(terms)
     }
 
     /// Return all configured dictionary terms.
@@ -603,42 +651,6 @@ impl VoiceDictionary {
     pub fn apply(&self, text: &str) -> String {
         if self.terms.is_empty() || text.is_empty() {
             return text.to_string();
-        }
-
-        // Single-word phonetic representations for Pass 3
-        let term_phonetics: Vec<(&String, String, String)> = self
-            .terms
-            .iter()
-            .filter(|t| {
-                !t.contains(' ') && t.len() >= 3 && !t.chars().all(|c| c.is_ascii_uppercase())
-            })
-            .map(|t| {
-                let (primary, alt) = crate::voice::phonetic::double_metaphone(&t.to_lowercase());
-                (t, primary, alt)
-            })
-            .filter(|(_, p, _)| p.len() >= 2)
-            .collect();
-
-        // 2-word phonetic splits for syllable-split acoustic artifacts (e.g. "draw in" -> "Taurine")
-        let mut term_splits = Vec::new();
-        for term in &self.terms {
-            if term.contains(' ') || term.len() < 4 || term.chars().all(|c| c.is_ascii_uppercase())
-            {
-                continue;
-            }
-            let term_lower = term.to_lowercase();
-            // Test char boundary cuts between prefix and suffix
-            for (idx, _) in term_lower.char_indices().skip(1) {
-                if idx >= 2 && term_lower.len().saturating_sub(idx) >= 2 {
-                    let prefix = &term_lower[..idx];
-                    let suffix = &term_lower[idx..];
-                    let (p_pre, _) = crate::voice::phonetic::double_metaphone(prefix);
-                    let (p_suf, _) = crate::voice::phonetic::double_metaphone(suffix);
-                    if p_pre.len() >= 2 && p_suf.len() >= 2 {
-                        term_splits.push((term.as_str(), p_pre, p_suf));
-                    }
-                }
-            }
         }
 
         let words: Vec<&str> = text.split_whitespace().collect();
@@ -688,9 +700,9 @@ impl VoiceDictionary {
                         let (c1_phone, _) = crate::voice::phonetic::double_metaphone(&core1_lower);
                         let (c2_phone, _) = crate::voice::phonetic::double_metaphone(&core2_lower);
                         if c1_phone.len() >= 2 && c2_phone.len() >= 2 {
-                            for (term, p_pre, p_suf) in &term_splits {
+                            for (term, p_pre, p_suf) in &self.term_splits {
                                 if c1_phone == *p_pre && c2_phone == *p_suf {
-                                    matched_2word = Some(*term);
+                                    matched_2word = Some(term.as_str());
                                     break;
                                 }
                             }
@@ -738,7 +750,7 @@ impl VoiceDictionary {
                     crate::voice::phonetic::double_metaphone(&core_lower);
                 if spoken_primary.len() >= 2 {
                     let mut best_sim = -1.0;
-                    for (term, term_primary, term_alt) in &term_phonetics {
+                    for (term, term_primary, term_alt) in &self.term_phonetics {
                         let matches = *term_primary == spoken_primary
                             || (!term_alt.is_empty() && *term_alt == spoken_primary)
                             || (!spoken_alt.is_empty() && *term_primary == spoken_alt)

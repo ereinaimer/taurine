@@ -5759,6 +5759,7 @@ dependencies = [
  "arc-swap",
  "argon2",
  "base64 0.23.1",
+ "bytes",
  "chrono",
  "chrono-tz",
  "cpal 0.18.2",

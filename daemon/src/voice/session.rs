@@ -835,6 +835,8 @@ impl VoiceSessionManager {
             }
         };
 
+        drop(drained);
+
         let transcript_at = Instant::now();
         info!(
             "VoiceSessionManager: received transcript ({} chars): {:?}",
