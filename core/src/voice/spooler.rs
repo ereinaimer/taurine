@@ -48,9 +48,14 @@ impl AudioSpooler {
             return Ok(());
         }
 
+        // One buffer-marshal per chunk instead of a write call per sample.
+        // BufWriter already batches OS writes; this removes the per-sample
+        // call overhead. flush stays: it bounds the hard-kill tail-loss window.
+        let mut bytes = Vec::with_capacity(samples.len() * 4);
         for &sample in samples {
-            self.writer.write_all(&sample.to_le_bytes())?;
+            bytes.extend_from_slice(&sample.to_le_bytes());
         }
+        self.writer.write_all(&bytes)?;
         self.writer.flush()?;
         self.samples_written += samples.len();
         Ok(())
