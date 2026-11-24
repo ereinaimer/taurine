@@ -158,6 +158,16 @@ impl HookHealth {
         self.inner
             .consecutive_missed_raw_inputs
             .store(0, Ordering::Relaxed);
+        // Fast path: no pending recovery reason (the overwhelmingly common
+        // case) skips the write lock entirely on every keystroke.
+        if self
+            .inner
+            .pending_recovery_reason
+            .read()
+            .map_or(true, |r| r.is_none())
+        {
+            return;
+        }
         if let Ok(mut reason) = self.inner.pending_recovery_reason.write() {
             *reason = None;
         }

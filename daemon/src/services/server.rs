@@ -16,7 +16,7 @@ pub struct DaemonService {
     shutdown_sender: mpsc::Sender<()>,
     state: Arc<EngineState>,
     paused: Arc<AtomicBool>,
-    pause_hotkey_spec: Arc<RwLock<crate::input::hotkey::HotkeySpec>>,
+    pause_hotkey_spec: Arc<arc_swap::ArcSwap<crate::input::hotkey::HotkeySpec>>,
     pause_hotkey_display: Arc<RwLock<String>>,
     #[allow(dead_code)]
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
@@ -112,11 +112,10 @@ impl DaemonService {
         self.system_tray_enabled
             .store(settings.system_tray_enabled, Ordering::Relaxed);
 
-        // Update pause hotkey spec (RwLock)
+        // Update pause hotkey spec (ArcSwap)
         if let Some(spec) = crate::input::hotkey::parse_pause_hotkey_setting(&settings.pause_hotkey)
-            && let Ok(mut lock) = self.pause_hotkey_spec.write()
         {
-            *lock = spec;
+            self.pause_hotkey_spec.store(Arc::new(spec));
         }
 
         // Update pause hotkey display (RwLock)
@@ -167,7 +166,7 @@ pub struct DaemonServiceBuilder {
     shutdown_sender: Option<mpsc::Sender<()>>,
     state: Option<Arc<EngineState>>,
     paused: Option<Arc<AtomicBool>>,
-    pause_hotkey_spec: Option<Arc<RwLock<crate::input::hotkey::HotkeySpec>>>,
+    pause_hotkey_spec: Option<Arc<arc_swap::ArcSwap<crate::input::hotkey::HotkeySpec>>>,
     pause_hotkey_display: Option<Arc<RwLock<String>>>,
     spinner_style: Option<Arc<RwLock<taurine_core::settings::SpinnerStyle>>>,
     pause_audio_enabled: Option<Arc<AtomicBool>>,
@@ -217,7 +216,7 @@ impl DaemonServiceBuilder {
 
     pub fn pause_hotkey_spec(
         mut self,
-        spec: Arc<RwLock<crate::input::hotkey::HotkeySpec>>,
+        spec: Arc<arc_swap::ArcSwap<crate::input::hotkey::HotkeySpec>>,
     ) -> Self {
         self.pause_hotkey_spec = Some(spec);
         self
@@ -472,7 +471,7 @@ mod tests {
         let state = Arc::new(EngineState::new());
         let (tx, _rx) = mpsc::channel(1);
         let pause_hotkey = "Alt + `".to_string();
-        let pause_hotkey_spec = Arc::new(std::sync::RwLock::new(
+        let pause_hotkey_spec = Arc::new(arc_swap::ArcSwap::from_pointee(
             crate::input::hotkey::parse_pause_hotkey_setting(&pause_hotkey).unwrap(),
         ));
         let (pause_tx, _pause_rx) = mpsc::channel(1);
@@ -562,7 +561,7 @@ mod tests {
         let state = Arc::new(EngineState::new());
         let (tx, _rx) = mpsc::channel(1);
         let pause_hotkey = "Alt + `".to_string();
-        let pause_hotkey_spec = Arc::new(std::sync::RwLock::new(
+        let pause_hotkey_spec = Arc::new(arc_swap::ArcSwap::from_pointee(
             crate::input::hotkey::parse_pause_hotkey_setting(&pause_hotkey).unwrap(),
         ));
         let paused = Arc::new(AtomicBool::new(false));
@@ -623,7 +622,7 @@ mod tests {
         let state = Arc::new(EngineState::new());
         let (tx, _rx) = mpsc::channel(1);
         let pause_hotkey = "Alt + `".to_string();
-        let pause_hotkey_spec = Arc::new(std::sync::RwLock::new(
+        let pause_hotkey_spec = Arc::new(arc_swap::ArcSwap::from_pointee(
             crate::input::hotkey::parse_pause_hotkey_setting(&pause_hotkey).unwrap(),
         ));
         let paused = Arc::new(AtomicBool::new(false));
@@ -702,7 +701,7 @@ mod tests {
         let state = Arc::new(EngineState::new());
         let (tx, _rx) = mpsc::channel(1);
         let pause_hotkey = "Alt + `".to_string();
-        let pause_hotkey_spec = Arc::new(std::sync::RwLock::new(
+        let pause_hotkey_spec = Arc::new(arc_swap::ArcSwap::from_pointee(
             crate::input::hotkey::parse_pause_hotkey_setting(&pause_hotkey).unwrap(),
         ));
         let (pause_tx, _pause_rx) = mpsc::channel(1);
@@ -776,7 +775,7 @@ mod tests {
         let state = Arc::new(EngineState::new());
         let (tx, _rx) = mpsc::channel(1);
         let pause_hotkey = "Alt + `".to_string();
-        let pause_hotkey_spec = Arc::new(std::sync::RwLock::new(
+        let pause_hotkey_spec = Arc::new(arc_swap::ArcSwap::from_pointee(
             crate::input::hotkey::parse_pause_hotkey_setting(&pause_hotkey).unwrap(),
         ));
         let (pause_tx, _pause_rx) = mpsc::channel(1);

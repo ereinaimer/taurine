@@ -1,3 +1,4 @@
+use arc_swap::ArcSwap;
 #[cfg(not(target_os = "linux"))]
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, RwLock};
@@ -67,7 +68,7 @@ pub fn start_listener(
     evaluator: Arc<Mutex<Evaluator>>,
     state: Arc<taurine_core::engine::EngineState>,
     paused: Arc<std::sync::atomic::AtomicBool>,
-    pause_hotkey: Arc<RwLock<hotkey::HotkeySpec>>,
+    pause_hotkey: Arc<ArcSwap<hotkey::HotkeySpec>>,
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
     audio_tx: tokio::sync::mpsc::Sender<bool>,
@@ -92,7 +93,7 @@ pub fn start_listener(
     evaluator: Arc<Mutex<Evaluator>>,
     state: Arc<taurine_core::engine::EngineState>,
     paused: Arc<std::sync::atomic::AtomicBool>,
-    pause_hotkey: Arc<RwLock<hotkey::HotkeySpec>>,
+    pause_hotkey: Arc<ArcSwap<hotkey::HotkeySpec>>,
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
     audio_tx: tokio::sync::mpsc::Sender<bool>,
@@ -129,7 +130,7 @@ pub(super) fn run_listener_once(
     evaluator: Arc<Mutex<Evaluator>>,
     state: Arc<taurine_core::engine::EngineState>,
     paused: Arc<std::sync::atomic::AtomicBool>,
-    pause_hotkey: Arc<RwLock<hotkey::HotkeySpec>>,
+    pause_hotkey: Arc<ArcSwap<hotkey::HotkeySpec>>,
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
     _audio_tx: tokio::sync::mpsc::Sender<bool>,
@@ -236,7 +237,7 @@ pub fn process_keyboard_event(
     evaluator: &Arc<Mutex<Evaluator>>,
     state: &Arc<taurine_core::engine::EngineState>,
     paused: &Arc<std::sync::atomic::AtomicBool>,
-    pause_hotkey: &Arc<RwLock<hotkey::HotkeySpec>>,
+    pause_hotkey: &Arc<ArcSwap<hotkey::HotkeySpec>>,
     spinner_style: &Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     pause_audio_enabled: &Arc<std::sync::atomic::AtomicBool>,
     _pause_transition_tx: &tokio::sync::mpsc::Sender<bool>,
@@ -348,8 +349,8 @@ pub fn process_keyboard_event(
     // never leave a side flag stale. (The KeyRelease arm further down keeps
     // hotkey-evaluator handling only.)
     if let EventType::KeyRelease(key) = event.event_type {
-        if let Ok(spec) = pause_hotkey.read()
-            && let Some(logical_key) = logical_key_from_rdev(key)
+        let spec = pause_hotkey.load();
+        if let Some(logical_key) = logical_key_from_rdev(key)
             && logical_key == spec.hotkey.key
         {
             PAUSE_KEY_DOWN.store(false, Ordering::Relaxed);
@@ -408,11 +409,7 @@ pub fn process_keyboard_event(
         }
     }
 
-    let is_chord = if let Ok(spec) = pause_hotkey.read() {
-        hotkey::is_pause_chord(&event, modifiers, &spec)
-    } else {
-        false
-    };
+    let is_chord = hotkey::is_pause_chord(&event, modifiers, &pause_hotkey.load());
 
     if is_chord {
         let was_down = PAUSE_KEY_DOWN.swap(true, Ordering::Relaxed);
@@ -789,20 +786,37 @@ pub fn process_keyboard_event(
 
                     match event.name.as_deref() {
                         Some(text) => {
-                            let normalized: String = normalize_key_text(text);
-                            let mut chars = normalized.chars();
-                            match (chars.next(), chars.next()) {
-                                (Some(c), None) => Some(EngineEvent::Char(c)),
-                                // One physical key produced multiple characters
-                                // (layout-dependent): track them all so the
-                                // buffer mirrors what the app received.
-                                (Some(_), Some(_)) => Some(EngineEvent::Paste(normalized)),
-                                _ => {
-                                    debug!(
-                                        ?key,
-                                        "Key press resolved to empty text; buffer not updated"
-                                    );
-                                    None
+                            if text.is_ascii() {
+                                let mut chars = text.chars();
+                                match (chars.next(), chars.next()) {
+                                    (Some(c), None) => Some(EngineEvent::Char(c)),
+                                    (Some(_), Some(_)) => {
+                                        Some(EngineEvent::Paste(text.to_string()))
+                                    }
+                                    _ => {
+                                        debug!(
+                                            ?key,
+                                            "Key press resolved to empty text; buffer not updated"
+                                        );
+                                        None
+                                    }
+                                }
+                            } else {
+                                let normalized: String = normalize_key_text(text);
+                                let mut chars = normalized.chars();
+                                match (chars.next(), chars.next()) {
+                                    (Some(c), None) => Some(EngineEvent::Char(c)),
+                                    // One physical key produced multiple characters
+                                    // (layout-dependent): track them all so the
+                                    // buffer mirrors what the app received.
+                                    (Some(_), Some(_)) => Some(EngineEvent::Paste(normalized)),
+                                    _ => {
+                                        debug!(
+                                            ?key,
+                                            "Key press resolved to empty text; buffer not updated"
+                                        );
+                                        None
+                                    }
                                 }
                             }
                         }

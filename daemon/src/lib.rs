@@ -239,7 +239,7 @@ pub fn start() -> taurine_core::error::Result<()> {
     // Global pause toggle hotkey (display + parse).
     let pause_hotkey = Arc::new(RwLock::new(settings.pause_hotkey.clone()));
 
-    let pause_hotkey_spec = Arc::new(RwLock::new(
+    let pause_hotkey_spec = Arc::new(arc_swap::ArcSwap::from_pointee(
         input::hotkey::parse_pause_hotkey_setting(&settings.pause_hotkey).unwrap_or_else(|| {
             // Fall back to strict default if DB is malformed or unsupported.
             tracing::warn!("Configured pause hotkey is invalid; using default Alt + `");

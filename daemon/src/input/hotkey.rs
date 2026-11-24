@@ -2,7 +2,6 @@
 use evdev::KeyCode;
 #[cfg(not(target_os = "linux"))]
 use rdev::{Event, EventType};
-use std::sync::RwLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use taurine_core::keys::{
@@ -20,25 +19,25 @@ pub static HANDSFREE_KEY_DOWN: AtomicBool = AtomicBool::new(false);
 // Parsed voice hotkey specs, refreshed on settings change so the hook thread
 // never pays a string parse per keystroke. Empty/unparsable settings cache
 // as None (hotkey inert), matching the previous per-event behaviour.
-static CACHED_PTT_SPEC: RwLock<Option<VoiceHotkeySpec>> = RwLock::new(None);
-static CACHED_HANDSFREE_SPEC: RwLock<Option<VoiceHotkeySpec>> = RwLock::new(None);
+static CACHED_PTT_SPEC: arc_swap::ArcSwapOption<VoiceHotkeySpec> =
+    arc_swap::ArcSwapOption::const_empty();
+static CACHED_HANDSFREE_SPEC: arc_swap::ArcSwapOption<VoiceHotkeySpec> =
+    arc_swap::ArcSwapOption::const_empty();
 
 pub fn refresh_cached_voice_specs(ptt: &str, handsfree: &str) {
-    *CACHED_PTT_SPEC.write().expect("voice ptt spec lock") = VoiceHotkeySpec::parse(ptt);
-    *CACHED_HANDSFREE_SPEC
-        .write()
-        .expect("voice handsfree spec lock") = VoiceHotkeySpec::parse(handsfree);
+    CACHED_PTT_SPEC.store(VoiceHotkeySpec::parse(ptt).map(std::sync::Arc::new));
+    CACHED_HANDSFREE_SPEC.store(VoiceHotkeySpec::parse(handsfree).map(std::sync::Arc::new));
 }
 
 pub fn cached_voice_ptt_spec() -> Option<VoiceHotkeySpec> {
-    CACHED_PTT_SPEC.read().expect("voice ptt spec lock").clone()
+    CACHED_PTT_SPEC.load_full().as_ref().map(|s| (**s).clone())
 }
 
 pub fn cached_voice_handsfree_spec() -> Option<VoiceHotkeySpec> {
     CACHED_HANDSFREE_SPEC
-        .read()
-        .expect("voice handsfree spec lock")
-        .clone()
+        .load_full()
+        .as_ref()
+        .map(|s| (**s).clone())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

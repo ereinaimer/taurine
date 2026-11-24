@@ -5825,6 +5825,7 @@ name = "taurine_daemon"
 version = "1.0.0-alpha.19"
 dependencies = [
  "arboard",
+ "arc-swap",
  "cpal 0.18.2",
  "crossbeam-channel",
  "evdev",

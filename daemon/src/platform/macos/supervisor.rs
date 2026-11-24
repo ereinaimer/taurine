@@ -25,7 +25,7 @@ pub fn start_macos_supervisor(
     evaluator: Arc<Mutex<Evaluator>>,
     state: Arc<taurine_core::engine::EngineState>,
     paused: Arc<std::sync::atomic::AtomicBool>,
-    pause_hotkey: Arc<RwLock<hotkey::HotkeySpec>>,
+    pause_hotkey: Arc<arc_swap::ArcSwap<hotkey::HotkeySpec>>,
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
     audio_tx: tokio::sync::mpsc::Sender<bool>,

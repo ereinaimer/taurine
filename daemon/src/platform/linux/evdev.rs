@@ -1,3 +1,4 @@
+use arc_swap::ArcSwap;
 use evdev::{Device, EventType, InputEvent, KeyCode};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -41,7 +42,7 @@ pub(crate) struct ListenerContext {
     evaluator: Arc<Mutex<Evaluator>>,
     state: Arc<taurine_core::engine::EngineState>,
     paused: Arc<AtomicBool>,
-    pause_hotkey: Arc<RwLock<HotkeySpec>>,
+    pause_hotkey: Arc<ArcSwap<HotkeySpec>>,
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     pause_audio_enabled: Arc<AtomicBool>,
     audio_tx: tokio::sync::mpsc::Sender<bool>,
@@ -54,7 +55,7 @@ impl ListenerContext {
         evaluator: Arc<Mutex<Evaluator>>,
         state: Arc<taurine_core::engine::EngineState>,
         paused: Arc<AtomicBool>,
-        pause_hotkey: Arc<RwLock<HotkeySpec>>,
+        pause_hotkey: Arc<ArcSwap<HotkeySpec>>,
         spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
         pause_audio_enabled: Arc<AtomicBool>,
         audio_tx: tokio::sync::mpsc::Sender<bool>,
@@ -143,7 +144,7 @@ pub fn start_listener(
     evaluator: Arc<Mutex<Evaluator>>,
     state: Arc<taurine_core::engine::EngineState>,
     paused: Arc<AtomicBool>,
-    pause_hotkey: Arc<RwLock<HotkeySpec>>,
+    pause_hotkey: Arc<ArcSwap<HotkeySpec>>,
     spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     pause_audio_enabled: Arc<AtomicBool>,
     audio_tx: tokio::sync::mpsc::Sender<bool>,
@@ -336,7 +337,7 @@ fn process_frame(
     evaluator: &Arc<Mutex<Evaluator>>,
     state: &Arc<taurine_core::engine::EngineState>,
     paused: &Arc<AtomicBool>,
-    pause_hotkey: &Arc<RwLock<HotkeySpec>>,
+    pause_hotkey: &Arc<ArcSwap<HotkeySpec>>,
     spinner_style: &Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
     pause_audio_enabled: &Arc<AtomicBool>,
     _audio_tx: &tokio::sync::mpsc::Sender<bool>,
@@ -455,10 +456,7 @@ fn process_frame(
         let trigger_assist_active =
             grab_enabled && crate::hook::trigger_assist_is_active(evaluator, state.as_ref());
 
-        let is_pause_chord = pause_hotkey
-            .read()
-            .ok()
-            .is_some_and(|spec| is_pause_chord_evdev(key, is_press, modifiers, &spec));
+        let is_pause_chord = is_pause_chord_evdev(key, is_press, modifiers, &pause_hotkey.load());
 
         if is_pause_chord {
             // Audio-first: sound on every distinct press, before any counter
@@ -917,7 +915,7 @@ mod tests {
         let evaluator = Arc::new(Mutex::new(Evaluator::new(state.clone())));
         let paused = Arc::new(AtomicBool::new(false));
         let pause_notifications = Arc::new(AtomicBool::new(false));
-        let pause_hotkey = Arc::new(RwLock::new(
+        let pause_hotkey = Arc::new(arc_swap::ArcSwap::from_pointee(
             crate::input::hotkey::parse_pause_hotkey_setting("Alt + `").unwrap(),
         ));
         let spinner_style = Arc::new(RwLock::new(taurine_core::settings::SpinnerStyle::default()));
@@ -981,7 +979,7 @@ mod tests {
         let evaluator = Arc::new(Mutex::new(Evaluator::new(state.clone())));
         let paused = Arc::new(AtomicBool::new(false));
         let pause_notifications = Arc::new(AtomicBool::new(false));
-        let pause_hotkey = Arc::new(RwLock::new(
+        let pause_hotkey = Arc::new(arc_swap::ArcSwap::from_pointee(
             crate::input::hotkey::parse_pause_hotkey_setting("Alt + `").unwrap(),
         ));
         let spinner_style = Arc::new(RwLock::new(taurine_core::settings::SpinnerStyle::default()));
@@ -1093,7 +1091,7 @@ mod tests {
         let evaluator = Arc::new(Mutex::new(Evaluator::new(state.clone())));
         let paused = Arc::new(AtomicBool::new(false));
         let pause_notifications = Arc::new(AtomicBool::new(false));
-        let pause_hotkey = Arc::new(RwLock::new(
+        let pause_hotkey = Arc::new(arc_swap::ArcSwap::from_pointee(
             crate::input::hotkey::parse_pause_hotkey_setting("Alt + `").unwrap(),
         ));
         let spinner_style = Arc::new(RwLock::new(taurine_core::settings::SpinnerStyle::default()));

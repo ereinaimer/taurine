@@ -45,6 +45,7 @@ unicode-normalization = "0.1"
 reqwest = { workspace = true }
 cpal = "0.18"
 rubato = "5.0"
+arc-swap = "1.7"
 
 
 

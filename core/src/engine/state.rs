@@ -9,7 +9,7 @@ use crate::keys::Hotkey;
 
 use std::sync::Arc;
 use std::sync::RwLock;
-use std::sync::atomic::{AtomicBool, AtomicUsize};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 const UNDO_WINDOW: Duration = Duration::from_millis(5000);
@@ -43,6 +43,7 @@ pub struct EngineState {
     pub ignore_fullscreen_enabled: AtomicBool,
     pub is_os_fullscreen: AtomicBool,
     pub completion_active: AtomicBool,
+    pub undo_armed: AtomicBool,
 
     undo_state: RwLock<Option<UndoState>>,
     case_cycle: RwLock<Option<CaseCycleSession>>,
@@ -76,6 +77,7 @@ impl EngineState {
             ignore_fullscreen_enabled: AtomicBool::new(true),
             is_os_fullscreen: AtomicBool::new(false),
             completion_active: AtomicBool::new(false),
+            undo_armed: AtomicBool::new(false),
 
             undo_state: RwLock::new(None),
             case_cycle: RwLock::new(None),
@@ -99,6 +101,7 @@ impl EngineState {
             ignore_fullscreen_enabled: AtomicBool::new(true),
             is_os_fullscreen: AtomicBool::new(false),
             completion_active: AtomicBool::new(false),
+            undo_armed: AtomicBool::new(false),
 
             undo_state: RwLock::new(None),
             case_cycle: RwLock::new(None),
@@ -298,6 +301,7 @@ impl EngineState {
 
         if let Ok(mut guard) = self.undo_state.write() {
             *guard = Some(UndoState::new(trigger_string, output_length));
+            self.undo_armed.store(true, Ordering::Release);
         }
     }
 
@@ -308,6 +312,7 @@ impl EngineState {
         {
             state.output_length = output_length;
             state.timestamp = Instant::now();
+            self.undo_armed.store(true, Ordering::Release);
         }
     }
 
@@ -364,6 +369,7 @@ impl EngineState {
     pub fn register_case_cycle(&self, original_text: String) {
         if let Ok(mut guard) = self.case_cycle.write() {
             *guard = Some(CaseCycleSession::new(original_text));
+            self.undo_armed.store(true, Ordering::Release);
         }
     }
 
@@ -401,23 +407,29 @@ impl EngineState {
     }
 
     pub fn clear_undo_state(&self) {
+        if !self.undo_armed.load(Ordering::Acquire) {
+            return; // nothing pending; skip both write locks
+        }
         self.clear_case_cycle();
         if let Ok(mut guard) = self.undo_state.write() {
             *guard = None;
         }
+        self.undo_armed.store(false, Ordering::Release);
     }
 
     pub fn take_active_undo_state(&self) -> Option<UndoState> {
         self.clear_case_cycle();
         let mut guard = self.undo_state.write().ok()?;
-        match guard.as_ref() {
+        let res = match guard.as_ref() {
             Some(state) if state.is_active() => guard.take(),
             Some(_) => {
                 *guard = None;
                 None
             }
             None => None,
-        }
+        };
+        self.undo_armed.store(false, Ordering::Release);
+        res
     }
 }
 
@@ -657,5 +669,28 @@ mod tests {
 
         state.clear_undo_state();
         assert!(state.advance_case_variant(CycleDirection::Next).is_none());
+    }
+
+    #[test]
+    fn undo_armed_flag_lifecycle() {
+        let state = EngineState::new();
+        assert!(!state.undo_armed.load(Ordering::Acquire));
+
+        state.set_undo_state(">gm".to_string(), 12);
+        assert!(state.undo_armed.load(Ordering::Acquire));
+
+        state.clear_undo_state();
+        assert!(!state.undo_armed.load(Ordering::Acquire));
+
+        state.register_case_cycle("hello world".to_string());
+        assert!(state.undo_armed.load(Ordering::Acquire));
+
+        state.clear_undo_state();
+        assert!(!state.undo_armed.load(Ordering::Acquire));
+
+        state.set_undo_state(">gm".to_string(), 12);
+        assert!(state.undo_armed.load(Ordering::Acquire));
+        assert!(state.take_active_undo_state().is_some());
+        assert!(!state.undo_armed.load(Ordering::Acquire));
     }
 }

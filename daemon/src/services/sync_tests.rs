@@ -2300,7 +2300,7 @@ async fn test_pause_resume_and_reload_signal_sync() {
     let state = std::sync::Arc::new(taurine_core::engine::EngineState::new());
     let (tx, _rx) = tokio::sync::mpsc::channel(1);
     let pause_hotkey = "Alt + `".to_string();
-    let pause_hotkey_spec = std::sync::Arc::new(std::sync::RwLock::new(
+    let pause_hotkey_spec = std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
         crate::input::hotkey::parse_pause_hotkey_setting(&pause_hotkey).unwrap(),
     ));
     let paused = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));

@@ -46,7 +46,7 @@ mod listener_pipeline_tests {
         evaluator: Arc<Mutex<Evaluator>>,
         state: Arc<EngineState>,
         paused: Arc<AtomicBool>,
-        pause_hotkey: Arc<std::sync::RwLock<crate::input::hotkey::HotkeySpec>>,
+        pause_hotkey: Arc<arc_swap::ArcSwap<crate::input::hotkey::HotkeySpec>>,
         spinner_style: Arc<std::sync::RwLock<taurine_core::settings::SpinnerStyle>>,
         pause_audio_enabled: Arc<AtomicBool>,
         pause_tx: tokio::sync::mpsc::Sender<bool>,
@@ -74,7 +74,7 @@ mod listener_pipeline_tests {
                 evaluator: Arc::new(Mutex::new(Evaluator::new(state.clone()))),
                 state,
                 paused: Arc::new(AtomicBool::new(false)),
-                pause_hotkey: Arc::new(std::sync::RwLock::new(pause_hotkey_spec)),
+                pause_hotkey: Arc::new(arc_swap::ArcSwap::from_pointee(pause_hotkey_spec)),
                 spinner_style: Arc::new(std::sync::RwLock::new(Default::default())),
                 pause_audio_enabled: Arc::new(AtomicBool::new(false)),
                 pause_tx: tx,
@@ -829,6 +829,21 @@ mod listener_pipeline_tests {
         assert_eq!(normalize_key_text("é"), "é");
         // Decomposed e + combining acute must still compose via the NFC path.
         assert_eq!(normalize_key_text("é"), "é");
+    }
+
+    #[test]
+    fn ascii_and_unicode_keys_populate_buffer() {
+        let _guard = TestGuard::acquire();
+        let h = Harness::new();
+        h.type_str("abc");
+        assert_eq!(h.buf(), "abc");
+
+        // Unicode decomposed character NFC normalized
+        h.send(named_event(
+            EventType::KeyPress(Key::Unknown(0)),
+            "e\u{0301}",
+        ));
+        assert_eq!(h.buf(), "abcé");
     }
 
     /// A physical pause release landing mid-injection must still clear
