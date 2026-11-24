@@ -1,12 +1,12 @@
 #[cfg(target_os = "linux")]
 use evdev::KeyCode;
+use nite_core::keys::{
+    Hotkey, KeyPress, LogicalKey, Modifier, ModifierState, Modifiers, hotkey_matches, parse_hotkey,
+};
 #[cfg(not(target_os = "linux"))]
 use rdev::{Event, EventType};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use taurine_core::keys::{
-    Hotkey, KeyPress, LogicalKey, Modifier, ModifierState, Modifiers, hotkey_matches, parse_hotkey,
-};
 
 #[cfg(target_os = "linux")]
 use crate::input::hotkey_evaluator::logical_key_from_evdev;
@@ -175,7 +175,7 @@ pub fn spawn_pause_counter(
     pause_transition_tx: tokio::sync::mpsc::Sender<bool>,
 ) -> std::io::Result<std::thread::JoinHandle<()>> {
     std::thread::Builder::new()
-        .name("tau-pause-count".to_string())
+        .name("nite-pause-count".to_string())
         .spawn(move || {
             loop {
                 if press_rx.recv().is_err() {
@@ -228,7 +228,7 @@ impl VoiceHotkeySpec {
             return Some(Self::Standard(hotkey));
         }
 
-        let tokens = taurine_core::keys::split_tokens(trimmed).ok()?;
+        let tokens = nite_core::keys::split_tokens(trimmed).ok()?;
         let mut modifiers = Modifiers::new();
         for token in tokens {
             let modifier = Modifier::from_alias(&token)?;
@@ -389,8 +389,8 @@ pub fn is_pause_chord_evdev(
 #[cfg(not(target_os = "linux"))]
 mod tests {
     use super::*;
+    use nite_core::keys::{Modifier, Modifiers, parse_hotkey};
     use rdev::{EventType, Key};
-    use taurine_core::keys::{Modifier, Modifiers, parse_hotkey};
 
     fn ev(event_type: EventType) -> Event {
         Event {
@@ -487,7 +487,7 @@ mod tests {
 
     #[test]
     fn cached_voice_specs_update_only_on_refresh() {
-        let _lock = taurine_core::testing::TEST_LOCK
+        let _lock = nite_core::testing::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         refresh_cached_voice_specs("ctrl+shift+v", "f8");
@@ -499,8 +499,8 @@ mod tests {
 
         // Swap the source strings without a refresh: the press path must
         // keep matching the stale cached specs (no per-event re-parse).
-        taurine_core::settings::set_cached_voice_ptt_hotkey("f9".to_string());
-        taurine_core::settings::set_cached_voice_handsfree_hotkey("f10".to_string());
+        nite_core::settings::set_cached_voice_ptt_hotkey("f9".to_string());
+        nite_core::settings::set_cached_voice_handsfree_hotkey("f10".to_string());
         assert_eq!(
             cached_voice_ptt_spec(),
             VoiceHotkeySpec::parse("ctrl+shift+v")
@@ -518,8 +518,8 @@ mod tests {
         assert!(cached_voice_handsfree_spec().is_none());
 
         // Restore defaults so other tests see a clean cache.
-        taurine_core::settings::set_cached_voice_ptt_hotkey("win+lctrl".to_string());
-        taurine_core::settings::set_cached_voice_handsfree_hotkey("win+lctrl+lalt".to_string());
+        nite_core::settings::set_cached_voice_ptt_hotkey("win+lctrl".to_string());
+        nite_core::settings::set_cached_voice_handsfree_hotkey("win+lctrl+lalt".to_string());
         refresh_cached_voice_specs("win+lctrl", "win+lctrl+lalt");
     }
 
@@ -601,7 +601,7 @@ mod tests {
             true
         }
 
-        let _lock = taurine_core::testing::TEST_LOCK
+        let _lock = nite_core::testing::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         super::clear_pause_press_sender();
@@ -651,7 +651,7 @@ mod tests {
 #[cfg(target_os = "linux")]
 mod linux_tests {
     use super::*;
-    use taurine_core::keys::{Modifier, Modifiers};
+    use nite_core::keys::{Modifier, Modifiers};
 
     fn modifiers_with(modifiers: &[Modifier]) -> Modifiers {
         let mut bitset = Modifiers::new();
@@ -723,7 +723,7 @@ mod linux_tests {
 
     #[test]
     fn linux_cached_voice_specs_drive_evdev_press_and_release_matching() {
-        let _lock = taurine_core::testing::TEST_LOCK
+        let _lock = nite_core::testing::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         refresh_cached_voice_specs("ctrl+shift+v", "f8");
@@ -765,8 +765,8 @@ mod linux_tests {
 
         // Swapping the source strings without a refresh leaves evdev matching
         // on the stale cached specs.
-        taurine_core::settings::set_cached_voice_ptt_hotkey("f9".to_string());
-        taurine_core::settings::set_cached_voice_handsfree_hotkey("f10".to_string());
+        nite_core::settings::set_cached_voice_ptt_hotkey("f9".to_string());
+        nite_core::settings::set_cached_voice_handsfree_hotkey("f10".to_string());
         assert!(
             cached_voice_ptt_spec().is_some_and(|spec| spec.matches_press_evdev(
                 KeyCode::KEY_V,
@@ -783,8 +783,8 @@ mod linux_tests {
         );
 
         // Restore defaults so other tests see a clean cache.
-        taurine_core::settings::set_cached_voice_ptt_hotkey("win+lctrl".to_string());
-        taurine_core::settings::set_cached_voice_handsfree_hotkey("win+lctrl+lalt".to_string());
+        nite_core::settings::set_cached_voice_ptt_hotkey("win+lctrl".to_string());
+        nite_core::settings::set_cached_voice_handsfree_hotkey("win+lctrl+lalt".to_string());
         refresh_cached_voice_specs("win+lctrl", "win+lctrl+lalt");
     }
 }
@@ -797,7 +797,7 @@ mod icon_preview_tests {
     /// even bursts never need a revert from the counter.
     #[test]
     fn preview_flips_per_press_and_pair_swings_back() {
-        let _lock = taurine_core::testing::TEST_LOCK
+        let _lock = nite_core::testing::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         sync_pause_icon_preview(false);
@@ -819,7 +819,7 @@ mod icon_preview_tests {
     /// External commits (menu, RPC, snooze) reconcile the hint.
     #[test]
     fn preview_sync_follows_committed_state() {
-        let _lock = taurine_core::testing::TEST_LOCK
+        let _lock = nite_core::testing::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         sync_pause_icon_preview(false);

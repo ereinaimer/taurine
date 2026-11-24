@@ -153,7 +153,7 @@ mod tests {
 
     #[tokio::test]
     async fn same_user_client_connects() {
-        let pipe_path = format!(r"\\.\pipe\taurine-test-{}", std::process::id());
+        let pipe_path = format!(r"\\.\pipe\nite-test-{}", std::process::id());
         let security = PipeSecurity::current_user_only().expect("DACL must build");
         let server = security
             .create_server(&pipe_path, true)

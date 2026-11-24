@@ -15,7 +15,7 @@ pub mod xkb;
 static CLIPBOARD: Mutex<Option<Clipboard>> = Mutex::new(None);
 static REVERSE_LOOKUP: OnceLock<HashMap<char, (KeyCode, bool)>> = OnceLock::new();
 
-pub const VIRTUAL_DEVICE_NAME: &str = "Taurine Virtual Keyboard";
+pub const VIRTUAL_DEVICE_NAME: &str = "Nite Virtual Keyboard";
 
 pub fn init() -> Result<(), String> {
     let _ = get_reverse_lookup();

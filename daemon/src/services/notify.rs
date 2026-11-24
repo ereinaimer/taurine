@@ -4,14 +4,14 @@ use tracing::debug;
 #[allow(dead_code)]
 pub fn notify_pause_toggled(paused: bool) {
     let (summary, body) = if paused {
-        ("Taurine Paused", "Triggers are currently disabled.")
+        ("Nite Paused", "Triggers are currently disabled.")
     } else {
-        ("Taurine Resumed", "Triggers are active.")
+        ("Nite Resumed", "Triggers are active.")
     };
 
     match Notification::new()
-        // .app_id("Taurine")
-        //.appname("Taurine")
+        // .app_id("Nite")
+        //.appname("Nite")
         .summary(summary)
         .body(body)
         .show()
@@ -24,10 +24,8 @@ pub fn notify_pause_toggled(paused: bool) {
 #[cfg(target_os = "linux")]
 pub fn notify_shutdown_failed() {
     match Notification::new()
-        .summary("Taurine Did Not Stop")
-        .body(
-            "Quit was requested but Taurine is still running. Try taurine down or check the logs.",
-        )
+        .summary("Nite Did Not Stop")
+        .body("Quit was requested but Nite is still running. Try nite down or check the logs.")
         .show()
     {
         Ok(_) => {}

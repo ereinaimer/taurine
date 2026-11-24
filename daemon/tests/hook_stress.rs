@@ -24,12 +24,12 @@ impl Drop for ChildGuard {
 }
 
 #[tokio::test]
-#[ignore] // Run manually: TAURINE_ALLOW_HOST_INPUT=1 cargo test --test hook_stress -- --ignored --nocapture
+#[ignore] // Run manually: NITE_ALLOW_HOST_INPUT=1 cargo test --test hook_stress -- --ignored --nocapture
 async fn hook_stress_24h_compressed() {
     // Host-affecting by design (spawns daemon, simulates global keys incl.
     // Alt+Tab): requires explicit opt-in, never runs by default or in CI.
-    if std::env::var("TAURINE_ALLOW_HOST_INPUT").as_deref() != Ok("1") {
-        println!("Skipping: set TAURINE_ALLOW_HOST_INPUT=1 to run host-input stress test.");
+    if std::env::var("NITE_ALLOW_HOST_INPUT").as_deref() != Ok("1") {
+        println!("Skipping: set NITE_ALLOW_HOST_INPUT=1 to run host-input stress test.");
         return;
     }
     // Skip if running in CI environment to avoid slow runs or missing GUI context.
@@ -49,31 +49,31 @@ async fn hook_stress_24h_compressed() {
     }
 
     println!("=== STARTING 24H COMPRESSED HOOK STRESS TEST ===");
-    taurine_core::logs::init_tracing_for_tests();
+    nite_core::logs::init_tracing_for_tests();
 
     // Set a unique pipe path for the test run to avoid conflicting with
     // any existing instance running on the system.
-    let test_pipe_path = r"\\.\pipe\taurine_stress_test";
+    let test_pipe_path = r"\\.\pipe\nite_stress_test";
     // SAFETY: set_var is safe here because this runs at the start of the
     // test thread before any concurrent threads are spawned or reading the environment.
     unsafe {
-        std::env::set_var("TAURINE_PIPE_PATH", test_pipe_path);
+        std::env::set_var("NITE_PIPE_PATH", test_pipe_path);
     }
 
     // 1. Start daemon subprocess in an isolated temporary data/db environment
     let test_dir = tempfile::tempdir().expect("Failed to create stress test temp dir");
 
-    let bin_path = get_taurine_binary();
+    let bin_path = get_nite_binary();
     println!("Spawning daemon binary from: {:?}", bin_path);
     let daemon_child = Command::new(&bin_path)
         .arg("--daemon")
-        .env("TAURINE_PIPE_PATH", test_pipe_path)
-        .env("TAURINE_DATA_DIR", test_dir.path())
-        .env("TAURINE_TEST_HANG_HOOK", "1")
+        .env("NITE_PIPE_PATH", test_pipe_path)
+        .env("NITE_DATA_DIR", test_dir.path())
+        .env("NITE_TEST_HANG_HOOK", "1")
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())
         .spawn()
-        .expect("Failed to spawn taurine daemon");
+        .expect("Failed to spawn nite daemon");
     let _guard = ChildGuard(daemon_child);
 
     // Wait for startup and gRPC endpoint availability
@@ -82,7 +82,7 @@ async fn hook_stress_24h_compressed() {
 
     // 2. Connect to gRPC client
     println!("Connecting to daemon gRPC client...");
-    let mut client = match taurine_core::system::rpc::get_client().await {
+    let mut client = match nite_core::system::rpc::get_client().await {
         Ok(c) => c,
         Err(e) => {
             panic!("Failed to connect to daemon gRPC client: {:?}", e);
@@ -147,7 +147,7 @@ async fn hook_stress_24h_compressed() {
     println!("  Watchdog recovery cycle complete");
 
     // 9. Final verification
-    let status_req = taurine_core::system::rpc::StatusRequest {};
+    let status_req = nite_core::system::rpc::StatusRequest {};
     let status = client
         .get_status(status_req)
         .await
@@ -165,18 +165,18 @@ async fn hook_stress_24h_compressed() {
     println!("=== ALL PHASES PASSED - HOOK RESILIENCE VALIDATED ===");
 
     // Cleanup
-    let shutdown_req = taurine_core::system::rpc::ShutdownRequest {};
+    let shutdown_req = nite_core::system::rpc::ShutdownRequest {};
     let _ = client.shutdown(shutdown_req).await;
 }
 
-fn get_taurine_binary() -> std::path::PathBuf {
+fn get_nite_binary() -> std::path::PathBuf {
     let mut exe = std::env::current_exe().unwrap();
     // target/debug/deps/hook_stress-xxxxxx
     exe.pop(); // pop filename
     if exe.file_name().and_then(|s| s.to_str()) == Some("deps") {
         exe.pop(); // pop deps
     }
-    exe.push("taurine.exe");
+    exe.push("nite.exe");
     exe
 }
 
@@ -205,7 +205,7 @@ async fn inject_burst_with_modifiers() {
 }
 
 fn find_monitor_window() -> HWND {
-    let class_name = wide_null("TaurinePowerSessionMonitor");
+    let class_name = wide_null("NitePowerSessionMonitor");
     // SAFETY: FindWindowW is safe to query for registered window classes.
     unsafe { FindWindowW(class_name.as_ptr(), std::ptr::null()) }
 }
@@ -250,12 +250,11 @@ async fn trigger_lock_unlock() {
     sleep(Duration::from_millis(200)).await;
 }
 
-type InterceptedClient = taurine_core::system::rpc::daemon_control_client::DaemonControlClient<
-    tonic::transport::Channel,
->;
+type InterceptedClient =
+    nite_core::system::rpc::daemon_control_client::DaemonControlClient<tonic::transport::Channel>;
 
 async fn assert_health_healthy(client: &mut InterceptedClient) {
-    let status_req = taurine_core::system::rpc::StatusRequest {};
+    let status_req = nite_core::system::rpc::StatusRequest {};
     let status = client
         .get_status(status_req)
         .await
@@ -271,7 +270,7 @@ async fn assert_health_healthy(client: &mut InterceptedClient) {
 async fn assert_health_recovers_within(client: &mut InterceptedClient, timeout: Duration) {
     let deadline = std::time::Instant::now() + timeout;
     while std::time::Instant::now() < deadline {
-        let status_req = taurine_core::system::rpc::StatusRequest {};
+        let status_req = nite_core::system::rpc::StatusRequest {};
         if let Ok(res) = client.get_status(status_req).await {
             let status = res.into_inner();
             if status.keyboard_capture == "healthy" {

@@ -3,16 +3,16 @@ use super::gate::{InjectionGate, inject_mutex};
 use crate::platform::ClipboardManager;
 #[cfg(not(target_os = "linux"))]
 use crate::platform::Injector;
+use nite_core::db::crud::TriggerAction;
+use nite_core::engine::source::MemorySource;
+use nite_core::engine::variables::ExpansionStep;
+use nite_core::engine::{EngineEvent, EngineState, Evaluator};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering};
 use std::sync::{Arc, Barrier};
 use std::thread;
 use std::time::Duration;
 #[cfg(not(target_os = "linux"))]
 use std::time::Instant;
-use taurine_core::db::crud::TriggerAction;
-use taurine_core::engine::source::MemorySource;
-use taurine_core::engine::variables::ExpansionStep;
-use taurine_core::engine::{EngineEvent, EngineState, Evaluator};
 
 #[cfg(not(target_os = "linux"))]
 use super::simulate::{SimulatedEvent, consume_simulated_event, simulated_events};
@@ -700,7 +700,7 @@ fn test_inject_unicode_text_direct() {
 }
 
 // Opt-in live validation against the real OS injector. Never runs by default:
-// requires `-- --ignored` plus `TAURINE_ALLOW_HOST_INPUT=1` on a throwaway
+// requires `-- --ignored` plus `NITE_ALLOW_HOST_INPUT=1` on a throwaway
 // machine with no game or editor focused.
 #[test]
 #[ignore]
@@ -742,11 +742,11 @@ fn test_dual_path_routes_plain_text_to_fast_path() {
         .unwrap_or_else(|e| e.into_inner());
     let fake = crate::platform::test_injector();
     fake.clear();
-    let steps = vec![taurine_core::engine::variables::ExpansionStep::Text(
+    let steps = vec![nite_core::engine::variables::ExpansionStep::Text(
         "instant text".to_string(),
     )];
     let report =
-        super::inject::inject_expansion(steps, 2, taurine_core::settings::SpinnerStyle::Braille);
+        super::inject::inject_expansion(steps, 2, nite_core::settings::SpinnerStyle::Braille);
     assert_eq!(report.successful_chars, 12);
     assert!(
         fake.recorded()
@@ -790,8 +790,8 @@ fn test_inject_atomic_undo_batch() {
 
 #[test]
 fn test_expansion_requires_keystrokes_classification() {
-    use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter, ScriptMetadata};
-    use taurine_core::engine::variables::ExpansionStep;
+    use nite_core::engine::shell::{ScriptBehavior, ScriptInterpreter, ScriptMetadata};
+    use nite_core::engine::variables::ExpansionStep;
 
     // Silent scripts with 0 delete_count do not require keystrokes or modifier releases
     let silent_script_steps = vec![ExpansionStep::Script(ScriptMetadata {
@@ -856,11 +856,11 @@ fn test_dual_path_routes_tabbed_text_to_fast_path() {
         .unwrap_or_else(|e| e.into_inner());
     let fake = crate::platform::test_injector();
     fake.clear();
-    let steps = vec![taurine_core::engine::variables::ExpansionStep::Text(
+    let steps = vec![nite_core::engine::variables::ExpansionStep::Text(
         "col1\tcol2".to_string(),
     )];
     let report =
-        super::inject::inject_expansion(steps, 0, taurine_core::settings::SpinnerStyle::Braille);
+        super::inject::inject_expansion(steps, 0, nite_core::settings::SpinnerStyle::Braille);
     assert!(report.completed);
     assert_eq!(report.successful_chars, 9);
     assert!(
@@ -885,7 +885,7 @@ fn test_dual_path_routes_text_with_cursor_nav_to_fast_path() {
         ExpansionStep::KeyPress("left".to_string()),
     ];
     let report =
-        super::inject::inject_expansion(steps, 4, taurine_core::settings::SpinnerStyle::Braille);
+        super::inject::inject_expansion(steps, 4, nite_core::settings::SpinnerStyle::Braille);
     assert!(report.completed);
     assert_eq!(report.successful_chars, 13);
     assert!(
@@ -912,11 +912,11 @@ fn test_dual_path_routes_multiline_text_to_clipboard_path() {
     fake.clear();
     // Multiline expansions (e.g. git commit messages with bullet points) must not be typed directly
     // via SendInput to avoid triggering shell execution or line re-ordering races.
-    let steps = vec![taurine_core::engine::variables::ExpansionStep::Text(
+    let steps = vec![nite_core::engine::variables::ExpansionStep::Text(
         "git commit -m \"title\" -m\n\"- bullet 1\n- bullet 2\"".to_string(),
     )];
     let report =
-        super::inject::inject_expansion(steps, 2, taurine_core::settings::SpinnerStyle::Braille);
+        super::inject::inject_expansion(steps, 2, nite_core::settings::SpinnerStyle::Braille);
     assert!(report.completed);
     assert_eq!(report.successful_chars, 48);
     assert!(
@@ -941,11 +941,11 @@ fn test_dual_path_routes_html_to_clipboard_path() {
         .unwrap_or_else(|e| e.into_inner());
     let fake = crate::platform::test_injector();
     fake.clear();
-    let steps = vec![taurine_core::engine::variables::ExpansionStep::Text(
+    let steps = vec![nite_core::engine::variables::ExpansionStep::Text(
         "<b>bold snippet</b>".to_string(),
     )];
     let report =
-        super::inject::inject_expansion(steps, 0, taurine_core::settings::SpinnerStyle::Braille);
+        super::inject::inject_expansion(steps, 0, nite_core::settings::SpinnerStyle::Braille);
     assert!(report.completed);
     assert_eq!(report.successful_chars, 19);
     assert!(
@@ -1007,11 +1007,11 @@ fn test_fast_path_boundary_32_chars_uses_typing() {
     let fake = crate::platform::test_injector();
     fake.clear();
     let text = "a".repeat(32);
-    let steps = vec![taurine_core::engine::variables::ExpansionStep::Text(
+    let steps = vec![nite_core::engine::variables::ExpansionStep::Text(
         text.clone(),
     )];
     let report =
-        super::inject::inject_expansion(steps, 0, taurine_core::settings::SpinnerStyle::Braille);
+        super::inject::inject_expansion(steps, 0, nite_core::settings::SpinnerStyle::Braille);
     assert_eq!(report.successful_chars, 32);
     assert!(
         fake.recorded()
@@ -1037,11 +1037,11 @@ fn test_fast_path_boundary_33_chars_uses_paste() {
         .unwrap_or_else(|e| e.into_inner());
     let fake = crate::platform::test_injector();
     fake.clear();
-    let steps = vec![taurine_core::engine::variables::ExpansionStep::Text(
+    let steps = vec![nite_core::engine::variables::ExpansionStep::Text(
         "a".repeat(33),
     )];
     let report =
-        super::inject::inject_expansion(steps, 0, taurine_core::settings::SpinnerStyle::Braille);
+        super::inject::inject_expansion(steps, 0, nite_core::settings::SpinnerStyle::Braille);
     assert!(report.completed);
     assert_eq!(report.successful_chars, 33);
     assert!(
@@ -1066,12 +1066,12 @@ fn test_voice_short_text_always_pastes() {
         .unwrap_or_else(|e| e.into_inner());
     let fake = crate::platform::test_injector();
     fake.clear();
-    let steps = vec![taurine_core::engine::variables::ExpansionStep::Text(
+    let steps = vec![nite_core::engine::variables::ExpansionStep::Text(
         "hello".to_string(),
     )];
     let report = super::inject::inject_expansion_for_voice(
         steps,
-        taurine_core::settings::SpinnerStyle::Braille,
+        nite_core::settings::SpinnerStyle::Braille,
     );
     assert!(report.completed);
     assert_eq!(report.successful_chars, 5);

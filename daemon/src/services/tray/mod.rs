@@ -31,7 +31,7 @@ pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> J
     {
         let _ = (paused, system_tray_enabled);
         std::thread::Builder::new()
-            .name("tau-tray".to_string())
+            .name("nite-tray".to_string())
             .spawn(|| {})
             .expect("tray thread spawn")
     }

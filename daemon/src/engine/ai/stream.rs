@@ -14,11 +14,11 @@ use tracing::error;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::engine::ai::InlineAiSpinnerHandle;
-use taurine_core::ai::{
+use nite_core::ai::{
     AiProvider, CredentialStore, OsKeyringStore, resolve_model_for_provider,
     resolve_provider_from_settings,
 };
-use taurine_core::settings::{Settings, SettingsManager};
+use nite_core::settings::{Settings, SettingsManager};
 
 pub const MAX_PARALLEL_AI_CALLS: usize = 4;
 
@@ -92,7 +92,7 @@ async fn evaluate_marker_tree(
     client: Option<Client>,
     provider: Option<AiProvider>,
     model: Option<String>,
-) -> taurine_core::error::Result<String> {
+) -> nite_core::error::Result<String> {
     while let Some(eot) = marker_tree.find('\x04') {
         if let Some(sot) = marker_tree[..eot].rfind('\x03') {
             let content = &marker_tree[sot + 1..eot];
@@ -104,7 +104,7 @@ async fn evaluate_marker_tree(
                     let sys_key_owned = sys_key.to_string();
                     tokio::task::spawn_blocking(move || {
                         let pipeline =
-                            taurine_core::engine::variables::system::transformers::split_pipeline(
+                            nite_core::engine::variables::system::transformers::split_pipeline(
                                 &sys_key_owned,
                             );
                         let base_key = pipeline[0];
@@ -114,15 +114,13 @@ async fn evaluate_marker_tree(
                                 .map(|(x, y)| format!("{},{}", x, y))
                                 .unwrap_or_else(|| "0,0".to_string())
                         } else {
-                            taurine_core::engine::variables::system::resolve(base_key)
+                            nite_core::engine::variables::system::resolve(base_key)
                                 .unwrap_or_else(|| format!("[Error: failed to resolve {base_key}]"))
                         };
 
                         for tr in &pipeline[1..] {
                             if let Some(transformed) =
-                                taurine_core::engine::variables::system::transformers::apply(
-                                    tr, &val,
-                                )
+                                nite_core::engine::variables::system::transformers::apply(tr, &val)
                             {
                                 val = transformed;
                             }
@@ -133,7 +131,7 @@ async fn evaluate_marker_tree(
                     .ok()
                     .unwrap_or_else(|| "[Error: task panicked]".to_string())
                 } else if input.is_empty() {
-                    return Err(taurine_core::error::Error::Service(
+                    return Err(nite_core::error::Error::Service(
                         "[Error: AI transformer received empty input]".to_string(),
                     ));
                 } else if let (Some(client), Some(provider), Some(model)) =
@@ -157,23 +155,23 @@ async fn evaluate_marker_tree(
                                     res.push_str(&chunk);
                                 }
                             }
-                            taurine_core::engine::variables::system::transformers::ai::strip_markdown_fence(&res)
+                            nite_core::engine::variables::system::transformers::ai::strip_markdown_fence(&res)
                         }
                         Ok(Err(err)) => {
                             let details = sanitize_error_message(&err.to_string());
-                            return Err(taurine_core::error::Error::Service(format!(
+                            return Err(nite_core::error::Error::Service(format!(
                                 "[Error: AI request failed: {}]",
                                 details
                             )));
                         }
                         Err(_) => {
-                            return Err(taurine_core::error::Error::Service(
+                            return Err(nite_core::error::Error::Service(
                                 "[Error: AI timed out]".to_string(),
                             ));
                         }
                     }
                 } else {
-                    return Err(taurine_core::error::Error::Config(
+                    return Err(nite_core::error::Error::Config(
                         "AI not configured. Please run setup.".to_string(),
                     ));
                 }
@@ -192,12 +190,12 @@ async fn evaluate_marker_tree(
 async fn run_ai_transformer_stream_inner(
     template_with_markers: String,
     spinner_handle: InlineAiSpinnerHandle,
-) -> taurine_core::error::Result<()> {
+) -> nite_core::error::Result<()> {
     let mut spinner = Some(spinner_handle);
     let mut spinner_cleared = false;
 
     let mut resolved =
-        if taurine_core::engine::variables::contains_non_sys_markers(&template_with_markers) {
+        if nite_core::engine::variables::contains_non_sys_markers(&template_with_markers) {
             match resolve_inline_ai_request(&OsKeyringStore) {
                 Ok(r) => Some(r),
                 Err(err) => {
@@ -269,7 +267,7 @@ async fn run_ai_transformer_stream_inner(
                 if let Some(ref mut r) = resolved {
                     r.secret.zeroize();
                 }
-                return Err(taurine_core::error::Error::Service(format!(
+                return Err(nite_core::error::Error::Service(format!(
                     "Task failed: {}",
                     err
                 )));
@@ -286,23 +284,23 @@ async fn run_ai_transformer_stream_inner(
         return Ok(());
     }
 
-    let expansion = taurine_core::engine::variables::system::finalize_with_origin(
+    let expansion = nite_core::engine::variables::system::finalize_with_origin(
         &output_text,
         None,
-        taurine_core::engine::variables::ExpansionOrigin::Ai,
+        nite_core::engine::variables::ExpansionOrigin::Ai,
     );
     let output_chars: usize = expansion
         .steps
         .iter()
         .map(|s| match s {
-            taurine_core::engine::variables::ExpansionStep::Text(t) => t.chars().count(),
+            nite_core::engine::variables::ExpansionStep::Text(t) => t.chars().count(),
             _ => 0,
         })
         .sum();
 
     let steps = expansion.steps;
     let _ = tokio::task::spawn_blocking(move || {
-        crate::injector::inject_expansion(steps, 0, taurine_core::settings::SpinnerStyle::default())
+        crate::injector::inject_expansion(steps, 0, nite_core::settings::SpinnerStyle::default())
     })
     .await;
 
@@ -315,7 +313,7 @@ async fn run_inline_ai_stream_inner(
     prompt: String,
     system_prompt_override: Option<String>,
     spinner_handle: InlineAiSpinnerHandle,
-) -> taurine_core::error::Result<()> {
+) -> nite_core::error::Result<()> {
     let prompt = Zeroizing::new(prompt);
     let mut spinner = Some(spinner_handle);
     let mut spinner_cleared = false;
@@ -365,12 +363,12 @@ async fn run_inline_ai_stream_inner(
                 match res {
                     Ok(stream) => break stream,
                     Err(err) => {
-                        let message = inline_error_message(&taurine_core::error::Error::Service(err.to_string()));
+                        let message = inline_error_message(&nite_core::error::Error::Service(err.to_string()));
                         ensure_spinner_cleared(&mut spinner, &mut spinner_cleared).await;
                         inject_error_message(&mut output, false, &message).await?;
                         record_inline_ai_completion(finish_output(output).await, None);
                         resolved.secret.zeroize();
-                        return Err(taurine_core::error::Error::Service(message));
+                        return Err(nite_core::error::Error::Service(message));
                     }
                 }
             }
@@ -430,7 +428,7 @@ async fn run_inline_ai_stream_inner(
             }
             Some(Err(err)) => {
                 let message =
-                    inline_error_message(&taurine_core::error::Error::Service(err.to_string()));
+                    inline_error_message(&nite_core::error::Error::Service(err.to_string()));
                 ensure_spinner_cleared(&mut spinner, &mut spinner_cleared).await;
                 flush_pending_batch(&mut output, &mut pending).await?;
                 inject_error_message(&mut output, spinner_cleared, &message).await?;
@@ -443,7 +441,7 @@ async fn run_inline_ai_stream_inner(
                     },
                 );
                 resolved.secret.zeroize();
-                return Err(taurine_core::error::Error::Service(message));
+                return Err(nite_core::error::Error::Service(message));
             }
             None => break,
         }
@@ -474,11 +472,11 @@ struct ResolvedInlineAiRequest {
     system_prompt: String,
 }
 
-fn resolve_inline_ai_request<S>(store: &S) -> taurine_core::error::Result<ResolvedInlineAiRequest>
+fn resolve_inline_ai_request<S>(store: &S) -> nite_core::error::Result<ResolvedInlineAiRequest>
 where
     S: CredentialStore,
 {
-    let conn = taurine_core::db::get_conn()?;
+    let conn = nite_core::db::get_conn()?;
     let settings = SettingsManager::new(&conn).load_all();
     resolve_inline_ai_request_with_settings(store, &settings)
 }
@@ -486,18 +484,18 @@ where
 fn resolve_inline_ai_request_with_settings<S>(
     store: &S,
     settings: &Settings,
-) -> taurine_core::error::Result<ResolvedInlineAiRequest>
+) -> nite_core::error::Result<ResolvedInlineAiRequest>
 where
     S: CredentialStore,
 {
     let provider = resolve_provider_from_settings(store, settings.ai_provider.as_deref())?;
     let model = resolve_model_for_provider(provider, settings.ai_model.as_deref());
     let secret = store.get_secret(provider)?.ok_or_else(|| {
-        taurine_core::error::Error::Config("AI not configured. Run setup.".to_string())
+        nite_core::error::Error::Config("AI not configured. Run setup.".to_string())
     })?;
 
     if provider == AiProvider::Custom && settings.ai_custom_endpoint.is_none() {
-        return Err(taurine_core::error::Error::Config(
+        return Err(nite_core::error::Error::Config(
             "AI not configured. Run setup.".to_string(),
         ));
     }
@@ -509,7 +507,7 @@ where
         custom_endpoint: settings.ai_custom_endpoint.clone(),
         temperature: 0.7,
         max_tokens: 2048,
-        system_prompt: taurine_core::settings::DEFAULT_AI_SYSTEM_PROMPT.to_string(),
+        system_prompt: nite_core::settings::DEFAULT_AI_SYSTEM_PROMPT.to_string(),
     })
 }
 
@@ -551,7 +549,7 @@ fn build_chat_request(
     user_system_prompt: Option<String>,
 ) -> ChatRequest {
     let base_prompt = user_system_prompt
-        .unwrap_or_else(|| taurine_core::settings::DEFAULT_AI_SYSTEM_PROMPT.to_string());
+        .unwrap_or_else(|| nite_core::settings::DEFAULT_AI_SYSTEM_PROMPT.to_string());
 
     let system_prompt = if let Some(prompt_override) = snippet_prompt_override {
         format!("{}\n\n{}", prompt_override, base_prompt)
@@ -618,10 +616,11 @@ fn sanitize_error_message(raw: &str) -> String {
     raw.to_string()
 }
 
-fn inline_error_message(err: &taurine_core::error::Error) -> String {
+fn inline_error_message(err: &nite_core::error::Error) -> String {
     let raw_msg = match err {
-        taurine_core::error::Error::Config(message)
-        | taurine_core::error::Error::Service(message) => message.clone(),
+        nite_core::error::Error::Config(message) | nite_core::error::Error::Service(message) => {
+            message.clone()
+        }
         _ => err.to_string(),
     };
     format_error_message(&sanitize_error_message(&raw_msg))
@@ -655,7 +654,7 @@ async fn cancel_spinner_and_wait(spinner: &mut Option<InlineAiSpinnerHandle>) {
 async fn flush_pending_batch(
     output: &mut Option<LiveOutputHandle>,
     pending: &mut String,
-) -> taurine_core::error::Result<()> {
+) -> nite_core::error::Result<()> {
     if pending.is_empty() {
         return Ok(());
     }
@@ -675,7 +674,7 @@ async fn inject_error_message(
     output: &mut Option<LiveOutputHandle>,
     output_started: bool,
     message: &str,
-) -> taurine_core::error::Result<()> {
+) -> nite_core::error::Result<()> {
     if output.is_none() {
         *output = Some(LiveOutputHandle::spawn());
     }
@@ -707,13 +706,13 @@ fn record_inline_ai_completion(output_chars: usize, content: Option<String>) {
     }
 
     let app = crate::platform::capture_active_app();
-    taurine_core::db::crud::record_trigger_stat(taurine_core::db::crud::TriggerStatEvent {
+    nite_core::db::crud::record_trigger_stat(nite_core::db::crud::TriggerStatEvent {
         trigger_id: None,
         trigger: None,
         trigger_chars: 0,
         success: true,
         output_chars,
-        kind: taurine_core::db::crud::TriggerStatKind::InlineAi,
+        kind: nite_core::db::crud::TriggerStatKind::InlineAi,
         wpm: None,
         app,
         words_count: None,
@@ -735,10 +734,10 @@ impl LiveOutputHandle {
     fn spawn() -> Self {
         let (tx, rx) = mpsc::channel::<LiveOutputCommand>();
         let join = match thread::Builder::new()
-            .name("tau-ai-stream".to_string())
+            .name("nite-ai-stream".to_string())
             .spawn(move || {
                 crate::platform::panic::catch_worker_panic(
-                    "tau-ai-stream",
+                    "nite-ai-stream",
                     std::panic::AssertUnwindSafe(move || {
                         let mut session = crate::injector::StreamingTextSession::begin();
 
@@ -772,11 +771,11 @@ impl LiveOutputHandle {
         Self { tx, join }
     }
 
-    fn send_text(&self, text: String, track_stats: bool) -> taurine_core::error::Result<()> {
+    fn send_text(&self, text: String, track_stats: bool) -> nite_core::error::Result<()> {
         self.tx
             .send(LiveOutputCommand::Text { text, track_stats })
             .map_err(|_| {
-                taurine_core::error::Error::Service("Error: AI output interrupted.".to_string())
+                nite_core::error::Error::Service("Error: AI output interrupted.".to_string())
             })
     }
 
@@ -795,9 +794,9 @@ impl LiveOutputHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nite_core::settings::Settings;
     use std::collections::BTreeMap;
     use std::sync::Mutex;
-    use taurine_core::settings::Settings;
 
     #[derive(Default)]
     struct MemoryCredentialStore {
@@ -805,11 +804,7 @@ mod tests {
     }
 
     impl CredentialStore for MemoryCredentialStore {
-        fn set_secret(
-            &self,
-            provider: AiProvider,
-            secret: &str,
-        ) -> taurine_core::error::Result<()> {
+        fn set_secret(&self, provider: AiProvider, secret: &str) -> nite_core::error::Result<()> {
             self.secrets
                 .lock()
                 .expect("memory store poisoned")
@@ -820,7 +815,7 @@ mod tests {
         fn get_secret(
             &self,
             provider: AiProvider,
-        ) -> taurine_core::error::Result<Option<zeroize::Zeroizing<String>>> {
+        ) -> nite_core::error::Result<Option<zeroize::Zeroizing<String>>> {
             Ok(self
                 .secrets
                 .lock()
@@ -829,7 +824,7 @@ mod tests {
                 .map(|s| zeroize::Zeroizing::new(s.clone())))
         }
 
-        fn delete_secret(&self, provider: AiProvider) -> taurine_core::error::Result<bool> {
+        fn delete_secret(&self, provider: AiProvider) -> nite_core::error::Result<bool> {
             Ok(self
                 .secrets
                 .lock()
@@ -844,7 +839,7 @@ mod tests {
         let gemini = build_chat_request(AiProvider::Gemini, "latest rust release", None, None);
         assert_eq!(
             gemini.system.as_deref(),
-            Some(taurine_core::settings::DEFAULT_AI_SYSTEM_PROMPT)
+            Some(nite_core::settings::DEFAULT_AI_SYSTEM_PROMPT)
         );
         assert_eq!(gemini.tools.as_ref().map(|tools| tools.len()), Some(1));
         assert_eq!(
@@ -855,7 +850,7 @@ mod tests {
         let openai = build_chat_request(AiProvider::Openai, "latest rust release", None, None);
         assert_eq!(
             openai.system.as_deref(),
-            Some(taurine_core::settings::DEFAULT_AI_SYSTEM_PROMPT)
+            Some(nite_core::settings::DEFAULT_AI_SYSTEM_PROMPT)
         );
         assert!(openai.tools.is_none());
     }
@@ -922,7 +917,7 @@ mod tests {
         assert_eq!(resolved.max_tokens, 2048);
         assert_eq!(
             resolved.system_prompt,
-            taurine_core::settings::DEFAULT_AI_SYSTEM_PROMPT
+            nite_core::settings::DEFAULT_AI_SYSTEM_PROMPT
         );
     }
 

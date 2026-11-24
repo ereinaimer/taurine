@@ -1,14 +1,14 @@
+use nite_core::system::paths::get_data_dir;
 use std::fs::{self, File};
 use std::io::{self, Write};
-use taurine_core::system::paths::get_data_dir;
 use tracing::{debug, error, info};
 
 pub async fn check_and_update_dictionary() {
     let file_name = "dictionary_lite.db";
     let default_url =
         "https://raw.githubusercontent.com/ereinaimer/taurine/dict/dictionary_lite.db.zst";
-    let url = taurine_core::paths::dev_env_var("TAURINE_DICT_URL")
-        .unwrap_or_else(|| default_url.to_string());
+    let url =
+        nite_core::paths::dev_env_var("NITE_DICT_URL").unwrap_or_else(|| default_url.to_string());
     let url = url.as_str();
 
     let dict_dir = get_data_dir().join("dict");
@@ -41,7 +41,7 @@ pub async fn check_and_update_dictionary() {
 
     match download_and_decompress(url, &temp_path).await {
         Ok(()) => {
-            taurine_core::engine::dictionary::offline::close_cached_connection();
+            nite_core::engine::dictionary::offline::close_cached_connection();
 
             if let Err(e) = fs::rename(&temp_path, &db_path) {
                 error!("Failed to replace dictionary file: {}", e);
@@ -90,13 +90,13 @@ mod tests {
     #[tokio::test]
     #[allow(clippy::await_holding_lock)] // TEST_LOCK must be held for the full test to serialize env var mutation
     async fn test_check_and_update_dictionary_integration() {
-        let _lock = taurine_core::testing::TEST_LOCK
+        let _lock = nite_core::testing::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
 
         let temp = tempdir().unwrap();
         // SAFETY: Setting environment variables for download manager test isolation under TEST_LOCK.
-        unsafe { std::env::set_var("TAURINE_DATA_DIR", temp.path().to_str().unwrap()) };
+        unsafe { std::env::set_var("NITE_DATA_DIR", temp.path().to_str().unwrap()) };
 
         let dict_dir = temp.path().join("dict");
 
@@ -141,7 +141,7 @@ mod tests {
 
         let mock_url = format!("http://127.0.0.1:{}/dictionary_lite.db.zst", port);
         // SAFETY: Setting environment variable for download manager test isolation under TEST_LOCK.
-        unsafe { std::env::set_var("TAURINE_DICT_URL", &mock_url) };
+        unsafe { std::env::set_var("NITE_DICT_URL", &mock_url) };
 
         // Test unconditionally downloads from mock loopback server and decompresses Lite DB successfully
         check_and_update_dictionary().await;
@@ -162,11 +162,11 @@ mod tests {
         check_and_update_dictionary().await;
 
         // Cleanup
-        taurine_core::engine::dictionary::offline::close_cached_connection();
+        nite_core::engine::dictionary::offline::close_cached_connection();
         // SAFETY: Cleaning up environment variables under TEST_LOCK.
         unsafe {
-            std::env::remove_var("TAURINE_DICT_URL");
-            std::env::remove_var("TAURINE_DATA_DIR");
+            std::env::remove_var("NITE_DICT_URL");
+            std::env::remove_var("NITE_DATA_DIR");
         };
     }
 }

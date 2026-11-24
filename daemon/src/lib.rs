@@ -1,11 +1,11 @@
 // Licensed under the Aimer Software License (ASL)
 // See LICENSE for details.
 
+use nite_core::db::init;
+use nite_core::rpc::daemon_control_server::DaemonControlServer;
 #[cfg(not(any(all(unix, not(target_os = "android")), target_os = "windows")))]
 use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
-use taurine_core::db::init;
-use taurine_core::rpc::daemon_control_server::DaemonControlServer;
 use tokio::sync::{mpsc, watch};
 use tonic::transport::Server;
 use tracing::{debug, error, info, warn};
@@ -99,21 +99,21 @@ mod uds_perm_tests {
     }
 }
 
-pub fn start() -> taurine_core::error::Result<()> {
-    let is_authenticated = taurine_core::cloud::get_tokens()
+pub fn start() -> nite_core::error::Result<()> {
+    let is_authenticated = nite_core::cloud::get_tokens()
         .map(|t| t.is_some())
         .unwrap_or(false);
     if !is_authenticated {
-        return Err(taurine_core::error::Error::Config(
-            "Please log in to use Taurine. Run 'taurine login' to continue.".into(),
+        return Err(nite_core::error::Error::Config(
+            "Please log in to use Nite. Run 'nite login' to continue.".into(),
         ));
     }
     crate::engine::quota_guard::QuotaGuard::global().set_authenticated(true);
 
-    let _liveness_guard = match taurine_core::service::acquire_service_liveness() {
+    let _liveness_guard = match nite_core::service::acquire_service_liveness() {
         Some(guard) => guard,
         None => {
-            info!("Taurine service is already running in another process.");
+            info!("Nite service is already running in another process.");
             return Ok(());
         }
     };
@@ -127,26 +127,26 @@ pub fn start() -> taurine_core::error::Result<()> {
     let tray_handle = crate::services::tray::spawn(paused.clone(), system_tray_enabled.clone());
 
     // Wipe stale temp files from previous sessions or crashes
-    taurine_core::system::paths::wipe_temp_dir();
+    nite_core::system::paths::wipe_temp_dir();
 
     let conn = init::setup()?;
 
     // Boot-time enforcement of the 30-day activity-event retention window
     // (was: a prune on every db::init::setup() call). Steady-state pruning
     // is handled by the hourly maintenance tick below.
-    let _ = taurine_core::db::crud::stats::prune_expired_activity_events(&conn, 30);
+    let _ = nite_core::db::crud::stats::prune_expired_activity_events(&conn, 30);
 
     // Hydrate QuotaGuard with tier status and stored weekly quota from SQLite
-    let tier = taurine_core::db::crud::tier::get_user_tier(&conn);
+    let tier = nite_core::db::crud::tier::get_user_tier(&conn);
     crate::engine::quota_guard::QuotaGuard::global().set_unlimited(tier.is_unlimited());
 
     let now_epoch = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
-    if let Ok(key) = taurine_core::db::key::get_or_create_db_key()
+    if let Ok(key) = nite_core::db::key::get_or_create_db_key()
         && let Ok(row) =
-            taurine_core::db::crud::quota::get_or_init_quota_ledger(&conn, &key, now_epoch)
+            nite_core::db::crud::quota::get_or_init_quota_ledger(&conn, &key, now_epoch)
     {
         crate::engine::quota_guard::QuotaGuard::init_global(row.remaining_percentage);
         debug!(
@@ -162,19 +162,19 @@ pub fn start() -> taurine_core::error::Result<()> {
     {
         if let Err(e) = crate::platform::linux::init() {
             error!("Linux platform initialization failed: {}", e);
-            return Err(taurine_core::error::Error::Service(e));
+            return Err(nite_core::error::Error::Service(e));
         }
     }
 
     debug!("Service initialization complete!");
 
     // Instantiate the Core Engine State
-    use std::sync::{Arc, Mutex, RwLock};
-    use taurine_core::db::crud::{
+    use nite_core::db::crud::{
         get_all_active_hotkey_triggers, get_all_active_regex_triggers, get_all_active_triggers,
     };
-    use taurine_core::engine::{EngineState, Evaluator};
-    use taurine_core::settings::SettingsManager;
+    use nite_core::engine::{EngineState, Evaluator};
+    use nite_core::settings::SettingsManager;
+    use std::sync::{Arc, Mutex, RwLock};
 
     #[cfg(windows)]
     crate::platform::windows::veh::init_veh_handler();
@@ -186,31 +186,27 @@ pub fn start() -> taurine_core::error::Result<()> {
     let settings = settings_manager.load_all();
 
     // Check for updates on startup when auto-update is enabled
-    taurine_core::service::check_on_startup(&conn, settings.auto_update);
+    nite_core::service::check_on_startup(&conn, settings.auto_update);
 
-    taurine_core::settings::set_cached_inline_date_format(settings.inline_date_format.clone());
-    taurine_core::settings::set_cached_inline_time_format(settings.inline_time_format.clone());
-    taurine_core::settings::set_cached_inline_datetime_format(
-        settings.inline_datetime_format.clone(),
-    );
-    taurine_core::settings::set_cached_audio_theme(settings.audio_theme);
-    taurine_core::settings::set_cached_audio_volume(settings.audio_volume);
+    nite_core::settings::set_cached_inline_date_format(settings.inline_date_format.clone());
+    nite_core::settings::set_cached_inline_time_format(settings.inline_time_format.clone());
+    nite_core::settings::set_cached_inline_datetime_format(settings.inline_datetime_format.clone());
+    nite_core::settings::set_cached_audio_theme(settings.audio_theme);
+    nite_core::settings::set_cached_audio_volume(settings.audio_volume);
 
     // Cache voice settings
-    taurine_core::settings::set_cached_voice_ptt_hotkey(settings.voice_ptt_hotkey.clone());
-    taurine_core::settings::set_cached_voice_handsfree_hotkey(
-        settings.voice_handsfree_hotkey.clone(),
-    );
+    nite_core::settings::set_cached_voice_ptt_hotkey(settings.voice_ptt_hotkey.clone());
+    nite_core::settings::set_cached_voice_handsfree_hotkey(settings.voice_handsfree_hotkey.clone());
     crate::input::hotkey::refresh_cached_voice_specs(
         &settings.voice_ptt_hotkey,
         &settings.voice_handsfree_hotkey,
     );
-    taurine_core::settings::set_cached_voice_dictionary(settings.voice_dictionary.clone());
-    taurine_core::settings::set_cached_voice_preferred_languages(
+    nite_core::settings::set_cached_voice_dictionary(settings.voice_dictionary.clone());
+    nite_core::settings::set_cached_voice_preferred_languages(
         settings.voice_preferred_languages.clone(),
     );
-    taurine_core::settings::set_cached_voice_input_device(settings.voice_input_device.clone());
-    taurine_core::settings::set_cached_pause_media_while_dictating(
+    nite_core::settings::set_cached_voice_input_device(settings.voice_input_device.clone());
+    nite_core::settings::set_cached_pause_media_while_dictating(
         settings.pause_media_while_dictating,
     );
     // Reconcile saved mic against actually-present devices: stale pick -> System
@@ -222,7 +218,7 @@ pub fn start() -> taurine_core::error::Result<()> {
     }
 
     // Activate daemon file logging early so voice and hook initialization logs are captured
-    let guard = taurine_core::logs::activate_file_logging();
+    let guard = nite_core::logs::activate_file_logging();
     let _ = FILE_LOG_GUARD.set(guard);
 
     let state = Arc::new(EngineState::new());
@@ -244,12 +240,12 @@ pub fn start() -> taurine_core::error::Result<()> {
             // Fall back to strict default if DB is malformed or unsupported.
             tracing::warn!("Configured pause hotkey is invalid; using default Alt + `");
             input::hotkey::HotkeySpec {
-                hotkey: taurine_core::keys::taurine_pause_hotkey(),
+                hotkey: nite_core::keys::nite_pause_hotkey(),
             }
         }),
     ));
 
-    let spinner_style = Arc::new(RwLock::new(taurine_core::settings::SpinnerStyle::default()));
+    let spinner_style = Arc::new(RwLock::new(nite_core::settings::SpinnerStyle::default()));
 
     let evaluator = Arc::new(Mutex::new(Evaluator::new(state.clone())));
 
@@ -296,7 +292,7 @@ pub fn start() -> taurine_core::error::Result<()> {
     #[cfg(any(windows, target_os = "macos"))]
     let hook_health_clone = hook_health.clone();
     let hook_thread = std::thread::Builder::new()
-        .name("tau-hook".to_string())
+        .name("nite-hook".to_string())
         .spawn(move || {
             #[cfg(windows)]
             {
@@ -360,7 +356,7 @@ pub fn start() -> taurine_core::error::Result<()> {
     // so the pipe is warm; the model loads on first press and unloads after
     // the hold ladder, keeping startup memory flat.
     {
-        use taurine_core::voice::VoiceDictionary;
+        use nite_core::voice::VoiceDictionary;
 
         let buffer = Arc::new(crate::voice::AudioFrameBuffer::new());
         let capture = Arc::new(crate::voice::AudioCapture::new(buffer));
@@ -378,16 +374,16 @@ pub fn start() -> taurine_core::error::Result<()> {
         // Snapshot existing orphaned files from previous run before hooks or active dictation can begin
         let files_to_recover = crate::voice::recovery::recovery_dir()
             .ok()
-            .and_then(|d| taurine_core::voice::list_orphaned_sessions(&d).ok())
+            .and_then(|d| nite_core::voice::list_orphaned_sessions(&d).ok())
             .unwrap_or_default();
 
         if !files_to_recover.is_empty() {
             let session_for_recovery = session.clone();
             let _ = std::thread::Builder::new()
-                .name("tau-voice-recover".to_string())
+                .name("nite-voice-recover".to_string())
                 .spawn(move || {
                     let _ = crate::platform::panic::catch_worker_panic(
-                        "tau-voice-recover",
+                        "nite-voice-recover",
                         std::panic::AssertUnwindSafe(move || {
                             let _ = session_for_recovery.recover_orphaned_files(files_to_recover);
                         }),
@@ -403,12 +399,12 @@ pub fn start() -> taurine_core::error::Result<()> {
     // 6a. Load snippets efficiently in background
     let state_for_bg = state.clone();
     std::thread::Builder::new()
-        .name("tau-db-load".to_string())
+        .name("nite-db-load".to_string())
         .spawn(move || {
             let _ = crate::platform::panic::catch_worker_panic(
-                "tau-db-load",
+                "nite-db-load",
                 std::panic::AssertUnwindSafe(move || {
-                    if let Ok(conn) = taurine_core::db::get_conn() {
+                    if let Ok(conn) = nite_core::db::get_conn() {
                         if let Ok(active) = get_all_active_triggers(&conn) {
                             state_for_bg.load_actions(active);
                         }
@@ -419,10 +415,10 @@ pub fn start() -> taurine_core::error::Result<()> {
                             state_for_bg.load_regex_actions(active_regex);
                             let warm_state = state_for_bg.clone();
                             std::thread::Builder::new()
-                                .name("tau-regex-warm".to_string())
+                                .name("nite-regex-warm".to_string())
                                 .spawn(move || {
                                     warm_state.regex_catalog.warm();
-                                    taurine_core::engine::emoji::warm_emoji_caches();
+                                    nite_core::engine::emoji::warm_emoji_caches();
                                 })
                                 .ok();
                         }
@@ -433,9 +429,9 @@ pub fn start() -> taurine_core::error::Result<()> {
 
     // 6b. Start clipboard history listener
     let clipboard_thread = std::thread::Builder::new()
-        .name("tau-clip".to_string())
+        .name("nite-clip".to_string())
         .spawn(|| {
-            let _ = crate::platform::panic::catch_worker_panic("tau-clip", || {
+            let _ = crate::platform::panic::catch_worker_panic("nite-clip", || {
                 info!("Starting clipboard history listener...");
                 services::clipboard_history::start_listener();
             });
@@ -451,33 +447,32 @@ pub fn start() -> taurine_core::error::Result<()> {
 
     // 7. Background Auto-Updater (interval checks every 6 hours)
     std::thread::Builder::new()
-        .name("tau-updater".to_string())
+        .name("nite-updater".to_string())
         .spawn(move || {
-            let _ = crate::platform::panic::catch_worker_panic("tau-updater", move || {
+            let _ = crate::platform::panic::catch_worker_panic("nite-updater", move || {
                 // Wait 60 seconds before entering the interval loop
                 std::thread::sleep(std::time::Duration::from_secs(60));
 
                 loop {
-                    if let Ok(conn) = taurine_core::db::get_conn() {
+                    if let Ok(conn) = nite_core::db::get_conn() {
                         let current_settings =
-                            taurine_core::settings::SettingsManager::new(&conn).load_all();
+                            nite_core::settings::SettingsManager::new(&conn).load_all();
                         if current_settings.auto_update {
-                            let now = taurine_core::service::now_unix_secs();
-                            if let Err(e) = taurine_core::service::set_last_update_check(&conn, now)
-                            {
+                            let now = nite_core::service::now_unix_secs();
+                            if let Err(e) = nite_core::service::set_last_update_check(&conn, now) {
                                 error!(
                                     "Failed to update {} in interval worker: {}",
-                                    taurine_core::service::LAST_UPDATE_CHECK_KEY,
+                                    nite_core::service::LAST_UPDATE_CHECK_KEY,
                                     e
                                 );
                             }
-                            taurine_core::service::spawn_updater_process();
+                            nite_core::service::spawn_updater_process();
                         }
                     }
 
                     // Sleep for 6 hours between checks
                     std::thread::sleep(std::time::Duration::from_secs(
-                        taurine_core::service::UPDATE_CHECK_INTERVAL_SECS,
+                        nite_core::service::UPDATE_CHECK_INTERVAL_SECS,
                     ));
                 }
             });
@@ -510,8 +505,8 @@ pub fn start() -> taurine_core::error::Result<()> {
             while !shutdown_for_quota.load(Ordering::Relaxed) {
                 interval.tick().await;
                 if crate::engine::quota_guard::QuotaGuard::global().unflushed_delta() > 0.0
-                    && let Ok(conn) = taurine_core::db::get_conn()
-                    && let Ok(key) = taurine_core::db::key::get_or_create_db_key()
+                    && let Ok(conn) = nite_core::db::get_conn()
+                    && let Ok(key) = nite_core::db::key::get_or_create_db_key()
                 {
                     let _ = crate::engine::quota_guard::QuotaGuard::global().flush_to_db(&conn, &key);
                 }
@@ -529,8 +524,8 @@ pub fn start() -> taurine_core::error::Result<()> {
                 if shutdown_for_prune.load(Ordering::Relaxed) {
                     break;
                 }
-                if let Ok(conn) = taurine_core::db::get_conn() {
-                    let _ = taurine_core::db::crud::stats::prune_expired_activity_events(&conn, 30);
+                if let Ok(conn) = nite_core::db::get_conn() {
+                    let _ = nite_core::db::crud::stats::prune_expired_activity_events(&conn, 30);
                 }
             }
         });
@@ -562,7 +557,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                 }
                 let is_paused = latest;
                 if is_paused {
-                    info!("Taurine paused: entering deep idle state...");
+                    info!("Nite paused: entering deep idle state...");
                     // Flush telemetry and pending edits
                     sync_notify_for_pause.notify_one();
 
@@ -580,7 +575,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                         lock.reset();
                     }
                 } else {
-                    info!("Taurine resumed: restoring subsystems...");
+                    info!("Nite resumed: restoring subsystems...");
                     // Pull fresh changes from cloud
                     sync_notify_for_pause.notify_one();
 
@@ -677,7 +672,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                 .pause_transition_tx(pause_transition_tx.clone())
                 .sync_notify(sync_notify.clone())
                 .build()
-                .map_err(taurine_core::error::Error::Config)?;
+                .map_err(nite_core::error::Error::Config)?;
 
             let mut shutdown_watch_rx = shutdown_watch_rx.clone();
             let shutdown_signal = async move {
@@ -698,7 +693,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                     use tokio::net::UnixListener;
                     use tokio_stream::wrappers::UnixListenerStream;
 
-                    let socket_path = taurine_core::paths::get_data_dir().join("taurine.sock");
+                    let socket_path = nite_core::paths::get_data_dir().join("nite.sock");
                     if socket_path.exists()
                         && std::os::unix::net::UnixStream::connect(&socket_path).is_ok()
                     {
@@ -706,7 +701,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                             "Another service instance is already listening on UDS socket: {}",
                             socket_path.display()
                         );
-                        return Err(taurine_core::error::Error::Service(format!(
+                        return Err(nite_core::error::Error::Service(format!(
                             "Another service instance is already listening on UDS socket: {}",
                             socket_path.display()
                         )));
@@ -717,7 +712,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                         Ok(uds) => {
                             if let Err(error) = restrict_socket_permissions(&uds, &socket_path) {
                                 error!(%error, "Failed to lock down IPC socket permissions, refusing to serve unauthenticated control");
-                                return Err(taurine_core::error::Error::Io(error));
+                                return Err(nite_core::error::Error::Io(error));
                             }
 
                             let stream = UnixListenerStream::new(uds);
@@ -731,22 +726,22 @@ pub fn start() -> taurine_core::error::Result<()> {
 
                             if let Err(e) = server_future.await {
                                 error!("gRPC server failed: {}", e);
-                                return Err(taurine_core::error::Error::Transport(Box::new(e)));
+                                return Err(nite_core::error::Error::Transport(Box::new(e)));
                             }
 
                             let _ = std::fs::remove_file(&socket_path);
                         }
                         Err(e) => {
                             error!("Failed to bind to UDS socket: {}", e);
-                            return Err(taurine_core::error::Error::Io(e));
+                            return Err(nite_core::error::Error::Io(e));
                         }
                     }
                 }
 
                 #[cfg(target_os = "windows")]
                 {
-                    let pipe_path_raw = taurine_core::paths::dev_env_var("TAURINE_PIPE_PATH")
-                        .unwrap_or_else(|| r"\\.\pipe\taurine".to_string());
+                    let pipe_path_raw = nite_core::paths::dev_env_var("NITE_PIPE_PATH")
+                        .unwrap_or_else(|| r"\\.\pipe\nite".to_string());
                     let pipe_path = &pipe_path_raw;
 
                     let pipe_security = match crate::platform::windows::pipe_security::PipeSecurity::current_user_only()
@@ -754,7 +749,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                         Ok(security) => security,
                         Err(e) => {
                             error!("Failed to build IPC pipe security descriptor: {}", e);
-                            return Err(taurine_core::error::Error::Io(e));
+                            return Err(nite_core::error::Error::Io(e));
                         }
                     };
 
@@ -763,7 +758,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                             Ok(s) => s,
                             Err(e) => {
                                 error!("Failed to create first named pipe instance: {}", e);
-                                return Err(taurine_core::error::Error::Io(e));
+                                return Err(nite_core::error::Error::Io(e));
                             }
                         };
                     claim_pipe_name = false;
@@ -821,7 +816,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                     if let Err(e) = server_future.await {
                         error!("gRPC server failed: {}", e);
                         accept_task_abort.abort();
-                        return Err(taurine_core::error::Error::Transport(Box::new(e)));
+                        return Err(nite_core::error::Error::Transport(Box::new(e)));
                     }
                     accept_task_abort.abort();
                 }
@@ -836,7 +831,7 @@ pub fn start() -> taurine_core::error::Result<()> {
                         .serve_with_shutdown(addr, shutdown_signal);
                     if let Err(e) = server_future.await {
                         error!("gRPC server failed: {}", e);
-                        return Err(taurine_core::error::Error::Transport(Box::new(e)));
+                        return Err(nite_core::error::Error::Transport(Box::new(e)));
                     }
                 }
             }
@@ -956,7 +951,7 @@ pub fn start() -> taurine_core::error::Result<()> {
 
     // 6. Flush pending quota deltas to SQLite on shutdown
     if let Ok(conn) = init::setup()
-        && let Ok(key) = taurine_core::db::key::get_or_create_db_key()
+        && let Ok(key) = nite_core::db::key::get_or_create_db_key()
     {
         let _ = crate::engine::quota_guard::QuotaGuard::global().flush_to_db(&conn, &key);
     }

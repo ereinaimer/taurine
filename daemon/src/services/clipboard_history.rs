@@ -1,9 +1,9 @@
+use nite_core::engine::variables::system::clipboard::MAX_PAYLOAD_BYTES;
+use nite_core::engine::variables::system::clipboard::clip_manager;
 #[cfg(not(windows))]
 use std::thread;
 #[cfg(not(windows))]
 use std::time::Duration;
-use taurine_core::engine::variables::system::clipboard::MAX_PAYLOAD_BYTES;
-use taurine_core::engine::variables::system::clipboard::clip_manager;
 
 use crate::injector::IS_INJECTING;
 use std::sync::atomic::AtomicBool;
@@ -73,12 +73,12 @@ const INIT_RETRY_INTERVAL: Duration = Duration::from_secs(1);
 /// waking early if settings change or shutdown is requested.
 #[cfg(not(windows))]
 fn wait_while_capture_idle() {
-    let observed = taurine_core::settings::settings_version();
+    let observed = nite_core::settings::settings_version();
     for _ in 0..8 {
         if CLIPBOARD_SHOULD_SHUTDOWN.load(std::sync::atomic::Ordering::Relaxed) {
             break;
         }
-        if taurine_core::settings::settings_version() != observed {
+        if nite_core::settings::settings_version() != observed {
             break;
         }
         thread::sleep(Duration::from_millis(250));
@@ -302,7 +302,7 @@ fn run_listener_once() {
         unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
     }
 
-    let class_name: Vec<u16> = "TaurineClipboardMonitor"
+    let class_name: Vec<u16> = "NiteClipboardMonitor"
         .encode_utf16()
         .chain(std::iter::once(0))
         .collect();
@@ -422,7 +422,7 @@ pub fn start_listener() {
     let mut backoff = crate::platform::circuit_breaker::ExponentialBackoff::default();
     while !CLIPBOARD_SHOULD_SHUTDOWN.load(std::sync::atomic::Ordering::Relaxed) {
         let started = std::time::Instant::now();
-        let res = crate::platform::panic::catch_worker_panic("tau-clip", || {
+        let res = crate::platform::panic::catch_worker_panic("nite-clip", || {
             run_listener_once();
         });
         if CLIPBOARD_SHOULD_SHUTDOWN.load(std::sync::atomic::Ordering::Relaxed) {

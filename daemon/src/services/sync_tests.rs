@@ -1,17 +1,17 @@
-use rusqlite::Connection;
-use taurine_core::cloud::CloudClient;
-use taurine_core::cloud::types::CloudConfig;
-use taurine_core::db::crud::triggers::{
+use nite_core::cloud::CloudClient;
+use nite_core::cloud::types::CloudConfig;
+use nite_core::db::crud::triggers::{
     AssetSyncPayload, CloudSnippetPayload, InvocationType, ReconcileOutcome, ScriptSyncPayload,
     TriggerAliasRow, TriggerRow, hex, list_aliases, load_trigger_assets, purge_deleted_tombstones,
     reconcile_cloud_snippet, serialize_trigger_to_cloud_snippet,
 };
-use taurine_core::db::crud::{
+use nite_core::db::crud::{
     CloudActivityEventPayload, CloudTriggerDailyStatPayload, CloudUserAppStatPayload,
     CloudUserStatPayload,
 };
-use taurine_core::db::init::ensure_schema;
-use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter, compress, decompress};
+use nite_core::db::init::ensure_schema;
+use nite_core::engine::shell::{ScriptBehavior, ScriptInterpreter, compress, decompress};
+use rusqlite::Connection;
 
 use super::sync_worker::{SyncStatus, SyncWorker};
 
@@ -453,7 +453,7 @@ fn test_reconcile_preserves_concurrent_local_aliases_and_reenqueues() {
     assert_eq!(aliases.len(), 2);
 
     // Merged state must be re-enqueued to outbox so the cloud learns about the local concurrent alias
-    let outbox = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    let outbox = nite_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
     assert_eq!(outbox.len(), 1);
     assert_eq!(outbox[0].entity_id, trigger_id);
 }
@@ -657,12 +657,8 @@ fn test_tombstone_gc_purges_old_deleted_rows() {
         [old_epoch],
     )
     .unwrap();
-    taurine_core::db::crud::triggers::enqueue_trigger_outbox(
-        &conn,
-        "tomb-pending-outbox",
-        "delete",
-    )
-    .unwrap();
+    nite_core::db::crud::triggers::enqueue_trigger_outbox(&conn, "tomb-pending-outbox", "delete")
+        .unwrap();
 
     // Purge rows older than 30 days
     let purged = purge_deleted_tombstones(&conn, 30 * 86400).unwrap();
@@ -724,7 +720,7 @@ async fn test_sync_worker_skips_when_unauthenticated() {
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     crate::hook::tests::mock_keystore::use_mock_keystore();
-    let _ = taurine_core::cloud::clear_tokens();
+    let _ = nite_core::cloud::clear_tokens();
 
     let config = CloudConfig {
         supabase_url: "https://mock.supabase.co".to_string(),
@@ -744,13 +740,13 @@ async fn test_sync_worker_authenticated_two_way_cycle() {
         .unwrap_or_else(|e| e.into_inner());
     crate::hook::tests::mock_keystore::use_mock_keystore();
 
-    let tokens = taurine_core::cloud::AuthTokens {
+    let tokens = nite_core::cloud::AuthTokens {
         access_token: "mock-token-xyz".to_string(),
         refresh_token: "mock-refresh".to_string(),
         user_id: "user-1".to_string(),
         expires_at: Some(2000000000),
     };
-    taurine_core::cloud::store_tokens(&tokens).unwrap();
+    nite_core::cloud::store_tokens(&tokens).unwrap();
 
     let conn = Connection::open_in_memory().unwrap();
     ensure_schema(&conn).unwrap();
@@ -774,7 +770,7 @@ async fn test_sync_worker_authenticated_two_way_cycle() {
     )
     .unwrap();
 
-    taurine_core::db::crud::enqueue_outbox(
+    nite_core::db::crud::enqueue_outbox(
         &conn,
         "snippet",
         "local-push-1",
@@ -876,11 +872,11 @@ async fn test_sync_worker_authenticated_two_way_cycle() {
     assert!(pulled_exists);
 
     // Verify pushed local trigger outbox is drained
-    let outbox = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    let outbox = nite_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
     assert!(outbox.iter().all(|e| e.entity_id != "local-push-1"));
 
     server_handle.join().unwrap();
-    taurine_core::cloud::clear_tokens().unwrap();
+    nite_core::cloud::clear_tokens().unwrap();
 }
 
 #[tokio::test]
@@ -897,7 +893,7 @@ async fn test_sync_worker_flushes_quota_to_db() {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs() as i64;
-    taurine_core::db::crud::quota::get_or_init_quota_ledger(&conn, &key, now_epoch).unwrap();
+    nite_core::db::crud::quota::get_or_init_quota_ledger(&conn, &key, now_epoch).unwrap();
 
     let guard = crate::engine::quota_guard::QuotaGuard::global();
     guard.set_balance(100.0);
@@ -910,8 +906,7 @@ async fn test_sync_worker_flushes_quota_to_db() {
         .expect("flush should succeed");
 
     assert_eq!(guard.unflushed_delta(), 0.0);
-    let row =
-        taurine_core::db::crud::quota::get_or_init_quota_ledger(&conn, &key, now_epoch).unwrap();
+    let row = nite_core::db::crud::quota::get_or_init_quota_ledger(&conn, &key, now_epoch).unwrap();
     assert!((row.remaining_percentage - 99.70).abs() < 1e-6);
 }
 
@@ -928,13 +923,13 @@ async fn test_sync_worker_proactive_token_refresh() {
         .unwrap()
         .as_secs() as i64;
 
-    let initial_tokens = taurine_core::cloud::AuthTokens {
+    let initial_tokens = nite_core::cloud::AuthTokens {
         access_token: "expired-access-token".to_string(),
         refresh_token: "valid-refresh-token".to_string(),
         user_id: "user-refresh-1".to_string(),
         expires_at: Some(now_epoch - 100),
     };
-    taurine_core::cloud::store_tokens(&initial_tokens).unwrap();
+    nite_core::cloud::store_tokens(&initial_tokens).unwrap();
 
     let conn = Connection::open_in_memory().unwrap();
     ensure_schema(&conn).unwrap();
@@ -997,12 +992,12 @@ async fn test_sync_worker_proactive_token_refresh() {
         }
     );
 
-    let saved_tokens = taurine_core::cloud::get_tokens().unwrap().unwrap();
+    let saved_tokens = nite_core::cloud::get_tokens().unwrap().unwrap();
     assert_eq!(saved_tokens.access_token, "fresh-access-proactive");
     assert_eq!(saved_tokens.refresh_token, "next-refresh-proactive");
 
     server_handle.join().unwrap();
-    taurine_core::cloud::clear_tokens().unwrap();
+    nite_core::cloud::clear_tokens().unwrap();
 }
 
 #[tokio::test]
@@ -1018,13 +1013,13 @@ async fn test_sync_worker_reactive_refresh_on_401() {
         .unwrap()
         .as_secs() as i64;
 
-    let initial_tokens = taurine_core::cloud::AuthTokens {
+    let initial_tokens = nite_core::cloud::AuthTokens {
         access_token: "invalid-or-revoked-token".to_string(),
         refresh_token: "valid-reactive-refresh".to_string(),
         user_id: "user-reactive-1".to_string(),
         expires_at: Some(now_epoch + 3600),
     };
-    taurine_core::cloud::store_tokens(&initial_tokens).unwrap();
+    nite_core::cloud::store_tokens(&initial_tokens).unwrap();
 
     let conn = Connection::open_in_memory().unwrap();
     ensure_schema(&conn).unwrap();
@@ -1095,12 +1090,12 @@ async fn test_sync_worker_reactive_refresh_on_401() {
         }
     );
 
-    let saved_tokens = taurine_core::cloud::get_tokens().unwrap().unwrap();
+    let saved_tokens = nite_core::cloud::get_tokens().unwrap().unwrap();
     assert_eq!(saved_tokens.access_token, "fresh-access-reactive");
     assert_eq!(saved_tokens.refresh_token, "next-refresh-reactive");
 
     server_handle.join().unwrap();
-    taurine_core::cloud::clear_tokens().unwrap();
+    nite_core::cloud::clear_tokens().unwrap();
 }
 
 #[tokio::test]
@@ -1111,21 +1106,21 @@ async fn test_sync_settings_with_strict_allowlist_ignores_sensitive_and_hardware
         .unwrap_or_else(|e| e.into_inner());
     crate::hook::tests::mock_keystore::use_mock_keystore();
 
-    let tokens = taurine_core::cloud::AuthTokens {
+    let tokens = nite_core::cloud::AuthTokens {
         access_token: "mock-token-xyz".to_string(),
         refresh_token: "mock-refresh".to_string(),
         user_id: "user-1".to_string(),
         expires_at: Some(2000000000),
     };
-    taurine_core::cloud::store_tokens(&tokens).unwrap();
+    nite_core::cloud::store_tokens(&tokens).unwrap();
 
     let conn = Connection::open_in_memory().unwrap();
     ensure_schema(&conn).unwrap();
 
     // Inserts local inline_date_format (syncable), voice_input_device (hardware), and scripts_enabled (security)
-    taurine_core::db::crud::upsert_setting(&conn, "inline_date_format", "\"YYYY-MM-DD\"").unwrap();
-    taurine_core::db::crud::upsert_setting(&conn, "voice_input_device", "\"Realtek Mic\"").unwrap();
-    taurine_core::db::crud::upsert_setting(&conn, "scripts_enabled", "true").unwrap();
+    nite_core::db::crud::upsert_setting(&conn, "inline_date_format", "\"YYYY-MM-DD\"").unwrap();
+    nite_core::db::crud::upsert_setting(&conn, "voice_input_device", "\"Realtek Mic\"").unwrap();
+    nite_core::db::crud::upsert_setting(&conn, "scripts_enabled", "true").unwrap();
 
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
@@ -1152,21 +1147,21 @@ async fn test_sync_settings_with_strict_allowlist_ignores_sensitive_and_hardware
                     } else if req.starts_with("GET /rest/v1/user_settings") {
                         // Remote response has one syncable setting and two forbidden hardware/security settings
                         let remote_settings = vec![
-                            taurine_core::db::crud::CloudSettingPayload {
+                            nite_core::db::crud::CloudSettingPayload {
                                 user_id: None,
                                 key: "audio_volume".to_string(),
                                 value: serde_json::json!(75),
                                 version: 2,
                                 updated_at: Some("2026-10-05T10:00:00Z".to_string()),
                             },
-                            taurine_core::db::crud::CloudSettingPayload {
+                            nite_core::db::crud::CloudSettingPayload {
                                 user_id: None,
                                 key: "voice_input_device".to_string(),
                                 value: serde_json::json!("Remote Hardware Mic"),
                                 version: 10,
                                 updated_at: Some("2026-10-05T10:00:00Z".to_string()),
                             },
-                            taurine_core::db::crud::CloudSettingPayload {
+                            nite_core::db::crud::CloudSettingPayload {
                                 user_id: None,
                                 key: "scripts_enabled".to_string(),
                                 value: serde_json::json!(false),
@@ -1223,28 +1218,28 @@ async fn test_sync_settings_with_strict_allowlist_ignores_sensitive_and_hardware
     );
 
     // Verify sensitive and hardware keys were NOT updated from remote
-    let dev = taurine_core::db::crud::get_setting(&conn, "voice_input_device")
+    let dev = nite_core::db::crud::get_setting(&conn, "voice_input_device")
         .unwrap()
         .unwrap();
     assert_eq!(dev.value, "\"Realtek Mic\"");
 
-    let scripts = taurine_core::db::crud::get_setting(&conn, "scripts_enabled")
+    let scripts = nite_core::db::crud::get_setting(&conn, "scripts_enabled")
         .unwrap()
         .unwrap();
     assert_eq!(scripts.value, "true");
 
     // Verify syncable setting was updated from remote
-    let vol = taurine_core::db::crud::get_setting(&conn, "audio_volume")
+    let vol = nite_core::db::crud::get_setting(&conn, "audio_volume")
         .unwrap()
         .unwrap();
     assert_eq!(vol.value, "75");
 
     // Verify local inline_date_format was synced and outbox drained
-    let unsynced = taurine_core::db::crud::get_unsynced_settings(&conn).unwrap();
+    let unsynced = nite_core::db::crud::get_unsynced_settings(&conn).unwrap();
     assert!(!unsynced.iter().any(|s| s.key == "inline_date_format"));
 
     let _ = server_handle.join();
-    taurine_core::cloud::clear_tokens().unwrap();
+    nite_core::cloud::clear_tokens().unwrap();
 }
 
 #[tokio::test]
@@ -1255,13 +1250,13 @@ async fn test_sync_trigger_daily_stats_and_global_stats_upload() {
         .unwrap_or_else(|e| e.into_inner());
     crate::hook::tests::mock_keystore::use_mock_keystore();
 
-    let tokens = taurine_core::cloud::AuthTokens {
+    let tokens = nite_core::cloud::AuthTokens {
         access_token: "mock-token-xyz".to_string(),
         refresh_token: "mock-refresh".to_string(),
         user_id: "user-1".to_string(),
         expires_at: Some(2000000000),
     };
-    taurine_core::cloud::store_tokens(&tokens).unwrap();
+    nite_core::cloud::store_tokens(&tokens).unwrap();
 
     let conn = Connection::open_in_memory().unwrap();
     ensure_schema(&conn).unwrap();
@@ -1272,10 +1267,10 @@ async fn test_sync_trigger_daily_stats_and_global_stats_upload() {
         [],
     )
     .unwrap();
-    taurine_core::db::crud::set_sync_checkpoint(&conn, "snippets_backfilled", 1).unwrap();
+    nite_core::db::crud::set_sync_checkpoint(&conn, "snippets_backfilled", 1).unwrap();
 
     // Insert unsynced trigger_daily_stats
-    taurine_core::db::crud::stats::upsert_trigger_daily_stat_with_conn(
+    nite_core::db::crud::stats::upsert_trigger_daily_stat_with_conn(
         &conn,
         "trig-stat-1",
         "2026-10-05",
@@ -1288,10 +1283,10 @@ async fn test_sync_trigger_daily_stats_and_global_stats_upload() {
     .unwrap();
 
     // Insert unsynced global stats
-    taurine_core::db::crud::increment_stat(
+    nite_core::db::crud::increment_stat(
         &conn,
         "2026-10-05",
-        &taurine_core::db::crud::StatDeltas {
+        &nite_core::db::crud::StatDeltas {
             executions: 5,
             words_expanded: 100,
             time_saved_ms: 2500,
@@ -1301,7 +1296,7 @@ async fn test_sync_trigger_daily_stats_and_global_stats_upload() {
     .unwrap();
 
     // Insert unsynced app stats
-    taurine_core::db::crud::upsert_app_stat_with_conn(
+    nite_core::db::crud::upsert_app_stat_with_conn(
         &conn,
         "code.exe",
         "2026-10-05",
@@ -1313,14 +1308,14 @@ async fn test_sync_trigger_daily_stats_and_global_stats_upload() {
     .unwrap();
 
     // Insert unsynced activity event
-    taurine_core::db::crud::insert_activity_event(
+    nite_core::db::crud::insert_activity_event(
         &conn,
-        &taurine_core::db::crud::NewActivityEvent {
+        &nite_core::db::crud::NewActivityEvent {
             id: Some("evt-sync-1".to_string()),
             trigger_id: Some("trig-stat-1".to_string()),
             timestamp: Some(1728123456000),
             date: Some("2026-10-05".to_string()),
-            category: taurine_core::db::crud::ActivityCategory::Text,
+            category: nite_core::db::crud::ActivityCategory::Text,
             app_key: Some("code.exe".to_string()),
             word_count: 20,
             time_saved_ms: 500,
@@ -1404,32 +1399,32 @@ async fn test_sync_trigger_daily_stats_and_global_stats_upload() {
 
     // Verify all local rows are marked is_synced = 1
     assert!(
-        taurine_core::db::crud::get_unsynced_trigger_daily_stats(&conn, 10)
+        nite_core::db::crud::get_unsynced_trigger_daily_stats(&conn, 10)
             .unwrap()
             .is_empty(),
         "trigger_daily_stats must be marked synced"
     );
     assert!(
-        taurine_core::db::crud::get_unsynced_stats(&conn, 10)
+        nite_core::db::crud::get_unsynced_stats(&conn, 10)
             .unwrap()
             .is_empty(),
         "stats must be marked synced"
     );
     assert!(
-        taurine_core::db::crud::get_unsynced_app_stats(&conn, 10)
+        nite_core::db::crud::get_unsynced_app_stats(&conn, 10)
             .unwrap()
             .is_empty(),
         "app_stats must be marked synced"
     );
     assert!(
-        taurine_core::db::crud::get_unsynced_activity_events(&conn, 10)
+        nite_core::db::crud::get_unsynced_activity_events(&conn, 10)
             .unwrap()
             .is_empty(),
         "activity_events must be marked synced"
     );
 
     let _ = server_handle.join();
-    taurine_core::cloud::clear_tokens().unwrap();
+    nite_core::cloud::clear_tokens().unwrap();
 }
 
 #[tokio::test]
@@ -1440,26 +1435,26 @@ async fn test_activity_events_sync_and_mark_synced() {
         .unwrap_or_else(|e| e.into_inner());
     crate::hook::tests::mock_keystore::use_mock_keystore();
 
-    let tokens = taurine_core::cloud::AuthTokens {
+    let tokens = nite_core::cloud::AuthTokens {
         access_token: "mock-token-xyz".to_string(),
         refresh_token: "mock-refresh".to_string(),
         user_id: "user-1".to_string(),
         expires_at: Some(2000000000),
     };
-    taurine_core::cloud::store_tokens(&tokens).unwrap();
+    nite_core::cloud::store_tokens(&tokens).unwrap();
 
     let conn = Connection::open_in_memory().unwrap();
     ensure_schema(&conn).unwrap();
 
     // Insert unsynced activity event with speech content
-    taurine_core::db::crud::insert_activity_event(
+    nite_core::db::crud::insert_activity_event(
         &conn,
-        &taurine_core::db::crud::NewActivityEvent {
+        &nite_core::db::crud::NewActivityEvent {
             id: Some("evt-speech-sync-1".to_string()),
             trigger_id: None,
             timestamp: Some(1728123456000),
             date: Some("2026-10-05".to_string()),
-            category: taurine_core::db::crud::ActivityCategory::Voice,
+            category: nite_core::db::crud::ActivityCategory::Voice,
             app_key: Some("slack.exe".to_string()),
             word_count: 4,
             time_saved_ms: 1200,
@@ -1532,14 +1527,14 @@ async fn test_activity_events_sync_and_mark_synced() {
 
     // Verify activity event is marked synced
     assert!(
-        taurine_core::db::crud::get_unsynced_activity_events(&conn, 10)
+        nite_core::db::crud::get_unsynced_activity_events(&conn, 10)
             .unwrap()
             .is_empty(),
         "activity_events must be marked synced"
     );
 
     let _ = server_handle.join();
-    taurine_core::cloud::clear_tokens().unwrap();
+    nite_core::cloud::clear_tokens().unwrap();
 }
 
 #[tokio::test]
@@ -1550,17 +1545,17 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
         .unwrap_or_else(|e| e.into_inner());
     crate::hook::tests::mock_keystore::use_mock_keystore();
 
-    let tokens = taurine_core::cloud::AuthTokens {
+    let tokens = nite_core::cloud::AuthTokens {
         access_token: "mock-token-fresh-restore".to_string(),
         refresh_token: "mock-refresh".to_string(),
         user_id: "user-restore-1".to_string(),
         expires_at: Some(2000000000),
     };
-    taurine_core::cloud::store_tokens(&tokens).unwrap();
+    nite_core::cloud::store_tokens(&tokens).unwrap();
 
     let conn = Connection::open_in_memory().unwrap();
     ensure_schema(&conn).unwrap();
-    taurine_core::db::init::seed::ensure_defaults(&conn).unwrap();
+    nite_core::db::init::seed::ensure_defaults(&conn).unwrap();
 
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
@@ -1589,7 +1584,7 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
                             .map(|d| d.as_secs() as i64)
                             .unwrap_or(0);
                         let current_week =
-                            taurine_core::db::crud::quota::calculate_week_start_epoch(now_epoch);
+                            nite_core::db::crud::quota::calculate_week_start_epoch(now_epoch);
                         let body = serde_json::json!([{
                             "user_id": "user-restore-1",
                             "week_start_epoch": current_week,
@@ -1647,7 +1642,7 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
                         let resp = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
                         stream.write_all(resp.as_bytes()).unwrap();
                     } else if req.starts_with("GET /rest/v1/user_settings") {
-                        let remote_setting = taurine_core::db::crud::CloudSettingPayload {
+                        let remote_setting = nite_core::db::crud::CloudSettingPayload {
                             user_id: None,
                             key: "inline_date_format".to_string(),
                             value: serde_json::json!("YYYY-MM-DD"),
@@ -1810,7 +1805,7 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
-    let current_week = taurine_core::db::crud::quota::calculate_week_start_epoch(now_epoch);
+    let current_week = nite_core::db::crud::quota::calculate_week_start_epoch(now_epoch);
     let quota_row: f64 = conn
         .query_row(
             "SELECT remaining_percentage FROM quota_ledger WHERE week_start_epoch = ?1",
@@ -1821,30 +1816,30 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
     assert_eq!(quota_row, 75.0);
 
     // Verify pulled snippet was restored in SQLite
-    let snippet_trigger = taurine_core::db::crud::triggers::get_trigger(&conn, "cloud-snippet-1")
+    let snippet_trigger = nite_core::db::crud::triggers::get_trigger(&conn, "cloud-snippet-1")
         .unwrap()
         .expect("snippet must exist locally");
     assert_eq!(snippet_trigger.output, "Hello from cloud");
 
-    let aliases = taurine_core::db::crud::triggers::list_aliases(&conn, "cloud-snippet-1").unwrap();
+    let aliases = nite_core::db::crud::triggers::list_aliases(&conn, "cloud-snippet-1").unwrap();
     assert_eq!(aliases.len(), 1);
     assert_eq!(aliases[0].invocation, "hfc");
 
     // Verify seeded factory default setting (inline_date_format) was updated to cloud value
-    let date_setting = taurine_core::db::crud::get_setting(&conn, "inline_date_format")
+    let date_setting = nite_core::db::crud::get_setting(&conn, "inline_date_format")
         .unwrap()
         .expect("inline_date_format setting must exist");
     assert_eq!(date_setting.value, "\"YYYY-MM-DD\"");
     assert_eq!(date_setting.version, 2);
 
     // Verify activity event was restored
-    let events = taurine_core::db::crud::get_activity_events(&conn, 10, 0).unwrap();
+    let events = nite_core::db::crud::get_activity_events(&conn, 10, 0).unwrap();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].id, "evt-cloud-1");
     assert_eq!(events[0].content.as_deref(), Some("Hello from cloud"));
 
     // Verify user stats restored
-    let user_stat = taurine_core::db::crud::get_stat(&conn, "2026-10-28")
+    let user_stat = nite_core::db::crud::get_stat(&conn, "2026-10-28")
         .unwrap()
         .expect("user stat must exist");
     assert_eq!(user_stat.executions, 12);
@@ -1852,7 +1847,7 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
 
     // Verify trigger daily stats restored
     let trig_stats =
-        taurine_core::db::crud::get_trigger_daily_stats_by_trigger(&conn, "cloud-snippet-1", 10)
+        nite_core::db::crud::get_trigger_daily_stats_by_trigger(&conn, "cloud-snippet-1", 10)
             .unwrap();
     assert_eq!(trig_stats.len(), 1);
     assert_eq!(trig_stats[0].executions, 3);
@@ -1860,27 +1855,27 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
 
     // Ensure no unsynced rows are queued for re-upload
     assert!(
-        taurine_core::db::crud::triggers::get_unsynced_triggers(&conn)
+        nite_core::db::crud::triggers::get_unsynced_triggers(&conn)
             .unwrap()
             .is_empty()
     );
     assert!(
-        taurine_core::db::crud::get_unsynced_settings(&conn)
+        nite_core::db::crud::get_unsynced_settings(&conn)
             .unwrap()
             .is_empty()
     );
     assert!(
-        taurine_core::db::crud::get_unsynced_activity_events(&conn, 10)
+        nite_core::db::crud::get_unsynced_activity_events(&conn, 10)
             .unwrap()
             .is_empty()
     );
     assert!(
-        taurine_core::db::crud::get_unsynced_stats(&conn, 10)
+        nite_core::db::crud::get_unsynced_stats(&conn, 10)
             .unwrap()
             .is_empty()
     );
     assert!(
-        taurine_core::db::crud::get_unsynced_trigger_daily_stats(&conn, 10)
+        nite_core::db::crud::get_unsynced_trigger_daily_stats(&conn, 10)
             .unwrap()
             .is_empty()
     );
@@ -1908,7 +1903,7 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
     )
     .unwrap();
 
-    taurine_core::db::crud::enqueue_outbox(
+    nite_core::db::crud::enqueue_outbox(
         &conn,
         "snippet",
         "local-snippet-2",
@@ -1921,17 +1916,17 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
     .unwrap();
 
     // 2. Update a syncable setting locally (marked is_synced = 0)
-    taurine_core::db::crud::upsert_setting(&conn, "audio_volume", "85").unwrap();
+    nite_core::db::crud::upsert_setting(&conn, "audio_volume", "85").unwrap();
 
     // 3. Generate a local activity event (marked is_synced = 0)
-    taurine_core::db::crud::insert_activity_event(
+    nite_core::db::crud::insert_activity_event(
         &conn,
-        &taurine_core::db::crud::NewActivityEvent {
+        &nite_core::db::crud::NewActivityEvent {
             id: Some("evt-local-2".to_string()),
             trigger_id: Some("local-snippet-2".to_string()),
             timestamp: Some(1730000500000),
             date: Some("2026-10-28".to_string()),
-            category: taurine_core::db::crud::ActivityCategory::Text,
+            category: nite_core::db::crud::ActivityCategory::Text,
             app_key: Some("code.exe".to_string()),
             word_count: 8,
             time_saved_ms: 2000,
@@ -1941,7 +1936,7 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
     .unwrap();
 
     // 4. Record local trigger daily stat (marked is_synced = 0)
-    taurine_core::db::crud::stats::upsert_trigger_daily_stat_with_conn(
+    nite_core::db::crud::stats::upsert_trigger_daily_stat_with_conn(
         &conn,
         "local-snippet-2",
         "2026-10-28",
@@ -1954,10 +1949,10 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
     .unwrap();
 
     // 5. Increment local global stat (marked is_synced = 0)
-    taurine_core::db::crud::increment_stat(
+    nite_core::db::crud::increment_stat(
         &conn,
         "2026-10-28",
-        &taurine_core::db::crud::StatDeltas {
+        &nite_core::db::crud::StatDeltas {
             executions: 2,
             words_expanded: 16,
             time_saved_ms: 4000,
@@ -1967,50 +1962,42 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
     .unwrap();
 
     // 6. Record local app stat (marked is_synced = 0)
-    taurine_core::db::crud::upsert_app_stat_with_conn(
-        &conn,
-        "code.exe",
-        "2026-10-28",
-        2,
-        0,
-        16,
-        4000,
-    )
-    .unwrap();
+    nite_core::db::crud::upsert_app_stat_with_conn(&conn, "code.exe", "2026-10-28", 2, 0, 16, 4000)
+        .unwrap();
 
     // Verify unsynced state before cycle 2
     assert_eq!(
-        taurine_core::db::crud::triggers::get_unsynced_triggers(&conn)
+        nite_core::db::crud::triggers::get_unsynced_triggers(&conn)
             .unwrap()
             .len(),
         1
     );
     assert_eq!(
-        taurine_core::db::crud::get_unsynced_settings(&conn)
+        nite_core::db::crud::get_unsynced_settings(&conn)
             .unwrap()
             .len(),
         1
     );
     assert_eq!(
-        taurine_core::db::crud::get_unsynced_activity_events(&conn, 10)
+        nite_core::db::crud::get_unsynced_activity_events(&conn, 10)
             .unwrap()
             .len(),
         1
     );
     assert_eq!(
-        taurine_core::db::crud::get_unsynced_stats(&conn, 10)
+        nite_core::db::crud::get_unsynced_stats(&conn, 10)
             .unwrap()
             .len(),
         1
     );
     assert_eq!(
-        taurine_core::db::crud::get_unsynced_trigger_daily_stats(&conn, 10)
+        nite_core::db::crud::get_unsynced_trigger_daily_stats(&conn, 10)
             .unwrap()
             .len(),
         1
     );
     assert_eq!(
-        taurine_core::db::crud::get_unsynced_app_stats(&conn, 10)
+        nite_core::db::crud::get_unsynced_app_stats(&conn, 10)
             .unwrap()
             .len(),
         1
@@ -2032,38 +2019,38 @@ async fn test_bidirectional_sync_restores_all_entities_on_fresh_database() {
 
     // Verify all local mutations are now marked is_synced = 1 in SQLite
     assert!(
-        taurine_core::db::crud::triggers::get_unsynced_triggers(&conn)
+        nite_core::db::crud::triggers::get_unsynced_triggers(&conn)
             .unwrap()
             .is_empty()
     );
     assert!(
-        taurine_core::db::crud::get_unsynced_settings(&conn)
+        nite_core::db::crud::get_unsynced_settings(&conn)
             .unwrap()
             .is_empty()
     );
     assert!(
-        taurine_core::db::crud::get_unsynced_activity_events(&conn, 10)
+        nite_core::db::crud::get_unsynced_activity_events(&conn, 10)
             .unwrap()
             .is_empty()
     );
     assert!(
-        taurine_core::db::crud::get_unsynced_stats(&conn, 10)
+        nite_core::db::crud::get_unsynced_stats(&conn, 10)
             .unwrap()
             .is_empty()
     );
     assert!(
-        taurine_core::db::crud::get_unsynced_trigger_daily_stats(&conn, 10)
+        nite_core::db::crud::get_unsynced_trigger_daily_stats(&conn, 10)
             .unwrap()
             .is_empty()
     );
     assert!(
-        taurine_core::db::crud::get_unsynced_app_stats(&conn, 10)
+        nite_core::db::crud::get_unsynced_app_stats(&conn, 10)
             .unwrap()
             .is_empty()
     );
 
     let _ = server_handle.join();
-    taurine_core::cloud::clear_tokens().unwrap();
+    nite_core::cloud::clear_tokens().unwrap();
 }
 
 #[tokio::test]
@@ -2074,13 +2061,13 @@ async fn test_event_driven_sync_worker_wakes_on_notification() {
         .unwrap_or_else(|e| e.into_inner());
     crate::hook::tests::mock_keystore::use_mock_keystore();
 
-    let tokens = taurine_core::cloud::AuthTokens {
+    let tokens = nite_core::cloud::AuthTokens {
         access_token: "mock-token-xyz".to_string(),
         refresh_token: "mock-refresh".to_string(),
         user_id: "user-event-1".to_string(),
         expires_at: Some(2000000000),
     };
-    taurine_core::cloud::store_tokens(&tokens).unwrap();
+    nite_core::cloud::store_tokens(&tokens).unwrap();
 
     let temp_dir = tempfile::tempdir().unwrap();
     let db_path = temp_dir.path().join("event_sync.db");
@@ -2165,10 +2152,10 @@ async fn test_event_driven_sync_worker_wakes_on_notification() {
         }
     });
 
-    let prev_url = std::env::var("TAURINE_SUPABASE_URL").ok();
+    let prev_url = std::env::var("NITE_SUPABASE_URL").ok();
     // SAFETY: Serialized via TEST_LOCK; setting mock server URL for test.
     unsafe {
-        std::env::set_var("TAURINE_SUPABASE_URL", format!("http://127.0.0.1:{port}"));
+        std::env::set_var("NITE_SUPABASE_URL", format!("http://127.0.0.1:{port}"));
     }
 
     struct EnvGuard {
@@ -2176,11 +2163,11 @@ async fn test_event_driven_sync_worker_wakes_on_notification() {
     }
     impl Drop for EnvGuard {
         fn drop(&mut self) {
-            // SAFETY: Serialized via TEST_LOCK; restoring TAURINE_SUPABASE_URL.
+            // SAFETY: Serialized via TEST_LOCK; restoring NITE_SUPABASE_URL.
             unsafe {
                 match &self.prev {
-                    Some(v) => std::env::set_var("TAURINE_SUPABASE_URL", v),
-                    None => std::env::remove_var("TAURINE_SUPABASE_URL"),
+                    Some(v) => std::env::set_var("NITE_SUPABASE_URL", v),
+                    None => std::env::remove_var("NITE_SUPABASE_URL"),
                 }
             }
         }
@@ -2191,8 +2178,8 @@ async fn test_event_driven_sync_worker_wakes_on_notification() {
     let db_path_clone = db_path.clone();
     let conn_provider = std::sync::Arc::new(move || {
         rusqlite::Connection::open(&db_path_clone)
-            .map(taurine_core::db::DbConnection::Raw)
-            .map_err(taurine_core::error::Error::Database)
+            .map(nite_core::db::DbConnection::Raw)
+            .map_err(nite_core::error::Error::Database)
     });
 
     // Spawn event-driven worker with a 600s fallback interval (10 minutes)
@@ -2226,7 +2213,7 @@ async fn test_event_driven_sync_worker_wakes_on_notification() {
     while notify_start.elapsed() < std::time::Duration::from_secs(3) {
         let check_conn = rusqlite::Connection::open(&db_path).unwrap();
         if let Ok(Some(trig)) =
-            taurine_core::db::crud::triggers::get_trigger(&check_conn, "event-snippet-1")
+            nite_core::db::crud::triggers::get_trigger(&check_conn, "event-snippet-1")
             && trig.output == "Event-driven output"
         {
             found = true;
@@ -2253,7 +2240,7 @@ async fn test_event_driven_sync_worker_wakes_on_notification() {
 
     stop_signal.store(true, std::sync::atomic::Ordering::Relaxed);
     let _ = server_handle.join();
-    taurine_core::cloud::clear_tokens().unwrap();
+    nite_core::cloud::clear_tokens().unwrap();
 }
 
 #[tokio::test]
@@ -2263,10 +2250,10 @@ async fn test_pause_resume_and_reload_signal_sync() {
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     crate::hook::tests::mock_keystore::use_mock_keystore();
-    taurine_core::logs::init_tracing_for_tests();
+    nite_core::logs::init_tracing_for_tests();
 
-    let test_dir = std::env::temp_dir().join("taurine_sync_signal_test");
-    let prev_data_dir = std::env::var("TAURINE_DATA_DIR").ok();
+    let test_dir = std::env::temp_dir().join("nite_sync_signal_test");
+    let prev_data_dir = std::env::var("NITE_DATA_DIR").ok();
 
     struct DataDirGuard {
         prev: Option<String>,
@@ -2275,11 +2262,11 @@ async fn test_pause_resume_and_reload_signal_sync() {
     impl Drop for DataDirGuard {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.path);
-            // SAFETY: Serialized via TEST_LOCK; restoring TAURINE_DATA_DIR.
+            // SAFETY: Serialized via TEST_LOCK; restoring NITE_DATA_DIR.
             unsafe {
                 match &self.prev {
-                    Some(v) => std::env::set_var("TAURINE_DATA_DIR", v),
-                    None => std::env::remove_var("TAURINE_DATA_DIR"),
+                    Some(v) => std::env::set_var("NITE_DATA_DIR", v),
+                    None => std::env::remove_var("NITE_DATA_DIR"),
                 }
             }
         }
@@ -2290,14 +2277,14 @@ async fn test_pause_resume_and_reload_signal_sync() {
         path: test_dir.clone(),
     };
 
-    // SAFETY: Serialized via TEST_LOCK; setting TAURINE_DATA_DIR for isolation.
-    unsafe { std::env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
+    // SAFETY: Serialized via TEST_LOCK; setting NITE_DATA_DIR for isolation.
+    unsafe { std::env::set_var("NITE_DATA_DIR", test_dir.to_str().unwrap()) };
     let _ = std::fs::remove_dir_all(&test_dir);
     std::fs::create_dir_all(&test_dir).unwrap();
 
-    let _conn = taurine_core::db::init::setup().expect("Failed to setup DB");
+    let _conn = nite_core::db::init::setup().expect("Failed to setup DB");
 
-    let state = std::sync::Arc::new(taurine_core::engine::EngineState::new());
+    let state = std::sync::Arc::new(nite_core::engine::EngineState::new());
     let (tx, _rx) = tokio::sync::mpsc::channel(1);
     let pause_hotkey = "Alt + `".to_string();
     let pause_hotkey_spec = std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
@@ -2314,7 +2301,7 @@ async fn test_pause_resume_and_reload_signal_sync() {
         .pause_hotkey_spec(pause_hotkey_spec)
         .pause_hotkey_display(std::sync::Arc::new(std::sync::RwLock::new(pause_hotkey)))
         .spinner_style(std::sync::Arc::new(std::sync::RwLock::new(
-            taurine_core::settings::SpinnerStyle::default(),
+            nite_core::settings::SpinnerStyle::default(),
         )))
         .pause_audio_enabled(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
             false,
@@ -2328,10 +2315,10 @@ async fn test_pause_resume_and_reload_signal_sync() {
         .build()
         .expect("builder call site is fully populated");
 
-    use taurine_core::rpc::daemon_control_server::DaemonControl;
+    use nite_core::rpc::daemon_control_server::DaemonControl;
 
     // 1. Verify that reload() signals sync_notify
-    let reload_req = tonic::Request::new(taurine_core::rpc::ReloadRequest { skip_sync: false });
+    let reload_req = tonic::Request::new(nite_core::rpc::ReloadRequest { skip_sync: false });
     let res = service
         .reload(reload_req)
         .await
@@ -2349,7 +2336,7 @@ async fn test_pause_resume_and_reload_signal_sync() {
     }
 
     // 1b. Verify that reload with skip_sync = true does not signal sync_notify
-    let skip_reload_req = tonic::Request::new(taurine_core::rpc::ReloadRequest { skip_sync: true });
+    let skip_reload_req = tonic::Request::new(nite_core::rpc::ReloadRequest { skip_sync: true });
     let res = service
         .reload(skip_reload_req)
         .await
@@ -2379,7 +2366,7 @@ async fn test_pause_resume_and_reload_signal_sync() {
     });
 
     // 2a. Pause transition
-    let pause_req = tonic::Request::new(taurine_core::rpc::PauseRequest {});
+    let pause_req = tonic::Request::new(nite_core::rpc::PauseRequest {});
     let pause_res = service
         .pause(pause_req)
         .await
@@ -2397,7 +2384,7 @@ async fn test_pause_resume_and_reload_signal_sync() {
     }
 
     // 2b. Resume transition
-    let resume_req = tonic::Request::new(taurine_core::rpc::ResumeRequest {});
+    let resume_req = tonic::Request::new(nite_core::rpc::ResumeRequest {});
     let resume_res = service
         .resume(resume_req)
         .await
@@ -2425,13 +2412,13 @@ async fn test_outbox_push_and_drain_all_entity_types() {
         .unwrap_or_else(|e| e.into_inner());
     crate::hook::tests::mock_keystore::use_mock_keystore();
 
-    let tokens = taurine_core::cloud::AuthTokens {
+    let tokens = nite_core::cloud::AuthTokens {
         access_token: "mock-token-xyz".to_string(),
         refresh_token: "mock-refresh".to_string(),
         user_id: "user-outbox-1".to_string(),
         expires_at: Some(2000000000),
     };
-    taurine_core::cloud::store_tokens(&tokens).unwrap();
+    nite_core::cloud::store_tokens(&tokens).unwrap();
 
     let conn = Connection::open_in_memory().unwrap();
     ensure_schema(&conn).unwrap();
@@ -2446,7 +2433,7 @@ async fn test_outbox_push_and_drain_all_entity_types() {
         [],
     )
     .unwrap();
-    taurine_core::db::crud::enqueue_outbox(
+    nite_core::db::crud::enqueue_outbox(
         &conn,
         "snippet",
         "snippet-ob-1",
@@ -2459,11 +2446,11 @@ async fn test_outbox_push_and_drain_all_entity_types() {
     .unwrap();
 
     // 2. Setting
-    taurine_core::db::crud::upsert_setting(&conn, "inline_date_format", "\"YYYY-MM-DD\"").unwrap();
+    nite_core::db::crud::upsert_setting(&conn, "inline_date_format", "\"YYYY-MM-DD\"").unwrap();
 
     // 3. Quota
     let mutation_id = uuid::Uuid::new_v4().to_string();
-    taurine_core::db::crud::enqueue_outbox(
+    nite_core::db::crud::enqueue_outbox(
         &conn,
         "quota",
         "1730000000",
@@ -2477,14 +2464,14 @@ async fn test_outbox_push_and_drain_all_entity_types() {
     .unwrap();
 
     // 4. Activity Event
-    taurine_core::db::crud::insert_activity_event(
+    nite_core::db::crud::insert_activity_event(
         &conn,
-        &taurine_core::db::crud::NewActivityEvent {
+        &nite_core::db::crud::NewActivityEvent {
             id: Some("evt-ob-1".to_string()),
             trigger_id: Some("snippet-ob-1".to_string()),
             timestamp: Some(1730000100000),
             date: Some("2026-10-28".to_string()),
-            category: taurine_core::db::crud::ActivityCategory::Text,
+            category: nite_core::db::crud::ActivityCategory::Text,
             app_key: Some("code.exe".to_string()),
             word_count: 5,
             time_saved_ms: 1000,
@@ -2494,7 +2481,7 @@ async fn test_outbox_push_and_drain_all_entity_types() {
     .unwrap();
 
     // 5. Trigger Daily Stat
-    taurine_core::db::crud::stats::upsert_trigger_daily_stat_with_conn(
+    nite_core::db::crud::stats::upsert_trigger_daily_stat_with_conn(
         &conn,
         "snippet-ob-1",
         "2026-10-28",
@@ -2507,10 +2494,10 @@ async fn test_outbox_push_and_drain_all_entity_types() {
     .unwrap();
 
     // 6. User Stat
-    taurine_core::db::crud::increment_stat(
+    nite_core::db::crud::increment_stat(
         &conn,
         "2026-10-28",
-        &taurine_core::db::crud::StatDeltas {
+        &nite_core::db::crud::StatDeltas {
             executions: 2,
             words_expanded: 10,
             time_saved_ms: 2000,
@@ -2520,19 +2507,11 @@ async fn test_outbox_push_and_drain_all_entity_types() {
     .unwrap();
 
     // 7. App Stat
-    taurine_core::db::crud::upsert_app_stat_with_conn(
-        &conn,
-        "code.exe",
-        "2026-10-28",
-        2,
-        0,
-        10,
-        2000,
-    )
-    .unwrap();
+    nite_core::db::crud::upsert_app_stat_with_conn(&conn, "code.exe", "2026-10-28", 2, 0, 10, 2000)
+        .unwrap();
 
     // Verify outbox has entries before cycle
-    let initial_outbox = taurine_core::db::crud::fetch_outbox_batch(&conn, 50).unwrap();
+    let initial_outbox = nite_core::db::crud::fetch_outbox_batch(&conn, 50).unwrap();
     assert_eq!(
         initial_outbox.len(),
         7,
@@ -2627,7 +2606,7 @@ async fn test_outbox_push_and_drain_all_entity_types() {
     );
 
     // Verify outbox is drained completely
-    let remaining_outbox = taurine_core::db::crud::fetch_outbox_batch(&conn, 50).unwrap();
+    let remaining_outbox = nite_core::db::crud::fetch_outbox_batch(&conn, 50).unwrap();
     assert!(
         remaining_outbox.is_empty(),
         "All 7 outbox entries must be drained; remaining: {remaining_outbox:?}"
@@ -2641,7 +2620,7 @@ async fn test_outbox_push_and_drain_all_entity_types() {
     );
 
     let _ = server_handle.join();
-    taurine_core::cloud::clear_tokens().unwrap();
+    nite_core::cloud::clear_tokens().unwrap();
 }
 
 #[tokio::test]
@@ -2652,18 +2631,18 @@ async fn test_outbox_push_failure_preserves_outbox() {
         .unwrap_or_else(|e| e.into_inner());
     crate::hook::tests::mock_keystore::use_mock_keystore();
 
-    let tokens = taurine_core::cloud::AuthTokens {
+    let tokens = nite_core::cloud::AuthTokens {
         access_token: "mock-token-xyz".to_string(),
         refresh_token: "mock-refresh".to_string(),
         user_id: "user-outbox-fail".to_string(),
         expires_at: Some(2000000000),
     };
-    taurine_core::cloud::store_tokens(&tokens).unwrap();
+    nite_core::cloud::store_tokens(&tokens).unwrap();
 
     let conn = Connection::open_in_memory().unwrap();
     ensure_schema(&conn).unwrap();
 
-    taurine_core::db::crud::enqueue_outbox(
+    nite_core::db::crud::enqueue_outbox(
         &conn,
         "snippet",
         "snippet-fail-1",
@@ -2704,7 +2683,7 @@ async fn test_outbox_push_failure_preserves_outbox() {
     );
 
     // Verify outbox was preserved
-    let remaining = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    let remaining = nite_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
     assert_eq!(
         remaining.len(),
         1,
@@ -2713,7 +2692,7 @@ async fn test_outbox_push_failure_preserves_outbox() {
     assert_eq!(remaining[0].entity_id, "snippet-fail-1");
 
     let _ = server_handle.join();
-    taurine_core::cloud::clear_tokens().unwrap();
+    nite_core::cloud::clear_tokens().unwrap();
 }
 
 #[tokio::test]
@@ -2724,22 +2703,22 @@ async fn test_checkpoint_watermark_pull_does_not_create_outbox_entries() {
         .unwrap_or_else(|e| e.into_inner());
     crate::hook::tests::mock_keystore::use_mock_keystore();
 
-    let tokens = taurine_core::cloud::AuthTokens {
+    let tokens = nite_core::cloud::AuthTokens {
         access_token: "mock-token-xyz".to_string(),
         refresh_token: "mock-refresh".to_string(),
         user_id: "user-pull-cp-1".to_string(),
         expires_at: Some(2000000000),
     };
-    taurine_core::cloud::store_tokens(&tokens).unwrap();
+    nite_core::cloud::store_tokens(&tokens).unwrap();
 
     let conn = Connection::open_in_memory().unwrap();
     ensure_schema(&conn).unwrap();
 
     // Verify initial checkpoint is 0 and outbox is empty
-    let initial_cp = taurine_core::db::crud::get_sync_checkpoint(&conn, "snippets").unwrap();
+    let initial_cp = nite_core::db::crud::get_sync_checkpoint(&conn, "snippets").unwrap();
     assert_eq!(initial_cp, 0);
     assert!(
-        taurine_core::db::crud::fetch_outbox_batch(&conn, 10)
+        nite_core::db::crud::fetch_outbox_batch(&conn, 10)
             .unwrap()
             .is_empty()
     );
@@ -2812,7 +2791,7 @@ async fn test_checkpoint_watermark_pull_does_not_create_outbox_entries() {
                             stream.write_all(resp.as_bytes()).unwrap();
                         }
                     } else if req.starts_with("GET /rest/v1/user_settings") {
-                        let remote_setting = taurine_core::db::crud::CloudSettingPayload {
+                        let remote_setting = nite_core::db::crud::CloudSettingPayload {
                             user_id: None,
                             key: "inline_date_format".to_string(),
                             value: serde_json::json!("YYYY-MM-DD"),
@@ -2861,11 +2840,11 @@ async fn test_checkpoint_watermark_pull_does_not_create_outbox_entries() {
     );
 
     // Verify checkpoint was updated to max updated_at (1730005000)
-    let cp = taurine_core::db::crud::get_sync_checkpoint(&conn, "snippets").unwrap();
+    let cp = nite_core::db::crud::get_sync_checkpoint(&conn, "snippets").unwrap();
     assert_eq!(cp, 1730005000, "Checkpoint must be updated to 1730005000");
 
     // CRITICAL: Verify pull created ZERO outbox entries (no reflection loops!)
-    let outbox = taurine_core::db::crud::fetch_outbox_batch(&conn, 50).unwrap();
+    let outbox = nite_core::db::crud::fetch_outbox_batch(&conn, 50).unwrap();
     assert!(
         outbox.is_empty(),
         "Pulling remote entities must NOT enqueue outbox records; found: {outbox:?}"
@@ -2885,11 +2864,11 @@ async fn test_checkpoint_watermark_pull_does_not_create_outbox_entries() {
         }
     );
 
-    let outbox2 = taurine_core::db::crud::fetch_outbox_batch(&conn, 50).unwrap();
+    let outbox2 = nite_core::db::crud::fetch_outbox_batch(&conn, 50).unwrap();
     assert!(outbox2.is_empty(), "Outbox must still be empty");
 
     let _ = server_handle.join();
-    taurine_core::cloud::clear_tokens().unwrap();
+    nite_core::cloud::clear_tokens().unwrap();
 }
 
 #[tokio::test]
@@ -2900,27 +2879,27 @@ async fn test_record_quota_burn_rpc_payload_and_balance_update() {
         .unwrap_or_else(|e| e.into_inner());
     crate::hook::tests::mock_keystore::use_mock_keystore();
 
-    let tokens = taurine_core::cloud::AuthTokens {
+    let tokens = nite_core::cloud::AuthTokens {
         access_token: "mock-token-xyz".to_string(),
         refresh_token: "mock-refresh".to_string(),
         user_id: "user-quota-rpc-1".to_string(),
         expires_at: Some(2000000000),
     };
-    taurine_core::cloud::store_tokens(&tokens).unwrap();
+    nite_core::cloud::store_tokens(&tokens).unwrap();
 
     let conn = Connection::open_in_memory().unwrap();
     ensure_schema(&conn).unwrap();
 
     let key = [99u8; 32];
     let now_epoch = 1730000000i64;
-    taurine_core::db::crud::quota::get_or_init_quota_ledger(&conn, &key, now_epoch).unwrap();
+    nite_core::db::crud::quota::get_or_init_quota_ledger(&conn, &key, now_epoch).unwrap();
 
     let guard = crate::engine::quota_guard::QuotaGuard::global();
     guard.set_balance(100.0);
     assert!(guard.deplete(crate::engine::quota_guard::ExpansionType::Text));
     guard.flush_to_db(&conn, &key).unwrap();
 
-    let outbox = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    let outbox = nite_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
     assert_eq!(outbox.len(), 1);
     assert_eq!(outbox[0].entity_type, "quota");
 
@@ -2965,14 +2944,14 @@ async fn test_record_quota_burn_rpc_payload_and_balance_update() {
     assert!(matches!(status, SyncStatus::Success { .. }));
 
     // Verify outbox drained
-    let remaining = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    let remaining = nite_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
     assert!(remaining.is_empty(), "Quota outbox entry must be drained");
 
     // Verify QuotaGuard balance updated
     assert_eq!(guard.balance(), 99.40);
 
     let _ = server_handle.join();
-    taurine_core::cloud::clear_tokens().unwrap();
+    nite_core::cloud::clear_tokens().unwrap();
 }
 
 #[tokio::test]
@@ -2983,13 +2962,13 @@ async fn test_sync_worker_backfills_untracked_triggers_and_pushes() {
         .unwrap_or_else(|e| e.into_inner());
     crate::hook::tests::mock_keystore::use_mock_keystore();
 
-    let tokens = taurine_core::cloud::AuthTokens {
+    let tokens = nite_core::cloud::AuthTokens {
         access_token: "mock-token-xyz".to_string(),
         refresh_token: "mock-refresh".to_string(),
         user_id: "user-backfill-1".to_string(),
         expires_at: Some(2000000000),
     };
-    taurine_core::cloud::store_tokens(&tokens).unwrap();
+    nite_core::cloud::store_tokens(&tokens).unwrap();
 
     let conn = Connection::open_in_memory().unwrap();
     ensure_schema(&conn).unwrap();
@@ -3005,7 +2984,7 @@ async fn test_sync_worker_backfills_untracked_triggers_and_pushes() {
         [],
     ).unwrap();
 
-    let outbox_before = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    let outbox_before = nite_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
     assert_eq!(outbox_before.len(), 0);
 
     let pushed_snippets_counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -3048,7 +3027,7 @@ async fn test_sync_worker_backfills_untracked_triggers_and_pushes() {
     let status = SyncWorker::run_sync_cycle(&conn, Some(&client)).await;
     assert!(matches!(status, SyncStatus::Success { .. }));
 
-    let remaining = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    let remaining = nite_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
     assert!(
         remaining.is_empty(),
         "Backfilled outbox entries must be drained"
@@ -3060,7 +3039,7 @@ async fn test_sync_worker_backfills_untracked_triggers_and_pushes() {
     );
 
     let _ = server_handle.join();
-    taurine_core::cloud::clear_tokens().unwrap();
+    nite_core::cloud::clear_tokens().unwrap();
 }
 
 #[tokio::test]
@@ -3071,20 +3050,20 @@ async fn test_outbox_drops_poisoned_entry_on_fatal_400_and_proceeds() {
         .unwrap_or_else(|e| e.into_inner());
     crate::hook::tests::mock_keystore::use_mock_keystore();
 
-    let tokens = taurine_core::cloud::AuthTokens {
+    let tokens = nite_core::cloud::AuthTokens {
         access_token: "mock-token-xyz".to_string(),
         refresh_token: "mock-refresh".to_string(),
         user_id: "user-1".to_string(),
         expires_at: Some(2000000000),
     };
-    taurine_core::cloud::store_tokens(&tokens).unwrap();
+    nite_core::cloud::store_tokens(&tokens).unwrap();
 
     let conn = Connection::open_in_memory().unwrap();
     ensure_schema(&conn).unwrap();
-    taurine_core::db::crud::set_sync_checkpoint(&conn, "snippets_backfilled", 1).unwrap();
+    nite_core::db::crud::set_sync_checkpoint(&conn, "snippets_backfilled", 1).unwrap();
 
     // 1. Enqueue corrupted outbox entry
-    taurine_core::db::crud::enqueue_outbox(
+    nite_core::db::crud::enqueue_outbox(
         &conn,
         "snippet",
         "snippet-poisoned",
@@ -3097,7 +3076,7 @@ async fn test_outbox_drops_poisoned_entry_on_fatal_400_and_proceeds() {
     .unwrap();
 
     // 2. Enqueue valid outbox entry behind it
-    taurine_core::db::crud::enqueue_outbox(
+    nite_core::db::crud::enqueue_outbox(
         &conn,
         "snippet",
         "snippet-valid-2",
@@ -3175,14 +3154,14 @@ async fn test_outbox_drops_poisoned_entry_on_fatal_400_and_proceeds() {
     assert!(poisoned_dropped.load(std::sync::atomic::Ordering::SeqCst));
     assert!(valid_pushed.load(std::sync::atomic::Ordering::SeqCst));
 
-    let remaining = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    let remaining = nite_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
     assert!(
         remaining.is_empty(),
         "Both poisoned entry and valid entry must be removed from outbox"
     );
 
     let _ = server_handle.join();
-    taurine_core::cloud::clear_tokens().unwrap();
+    nite_core::cloud::clear_tokens().unwrap();
 }
 
 #[tokio::test]
@@ -3193,19 +3172,19 @@ async fn test_outbox_preserves_entry_on_server_error_500() {
         .unwrap_or_else(|e| e.into_inner());
     crate::hook::tests::mock_keystore::use_mock_keystore();
 
-    let tokens = taurine_core::cloud::AuthTokens {
+    let tokens = nite_core::cloud::AuthTokens {
         access_token: "mock-token-xyz".to_string(),
         refresh_token: "mock-refresh".to_string(),
         user_id: "user-1".to_string(),
         expires_at: Some(2000000000),
     };
-    taurine_core::cloud::store_tokens(&tokens).unwrap();
+    nite_core::cloud::store_tokens(&tokens).unwrap();
 
     let conn = Connection::open_in_memory().unwrap();
     ensure_schema(&conn).unwrap();
-    taurine_core::db::crud::set_sync_checkpoint(&conn, "snippets_backfilled", 1).unwrap();
+    nite_core::db::crud::set_sync_checkpoint(&conn, "snippets_backfilled", 1).unwrap();
 
-    let entry_id = taurine_core::db::crud::enqueue_outbox(
+    let entry_id = nite_core::db::crud::enqueue_outbox(
         &conn,
         "snippet",
         "snippet-retry-500",
@@ -3251,13 +3230,13 @@ async fn test_outbox_preserves_entry_on_server_error_500() {
         "Expected SyncStatus::Error with 500, got: {status:?}"
     );
 
-    let remaining = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    let remaining = nite_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
     assert_eq!(remaining.len(), 1);
     assert_eq!(remaining[0].id, entry_id);
     assert_eq!(remaining[0].entity_id, "snippet-retry-500");
 
     let _ = server_handle.join();
-    taurine_core::cloud::clear_tokens().unwrap();
+    nite_core::cloud::clear_tokens().unwrap();
 }
 
 #[test]
@@ -3270,9 +3249,9 @@ fn test_sync_setting_versioning_and_clean_json_roundtrip() {
     ensure_schema(&conn).unwrap();
 
     // 1. Initial set of syncable numeric setting: version starts at 1
-    taurine_core::db::crud::set_setting(&conn, "audio_volume", "50").unwrap();
+    nite_core::db::crud::set_setting(&conn, "audio_volume", "50").unwrap();
 
-    let batch = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    let batch = nite_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
     assert_eq!(batch.len(), 1);
     assert_eq!(batch[0].entity_type, "setting");
     assert_eq!(batch[0].entity_id, "audio_volume");
@@ -3283,14 +3262,14 @@ fn test_sync_setting_versioning_and_clean_json_roundtrip() {
         .as_str()
         .expect("updated_at must be an RFC3339 string");
     assert!(
-        taurine_core::chrono::DateTime::parse_from_rfc3339(updated_at_str).is_ok(),
+        nite_core::chrono::DateTime::parse_from_rfc3339(updated_at_str).is_ok(),
         "updated_at must be valid RFC3339"
     );
 
     // 2. Subsequent update of same setting increments version to 2
-    taurine_core::db::crud::set_setting(&conn, "audio_volume", "70").unwrap();
+    nite_core::db::crud::set_setting(&conn, "audio_volume", "70").unwrap();
 
-    let batch2 = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    let batch2 = nite_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
     assert_eq!(
         batch2.len(),
         1,
@@ -3301,8 +3280,8 @@ fn test_sync_setting_versioning_and_clean_json_roundtrip() {
     assert_eq!(batch2[0].payload["version"], 2);
 
     // 3. Set a string-typed setting: outbox payload must contain clean parsed string, not double-quoted string
-    taurine_core::db::crud::set_setting(&conn, "audio_theme", "\"mechanical\"").unwrap();
-    let batch3 = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    nite_core::db::crud::set_setting(&conn, "audio_theme", "\"mechanical\"").unwrap();
+    let batch3 = nite_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
     assert_eq!(
         batch3.len(),
         2,
@@ -3313,35 +3292,31 @@ fn test_sync_setting_versioning_and_clean_json_roundtrip() {
     assert_eq!(batch3[1].payload["version"], 1);
 
     // 4. Remote reconciliation with clean string ("arcade")
-    let remote_clean_str = taurine_core::db::crud::CloudSettingPayload {
+    let remote_clean_str = nite_core::db::crud::CloudSettingPayload {
         user_id: None,
         key: "audio_theme".to_string(),
         value: serde_json::json!("arcade"),
         version: 5,
         updated_at: Some("2026-10-06T12:00:00Z".to_string()),
     };
-    let outcome =
-        taurine_core::db::crud::reconcile_cloud_setting(&conn, &remote_clean_str).unwrap();
+    let outcome = nite_core::db::crud::reconcile_cloud_setting(&conn, &remote_clean_str).unwrap();
     assert_eq!(
         outcome,
-        taurine_core::db::crud::SettingReconcileOutcome::UpdatedFromRemote
+        nite_core::db::crud::SettingReconcileOutcome::UpdatedFromRemote
     );
 
-    let row = taurine_core::db::crud::get_setting(&conn, "audio_theme")
+    let row = nite_core::db::crud::get_setting(&conn, "audio_theme")
         .unwrap()
         .unwrap();
     assert_eq!(row.value, "\"arcade\"");
     assert_eq!(row.version, 5);
 
-    let mgr = taurine_core::settings::SettingsManager::new(&conn);
+    let mgr = nite_core::settings::SettingsManager::new(&conn);
     let loaded = mgr.load_all();
-    assert_eq!(
-        loaded.audio_theme,
-        taurine_core::settings::AudioTheme::Arcade
-    );
+    assert_eq!(loaded.audio_theme, nite_core::settings::AudioTheme::Arcade);
 
     // 5. Remote reconciliation with legacy escaped string ("\"zen\"") -> must not store runaway quotes
-    let remote_escaped_str = taurine_core::db::crud::CloudSettingPayload {
+    let remote_escaped_str = nite_core::db::crud::CloudSettingPayload {
         user_id: None,
         key: "audio_theme".to_string(),
         value: serde_json::json!("\"zen\""),
@@ -3349,36 +3324,36 @@ fn test_sync_setting_versioning_and_clean_json_roundtrip() {
         updated_at: Some("2026-10-06T13:00:00Z".to_string()),
     };
     let outcome2 =
-        taurine_core::db::crud::reconcile_cloud_setting(&conn, &remote_escaped_str).unwrap();
+        nite_core::db::crud::reconcile_cloud_setting(&conn, &remote_escaped_str).unwrap();
     assert_eq!(
         outcome2,
-        taurine_core::db::crud::SettingReconcileOutcome::UpdatedFromRemote
+        nite_core::db::crud::SettingReconcileOutcome::UpdatedFromRemote
     );
 
-    let row2 = taurine_core::db::crud::get_setting(&conn, "audio_theme")
+    let row2 = nite_core::db::crud::get_setting(&conn, "audio_theme")
         .unwrap()
         .unwrap();
     assert_eq!(row2.value, "\"zen\"");
     assert_eq!(row2.version, 6);
 
     let loaded2 = mgr.load_all();
-    assert_eq!(loaded2.audio_theme, taurine_core::settings::AudioTheme::Zen);
+    assert_eq!(loaded2.audio_theme, nite_core::settings::AudioTheme::Zen);
 
     // 6. Remote reconciliation with number (80 for audio_volume)
-    let remote_num = taurine_core::db::crud::CloudSettingPayload {
+    let remote_num = nite_core::db::crud::CloudSettingPayload {
         user_id: None,
         key: "audio_volume".to_string(),
         value: serde_json::json!(80),
         version: 10,
         updated_at: Some("2026-10-06T14:00:00Z".to_string()),
     };
-    let outcome3 = taurine_core::db::crud::reconcile_cloud_setting(&conn, &remote_num).unwrap();
+    let outcome3 = nite_core::db::crud::reconcile_cloud_setting(&conn, &remote_num).unwrap();
     assert_eq!(
         outcome3,
-        taurine_core::db::crud::SettingReconcileOutcome::UpdatedFromRemote
+        nite_core::db::crud::SettingReconcileOutcome::UpdatedFromRemote
     );
 
-    let row3 = taurine_core::db::crud::get_setting(&conn, "audio_volume")
+    let row3 = nite_core::db::crud::get_setting(&conn, "audio_volume")
         .unwrap()
         .unwrap();
     assert_eq!(row3.value, "80");
@@ -3388,20 +3363,20 @@ fn test_sync_setting_versioning_and_clean_json_roundtrip() {
     assert_eq!(loaded3.audio_volume, 80);
 
     // 7. Remote reconciliation with stringified number ("95" for audio_volume)
-    let remote_str_num = taurine_core::db::crud::CloudSettingPayload {
+    let remote_str_num = nite_core::db::crud::CloudSettingPayload {
         user_id: None,
         key: "audio_volume".to_string(),
         value: serde_json::json!("95"),
         version: 15,
         updated_at: Some("2026-10-06T15:00:00Z".to_string()),
     };
-    let outcome4 = taurine_core::db::crud::reconcile_cloud_setting(&conn, &remote_str_num).unwrap();
+    let outcome4 = nite_core::db::crud::reconcile_cloud_setting(&conn, &remote_str_num).unwrap();
     assert_eq!(
         outcome4,
-        taurine_core::db::crud::SettingReconcileOutcome::UpdatedFromRemote
+        nite_core::db::crud::SettingReconcileOutcome::UpdatedFromRemote
     );
 
-    let row4 = taurine_core::db::crud::get_setting(&conn, "audio_volume")
+    let row4 = nite_core::db::crud::get_setting(&conn, "audio_volume")
         .unwrap()
         .unwrap();
     assert_eq!(row4.value, "95");
@@ -3410,7 +3385,7 @@ fn test_sync_setting_versioning_and_clean_json_roundtrip() {
 
     // 8. Timestamp-based LWW reconciliation when version is equal:
     // If remote has the same version (15) but an older timestamp, local is kept.
-    let older_remote_same_ver = taurine_core::db::crud::CloudSettingPayload {
+    let older_remote_same_ver = nite_core::db::crud::CloudSettingPayload {
         user_id: None,
         key: "audio_volume".to_string(),
         value: serde_json::json!(50),
@@ -3418,14 +3393,14 @@ fn test_sync_setting_versioning_and_clean_json_roundtrip() {
         updated_at: Some("2026-10-06T14:00:00Z".to_string()),
     };
     let outcome5 =
-        taurine_core::db::crud::reconcile_cloud_setting(&conn, &older_remote_same_ver).unwrap();
+        nite_core::db::crud::reconcile_cloud_setting(&conn, &older_remote_same_ver).unwrap();
     assert_eq!(
         outcome5,
-        taurine_core::db::crud::SettingReconcileOutcome::LocalKept
+        nite_core::db::crud::SettingReconcileOutcome::LocalKept
     );
 
     // If remote has the same version (15) and a newer timestamp, remote wins.
-    let newer_remote_same_ver = taurine_core::db::crud::CloudSettingPayload {
+    let newer_remote_same_ver = nite_core::db::crud::CloudSettingPayload {
         user_id: None,
         key: "audio_volume".to_string(),
         value: serde_json::json!(60),
@@ -3433,12 +3408,12 @@ fn test_sync_setting_versioning_and_clean_json_roundtrip() {
         updated_at: Some("2026-10-06T16:00:00Z".to_string()),
     };
     let outcome6 =
-        taurine_core::db::crud::reconcile_cloud_setting(&conn, &newer_remote_same_ver).unwrap();
+        nite_core::db::crud::reconcile_cloud_setting(&conn, &newer_remote_same_ver).unwrap();
     assert_eq!(
         outcome6,
-        taurine_core::db::crud::SettingReconcileOutcome::UpdatedFromRemote
+        nite_core::db::crud::SettingReconcileOutcome::UpdatedFromRemote
     );
-    let row5 = taurine_core::db::crud::get_setting(&conn, "audio_volume")
+    let row5 = nite_core::db::crud::get_setting(&conn, "audio_volume")
         .unwrap()
         .unwrap();
     assert_eq!(row5.value, "60");
@@ -3447,30 +3422,30 @@ fn test_sync_setting_versioning_and_clean_json_roundtrip() {
 #[test]
 fn test_sync_multi_device_stats_isolation() {
     let conn = rusqlite::Connection::open_in_memory().unwrap();
-    taurine_core::db::init::ensure_schema(&conn).unwrap();
+    nite_core::db::init::ensure_schema(&conn).unwrap();
 
-    let local_device_id = taurine_core::cloud::get_device_hardware_id();
+    let local_device_id = nite_core::cloud::get_device_hardware_id();
     let remote_device_id = "device-b-remote";
     let test_date = "2026-11-01";
 
     // 1. Device A records 10 executions.
-    taurine_core::db::crud::increment_stat(
+    nite_core::db::crud::increment_stat(
         &conn,
         test_date,
-        &taurine_core::db::crud::StatDeltas {
+        &nite_core::db::crud::StatDeltas {
             executions: 10,
             ..Default::default()
         },
     )
     .unwrap();
 
-    let stat_a = taurine_core::db::crud::get_stat_for_device(&conn, &local_device_id, test_date)
+    let stat_a = nite_core::db::crud::get_stat_for_device(&conn, &local_device_id, test_date)
         .unwrap()
         .expect("Device A row must exist");
     assert_eq!(stat_a.executions, 10);
 
     // 2. Device A reconciles stats from Device B (5 executions).
-    let remote_payload = vec![taurine_core::db::crud::CloudUserStatPayload {
+    let remote_payload = vec![nite_core::db::crud::CloudUserStatPayload {
         user_id: Some("user-123".to_string()),
         device_id: remote_device_id.to_string(),
         date: test_date.to_string(),
@@ -3484,34 +3459,33 @@ fn test_sync_multi_device_stats_isolation() {
         updated_at: None,
     }];
     let reconciled =
-        taurine_core::db::crud::reconcile_cloud_user_stats(&conn, &remote_payload).unwrap();
+        nite_core::db::crud::reconcile_cloud_user_stats(&conn, &remote_payload).unwrap();
     assert_eq!(reconciled, 1);
 
     // 3. Query get_stat aggregates total to 15 for presentation.
-    let total_stat = taurine_core::db::crud::get_stat(&conn, test_date)
+    let total_stat = nite_core::db::crud::get_stat(&conn, test_date)
         .unwrap()
         .expect("Aggregated stat must exist");
     assert_eq!(total_stat.executions, 15);
 
     // 4. Device A recording another execution increments Device A's own hardware row to 11 (NOT 16!), preventing runaway stats inflation.
-    taurine_core::db::crud::increment_stat(
+    nite_core::db::crud::increment_stat(
         &conn,
         test_date,
-        &taurine_core::db::crud::StatDeltas {
+        &nite_core::db::crud::StatDeltas {
             executions: 1,
             ..Default::default()
         },
     )
     .unwrap();
 
-    let stat_a_after =
-        taurine_core::db::crud::get_stat_for_device(&conn, &local_device_id, test_date)
-            .unwrap()
-            .expect("Device A row must exist");
+    let stat_a_after = nite_core::db::crud::get_stat_for_device(&conn, &local_device_id, test_date)
+        .unwrap()
+        .expect("Device A row must exist");
     assert_eq!(stat_a_after.executions, 11);
 
     // 5. Query get_stat reflects 16.
-    let total_stat_after = taurine_core::db::crud::get_stat(&conn, test_date)
+    let total_stat_after = nite_core::db::crud::get_stat(&conn, test_date)
         .unwrap()
         .expect("Aggregated stat must exist");
     assert_eq!(total_stat_after.executions, 16);
@@ -3540,7 +3514,7 @@ fn test_sync_incremental_checkpoints_and_outbox_resilience() {
     let conn = Connection::open_in_memory().unwrap();
     ensure_schema(&conn).unwrap();
 
-    let id1 = taurine_core::db::crud::enqueue_outbox(
+    let id1 = nite_core::db::crud::enqueue_outbox(
         &conn,
         "snippet",
         "trig-fail",
@@ -3549,7 +3523,7 @@ fn test_sync_incremental_checkpoints_and_outbox_resilience() {
     )
     .unwrap();
 
-    let id2 = taurine_core::db::crud::enqueue_outbox(
+    let id2 = nite_core::db::crud::enqueue_outbox(
         &conn,
         "snippet",
         "trig-fresh",
@@ -3559,11 +3533,10 @@ fn test_sync_incremental_checkpoints_and_outbox_resilience() {
     .unwrap();
 
     // Failing item records failure and increments retry_count
-    taurine_core::db::crud::record_outbox_failure(&conn, id1, "500: Internal Server Error")
-        .unwrap();
+    nite_core::db::crud::record_outbox_failure(&conn, id1, "500: Internal Server Error").unwrap();
 
     // Verify retry_count ASC ordering: fresh item id2 (retry_count=0) is returned ahead of failing id1 (retry_count=1)
-    let batch_top1 = taurine_core::db::crud::fetch_outbox_batch(&conn, 1).unwrap();
+    let batch_top1 = nite_core::db::crud::fetch_outbox_batch(&conn, 1).unwrap();
     assert_eq!(batch_top1.len(), 1);
     assert_eq!(
         batch_top1[0].id, id2,
@@ -3571,7 +3544,7 @@ fn test_sync_incremental_checkpoints_and_outbox_resilience() {
     );
     assert_eq!(batch_top1[0].retry_count, 0);
 
-    let batch_all = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    let batch_all = nite_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
     assert_eq!(batch_all.len(), 2);
     assert_eq!(batch_all[0].id, id2);
     assert_eq!(batch_all[0].retry_count, 0);
@@ -3583,10 +3556,10 @@ fn test_sync_incremental_checkpoints_and_outbox_resilience() {
     );
 
     // 3. Test quarantine of poisoned outbox item into sync_outbox_quarantine table
-    taurine_core::db::crud::quarantine_outbox_entry(&conn, id1, "Fatal 400 Bad Request").unwrap();
+    nite_core::db::crud::quarantine_outbox_entry(&conn, id1, "Fatal 400 Bad Request").unwrap();
 
     // Verify item 1 is removed from sync_outbox
-    let remaining = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    let remaining = nite_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
     assert_eq!(remaining.len(), 1);
     assert_eq!(remaining[0].id, id2);
 
@@ -3621,16 +3594,16 @@ async fn test_sync_incremental_checkpoints_worker_and_quarantine_e2e() {
     let conn = Connection::open_in_memory().unwrap();
     ensure_schema(&conn).unwrap();
 
-    let tokens = taurine_core::cloud::AuthTokens {
+    let tokens = nite_core::cloud::AuthTokens {
         access_token: "test-token".to_string(),
         refresh_token: "test-refresh".to_string(),
         user_id: "user-test-uuid".to_string(),
         expires_at: Some(i64::MAX),
     };
-    taurine_core::cloud::store_cloud_tokens(&tokens).unwrap();
+    nite_core::cloud::store_cloud_tokens(&tokens).unwrap();
 
     // 1. Enqueue fatal 400 entry
-    let id_fatal = taurine_core::db::crud::enqueue_outbox(
+    let id_fatal = nite_core::db::crud::enqueue_outbox(
         &conn,
         "snippet",
         "trig-fatal-400",
@@ -3640,7 +3613,7 @@ async fn test_sync_incremental_checkpoints_worker_and_quarantine_e2e() {
     .unwrap();
 
     // 2. Enqueue fatal 422 client error entry
-    let id_fatal_422 = taurine_core::db::crud::enqueue_outbox(
+    let id_fatal_422 = nite_core::db::crud::enqueue_outbox(
         &conn,
         "snippet",
         "trig-fatal-422",
@@ -3650,7 +3623,7 @@ async fn test_sync_incremental_checkpoints_worker_and_quarantine_e2e() {
     .unwrap();
 
     // 3. Enqueue healthy entry
-    let _id_healthy = taurine_core::db::crud::enqueue_outbox(
+    let _id_healthy = nite_core::db::crud::enqueue_outbox(
         &conn,
         "snippet",
         "trig-healthy",
@@ -3688,7 +3661,7 @@ async fn test_sync_incremental_checkpoints_worker_and_quarantine_e2e() {
                             stream.write_all(resp.as_bytes()).unwrap();
                         }
                     } else if req.starts_with("GET /rest/v1/user_settings") {
-                        let remote_setting = taurine_core::db::crud::CloudSettingPayload {
+                        let remote_setting = nite_core::db::crud::CloudSettingPayload {
                             user_id: None,
                             key: "audio_volume".to_string(),
                             value: serde_json::json!(80),
@@ -3814,7 +3787,7 @@ async fn test_sync_incremental_checkpoints_worker_and_quarantine_e2e() {
     );
 
     // Verify outbox: healthy item was drained, fatal & poison were quarantined
-    let outbox_remaining = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    let outbox_remaining = nite_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
     assert!(
         outbox_remaining.is_empty(),
         "All items must be drained from outbox; found: {outbox_remaining:?}"
@@ -3853,45 +3826,44 @@ async fn test_sync_incremental_checkpoints_worker_and_quarantine_e2e() {
     );
 
     // Verify incremental checkpoints were set for all 5 entities
-    let cp_settings = taurine_core::db::crud::get_sync_checkpoint(&conn, "user_settings").unwrap();
+    let cp_settings = nite_core::db::crud::get_sync_checkpoint(&conn, "user_settings").unwrap();
     let expected_settings_ts =
-        taurine_core::chrono::DateTime::parse_from_rfc3339("2026-10-28T08:00:00Z")
+        nite_core::chrono::DateTime::parse_from_rfc3339("2026-10-28T08:00:00Z")
             .unwrap()
             .timestamp();
     assert_eq!(cp_settings, expected_settings_ts);
 
-    let cp_events = taurine_core::db::crud::get_sync_checkpoint(&conn, "activity_events").unwrap();
+    let cp_events = nite_core::db::crud::get_sync_checkpoint(&conn, "activity_events").unwrap();
     let expected_events_ts =
-        taurine_core::chrono::DateTime::parse_from_rfc3339("2026-10-28T09:00:00Z")
+        nite_core::chrono::DateTime::parse_from_rfc3339("2026-10-28T09:00:00Z")
             .unwrap()
             .timestamp();
     assert_eq!(cp_events, expected_events_ts);
 
     let cp_trigger_stats =
-        taurine_core::db::crud::get_sync_checkpoint(&conn, "trigger_daily_stats").unwrap();
+        nite_core::db::crud::get_sync_checkpoint(&conn, "trigger_daily_stats").unwrap();
     let expected_trigger_stats_ts =
-        taurine_core::chrono::DateTime::parse_from_rfc3339("2026-10-28T10:00:00Z")
+        nite_core::chrono::DateTime::parse_from_rfc3339("2026-10-28T10:00:00Z")
             .unwrap()
             .timestamp();
     assert_eq!(cp_trigger_stats, expected_trigger_stats_ts);
 
-    let cp_user_stats = taurine_core::db::crud::get_sync_checkpoint(&conn, "user_stats").unwrap();
+    let cp_user_stats = nite_core::db::crud::get_sync_checkpoint(&conn, "user_stats").unwrap();
     let expected_user_stats_ts =
-        taurine_core::chrono::DateTime::parse_from_rfc3339("2026-10-28T11:00:00Z")
+        nite_core::chrono::DateTime::parse_from_rfc3339("2026-10-28T11:00:00Z")
             .unwrap()
             .timestamp();
     assert_eq!(cp_user_stats, expected_user_stats_ts);
 
-    let cp_app_stats =
-        taurine_core::db::crud::get_sync_checkpoint(&conn, "user_app_stats").unwrap();
+    let cp_app_stats = nite_core::db::crud::get_sync_checkpoint(&conn, "user_app_stats").unwrap();
     let expected_app_stats_ts =
-        taurine_core::chrono::DateTime::parse_from_rfc3339("2026-10-28T12:00:00Z")
+        nite_core::chrono::DateTime::parse_from_rfc3339("2026-10-28T12:00:00Z")
             .unwrap()
             .timestamp();
     assert_eq!(cp_app_stats, expected_app_stats_ts);
 
     server_handle.join().unwrap();
-    taurine_core::cloud::clear_tokens().unwrap();
+    nite_core::cloud::clear_tokens().unwrap();
 }
 
 #[tokio::test]
@@ -3902,19 +3874,19 @@ async fn test_network_and_server_errors_never_quarantine_even_with_high_retry_co
         .unwrap_or_else(|e| e.into_inner());
     crate::hook::tests::mock_keystore::use_mock_keystore();
 
-    let tokens = taurine_core::cloud::AuthTokens {
+    let tokens = nite_core::cloud::AuthTokens {
         access_token: "mock-token-xyz".to_string(),
         refresh_token: "mock-refresh".to_string(),
         user_id: "user-test-q".to_string(),
         expires_at: Some(2000000000),
     };
-    taurine_core::cloud::store_tokens(&tokens).unwrap();
+    nite_core::cloud::store_tokens(&tokens).unwrap();
 
     let conn = Connection::open_in_memory().unwrap();
     ensure_schema(&conn).unwrap();
-    taurine_core::db::crud::set_sync_checkpoint(&conn, "snippets_backfilled", 1).unwrap();
+    nite_core::db::crud::set_sync_checkpoint(&conn, "snippets_backfilled", 1).unwrap();
 
-    let entry_id = taurine_core::db::crud::enqueue_outbox(
+    let entry_id = nite_core::db::crud::enqueue_outbox(
         &conn,
         "snippet",
         "snippet-offline-retry",
@@ -3972,7 +3944,7 @@ async fn test_network_and_server_errors_never_quarantine_even_with_high_retry_co
     assert_eq!(rem_count, 1, "Item must remain in sync_outbox");
     assert_eq!(rem_retries, 11, "Retry count must be incremented to 11");
 
-    taurine_core::cloud::clear_tokens().unwrap();
+    nite_core::cloud::clear_tokens().unwrap();
 }
 
 #[tokio::test]
@@ -3987,19 +3959,19 @@ async fn test_app_stat_with_windows_colon_path_resolves_and_syncs() {
 
     let conn = Connection::open_in_memory().unwrap();
     ensure_schema(&conn).unwrap();
-    taurine_core::db::crud::set_sync_checkpoint(&conn, "snippets_backfilled", 1).unwrap();
+    nite_core::db::crud::set_sync_checkpoint(&conn, "snippets_backfilled", 1).unwrap();
 
-    let tokens = taurine_core::cloud::AuthTokens {
+    let tokens = nite_core::cloud::AuthTokens {
         access_token: "test_token".to_string(),
         refresh_token: "test_refresh".to_string(),
         user_id: "usr_test_colon_path".to_string(),
         expires_at: Some(2000000000),
     };
-    taurine_core::cloud::store_tokens(&tokens).unwrap();
+    nite_core::cloud::store_tokens(&tokens).unwrap();
 
     let app_key = "C:\\Program Files\\App\\app.exe";
     let date = "2026-11-06";
-    let device_id = taurine_core::cloud::get_device_hardware_id();
+    let device_id = nite_core::cloud::get_device_hardware_id();
 
     conn.execute(
         "INSERT INTO app_stats (device_id, app_key, date, executions, words_spoken, words_expanded, time_saved_ms, version, updated_at)
@@ -4009,7 +3981,7 @@ async fn test_app_stat_with_windows_colon_path_resolves_and_syncs() {
     .unwrap();
 
     let entity_id = format!("{app_key}:{date}");
-    taurine_core::db::crud::enqueue_outbox(
+    nite_core::db::crud::enqueue_outbox(
         &conn,
         "app_stat",
         &entity_id,
@@ -4082,7 +4054,7 @@ async fn test_app_stat_with_windows_colon_path_resolves_and_syncs() {
         "Payload must include database words_expanded count 150: {req_str}"
     );
 
-    taurine_core::cloud::clear_tokens().unwrap();
+    nite_core::cloud::clear_tokens().unwrap();
 }
 
 #[tokio::test]
@@ -4097,15 +4069,15 @@ async fn test_snippet_pull_paginates_across_multiple_pages() {
 
     let conn = Connection::open_in_memory().unwrap();
     ensure_schema(&conn).unwrap();
-    taurine_core::db::crud::set_sync_checkpoint(&conn, "snippets_backfilled", 1).unwrap();
+    nite_core::db::crud::set_sync_checkpoint(&conn, "snippets_backfilled", 1).unwrap();
 
-    let tokens = taurine_core::cloud::AuthTokens {
+    let tokens = nite_core::cloud::AuthTokens {
         access_token: "test_token".to_string(),
         refresh_token: "test_refresh".to_string(),
         user_id: "usr_paginate_snippets".to_string(),
         expires_at: Some(2000000000),
     };
-    taurine_core::cloud::store_tokens(&tokens).unwrap();
+    nite_core::cloud::store_tokens(&tokens).unwrap();
 
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -4214,7 +4186,7 @@ async fn test_snippet_pull_paginates_across_multiple_pages() {
         "All 700 paginated snippets must be inserted into local DB"
     );
 
-    taurine_core::cloud::clear_tokens().unwrap();
+    nite_core::cloud::clear_tokens().unwrap();
 }
 
 #[tokio::test]
@@ -4229,15 +4201,15 @@ async fn test_subsecond_timestamp_watermark_prevents_perpetual_repull() {
 
     let conn = Connection::open_in_memory().unwrap();
     ensure_schema(&conn).unwrap();
-    taurine_core::db::crud::set_sync_checkpoint(&conn, "snippets_backfilled", 1).unwrap();
+    nite_core::db::crud::set_sync_checkpoint(&conn, "snippets_backfilled", 1).unwrap();
 
-    let tokens = taurine_core::cloud::AuthTokens {
+    let tokens = nite_core::cloud::AuthTokens {
         access_token: "test_token_subsecond".to_string(),
         refresh_token: "test_refresh".to_string(),
         user_id: "usr_subsecond".to_string(),
         expires_at: Some(2000000000),
     };
-    taurine_core::cloud::store_tokens(&tokens).unwrap();
+    nite_core::cloud::store_tokens(&tokens).unwrap();
 
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -4339,7 +4311,7 @@ async fn test_subsecond_timestamp_watermark_prevents_perpetual_repull() {
         queries[1]
     );
 
-    taurine_core::cloud::clear_tokens().unwrap();
+    nite_core::cloud::clear_tokens().unwrap();
 }
 
 #[tokio::test]
@@ -4354,19 +4326,19 @@ async fn test_outbox_push_batches_multiple_snippets_in_single_http_request() {
 
     let conn = Connection::open_in_memory().unwrap();
     ensure_schema(&conn).unwrap();
-    taurine_core::db::crud::set_sync_checkpoint(&conn, "snippets_backfilled", 1).unwrap();
+    nite_core::db::crud::set_sync_checkpoint(&conn, "snippets_backfilled", 1).unwrap();
 
-    let tokens = taurine_core::cloud::AuthTokens {
+    let tokens = nite_core::cloud::AuthTokens {
         access_token: "test_token_batch".to_string(),
         refresh_token: "test_refresh".to_string(),
         user_id: "usr_batch".to_string(),
         expires_at: Some(2000000000),
     };
-    taurine_core::cloud::store_tokens(&tokens).unwrap();
+    nite_core::cloud::store_tokens(&tokens).unwrap();
 
     // Enqueue 5 snippets
     for i in 1..=5 {
-        taurine_core::db::crud::enqueue_outbox(
+        nite_core::db::crud::enqueue_outbox(
             &conn,
             "snippet",
             &format!("trig-batch-{i}"),
@@ -4449,13 +4421,13 @@ async fn test_outbox_push_batches_multiple_snippets_in_single_http_request() {
     assert!(posts[0].contains("\"id\":\"trig-batch-1\""));
     assert!(posts[0].contains("\"id\":\"trig-batch-5\""));
 
-    let remaining = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    let remaining = nite_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
     assert!(
         remaining.is_empty(),
         "All outbox rows must be deleted after batch push"
     );
 
-    taurine_core::cloud::clear_tokens().unwrap();
+    nite_core::cloud::clear_tokens().unwrap();
 }
 
 #[test]
@@ -4465,14 +4437,14 @@ fn test_workspace_synchronization_and_cascade_delete_outbox() {
         .unwrap_or_else(|e| e.into_inner());
     let conn = Connection::open_in_memory().unwrap();
     ensure_schema(&conn).unwrap();
-    taurine_core::db::crud::tier::set_user_tier(&conn, taurine_core::db::crud::tier::UserTier::Pro)
+    nite_core::db::crud::tier::set_user_tier(&conn, nite_core::db::crud::tier::UserTier::Pro)
         .unwrap();
 
     // 1. Create a workspace 'Engineering'
-    let ws = taurine_core::db::crud::create_workspace(&conn, "Engineering").unwrap();
+    let ws = nite_core::db::crud::create_workspace(&conn, "Engineering").unwrap();
 
     // Verify workspace_map setting was created and queued in outbox
-    let setting = taurine_core::db::crud::get_setting(&conn, "workspace_map").unwrap();
+    let setting = nite_core::db::crud::get_setting(&conn, "workspace_map").unwrap();
     assert!(
         setting.is_some(),
         "Creating workspace must generate workspace_map setting"
@@ -4499,15 +4471,15 @@ fn test_workspace_synchronization_and_cascade_delete_outbox() {
     .unwrap();
 
     // Clear outbox to focus on deletion cascading
-    let outbox = taurine_core::db::crud::fetch_outbox_batch(&conn, 50).unwrap();
+    let outbox = nite_core::db::crud::fetch_outbox_batch(&conn, 50).unwrap();
     for entry in outbox {
-        taurine_core::db::crud::delete_outbox_entry(&conn, entry.id).unwrap();
+        nite_core::db::crud::delete_outbox_entry(&conn, entry.id).unwrap();
     }
 
     // 3. Delete workspace: must cascade delete both triggers and enqueue their tombstones
-    taurine_core::db::crud::delete_workspace(&conn, &ws.id).unwrap();
+    nite_core::db::crud::delete_workspace(&conn, &ws.id).unwrap();
 
-    let batch = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    let batch = nite_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
     let trig_deletes: Vec<_> = batch
         .iter()
         .filter(|e| e.entity_type == "snippet" && e.operation == "delete")
@@ -4522,7 +4494,7 @@ fn test_workspace_synchronization_and_cascade_delete_outbox() {
     assert!(deleted_ids.contains(&"trig-ws-2"));
 
     // And workspace_map in settings must no longer contain ws.id
-    let updated_setting = taurine_core::db::crud::get_setting(&conn, "workspace_map")
+    let updated_setting = nite_core::db::crud::get_setting(&conn, "workspace_map")
         .unwrap()
         .unwrap();
     let updated_map: serde_json::Value = serde_json::from_str(&updated_setting.value).unwrap();
@@ -4535,7 +4507,7 @@ fn test_workspace_synchronization_and_cascade_delete_outbox() {
     let remote_map_json = serde_json::json!({
         "ws-remote-design": "Design Team"
     });
-    let remote_setting = taurine_core::db::crud::CloudSettingPayload {
+    let remote_setting = nite_core::db::crud::CloudSettingPayload {
         user_id: None,
         key: "workspace_map".to_string(),
         value: remote_map_json,
@@ -4543,14 +4515,14 @@ fn test_workspace_synchronization_and_cascade_delete_outbox() {
         updated_at: Some("2026-11-06T15:00:00Z".to_string()),
     };
 
-    let outcome = taurine_core::db::crud::reconcile_cloud_setting(&conn, &remote_setting).unwrap();
+    let outcome = nite_core::db::crud::reconcile_cloud_setting(&conn, &remote_setting).unwrap();
     assert_eq!(
         outcome,
-        taurine_core::db::crud::SettingReconcileOutcome::UpdatedFromRemote
+        nite_core::db::crud::SettingReconcileOutcome::UpdatedFromRemote
     );
 
     // Verify 'Design Team' workspace is created locally with human name
-    let remote_ws = taurine_core::db::crud::get_workspace_by_id(&conn, "ws-remote-design").unwrap();
+    let remote_ws = nite_core::db::crud::get_workspace_by_id(&conn, "ws-remote-design").unwrap();
     assert!(
         remote_ws.is_some(),
         "Remote workspace must be materialized in SQLite"

@@ -1,5 +1,5 @@
+use nite_core::engine::CycleDirection;
 use rdev::Key;
-use taurine_core::engine::CycleDirection;
 
 pub(crate) fn case_cycle_key_action(
     key: Key,

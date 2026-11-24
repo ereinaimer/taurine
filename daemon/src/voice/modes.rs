@@ -1,4 +1,4 @@
-/// Operating modes for Taurine voice dictation.
+/// Operating modes for Nite voice dictation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VoiceMode {
     /// No active voice recording or transcription.

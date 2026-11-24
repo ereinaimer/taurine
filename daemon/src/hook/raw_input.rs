@@ -16,7 +16,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     RegisterClassW, TranslateMessage, WM_DESTROY, WM_INPUT, WNDCLASSW,
 };
 
-const WINDOW_CLASS_NAME: &str = "TaurineRawInputMonitor";
+const WINDOW_CLASS_NAME: &str = "NiteRawInputMonitor";
 
 static RAW_INPUT_THREAD_ID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 static RAW_INPUT_JOIN_HANDLE: Mutex<Option<thread::JoinHandle<()>>> = Mutex::new(None);
@@ -40,7 +40,7 @@ pub fn start_raw_input_listener(ctx: RawInputContext) -> Result<(), String> {
     *slot = Some(ctx);
 
     let handle = thread::Builder::new()
-        .name("tau-raw-input".to_string())
+        .name("nite-raw-input".to_string())
         .spawn(run_raw_input_message_loop)
         .map_err(|e| e.to_string())?;
 

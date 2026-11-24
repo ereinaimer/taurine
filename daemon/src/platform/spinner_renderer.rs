@@ -1,4 +1,4 @@
-use taurine_core::utils::spinner::SpinnerRenderer;
+use nite_core::utils::spinner::SpinnerRenderer;
 
 #[derive(Default)]
 pub struct OsSpinnerRenderer {

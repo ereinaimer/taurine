@@ -73,7 +73,7 @@ pub fn device_list_signature(devices: &[String]) -> String {
 /// Impure entry: re-reads cache, persists the fallback if the helper says so.
 /// Returns true when a change was persisted. Migrates a live recording via restart; idle sessions need nothing (no parked mic exists).
 pub fn persist_fallback_to_system_default(available: &[String]) -> bool {
-    let cached = taurine_core::settings::get_cached_voice_input_device();
+    let cached = nite_core::settings::get_cached_voice_input_device();
     persist_fallback_for_value(cached.as_deref(), available)
 }
 
@@ -84,7 +84,7 @@ fn persist_fallback_for_value(cached: Option<&str>, available: &[String]) -> boo
     if fallback_value_if_missing(cached, available) != Some(None) {
         return false;
     }
-    if taurine_core::settings::apply_setting_input("voice_input_device", None).is_err() {
+    if nite_core::settings::apply_setting_input("voice_input_device", None).is_err() {
         tracing::warn!("mic fallback: failed to persist System Default");
         return false;
     }
@@ -132,9 +132,9 @@ mod tests {
             .unwrap_or_else(|e| e.into_inner());
         crate::hook::tests::mock_keystore::use_mock_keystore();
         let dir = tempfile::tempdir().unwrap();
-        let prev_var = std::env::var("TAURINE_DATA_DIR").ok();
+        let prev_var = std::env::var("NITE_DATA_DIR").ok();
         // SAFETY: Serialized under TEST_LOCK for test database isolation.
-        unsafe { std::env::set_var("TAURINE_DATA_DIR", dir.path()) };
+        unsafe { std::env::set_var("NITE_DATA_DIR", dir.path()) };
         // Pass the pick explicitly: the process-global settings cache is
         // shared with every test thread in this binary, so reading it here
         // flakes under parallel runners (passes solo/VM, fails loaded CI).
@@ -143,7 +143,7 @@ mod tests {
             "genuinely-gone pick must fall back"
         );
         assert_eq!(
-            taurine_core::settings::get_cached_voice_input_device(),
+            nite_core::settings::get_cached_voice_input_device(),
             None,
             "fallback must persist System Default"
         );
@@ -154,8 +154,8 @@ mod tests {
         // SAFETY: Serialized under TEST_LOCK for test database isolation.
         unsafe {
             match prev_var {
-                Some(v) => std::env::set_var("TAURINE_DATA_DIR", v),
-                None => std::env::remove_var("TAURINE_DATA_DIR"),
+                Some(v) => std::env::set_var("NITE_DATA_DIR", v),
+                None => std::env::remove_var("NITE_DATA_DIR"),
             }
         }
     }

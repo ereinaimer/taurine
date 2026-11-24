@@ -4,10 +4,10 @@ use super::completion::{
     trigger_assist_key_action,
 };
 use super::dispatch::{dispatch_completion_rewrite_with, dispatch_expansion_with};
+use nite_core::db::crud::TriggerAction;
+use nite_core::engine::source::MemorySource;
+use nite_core::engine::{EngineEvent, EngineState, Evaluator};
 use std::sync::{Arc, Mutex};
-use taurine_core::db::crud::TriggerAction;
-use taurine_core::engine::source::MemorySource;
-use taurine_core::engine::{EngineEvent, EngineState, Evaluator};
 
 /// Process-local mock OS keystore so temp-DB opens never touch the real
 /// keystore on headless CI (no secret service). Installed once per process.
@@ -26,6 +26,10 @@ pub(crate) mod mock_keystore {
     fn passwords() -> &'static Mutex<PasswordMap> {
         PASSWORDS.get_or_init(|| {
             let mut map = HashMap::new();
+            map.insert(
+                ("nite".to_string(), "db-key".to_string()),
+                FIXED_TEST_DB_KEY_HEX.to_vec(),
+            );
             map.insert(
                 ("taurine".to_string(), "db-key".to_string()),
                 FIXED_TEST_DB_KEY_HEX.to_vec(),
@@ -113,24 +117,24 @@ fn dispatch_expansion_runs_injection_before_follow_up_consumption() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let inject_events = events.clone();
     let follow_up_events = events.clone();
-    let state = Arc::new(taurine_core::engine::EngineState::new());
+    let state = Arc::new(nite_core::engine::EngineState::new());
 
     let _rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("runtime should build");
 
-    let expansion = taurine_core::engine::ExpansionResult {
+    let expansion = nite_core::engine::ExpansionResult {
         delete_count: 4,
-        steps: vec![taurine_core::engine::variables::ExpansionStep::Text(
+        steps: vec![nite_core::engine::variables::ExpansionStep::Text(
             "thinking".to_string(),
         )],
         trigger: "ai".to_string(),
         undo_trigger: Some(">ai".to_string()),
         is_calculation: false,
-        stat_kind: taurine_core::db::crud::TriggerStatKind::InlineAi,
+        stat_kind: nite_core::db::crud::TriggerStatKind::InlineAi,
         track_usage: false,
-        follow_up: Some(taurine_core::engine::ExpansionFollowUp::InlineAi {
+        follow_up: Some(nite_core::engine::ExpansionFollowUp::InlineAi {
             prompt: "prompt".to_string(),
             system_prompt_override: Some("expert editor".to_string()),
         }),
@@ -138,7 +142,7 @@ fn dispatch_expansion_runs_injection_before_follow_up_consumption() {
 
     dispatch_expansion_with(
         expansion,
-        taurine_core::settings::SpinnerStyle::default(),
+        nite_core::settings::SpinnerStyle::default(),
         state,
         move |_, _, _| {
             inject_events
@@ -154,7 +158,7 @@ fn dispatch_expansion_runs_injection_before_follow_up_consumption() {
                 .push("follow_up");
             assert_eq!(
                 follow_up,
-                Some(taurine_core::engine::ExpansionFollowUp::InlineAi {
+                Some(nite_core::engine::ExpansionFollowUp::InlineAi {
                     prompt: "prompt".to_string(),
                     system_prompt_override: Some("expert editor".to_string()),
                 })
@@ -170,28 +174,28 @@ fn dispatch_expansion_runs_injection_before_follow_up_consumption() {
 
 #[test]
 fn dispatch_expansion_records_undo_state_for_plain_text_output() {
-    let state = Arc::new(taurine_core::engine::EngineState::new());
+    let state = Arc::new(nite_core::engine::EngineState::new());
     let _rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("runtime should build");
 
-    let expansion = taurine_core::engine::ExpansionResult {
+    let expansion = nite_core::engine::ExpansionResult {
         delete_count: 4,
-        steps: vec![taurine_core::engine::variables::ExpansionStep::Text(
+        steps: vec![nite_core::engine::variables::ExpansionStep::Text(
             "Good Morning".to_string(),
         )],
         trigger: "gm".to_string(),
         undo_trigger: Some(">gm".to_string()),
         is_calculation: false,
-        stat_kind: taurine_core::db::crud::TriggerStatKind::Snippet,
+        stat_kind: nite_core::db::crud::TriggerStatKind::Snippet,
         track_usage: false,
         follow_up: None,
     };
 
     dispatch_expansion_with(
         expansion,
-        taurine_core::settings::SpinnerStyle::default(),
+        nite_core::settings::SpinnerStyle::default(),
         state.clone(),
         move |_, _, _| crate::injector::InjectionReport {
             successful_chars: "Good Morning".chars().count(),
@@ -210,21 +214,21 @@ fn dispatch_expansion_records_undo_state_for_plain_text_output() {
 
 #[test]
 fn dispatch_expansion_registers_undo_state_before_injection_completes() {
-    let state = Arc::new(taurine_core::engine::EngineState::new());
+    let state = Arc::new(nite_core::engine::EngineState::new());
     let _rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("runtime should build");
 
-    let expansion = taurine_core::engine::ExpansionResult {
+    let expansion = nite_core::engine::ExpansionResult {
         delete_count: 4,
-        steps: vec![taurine_core::engine::variables::ExpansionStep::Text(
+        steps: vec![nite_core::engine::variables::ExpansionStep::Text(
             "Good Morning".to_string(),
         )],
         trigger: "gm".to_string(),
         undo_trigger: Some(">gm".to_string()),
         is_calculation: false,
-        stat_kind: taurine_core::db::crud::TriggerStatKind::Snippet,
+        stat_kind: nite_core::db::crud::TriggerStatKind::Snippet,
         track_usage: false,
         follow_up: None,
     };
@@ -236,7 +240,7 @@ fn dispatch_expansion_registers_undo_state_before_injection_completes() {
     std::thread::spawn(move || {
         dispatch_expansion_with(
             expansion,
-            taurine_core::settings::SpinnerStyle::default(),
+            nite_core::settings::SpinnerStyle::default(),
             state_clone,
             move |_, _, _| {
                 tx.send(()).unwrap();
@@ -263,21 +267,21 @@ fn dispatch_expansion_registers_undo_state_before_injection_completes() {
 
 #[test]
 fn dispatch_expansion_does_not_rearm_undo_state_if_consumed_early() {
-    let state = Arc::new(taurine_core::engine::EngineState::new());
+    let state = Arc::new(nite_core::engine::EngineState::new());
     let _rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("runtime should build");
 
-    let expansion = taurine_core::engine::ExpansionResult {
+    let expansion = nite_core::engine::ExpansionResult {
         delete_count: 4,
-        steps: vec![taurine_core::engine::variables::ExpansionStep::Text(
+        steps: vec![nite_core::engine::variables::ExpansionStep::Text(
             "Good Morning".to_string(),
         )],
         trigger: "gm".to_string(),
         undo_trigger: Some(">gm".to_string()),
         is_calculation: false,
-        stat_kind: taurine_core::db::crud::TriggerStatKind::Snippet,
+        stat_kind: nite_core::db::crud::TriggerStatKind::Snippet,
         track_usage: false,
         follow_up: None,
     };
@@ -289,7 +293,7 @@ fn dispatch_expansion_does_not_rearm_undo_state_if_consumed_early() {
     let handle = std::thread::spawn(move || {
         dispatch_expansion_with(
             expansion,
-            taurine_core::settings::SpinnerStyle::default(),
+            nite_core::settings::SpinnerStyle::default(),
             state_clone,
             move |_, _, _| {
                 tx.send(()).unwrap();
@@ -321,28 +325,28 @@ fn dispatch_expansion_does_not_rearm_undo_state_if_consumed_early() {
 
 #[test]
 fn dispatch_expansion_skips_undo_registration_for_hotkey_results() {
-    let state = Arc::new(taurine_core::engine::EngineState::new());
+    let state = Arc::new(nite_core::engine::EngineState::new());
     let _rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("runtime should build");
 
-    let expansion = taurine_core::engine::ExpansionResult {
+    let expansion = nite_core::engine::ExpansionResult {
         delete_count: 0,
-        steps: vec![taurine_core::engine::variables::ExpansionStep::Text(
+        steps: vec![nite_core::engine::variables::ExpansionStep::Text(
             "git status".to_string(),
         )],
         trigger: "ctrl+shift+g".to_string(),
         undo_trigger: None,
         is_calculation: false,
-        stat_kind: taurine_core::db::crud::TriggerStatKind::Hotkey,
+        stat_kind: nite_core::db::crud::TriggerStatKind::Hotkey,
         track_usage: false,
         follow_up: None,
     };
 
     dispatch_expansion_with(
         expansion,
-        taurine_core::settings::SpinnerStyle::default(),
+        nite_core::settings::SpinnerStyle::default(),
         state.clone(),
         move |_, _, _| crate::injector::InjectionReport {
             successful_chars: "git status".chars().count(),
@@ -360,11 +364,11 @@ fn completion_rewrite_dispatch_uses_single_bulk_text_step() {
     let captured_clone = captured.clone();
 
     dispatch_completion_rewrite_with(
-        taurine_core::engine::CompletionRewrite {
+        nite_core::engine::CompletionRewrite {
             delete_count: 5,
             replacement: "gco".to_string(),
         },
-        taurine_core::settings::SpinnerStyle::default(),
+        nite_core::settings::SpinnerStyle::default(),
         move |steps, delete_count, _| {
             *captured_clone.lock().expect("capture poisoned") = Some((steps, delete_count));
             crate::injector::InjectionReport::default()
@@ -379,7 +383,7 @@ fn completion_rewrite_dispatch_uses_single_bulk_text_step() {
     assert_eq!(delete_count, 5);
     assert_eq!(
         steps,
-        vec![taurine_core::engine::variables::ExpansionStep::Text(
+        vec![nite_core::engine::variables::ExpansionStep::Text(
             "gco".to_string()
         )]
     );
@@ -463,7 +467,7 @@ fn completion_key_kind_from_tab_like_maps_expected_keys() {
 
 #[test]
 fn trigger_assist_key_action_cycles_tab_unconditionally() {
-    let state = taurine_core::engine::EngineState::new();
+    let state = nite_core::engine::EngineState::new();
 
     assert_eq!(
         trigger_assist_key_action(&state, CompletionKeyKind::Tab, false, false, false, false),
@@ -473,7 +477,7 @@ fn trigger_assist_key_action_cycles_tab_unconditionally() {
 
 #[test]
 fn trigger_assist_key_release_handling_swallows_tab_unconditionally() {
-    let state = taurine_core::engine::EngineState::new();
+    let state = nite_core::engine::EngineState::new();
     assert!(should_swallow_trigger_assist_key_release(
         &state,
         CompletionKeyKind::Tab
@@ -482,15 +486,15 @@ fn trigger_assist_key_release_handling_swallows_tab_unconditionally() {
 
 #[test]
 fn completion_is_inactive_after_typed_text_is_deleted() {
-    let state = Arc::new(taurine_core::engine::EngineState::new());
-    let mut evaluator = taurine_core::engine::Evaluator::new(state);
+    let state = Arc::new(nite_core::engine::EngineState::new());
+    let mut evaluator = nite_core::engine::Evaluator::new(state);
     for ch in ">g".chars() {
         assert_eq!(
             evaluator.process_event(
                 if ch == ' ' {
-                    taurine_core::engine::EngineEvent::ActionKey
+                    nite_core::engine::EngineEvent::ActionKey
                 } else {
-                    taurine_core::engine::EngineEvent::Char(ch)
+                    nite_core::engine::EngineEvent::Char(ch)
                 },
                 None
             ),
@@ -498,11 +502,11 @@ fn completion_is_inactive_after_typed_text_is_deleted() {
         );
     }
     assert_eq!(
-        evaluator.process_event(taurine_core::engine::EngineEvent::Backspace, None),
+        evaluator.process_event(nite_core::engine::EngineEvent::Backspace, None),
         None
     );
     assert_eq!(
-        evaluator.process_event(taurine_core::engine::EngineEvent::Backspace, None),
+        evaluator.process_event(nite_core::engine::EngineEvent::Backspace, None),
         None
     );
 
@@ -513,15 +517,15 @@ fn completion_is_inactive_after_typed_text_is_deleted() {
     );
 }
 
-pub(crate) static TEST_LOCK: &std::sync::Mutex<()> = &taurine_core::testing::TEST_LOCK;
+pub(crate) static TEST_LOCK: &std::sync::Mutex<()> = &nite_core::testing::TEST_LOCK;
 
 #[test]
 fn test_dispatch_expansion_skips_ai_stats() {
     let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     mock_keystore::use_mock_keystore();
-    taurine_core::logs::init_tracing_for_tests();
+    nite_core::logs::init_tracing_for_tests();
     let test_dir = std::env::temp_dir().join(format!(
-        "taurine_ai_stats_test_{}_{}",
+        "nite_ai_stats_test_{}_{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -530,7 +534,7 @@ fn test_dispatch_expansion_skips_ai_stats() {
     ));
     // SAFETY: Setting environment variables for test DB isolation.
     unsafe {
-        std::env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap());
+        std::env::set_var("NITE_DATA_DIR", test_dir.to_str().unwrap());
     }
     let _ = std::fs::remove_dir_all(&test_dir);
     std::fs::create_dir_all(&test_dir).unwrap();
@@ -539,29 +543,29 @@ fn test_dispatch_expansion_skips_ai_stats() {
         .enable_all()
         .build()
         .expect("runtime should build");
-    let state = Arc::new(taurine_core::engine::EngineState::new());
+    let state = Arc::new(nite_core::engine::EngineState::new());
 
     // Initialize/clear db stats for today to have a clean slate
-    let conn = taurine_core::db::init::setup().unwrap();
-    let today = taurine_core::stats::get_current_date_string();
+    let conn = nite_core::db::init::setup().unwrap();
+    let today = nite_core::stats::get_current_date_string();
     let _ = conn.execute("DELETE FROM stats WHERE date = ?1", [&today]);
 
     // 1. Dispatch Snippet expansion -> should write to stats
-    let expansion_snippet = taurine_core::engine::ExpansionResult {
+    let expansion_snippet = nite_core::engine::ExpansionResult {
         delete_count: 2,
-        steps: vec![taurine_core::engine::variables::ExpansionStep::Text(
+        steps: vec![nite_core::engine::variables::ExpansionStep::Text(
             "hello".to_string(),
         )],
         trigger: "h".to_string(),
         undo_trigger: None,
         is_calculation: false,
-        stat_kind: taurine_core::db::crud::TriggerStatKind::Snippet,
+        stat_kind: nite_core::db::crud::TriggerStatKind::Snippet,
         track_usage: true,
         follow_up: None,
     };
     dispatch_expansion_with(
         expansion_snippet,
-        taurine_core::settings::SpinnerStyle::default(),
+        nite_core::settings::SpinnerStyle::default(),
         state.clone(),
         move |_, _, _| crate::injector::InjectionReport {
             successful_chars: 5,
@@ -573,7 +577,7 @@ fn test_dispatch_expansion_skips_ai_stats() {
     // Verify snippet execution was counted (allow background thread to write)
     let mut row = None;
     for _ in 0..30 {
-        if let Ok(Some(r)) = taurine_core::db::crud::get_stat(&conn, &today) {
+        if let Ok(Some(r)) = nite_core::db::crud::get_stat(&conn, &today) {
             row = Some(r);
             break;
         }
@@ -585,21 +589,21 @@ fn test_dispatch_expansion_skips_ai_stats() {
     assert_eq!(row.ai_executions, 0);
 
     // 2. Dispatch InlineAi expansion -> should NOT write additional stats during dispatch
-    let expansion_ai = taurine_core::engine::ExpansionResult {
+    let expansion_ai = nite_core::engine::ExpansionResult {
         delete_count: 2,
-        steps: vec![taurine_core::engine::variables::ExpansionStep::Text(
+        steps: vec![nite_core::engine::variables::ExpansionStep::Text(
             "thinking".to_string(),
         )],
         trigger: "ai".to_string(),
         undo_trigger: None,
         is_calculation: false,
-        stat_kind: taurine_core::db::crud::TriggerStatKind::InlineAi,
+        stat_kind: nite_core::db::crud::TriggerStatKind::InlineAi,
         track_usage: true,
         follow_up: None,
     };
     dispatch_expansion_with(
         expansion_ai,
-        taurine_core::settings::SpinnerStyle::default(),
+        nite_core::settings::SpinnerStyle::default(),
         state,
         move |_, _, _| crate::injector::InjectionReport {
             successful_chars: 1,
@@ -610,7 +614,7 @@ fn test_dispatch_expansion_skips_ai_stats() {
 
     // Verify executions/ai_executions remain unchanged after AI dispatch (allow sleep anyway to be sure)
     std::thread::sleep(std::time::Duration::from_millis(100));
-    let row = taurine_core::db::crud::get_stat(&conn, &today)
+    let row = nite_core::db::crud::get_stat(&conn, &today)
         .unwrap()
         .unwrap();
     assert_eq!(row.executions, initial_executions);
@@ -620,7 +624,7 @@ fn test_dispatch_expansion_skips_ai_stats() {
     let _ = std::fs::remove_dir_all(&test_dir);
     // SAFETY: Restoring environment variable after test.
     unsafe {
-        std::env::remove_var("TAURINE_DATA_DIR");
+        std::env::remove_var("NITE_DATA_DIR");
     }
 }
 
@@ -628,9 +632,9 @@ fn test_dispatch_expansion_skips_ai_stats() {
 fn test_dispatch_expansion_captures_content_and_silent_scripts() {
     let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     mock_keystore::use_mock_keystore();
-    taurine_core::logs::init_tracing_for_tests();
+    nite_core::logs::init_tracing_for_tests();
     let test_dir = std::env::temp_dir().join(format!(
-        "taurine_dispatch_content_test_{}_{}",
+        "nite_dispatch_content_test_{}_{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -639,7 +643,7 @@ fn test_dispatch_expansion_captures_content_and_silent_scripts() {
     ));
     // SAFETY: Setting environment variables for test DB isolation.
     unsafe {
-        std::env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap());
+        std::env::set_var("NITE_DATA_DIR", test_dir.to_str().unwrap());
     }
     let _ = std::fs::remove_dir_all(&test_dir);
     std::fs::create_dir_all(&test_dir).unwrap();
@@ -648,27 +652,27 @@ fn test_dispatch_expansion_captures_content_and_silent_scripts() {
         .enable_all()
         .build()
         .expect("runtime should build");
-    let state = Arc::new(taurine_core::engine::EngineState::new());
+    let state = Arc::new(nite_core::engine::EngineState::new());
 
-    let conn = taurine_core::db::init::setup().unwrap();
+    let conn = nite_core::db::init::setup().unwrap();
     let _ = conn.execute("DELETE FROM activity_events", []);
 
     // 1. Dispatch text expansion
-    let expansion_text = taurine_core::engine::ExpansionResult {
+    let expansion_text = nite_core::engine::ExpansionResult {
         delete_count: 0,
-        steps: vec![taurine_core::engine::variables::ExpansionStep::Text(
+        steps: vec![nite_core::engine::variables::ExpansionStep::Text(
             "Hello World!".to_string(),
         )],
         trigger: "hw".to_string(),
         undo_trigger: None,
         is_calculation: false,
-        stat_kind: taurine_core::db::crud::TriggerStatKind::Snippet,
+        stat_kind: nite_core::db::crud::TriggerStatKind::Snippet,
         track_usage: true,
         follow_up: None,
     };
     dispatch_expansion_with(
         expansion_text,
-        taurine_core::settings::SpinnerStyle::default(),
+        nite_core::settings::SpinnerStyle::default(),
         state.clone(),
         move |_, _, _| crate::injector::InjectionReport {
             successful_chars: 12,
@@ -678,26 +682,26 @@ fn test_dispatch_expansion_captures_content_and_silent_scripts() {
     );
 
     // 2. Dispatch silent script
-    let metadata = taurine_core::engine::shell::ScriptMetadata {
-        interpreter: taurine_core::engine::shell::ScriptInterpreter::Bash,
-        behavior: taurine_core::engine::shell::ScriptBehavior::Silent,
-        compressed_content: taurine_core::engine::shell::compress("echo silent").unwrap(),
+    let metadata = nite_core::engine::shell::ScriptMetadata {
+        interpreter: nite_core::engine::shell::ScriptInterpreter::Bash,
+        behavior: nite_core::engine::shell::ScriptBehavior::Silent,
+        compressed_content: nite_core::engine::shell::compress("echo silent").unwrap(),
     };
-    let expansion_silent = taurine_core::engine::ExpansionResult {
+    let expansion_silent = nite_core::engine::ExpansionResult {
         delete_count: 0,
-        steps: vec![taurine_core::engine::variables::ExpansionStep::Script(
+        steps: vec![nite_core::engine::variables::ExpansionStep::Script(
             metadata,
         )],
         trigger: "silent".to_string(),
         undo_trigger: None,
         is_calculation: false,
-        stat_kind: taurine_core::db::crud::TriggerStatKind::Script,
+        stat_kind: nite_core::db::crud::TriggerStatKind::Script,
         track_usage: true,
         follow_up: None,
     };
     dispatch_expansion_with(
         expansion_silent,
-        taurine_core::settings::SpinnerStyle::default(),
+        nite_core::settings::SpinnerStyle::default(),
         state,
         move |_, _, _| crate::injector::InjectionReport {
             successful_chars: 0,
@@ -708,7 +712,7 @@ fn test_dispatch_expansion_captures_content_and_silent_scripts() {
 
     let mut events = Vec::new();
     for _ in 0..30 {
-        if let Ok(evts) = taurine_core::db::crud::get_activity_events(&conn, 10, 0)
+        if let Ok(evts) = nite_core::db::crud::get_activity_events(&conn, 10, 0)
             && evts.len() >= 2
         {
             events = evts;
@@ -721,14 +725,14 @@ fn test_dispatch_expansion_captures_content_and_silent_scripts() {
     // Events are ordered by timestamp DESC
     let silent_evt = events
         .iter()
-        .find(|e| e.category == taurine_core::db::crud::ActivityCategory::Script)
+        .find(|e| e.category == nite_core::db::crud::ActivityCategory::Script)
         .unwrap();
     assert_eq!(silent_evt.word_count, 0);
     assert_eq!(silent_evt.content, None);
 
     let text_evt = events
         .iter()
-        .find(|e| e.category == taurine_core::db::crud::ActivityCategory::Text)
+        .find(|e| e.category == nite_core::db::crud::ActivityCategory::Text)
         .unwrap();
     assert_eq!(text_evt.word_count, 2);
     assert_eq!(text_evt.content.as_deref(), Some("Hello World!"));
@@ -737,7 +741,7 @@ fn test_dispatch_expansion_captures_content_and_silent_scripts() {
     let _ = std::fs::remove_dir_all(&test_dir);
     // SAFETY: Restoring environment variables after test DB isolation.
     unsafe {
-        std::env::remove_var("TAURINE_DATA_DIR");
+        std::env::remove_var("NITE_DATA_DIR");
     }
 }
 
@@ -843,8 +847,8 @@ fn evaluator_reset_clears_buffer_and_completion() {
 #[cfg(not(target_os = "linux"))]
 fn test_case_cycle_key_action() {
     use super::case_cycle::case_cycle_key_action;
+    use nite_core::engine::CycleDirection;
     use rdev::Key;
-    use taurine_core::engine::CycleDirection;
 
     // Normal mode, enabled, no modifiers
     assert_eq!(

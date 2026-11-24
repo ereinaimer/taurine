@@ -60,7 +60,7 @@ unsafe extern "system" fn vectored_exception_handler(info: *mut EXCEPTION_POINTE
             };
 
             eprintln!(
-                "[FATAL] Native OS exception caught by Taurine VEH filter: {} at address 0x{:X}",
+                "[FATAL] Native OS exception caught by Nite VEH filter: {} at address 0x{:X}",
                 name, address
             );
 
@@ -85,10 +85,10 @@ fn write_fatal_exception_to_service_log(name: &str, address: usize) {
     use std::fs::OpenOptions;
     use std::io::Write;
 
-    let log_dir = taurine_core::paths::logs_dir().join("service");
+    let log_dir = nite_core::paths::logs_dir().join("service");
     let _ = std::fs::create_dir_all(&log_dir);
-    let date_str = taurine_core::stats::get_current_date_string();
-    let log_path = log_dir.join(format!("taurine-{date_str}.log"));
+    let date_str = nite_core::stats::get_current_date_string();
+    let log_path = log_dir.join(format!("nite-{date_str}.log"));
 
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_path) {
         let _ = writeln!(
@@ -97,7 +97,7 @@ fn write_fatal_exception_to_service_log(name: &str, address: usize) {
         );
         let _ = writeln!(
             file,
-            "[FATAL] Native OS exception caught by Taurine VEH filter: {} at address 0x{:X}",
+            "[FATAL] Native OS exception caught by Nite VEH filter: {} at address 0x{:X}",
             name, address
         );
         let _ = writeln!(

@@ -1,13 +1,13 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use nite_core::db::crud::quota::get_or_init_quota_ledger;
+use nite_core::db::init::ensure_schema;
+use nite_core::engine::ExpansionResult;
+use nite_core::engine::variables::{ArgMap, ExpansionStep};
+use nite_core::settings::SpinnerStyle;
+use nite_core::stats::TriggerStatKind;
 use rusqlite::Connection;
-use taurine_core::db::crud::quota::get_or_init_quota_ledger;
-use taurine_core::db::init::ensure_schema;
-use taurine_core::engine::ExpansionResult;
-use taurine_core::engine::variables::{ArgMap, ExpansionStep};
-use taurine_core::settings::SpinnerStyle;
-use taurine_core::stats::TriggerStatKind;
 
 use crate::engine::quota_guard::{ExpansionType, QuotaGuard};
 use crate::hook::dispatch::dispatch_expansion_with;
@@ -112,7 +112,7 @@ fn test_unauthenticated_guard_blocks_all_expansions() {
 
 #[test]
 fn test_dispatch_expansion_drops_when_unauthenticated() {
-    let _lock = taurine_core::testing::TEST_LOCK
+    let _lock = nite_core::testing::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let original_balance = QuotaGuard::global().balance();
@@ -134,7 +134,7 @@ fn test_dispatch_expansion_drops_when_unauthenticated() {
 
     let injected = Arc::new(AtomicBool::new(false));
     let injected_clone = Arc::clone(&injected);
-    let state = Arc::new(taurine_core::engine::EngineState::new());
+    let state = Arc::new(nite_core::engine::EngineState::new());
 
     dispatch_expansion_with(
         expansion,
@@ -190,7 +190,7 @@ fn test_flush_to_db() {
 
 #[test]
 fn test_dispatch_expansion_drops_when_quota_exhausted() {
-    let _lock = taurine_core::testing::TEST_LOCK
+    let _lock = nite_core::testing::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let original_balance = QuotaGuard::global().balance();
@@ -209,7 +209,7 @@ fn test_dispatch_expansion_drops_when_quota_exhausted() {
 
     let injected = Arc::new(AtomicBool::new(false));
     let injected_clone = Arc::clone(&injected);
-    let state = Arc::new(taurine_core::engine::EngineState::new());
+    let state = Arc::new(nite_core::engine::EngineState::new());
 
     dispatch_expansion_with(
         expansion,
@@ -272,7 +272,7 @@ fn test_dispatch_expansion_drops_when_quota_exhausted() {
 
 #[test]
 fn test_dispatch_expansion_does_not_deplete_quota_on_injection_failure() {
-    let _lock = taurine_core::testing::TEST_LOCK
+    let _lock = nite_core::testing::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let original_balance = QuotaGuard::global().balance();
@@ -290,7 +290,7 @@ fn test_dispatch_expansion_does_not_deplete_quota_on_injection_failure() {
         follow_up: None,
     };
 
-    let state = Arc::new(taurine_core::engine::EngineState::new());
+    let state = Arc::new(nite_core::engine::EngineState::new());
 
     dispatch_expansion_with(
         expansion,
@@ -323,18 +323,18 @@ fn test_dispatch_expansion_does_not_deplete_quota_on_injection_failure() {
 
 #[test]
 fn test_voice_trigger_drops_when_quota_exhausted() {
-    let _lock = taurine_core::testing::TEST_LOCK
+    let _lock = nite_core::testing::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let original_balance = QuotaGuard::global().balance();
     QuotaGuard::global().set_balance(0.0);
 
     let mut conn = create_test_db();
-    let inv = taurine_core::db::crud::ResolvedInvocation {
+    let inv = nite_core::db::crud::ResolvedInvocation {
         trigger_id: "test-id".to_string(),
         invocation: "hello".to_string(),
-        invocation_type: taurine_core::db::crud::InvocationType::Voice,
-        action: taurine_core::db::crud::TriggerAction {
+        invocation_type: nite_core::db::crud::InvocationType::Voice,
+        action: nite_core::db::crud::TriggerAction {
             output: "world".to_string(),
             action_type: "text".to_string(),
             only_apps: None,
@@ -368,7 +368,7 @@ fn test_voice_trigger_drops_when_quota_exhausted() {
 
 #[test]
 fn test_voice_trigger_does_not_deplete_quota_when_expansion_fails() {
-    let _lock = taurine_core::testing::TEST_LOCK
+    let _lock = nite_core::testing::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let original_balance = QuotaGuard::global().balance();
@@ -377,11 +377,11 @@ fn test_voice_trigger_does_not_deplete_quota_when_expansion_fails() {
 
     let mut conn = create_test_db();
     // Missing script_binary causes expand_trigger_action_with_args to return None
-    let inv = taurine_core::db::crud::ResolvedInvocation {
+    let inv = nite_core::db::crud::ResolvedInvocation {
         trigger_id: "broken-script-id".to_string(),
         invocation: "broken".to_string(),
-        invocation_type: taurine_core::db::crud::InvocationType::Voice,
-        action: taurine_core::db::crud::TriggerAction {
+        invocation_type: nite_core::db::crud::InvocationType::Voice,
+        action: nite_core::db::crud::TriggerAction {
             output: "broken".to_string(),
             action_type: "script".to_string(),
             only_apps: None,
@@ -427,7 +427,7 @@ fn test_voice_trigger_does_not_deplete_quota_when_expansion_fails() {
 
 #[test]
 fn test_quota_guard_set_global_and_init_global() {
-    let _lock = taurine_core::testing::TEST_LOCK
+    let _lock = nite_core::testing::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let original = QuotaGuard::global().balance();
@@ -490,7 +490,7 @@ fn test_quota_guard_mode_switching_preserves_balance() {
 
 #[test]
 fn test_expansion_dispatches_when_unlimited_even_at_zero_balance() {
-    let _lock = taurine_core::testing::TEST_LOCK
+    let _lock = nite_core::testing::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let original_balance = QuotaGuard::global().balance();
@@ -512,7 +512,7 @@ fn test_expansion_dispatches_when_unlimited_even_at_zero_balance() {
 
     let injected = Arc::new(AtomicBool::new(false));
     let injected_clone = Arc::clone(&injected);
-    let state = Arc::new(taurine_core::engine::EngineState::new());
+    let state = Arc::new(nite_core::engine::EngineState::new());
 
     dispatch_expansion_with(
         expansion,
@@ -540,7 +540,7 @@ fn test_expansion_dispatches_when_unlimited_even_at_zero_balance() {
 
 #[test]
 fn test_voice_trigger_dispatches_when_unlimited_even_at_zero_balance() {
-    let _lock = taurine_core::testing::TEST_LOCK
+    let _lock = nite_core::testing::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let original_balance = QuotaGuard::global().balance();
@@ -550,11 +550,11 @@ fn test_voice_trigger_dispatches_when_unlimited_even_at_zero_balance() {
     QuotaGuard::global().set_unlimited(true);
 
     let mut conn = create_test_db();
-    let inv = taurine_core::db::crud::ResolvedInvocation {
+    let inv = nite_core::db::crud::ResolvedInvocation {
         trigger_id: "paid-voice-test".to_string(),
         invocation: "hello voice".to_string(),
-        invocation_type: taurine_core::db::crud::InvocationType::Voice,
-        action: taurine_core::db::crud::TriggerAction {
+        invocation_type: nite_core::db::crud::InvocationType::Voice,
+        action: nite_core::db::crud::TriggerAction {
             output: "unlimited voice output".to_string(),
             action_type: "text".to_string(),
             only_apps: None,
@@ -618,7 +618,7 @@ fn test_quota_flush_enqueues_to_sync_outbox() {
         .expect("flush_to_db should succeed");
     assert_eq!(guard.unflushed_delta(), 0.0);
 
-    let entries = taurine_core::db::crud::fetch_outbox_batch(&conn, 10)
+    let entries = nite_core::db::crud::fetch_outbox_batch(&conn, 10)
         .expect("fetch outbox batch should succeed");
     assert_eq!(entries.len(), 1);
     let entry = &entries[0];

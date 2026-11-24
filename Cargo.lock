@@ -3283,6 +3283,54 @@ dependencies = [
 ]
 
 [[package]]
+name = "nite_daemon"
+version = "1.0.0-alpha.19"
+dependencies = [
+ "arboard",
+ "arc-swap",
+ "cpal 0.18.2",
+ "crossbeam-channel",
+ "evdev",
+ "futures",
+ "genai",
+ "image",
+ "keyring",
+ "ksni",
+ "libc",
+ "nite_core",
+ "notify-rust",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "os_info",
+ "rdev",
+ "reqwest",
+ "rodio",
+ "rubato",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tracing",
+ "tracing-appender",
+ "tray-icon",
+ "unicode-normalization",
+ "uuid",
+ "wayland-client",
+ "wayland-protocols-wlr",
+ "windows 0.61.3",
+ "windows-sys 0.61.2",
+ "x11rb 0.14.0",
+ "xkbcommon",
+ "zbus",
+ "zeroize",
+ "zstd",
+]
+
+[[package]]
 name = "nix"
 version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5794,6 +5842,7 @@ dependencies = [
  "genai",
  "keyring",
  "nite_core",
+ "nite_daemon",
  "notify-rust",
  "regex",
  "reqwest",
@@ -5804,7 +5853,6 @@ dependencies = [
  "service-manager",
  "sha2 0.11.0",
  "sysinfo",
- "taurine_daemon",
  "taurine_tui",
  "tempfile",
  "time",
@@ -5819,54 +5867,6 @@ dependencies = [
  "winreg",
  "winres",
  "zeroize",
-]
-
-[[package]]
-name = "taurine_daemon"
-version = "1.0.0-alpha.19"
-dependencies = [
- "arboard",
- "arc-swap",
- "cpal 0.18.2",
- "crossbeam-channel",
- "evdev",
- "futures",
- "genai",
- "image",
- "keyring",
- "ksni",
- "libc",
- "nite_core",
- "notify-rust",
- "objc2",
- "objc2-app-kit",
- "objc2-foundation",
- "os_info",
- "rdev",
- "reqwest",
- "rodio",
- "rubato",
- "rusqlite",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-stream",
- "tonic",
- "tracing",
- "tracing-appender",
- "tray-icon",
- "unicode-normalization",
- "uuid",
- "wayland-client",
- "wayland-protocols-wlr",
- "windows 0.61.3",
- "windows-sys 0.61.2",
- "x11rb 0.14.0",
- "xkbcommon",
- "zbus",
- "zeroize",
- "zstd",
 ]
 
 [[package]]

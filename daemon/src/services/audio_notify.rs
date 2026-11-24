@@ -251,7 +251,7 @@ mod win_notify {
         }
         STOP_FLAG.store(false, Ordering::SeqCst);
         std::thread::Builder::new()
-            .name("tau-audio-notify".to_string())
+            .name("nite-audio-notify".to_string())
             .spawn(|| {
                 // SAFETY: COM is initialized/uninitialized symmetrically on
                 // this thread; the enumerator and client pointers are valid

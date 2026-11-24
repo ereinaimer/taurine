@@ -1,5 +1,5 @@
+use nite_core::engine::Evaluator;
 use std::sync::{Arc, Mutex};
-use taurine_core::engine::Evaluator;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CompletionKeyKind {
@@ -43,7 +43,7 @@ pub(crate) fn completion_key_action(
 }
 
 pub(crate) fn trigger_assist_key_action(
-    _state: &taurine_core::engine::EngineState,
+    _state: &nite_core::engine::EngineState,
     key: CompletionKeyKind,
     shift_active: bool,
     ctrl_active: bool,
@@ -73,7 +73,7 @@ pub(crate) fn completion_key_kind_from_tab_like(
 }
 
 pub(crate) fn should_swallow_trigger_assist_key_release(
-    _state: &taurine_core::engine::EngineState,
+    _state: &nite_core::engine::EngineState,
     key: CompletionKeyKind,
 ) -> bool {
     match key {
@@ -92,7 +92,7 @@ pub(super) fn completion_is_active(evaluator: &Arc<Mutex<Evaluator>>) -> bool {
 
 pub(crate) fn trigger_assist_is_active(
     evaluator: &Arc<Mutex<Evaluator>>,
-    state: &taurine_core::engine::EngineState,
+    state: &nite_core::engine::EngineState,
 ) -> bool {
     state
         .completion_active

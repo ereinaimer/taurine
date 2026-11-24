@@ -1,7 +1,7 @@
 use futures::StreamExt;
+use nite_core::engine::{ActiveWindowInfo, EngineState};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use taurine_core::engine::{ActiveWindowInfo, EngineState};
 use tracing::{debug, error, info};
 use zbus::{Connection, MatchRule};
 
@@ -10,7 +10,7 @@ static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
 pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Option<String>>>) {
     let spawn_result = std::thread::Builder::new()
-        .name("tau-lnx-atspi".to_string())
+        .name("nite-lnx-atspi".to_string())
         .spawn(move || {
             let rt = match tokio::runtime::Builder::new_current_thread()
                 .enable_all()

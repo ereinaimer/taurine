@@ -17,7 +17,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 use crate::hook::WindowsSupervisorEvent;
 
-const WINDOW_CLASS_NAME: &str = "TaurinePowerSessionMonitor";
+const WINDOW_CLASS_NAME: &str = "NitePowerSessionMonitor";
 const WTS_SESSION_LOGON: u32 = 0x5;
 const WTS_SESSION_LOCK: u32 = 0x7;
 const WTS_SESSION_UNLOCK: u32 = 0x8;
@@ -37,10 +37,10 @@ pub fn start_listener(tx: Sender<WindowsSupervisorEvent>) -> Result<(), String> 
     *slot = Some(tx);
 
     let handle = thread::Builder::new()
-        .name("tau-win-power".to_string())
+        .name("nite-win-power".to_string())
         .spawn(|| {
             let _ = crate::platform::panic::catch_worker_panic(
-                "tau-win-power",
+                "nite-win-power",
                 std::panic::AssertUnwindSafe(run_message_loop),
             );
         })

@@ -1,5 +1,5 @@
 [package]
-name = "taurine_daemon"
+name = "nite_daemon"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -11,14 +11,14 @@ publish = false
 [features]
 # Default build links a self-contained OpenSSL.
 # Fast dev loops link system libcrypto instead:
-#   cargo check -p taurine_daemon --no-default-features
+#   cargo check -p nite_daemon --no-default-features
 
 default = ["vendored-openssl"]
 
-vendored-openssl = ["taurine_core/vendored-openssl", "rusqlite/bundled-sqlcipher-vendored-openssl"]
+vendored-openssl = ["nite_core/vendored-openssl", "rusqlite/bundled-sqlcipher-vendored-openssl"]
 
 [dependencies]
-taurine_core = { package = "nite_core", path = "../core", default-features = false }
+nite_core = { path = "../core", default-features = false }
 tracing = { workspace = true }
 # Trimmed from full: audited surface is rt, net, time, signal, sync, io-util, macros, process. No test-util in prod.
 tokio = { workspace = true }

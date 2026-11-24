@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
-use taurine_core::db::crud::TriggerStatKind;
-use taurine_core::engine::{EngineState, ExpansionResult};
-use taurine_core::keys::{KeyPress, LogicalKey, Modifier, Modifiers, MouseButton};
+use nite_core::db::crud::TriggerStatKind;
+use nite_core::engine::{EngineState, ExpansionResult};
+use nite_core::keys::{KeyPress, LogicalKey, Modifier, Modifiers, MouseButton};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum HotkeyEvaluation {
@@ -68,7 +68,7 @@ impl HotkeyEvaluator {
         };
         let stat_kind = if matches!(
             expansion.steps.as_slice(),
-            [taurine_core::engine::variables::ExpansionStep::Script(_)]
+            [nite_core::engine::variables::ExpansionStep::Script(_)]
         ) {
             TriggerStatKind::Script
         } else {

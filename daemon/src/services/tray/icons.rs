@@ -111,7 +111,7 @@ pub fn paused_pixmap() -> &'static [ksni::Icon] {
 
 #[cfg(target_os = "linux")]
 pub fn ensure_icons_exported() -> Option<std::path::PathBuf> {
-    let icon_dir = taurine_core::system::paths::get_data_dir().join("icons");
+    let icon_dir = nite_core::system::paths::get_data_dir().join("icons");
     if let Err(e) = std::fs::create_dir_all(&icon_dir) {
         tracing::warn!("Failed to create icon directory {:?}: {}", icon_dir, e);
         return None;

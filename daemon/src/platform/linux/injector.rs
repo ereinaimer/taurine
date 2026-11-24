@@ -168,7 +168,7 @@ impl Injector for LinuxInjector {
 }
 
 pub(crate) fn modifier_alias_to_evdev_key(alias: &str) -> Option<evdev::KeyCode> {
-    use taurine_core::keys::Modifier;
+    use nite_core::keys::Modifier;
     let modifier = Modifier::from_alias(alias)?;
     match modifier {
         Modifier::Ctrl | Modifier::LeftCtrl => Some(evdev::KeyCode::KEY_LEFTCTRL),
@@ -183,7 +183,7 @@ pub(crate) fn modifier_alias_to_evdev_key(alias: &str) -> Option<evdev::KeyCode>
 }
 
 pub(crate) fn alias_to_evdev_key(alias: &str) -> Option<evdev::KeyCode> {
-    use taurine_core::keys::LogicalKey;
+    use nite_core::keys::LogicalKey;
     let key = LogicalKey::from_alias(alias)?;
     match key {
         LogicalKey::Letter(c) => match c {
@@ -275,22 +275,22 @@ pub(crate) fn alias_to_evdev_key(alias: &str) -> Option<evdev::KeyCode> {
         LogicalKey::PrintScreen => Some(evdev::KeyCode::KEY_SYSRQ),
         LogicalKey::Pause => Some(evdev::KeyCode::KEY_PAUSE),
         LogicalKey::Modifier(m) => match m {
-            taurine_core::keys::Modifier::Ctrl | taurine_core::keys::Modifier::LeftCtrl => {
+            nite_core::keys::Modifier::Ctrl | nite_core::keys::Modifier::LeftCtrl => {
                 Some(evdev::KeyCode::KEY_LEFTCTRL)
             }
-            taurine_core::keys::Modifier::RightCtrl => Some(evdev::KeyCode::KEY_RIGHTCTRL),
-            taurine_core::keys::Modifier::Shift | taurine_core::keys::Modifier::LeftShift => {
+            nite_core::keys::Modifier::RightCtrl => Some(evdev::KeyCode::KEY_RIGHTCTRL),
+            nite_core::keys::Modifier::Shift | nite_core::keys::Modifier::LeftShift => {
                 Some(evdev::KeyCode::KEY_LEFTSHIFT)
             }
-            taurine_core::keys::Modifier::RightShift => Some(evdev::KeyCode::KEY_RIGHTSHIFT),
-            taurine_core::keys::Modifier::Alt | taurine_core::keys::Modifier::LeftAlt => {
+            nite_core::keys::Modifier::RightShift => Some(evdev::KeyCode::KEY_RIGHTSHIFT),
+            nite_core::keys::Modifier::Alt | nite_core::keys::Modifier::LeftAlt => {
                 Some(evdev::KeyCode::KEY_LEFTALT)
             }
-            taurine_core::keys::Modifier::RightAlt => Some(evdev::KeyCode::KEY_RIGHTALT),
-            taurine_core::keys::Modifier::Meta | taurine_core::keys::Modifier::LeftMeta => {
+            nite_core::keys::Modifier::RightAlt => Some(evdev::KeyCode::KEY_RIGHTALT),
+            nite_core::keys::Modifier::Meta | nite_core::keys::Modifier::LeftMeta => {
                 Some(evdev::KeyCode::KEY_LEFTMETA)
             }
-            taurine_core::keys::Modifier::RightMeta => Some(evdev::KeyCode::KEY_RIGHTMETA),
+            nite_core::keys::Modifier::RightMeta => Some(evdev::KeyCode::KEY_RIGHTMETA),
         },
         LogicalKey::Mouse(_) => None,
     }

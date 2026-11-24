@@ -1,6 +1,6 @@
+use nite_core::engine::EngineState;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use taurine_core::engine::EngineState;
 use tracing::error;
 use windows_sys::Win32::Foundation::{HWND, POINT, RECT};
 use windows_sys::Win32::Graphics::Gdi::{
@@ -23,10 +23,10 @@ static FULLSCREEN_JOIN_HANDLE: std::sync::Mutex<Option<std::thread::JoinHandle<(
 
 pub fn start_listener(state: Arc<EngineState>) {
     let spawn_result = std::thread::Builder::new()
-        .name("tau-win-full".to_string())
+        .name("nite-win-full".to_string())
         .spawn(move || {
             let _ = crate::platform::panic::catch_worker_panic(
-                "tau-win-full",
+                "nite-win-full",
                 std::panic::AssertUnwindSafe(move || {
                     // SAFETY: GetCurrentThreadId retrieves the OS thread ID of the calling thread.
                     // It always succeeds and has no failure modes.

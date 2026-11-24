@@ -7,7 +7,7 @@ use tracing::{debug, info, warn};
 
 use crate::input::hook_health::HookHealth;
 use crate::input::hotkey;
-use taurine_core::engine::Evaluator;
+use nite_core::engine::Evaluator;
 
 #[derive(Debug, Clone)]
 pub enum MacosSupervisorEvent {
@@ -23,10 +23,10 @@ static SUPERVISOR_SENDER: std::sync::OnceLock<Mutex<Option<mpsc::Sender<MacosSup
 #[allow(clippy::too_many_arguments)]
 pub fn start_macos_supervisor(
     evaluator: Arc<Mutex<Evaluator>>,
-    state: Arc<taurine_core::engine::EngineState>,
+    state: Arc<nite_core::engine::EngineState>,
     paused: Arc<std::sync::atomic::AtomicBool>,
     pause_hotkey: Arc<arc_swap::ArcSwap<hotkey::HotkeySpec>>,
-    spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
+    spinner_style: Arc<RwLock<nite_core::settings::SpinnerStyle>>,
     pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
     audio_tx: tokio::sync::mpsc::Sender<bool>,
     pause_transition_tx: tokio::sync::mpsc::Sender<bool>,
@@ -42,7 +42,7 @@ pub fn start_macos_supervisor(
 
     // Start supervisor thread
     std::thread::Builder::new()
-        .name("tau-macos-supervisor".to_string())
+        .name("nite-macos-supervisor".to_string())
         .spawn(move || {
             info!("macOS Event Tap supervisor active");
 

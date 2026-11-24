@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
 
-use taurine_core::voice::{VoiceDictionary, format_transcript};
+use nite_core::voice::{VoiceDictionary, format_transcript};
 
 use super::capture::AudioCapture;
 use super::modes::VoiceMode;
@@ -59,9 +59,9 @@ pub struct VoiceSessionManager {
     mode: Mutex<VoiceMode>,
     capture: Arc<AudioCapture>,
     paused: Arc<AtomicBool>,
-    engine_state: Option<Arc<taurine_core::engine::EngineState>>,
+    engine_state: Option<Arc<nite_core::engine::EngineState>>,
     dictionary: Mutex<VoiceDictionary>,
-    cloud_client: Arc<taurine_core::voice::GroqVoiceClient>,
+    cloud_client: Arc<nite_core::voice::GroqVoiceClient>,
     active_req: Mutex<Option<(String, PttTiming)>>,
     media: Arc<dyn super::media_suspend::MediaSuspender>,
     media_paused: Arc<std::sync::Mutex<Vec<super::media_suspend::PausedSession>>>,
@@ -97,7 +97,7 @@ impl VoiceSessionManager {
             paused,
             engine_state: None,
             dictionary: Mutex::new(VoiceDictionary::default()),
-            cloud_client: Arc::new(taurine_core::voice::GroqVoiceClient::from_env_or_keyring()),
+            cloud_client: Arc::new(nite_core::voice::GroqVoiceClient::from_env_or_keyring()),
             active_req: Mutex::new(None),
             #[cfg(test)]
             media: Arc::new(super::media_suspend::NoopMediaSuspender),
@@ -135,11 +135,11 @@ impl VoiceSessionManager {
             transcribe_hook: Mutex::new(None),
         }
     }
-    pub fn with_engine_state(mut self, state: Arc<taurine_core::engine::EngineState>) -> Self {
+    pub fn with_engine_state(mut self, state: Arc<nite_core::engine::EngineState>) -> Self {
         self.engine_state = Some(state);
         self
     }
-    pub fn with_cloud_client(mut self, client: Arc<taurine_core::voice::GroqVoiceClient>) -> Self {
+    pub fn with_cloud_client(mut self, client: Arc<nite_core::voice::GroqVoiceClient>) -> Self {
         self.cloud_client = client;
         #[cfg(test)]
         {
@@ -336,7 +336,7 @@ impl VoiceSessionManager {
         self.current_mode().is_active()
     }
 
-    /// Returns true if Taurine is globally paused.
+    /// Returns true if Nite is globally paused.
     pub fn is_paused(&self) -> bool {
         self.paused.load(Ordering::Relaxed)
     }
@@ -351,7 +351,7 @@ impl VoiceSessionManager {
             Ok(d) => d,
             Err(e) => return Err(e.to_string()),
         };
-        let files = taurine_core::voice::list_orphaned_sessions(&dir).map_err(|e| e.to_string())?;
+        let files = nite_core::voice::list_orphaned_sessions(&dir).map_err(|e| e.to_string())?;
         self.recover_orphaned_files(files)
     }
 
@@ -492,7 +492,7 @@ impl VoiceSessionManager {
         for _ in 0..5 {
             let waiter = Arc::clone(&me);
             let res = std::thread::Builder::new()
-                .name("tau-ptt-rescue".to_string())
+                .name("nite-ptt-rescue".to_string())
                 .spawn(move || {
                     std::thread::sleep(Duration::from_millis(RESCUE_WAIT_MS));
                     let held = if handsfree {
@@ -539,7 +539,7 @@ impl VoiceSessionManager {
         }
     }
     fn suspend_media(&self) {
-        if !taurine_core::settings::get_cached_pause_media_while_dictating() {
+        if !nite_core::settings::get_cached_pause_media_while_dictating() {
             return;
         }
         if self.media_suspend_inflight.swap(true, Ordering::SeqCst) {
@@ -558,7 +558,7 @@ impl VoiceSessionManager {
         let paused_slot = Arc::clone(&self.media_paused);
         let inflight = Arc::clone(&self.media_suspend_inflight);
         if std::thread::Builder::new()
-            .name("tau-media-suspend".to_string())
+            .name("nite-media-suspend".to_string())
             .spawn(move || {
                 let paused = media.suspend_playing();
                 *paused_slot.lock().unwrap_or_else(|p| p.into_inner()) = paused;
@@ -589,7 +589,7 @@ impl VoiceSessionManager {
         let paused_slot = Arc::clone(&self.media_paused);
         let inflight = Arc::clone(&self.media_suspend_inflight);
         if std::thread::Builder::new()
-            .name("tau-media-resume".to_string())
+            .name("nite-media-resume".to_string())
             .spawn(move || {
                 let deadline = Instant::now() + Duration::from_secs(2);
                 while inflight.load(Ordering::SeqCst) {
@@ -727,7 +727,7 @@ impl VoiceSessionManager {
     fn begin_request(&self, timing: PttTiming) {
         let req_id = format!("r{}", self.req_counter.fetch_add(1, Ordering::Relaxed));
         if let Ok(rec_dir) = crate::voice::recovery::recovery_dir()
-            && let Ok(spooler) = taurine_core::voice::AudioSpooler::new(&rec_dir, &req_id)
+            && let Ok(spooler) = nite_core::voice::AudioSpooler::new(&rec_dir, &req_id)
         {
             self.capture.buffer().set_spooler(spooler);
         }
@@ -739,18 +739,18 @@ impl VoiceSessionManager {
     /// passing personal dictionary terms and active voice triggers as prompt biasing.
     pub fn transcribe_audio(&self, audio: &[f32]) -> Result<String, String> {
         let dict = self.dictionary.lock().unwrap_or_else(|p| p.into_inner());
-        let triggers: Vec<String> = if let Ok(conn) = taurine_core::db::get_conn()
-            && let Ok(invocations) = taurine_core::db::crud::list_active_voice_invocations(&conn)
+        let triggers: Vec<String> = if let Ok(conn) = nite_core::db::get_conn()
+            && let Ok(invocations) = nite_core::db::crud::list_active_voice_invocations(&conn)
         {
             invocations.into_iter().map(|inv| inv.invocation).collect()
         } else {
             Vec::new()
         };
-        let prompt = taurine_core::voice::build_whisper_prompt(&dict, &triggers);
+        let prompt = nite_core::voice::build_whisper_prompt(&dict, &triggers);
         let terms = dict.terms().to_vec();
         drop(dict);
 
-        let preferred_langs = taurine_core::settings::get_cached_voice_preferred_languages();
+        let preferred_langs = nite_core::settings::get_cached_voice_preferred_languages();
         info!(
             "VoiceSessionManager: transcribing audio with preferred_languages: {:?}",
             preferred_langs
@@ -807,7 +807,7 @@ impl VoiceSessionManager {
             return Ok(None);
         }
 
-        if !taurine_core::voice::has_voice_activity(&drained) {
+        if !nite_core::voice::has_voice_activity(&drained) {
             if let Some(spooler) = self.capture.buffer().take_spooler() {
                 let _ = spooler.discard();
             }
@@ -1159,7 +1159,7 @@ impl VoiceSessionManager {
             if guard.is_authenticated() {
                 warn!("Dictation dropped: weekly quota exhausted");
             } else {
-                debug!("Please log in to use Taurine.");
+                debug!("Please log in to use Nite.");
             }
             return Ok(None);
         }
@@ -1179,11 +1179,11 @@ impl VoiceSessionManager {
         let active_app = crate::platform::get_active_window_info().and_then(|info| info.exec_name);
 
         // Check if transcribed text matches any active voice trigger
-        let normalized_spoken = taurine_core::db::crud::normalize_voice_phrase(trimmed);
-        if let Ok(mut conn) = taurine_core::db::get_conn()
-            && let Ok(invocations) = taurine_core::db::crud::list_active_voice_invocations(&conn)
+        let normalized_spoken = nite_core::db::crud::normalize_voice_phrase(trimmed);
+        if let Ok(mut conn) = nite_core::db::get_conn()
+            && let Ok(invocations) = nite_core::db::crud::list_active_voice_invocations(&conn)
         {
-            let in_scope: Vec<taurine_core::db::crud::ResolvedInvocation> = invocations
+            let in_scope: Vec<nite_core::db::crud::ResolvedInvocation> = invocations
                 .into_iter()
                 .filter(|inv| {
                     (match (&inv.action.only_apps, &active_app) {
@@ -1201,7 +1201,7 @@ impl VoiceSessionManager {
                 .collect();
 
             if let Some(matched) =
-                taurine_core::voice::rank_voice_invocations(&normalized_spoken, &in_scope)
+                nite_core::voice::rank_voice_invocations(&normalized_spoken, &in_scope)
             {
                 let inv = matched.trigger;
                 info!(
@@ -1215,7 +1215,7 @@ impl VoiceSessionManager {
                     &normalized_spoken,
                     &mut conn,
                     active_app.clone(),
-                    taurine_core::settings::SpinnerStyle::default(),
+                    nite_core::settings::SpinnerStyle::default(),
                 );
                 return Ok(output);
             }
@@ -1230,10 +1230,10 @@ impl VoiceSessionManager {
 
         // Inject text segment using canonical expansion pipeline with IS_INJECTING guard
         let report = crate::injector::inject_expansion_for_voice(
-            vec![taurine_core::engine::variables::ExpansionStep::Text(
+            vec![nite_core::engine::variables::ExpansionStep::Text(
                 final_text.to_string(),
             )],
-            taurine_core::settings::SpinnerStyle::default(),
+            nite_core::settings::SpinnerStyle::default(),
         );
 
         if !report.completed {
@@ -1247,7 +1247,7 @@ impl VoiceSessionManager {
             if guard.is_authenticated() {
                 warn!("Dictation dropped: weekly quota exhausted");
             } else {
-                debug!("Please log in to use Taurine.");
+                debug!("Please log in to use Nite.");
             }
             return Ok(None);
         }
@@ -1255,7 +1255,7 @@ impl VoiceSessionManager {
         // Record voice dictation stats
         let chars_count = final_text.chars().count();
 
-        taurine_core::db::crud::record_voice_dictation_usage(
+        nite_core::db::crud::record_voice_dictation_usage(
             words_count,
             chars_count,
             active_app,
@@ -1314,9 +1314,9 @@ impl VoiceSessionManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nite_core::voice::VoiceDictionary;
     use std::sync::atomic::AtomicBool;
     use std::sync::atomic::AtomicUsize;
-    use taurine_core::voice::VoiceDictionary;
 
     fn wait_for_mode(session: &VoiceSessionManager, want: VoiceMode) -> VoiceMode {
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -1351,8 +1351,8 @@ mod tests {
         session.with_transcribe_hook(Arc::new(|_| Ok("hello stub".to_string())))
     }
 
-    fn suppressed_state() -> Arc<taurine_core::engine::EngineState> {
-        let state = Arc::new(taurine_core::engine::EngineState::new());
+    fn suppressed_state() -> Arc<nite_core::engine::EngineState> {
+        let state = Arc::new(nite_core::engine::EngineState::new());
         state.is_os_fullscreen.store(true, Ordering::Relaxed);
         state
     }
@@ -1535,10 +1535,10 @@ mod tests {
             .unwrap_or_else(|e| e.into_inner());
         let _data = TempDataDir::new();
         mock_keystore::use_mock_keystore();
-        let conn = taurine_core::db::get_conn().expect("temp db conn");
-        taurine_core::db::crud::create_entry(
+        let conn = nite_core::db::get_conn().expect("temp db conn");
+        nite_core::db::crud::create_entry(
             &conn,
-            taurine_core::db::crud::NewEntry {
+            nite_core::db::crud::NewEntry {
                 description: None,
                 content: "Hello, [$person=\"there\"]!".to_string(),
                 action_type: "text".to_string(),
@@ -1550,7 +1550,7 @@ mod tests {
                 interpreter: None,
                 behavior: None,
                 invocations: vec![(
-                    taurine_core::db::crud::InvocationType::Voice,
+                    nite_core::db::crud::InvocationType::Voice,
                     "say hi to [$person]".to_string(),
                     false,
                 )],
@@ -2104,7 +2104,7 @@ mod tests {
         let _data = TempDataDir::new();
         mock_keystore::use_mock_keystore();
         crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
-        taurine_core::settings::set_cached_pause_media_while_dictating(true);
+        nite_core::settings::set_cached_pause_media_while_dictating(true);
         let concrete = Arc::new(super::super::media_suspend::FakeMediaSuspender::new());
         let fake: Arc<dyn super::super::media_suspend::MediaSuspender> = concrete.clone();
         let (session, _) = create_ordering_session(
@@ -2137,7 +2137,7 @@ mod tests {
             "resume must fire after stop"
         );
         assert_eq!(concrete.resumes.load(Ordering::Relaxed), 1);
-        taurine_core::settings::set_cached_pause_media_while_dictating(false);
+        nite_core::settings::set_cached_pause_media_while_dictating(false);
     }
 
     #[test]
@@ -2148,7 +2148,7 @@ mod tests {
         let _data = TempDataDir::new();
         mock_keystore::use_mock_keystore();
         crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
-        taurine_core::settings::set_cached_pause_media_while_dictating(false);
+        nite_core::settings::set_cached_pause_media_while_dictating(false);
         let concrete = Arc::new(super::super::media_suspend::FakeMediaSuspender::new());
         let fake: Arc<dyn super::super::media_suspend::MediaSuspender> = concrete.clone();
         let (session, _) = create_ordering_session(
@@ -2178,7 +2178,7 @@ mod tests {
             0,
             "setting off must never resume"
         );
-        taurine_core::settings::set_cached_pause_media_while_dictating(false);
+        nite_core::settings::set_cached_pause_media_while_dictating(false);
     }
 
     #[test]
@@ -2189,7 +2189,7 @@ mod tests {
         let _data = TempDataDir::new();
         mock_keystore::use_mock_keystore();
         crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
-        taurine_core::settings::set_cached_pause_media_while_dictating(true);
+        nite_core::settings::set_cached_pause_media_while_dictating(true);
         // Cancel path: fresh session so the mash gate cannot swallow the start.
         let concrete = Arc::new(super::super::media_suspend::FakeMediaSuspender::new());
         let fake: Arc<dyn super::super::media_suspend::MediaSuspender> = concrete.clone();
@@ -2226,7 +2226,7 @@ mod tests {
         assert_eq!(session.current_mode(), VoiceMode::Idle);
         assert!(wait_for_counter(&concrete.resumes, 1), "escape must resume");
         crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
-        taurine_core::settings::set_cached_pause_media_while_dictating(false);
+        nite_core::settings::set_cached_pause_media_while_dictating(false);
     }
 
     #[test]
@@ -2237,7 +2237,7 @@ mod tests {
         let _data = TempDataDir::new();
         mock_keystore::use_mock_keystore();
         crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
-        taurine_core::settings::set_cached_pause_media_while_dictating(true);
+        nite_core::settings::set_cached_pause_media_while_dictating(true);
         let concrete = Arc::new(CountingMedia {
             suspends: AtomicUsize::new(0),
             resumes: AtomicUsize::new(0),
@@ -2270,7 +2270,7 @@ mod tests {
         );
         assert_eq!(concrete.resumes.load(Ordering::Relaxed), 1);
         crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
-        taurine_core::settings::set_cached_pause_media_while_dictating(false);
+        nite_core::settings::set_cached_pause_media_while_dictating(false);
     }
 
     #[test]
@@ -2281,7 +2281,7 @@ mod tests {
         let _data = TempDataDir::new();
         mock_keystore::use_mock_keystore();
         crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
-        taurine_core::settings::set_cached_pause_media_while_dictating(true);
+        nite_core::settings::set_cached_pause_media_while_dictating(true);
         let concrete = Arc::new(GatedMedia {
             suspends: AtomicUsize::new(0),
             resumes: AtomicUsize::new(0),
@@ -2340,7 +2340,7 @@ mod tests {
             "no stale guard may linger after restart"
         );
         crate::input::hotkey::PTT_KEY_DOWN.store(false, Ordering::Relaxed);
-        taurine_core::settings::set_cached_pause_media_while_dictating(false);
+        nite_core::settings::set_cached_pause_media_while_dictating(false);
     }
 
     #[test]
@@ -2680,12 +2680,12 @@ mod tests {
     #[test]
     fn test_session_with_dictionary_builder() {
         let (session, _) = create_test_session();
-        let dict = VoiceDictionary::from_csv("Taurine, FastConformer");
+        let dict = VoiceDictionary::from_csv("Nite, FastConformer");
         let session = session.with_dictionary(dict);
         assert_eq!(session.current_mode(), VoiceMode::Idle);
     }
 
-    /// Points TAURINE_DATA_DIR at a temp dir for the test body, restoring the
+    /// Points NITE_DATA_DIR at a temp dir for the test body, restoring the
     /// previous value on drop. Serialized via TEST_LOCK by callers.
     struct TempDataDir {
         _dir: tempfile::TempDir,
@@ -2695,9 +2695,9 @@ mod tests {
     impl TempDataDir {
         fn new() -> Self {
             let dir = tempfile::tempdir().expect("temp data dir");
-            let prev = std::env::var("TAURINE_DATA_DIR").ok();
+            let prev = std::env::var("NITE_DATA_DIR").ok();
             // SAFETY: Serialized via TEST_LOCK; restored in Drop.
-            unsafe { std::env::set_var("TAURINE_DATA_DIR", dir.path()) };
+            unsafe { std::env::set_var("NITE_DATA_DIR", dir.path()) };
             Self { _dir: dir, prev }
         }
     }
@@ -2707,8 +2707,8 @@ mod tests {
             // SAFETY: Serialized via TEST_LOCK; paired with the set_var at entry.
             unsafe {
                 match &self.prev {
-                    Some(prev) => std::env::set_var("TAURINE_DATA_DIR", prev),
-                    None => std::env::remove_var("TAURINE_DATA_DIR"),
+                    Some(prev) => std::env::set_var("NITE_DATA_DIR", prev),
+                    None => std::env::remove_var("NITE_DATA_DIR"),
                 }
             }
         }
@@ -2731,6 +2731,10 @@ mod tests {
         fn passwords() -> &'static Mutex<PasswordMap> {
             PASSWORDS.get_or_init(|| {
                 let mut map = HashMap::new();
+                map.insert(
+                    ("nite".to_string(), "db-key".to_string()),
+                    FIXED_TEST_DB_KEY_HEX.to_vec(),
+                );
                 map.insert(
                     ("taurine".to_string(), "db-key".to_string()),
                     FIXED_TEST_DB_KEY_HEX.to_vec(),
@@ -2894,10 +2898,10 @@ mod tests {
             .unwrap_or_else(|e| e.into_inner());
         let _data = TempDataDir::new();
         mock_keystore::use_mock_keystore();
-        let conn = taurine_core::db::get_conn().expect("temp db conn");
-        taurine_core::db::crud::create_entry(
+        let conn = nite_core::db::get_conn().expect("temp db conn");
+        nite_core::db::crud::create_entry(
             &conn,
-            taurine_core::db::crud::NewEntry {
+            nite_core::db::crud::NewEntry {
                 description: None,
                 content: "Hello, [$person=\"there\"]!".to_string(),
                 action_type: "text".to_string(),
@@ -2909,7 +2913,7 @@ mod tests {
                 interpreter: None,
                 behavior: None,
                 invocations: vec![(
-                    taurine_core::db::crud::InvocationType::Voice,
+                    nite_core::db::crud::InvocationType::Voice,
                     "say hi to [$person]".to_string(),
                     false,
                 )],
@@ -2928,10 +2932,10 @@ mod tests {
             .unwrap_or_else(|e| e.into_inner());
         let _data = TempDataDir::new();
         mock_keystore::use_mock_keystore();
-        let conn = taurine_core::db::get_conn().expect("temp db conn");
-        taurine_core::db::crud::create_entry(
+        let conn = nite_core::db::get_conn().expect("temp db conn");
+        nite_core::db::crud::create_entry(
             &conn,
-            taurine_core::db::crud::NewEntry {
+            nite_core::db::crud::NewEntry {
                 description: None,
                 content: "Expanded result".to_string(),
                 action_type: "text".to_string(),
@@ -2943,7 +2947,7 @@ mod tests {
                 interpreter: None,
                 behavior: None,
                 invocations: vec![(
-                    taurine_core::db::crud::InvocationType::Voice,
+                    nite_core::db::crud::InvocationType::Voice,
                     "expand snippet".to_string(),
                     false,
                 )],
@@ -2997,10 +3001,10 @@ mod tests {
             .unwrap_or_else(|e| e.into_inner());
         let _data = TempDataDir::new();
         mock_keystore::use_mock_keystore();
-        let conn = taurine_core::db::get_conn().expect("temp db conn");
-        taurine_core::db::crud::create_entry(
+        let conn = nite_core::db::get_conn().expect("temp db conn");
+        nite_core::db::crud::create_entry(
             &conn,
-            taurine_core::db::crud::NewEntry {
+            nite_core::db::crud::NewEntry {
                 description: None,
                 content: "Expanded result".to_string(),
                 action_type: "text".to_string(),
@@ -3012,7 +3016,7 @@ mod tests {
                 interpreter: None,
                 behavior: None,
                 invocations: vec![(
-                    taurine_core::db::crud::InvocationType::Voice,
+                    nite_core::db::crud::InvocationType::Voice,
                     "expand snippet".to_string(),
                     false,
                 )],
@@ -3403,9 +3407,9 @@ mod tests {
             }
         });
 
-        taurine_core::settings::set_cached_voice_preferred_languages("en,ml".to_string());
+        nite_core::settings::set_cached_voice_preferred_languages("en,ml".to_string());
 
-        let cloud_client = Arc::new(taurine_core::voice::GroqVoiceClient::with_endpoint(
+        let cloud_client = Arc::new(nite_core::voice::GroqVoiceClient::with_endpoint(
             Some("mock-test-key".to_string()),
             format!("http://127.0.0.1:{port}/transcribe"),
             "whisper-large-v3".to_string(),
@@ -3447,12 +3451,12 @@ mod tests {
         assert!((guard.unflushed_delta() - 0.016).abs() < 1e-4);
 
         // 3. Verify telemetry and activity_events history in SQLite
-        let conn = taurine_core::db::get_conn().unwrap();
-        let events = taurine_core::db::crud::get_recent_activity_events(
+        let conn = nite_core::db::get_conn().unwrap();
+        let events = nite_core::db::crud::get_recent_activity_events(
             &conn,
             10,
             0,
-            Some(taurine_core::db::crud::ActivityCategory::Voice),
+            Some(nite_core::db::crud::ActivityCategory::Voice),
         )
         .unwrap();
         assert!(
@@ -3468,7 +3472,7 @@ mod tests {
         guard.set_balance(original_balance);
         guard.set_unlimited(original_unlimited);
         guard.set_authenticated(original_authenticated);
-        taurine_core::settings::set_cached_voice_preferred_languages("auto".to_string());
+        nite_core::settings::set_cached_voice_preferred_languages("auto".to_string());
 
         server_thread.join().unwrap();
     }
@@ -3485,7 +3489,7 @@ mod tests {
         session.start_ptt().expect("start");
         // Spooler attached and file created
         let rec_dir = crate::voice::recovery::recovery_dir().unwrap();
-        let files_during = taurine_core::voice::list_orphaned_sessions(&rec_dir).unwrap();
+        let files_during = nite_core::voice::list_orphaned_sessions(&rec_dir).unwrap();
         assert_eq!(
             files_during.len(),
             1,
@@ -3496,7 +3500,7 @@ mod tests {
         let _ = session.stop_ptt().expect("stop");
 
         // After clean stop, spooler is discarded and file is deleted
-        let files_after = taurine_core::voice::list_orphaned_sessions(&rec_dir).unwrap();
+        let files_after = nite_core::voice::list_orphaned_sessions(&rec_dir).unwrap();
         assert!(
             files_after.is_empty(),
             "Spooler journal must be discarded on clean stop"
@@ -3546,7 +3550,7 @@ mod tests {
             let _ = stream.flush();
         });
 
-        let cloud_client = Arc::new(taurine_core::voice::GroqVoiceClient::with_endpoint(
+        let cloud_client = Arc::new(nite_core::voice::GroqVoiceClient::with_endpoint(
             Some("mock-test-key".to_string()),
             format!("http://127.0.0.1:{port}/transcribe"),
             "whisper-large-v3".to_string(),
@@ -3560,7 +3564,7 @@ mod tests {
         // Create an orphaned recovery file on disk
         let rec_dir = crate::voice::recovery::recovery_dir().unwrap();
         let mut spooler =
-            taurine_core::voice::AudioSpooler::new(&rec_dir, "crashed_session_42").unwrap();
+            nite_core::voice::AudioSpooler::new(&rec_dir, "crashed_session_42").unwrap();
         spooler.append_samples(&[0.5; 3200]).unwrap();
         let journal_path = spooler.finish().unwrap();
         assert!(journal_path.exists());
@@ -3580,12 +3584,12 @@ mod tests {
         assert_eq!(clip_text, "Rescued speech from crash");
 
         // Verify activity events contains the recovered text
-        let conn = taurine_core::db::get_conn().unwrap();
-        let events = taurine_core::db::crud::get_recent_activity_events(
+        let conn = nite_core::db::get_conn().unwrap();
+        let events = nite_core::db::crud::get_recent_activity_events(
             &conn,
             10,
             0,
-            Some(taurine_core::db::crud::ActivityCategory::Voice),
+            Some(nite_core::db::crud::ActivityCategory::Voice),
         )
         .unwrap();
         assert!(!events.is_empty());

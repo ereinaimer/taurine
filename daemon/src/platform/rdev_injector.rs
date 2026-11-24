@@ -390,7 +390,7 @@ fn make_vk_input(vk: u16, key_up: bool) -> windows_sys::Win32::UI::Input::Keyboa
                 wScan: 0,
                 dwFlags: if key_up { KEYEVENTF_KEYUP } else { 0 },
                 time: 0,
-                dwExtraInfo: crate::platform::windows::TAURINE_EXTRA_INFO_MAGIC,
+                dwExtraInfo: crate::platform::windows::NITE_EXTRA_INFO_MAGIC,
             },
         },
     }
@@ -422,7 +422,7 @@ fn make_unicode_input(
                     KEYEVENTF_UNICODE
                 },
                 time: 0,
-                dwExtraInfo: crate::platform::windows::TAURINE_EXTRA_INFO_MAGIC,
+                dwExtraInfo: crate::platform::windows::NITE_EXTRA_INFO_MAGIC,
             },
         },
     }
@@ -495,7 +495,7 @@ fn make_mouse_event(
                 mouseData: mouse_data,
                 dwFlags: dw_flags,
                 time: 0,
-                dwExtraInfo: crate::platform::windows::TAURINE_EXTRA_INFO_MAGIC,
+                dwExtraInfo: crate::platform::windows::NITE_EXTRA_INFO_MAGIC,
             },
         },
     })
@@ -521,7 +521,7 @@ fn send_inputs_batch(inputs: &[windows_sys::Win32::UI::Input::KeyboardAndMouse::
 }
 
 pub(crate) fn modifier_alias_to_rdev_key(alias: &str) -> Option<Key> {
-    use taurine_core::keys::Modifier;
+    use nite_core::keys::Modifier;
     let modifier = Modifier::from_alias(alias)?;
     match modifier {
         Modifier::Ctrl | Modifier::LeftCtrl => Some(Key::ControlLeft),
@@ -536,7 +536,7 @@ pub(crate) fn modifier_alias_to_rdev_key(alias: &str) -> Option<Key> {
 }
 
 pub(crate) fn alias_to_rdev_key(alias: &str) -> Option<Key> {
-    use taurine_core::keys::LogicalKey;
+    use nite_core::keys::LogicalKey;
     let key = LogicalKey::from_alias(alias)?;
     match key {
         LogicalKey::Letter(c) => match c {
@@ -628,22 +628,20 @@ pub(crate) fn alias_to_rdev_key(alias: &str) -> Option<Key> {
         LogicalKey::PrintScreen => Some(Key::PrintScreen),
         LogicalKey::Pause => Some(Key::Pause),
         LogicalKey::Modifier(m) => match m {
-            taurine_core::keys::Modifier::Ctrl | taurine_core::keys::Modifier::LeftCtrl => {
+            nite_core::keys::Modifier::Ctrl | nite_core::keys::Modifier::LeftCtrl => {
                 Some(Key::ControlLeft)
             }
-            taurine_core::keys::Modifier::RightCtrl => Some(Key::ControlRight),
-            taurine_core::keys::Modifier::Shift | taurine_core::keys::Modifier::LeftShift => {
+            nite_core::keys::Modifier::RightCtrl => Some(Key::ControlRight),
+            nite_core::keys::Modifier::Shift | nite_core::keys::Modifier::LeftShift => {
                 Some(Key::ShiftLeft)
             }
-            taurine_core::keys::Modifier::RightShift => Some(Key::ShiftRight),
-            taurine_core::keys::Modifier::Alt | taurine_core::keys::Modifier::LeftAlt => {
-                Some(Key::Alt)
-            }
-            taurine_core::keys::Modifier::RightAlt => Some(Key::AltGr),
-            taurine_core::keys::Modifier::Meta | taurine_core::keys::Modifier::LeftMeta => {
+            nite_core::keys::Modifier::RightShift => Some(Key::ShiftRight),
+            nite_core::keys::Modifier::Alt | nite_core::keys::Modifier::LeftAlt => Some(Key::Alt),
+            nite_core::keys::Modifier::RightAlt => Some(Key::AltGr),
+            nite_core::keys::Modifier::Meta | nite_core::keys::Modifier::LeftMeta => {
                 Some(Key::MetaLeft)
             }
-            taurine_core::keys::Modifier::RightMeta => Some(Key::MetaRight),
+            nite_core::keys::Modifier::RightMeta => Some(Key::MetaRight),
         },
         LogicalKey::Mouse(_) => None,
     }

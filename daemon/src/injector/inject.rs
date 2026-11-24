@@ -5,9 +5,9 @@ use std::time::Duration;
 use tracing::warn;
 use tracing::{debug, error, trace};
 
-use taurine_core::engine::shell::ScriptBehavior;
-use taurine_core::engine::variables::ExpansionStep;
-use taurine_core::keys::MouseButton;
+use nite_core::engine::shell::ScriptBehavior;
+use nite_core::engine::variables::ExpansionStep;
+use nite_core::keys::MouseButton;
 
 use super::clipboard::{
     prepare_clipboard_for_expansion, restore_clipboard, restore_clipboard_guarded,
@@ -85,7 +85,7 @@ fn inject_text_segment_with_gen(
     captured_gen: u64,
 ) -> TextSegmentInjection {
     let injected_chars = text.chars().count();
-    let delay_ms = taurine_core::settings::get_cached_clipboard_restore_delay();
+    let delay_ms = nite_core::settings::get_cached_clipboard_restore_delay();
     let post_paste_wait = Duration::from_millis(delay_ms as u64);
 
     // On Linux, check if direct typing must be used (no display)
@@ -156,9 +156,9 @@ fn inject_text_segment_with_gen(
             }
         }
     } else {
-        let is_html = taurine_core::utils::html::has_html_tags(text);
+        let is_html = nite_core::utils::html::has_html_tags(text);
         let expected = if is_html {
-            let plaintext = taurine_core::utils::html::strip_html(text);
+            let plaintext = nite_core::utils::html::strip_html(text);
             if let Err(e) = clipboard.set_html(text, &plaintext) {
                 error!("Failed to set HTML clipboard for text segment: {}", e);
                 return TextSegmentInjection {
@@ -207,7 +207,7 @@ fn inject_image_segment_with_gen(
     original_clipboard: &Option<String>,
     captured_gen: u64,
 ) -> TextSegmentInjection {
-    let delay_ms = taurine_core::settings::get_cached_clipboard_restore_delay();
+    let delay_ms = nite_core::settings::get_cached_clipboard_restore_delay();
     let post_paste_wait = Duration::from_millis(delay_ms as u64);
 
     let mut clipboard = match crate::platform::get_clipboard_manager() {
@@ -232,7 +232,7 @@ fn inject_image_segment_with_gen(
         _ => "png",
     };
 
-    let temp_path = match taurine_core::system::paths::write_temp_file("tau_img", ext, bytes) {
+    let temp_path = match nite_core::system::paths::write_temp_file("tau_img", ext, bytes) {
         Ok(path) => path,
         Err(e) => {
             error!("Failed to write temporary image file: {}", e);
@@ -433,14 +433,14 @@ const SMALL_TYPE_LIMIT: usize = 32;
 pub fn inject_expansion(
     steps: Vec<ExpansionStep>,
     delete_count: usize,
-    spinner_style: taurine_core::settings::SpinnerStyle,
+    spinner_style: nite_core::settings::SpinnerStyle,
 ) -> InjectionReport {
     inject_expansion_inner(steps, delete_count, spinner_style, false)
 }
 
 pub fn inject_expansion_for_voice(
     steps: Vec<ExpansionStep>,
-    spinner_style: taurine_core::settings::SpinnerStyle,
+    spinner_style: nite_core::settings::SpinnerStyle,
 ) -> InjectionReport {
     inject_expansion_inner(steps, 0, spinner_style, true)
 }
@@ -448,7 +448,7 @@ pub fn inject_expansion_for_voice(
 fn inject_expansion_inner(
     steps: Vec<ExpansionStep>,
     delete_count: usize,
-    spinner_style: taurine_core::settings::SpinnerStyle,
+    spinner_style: nite_core::settings::SpinnerStyle,
     force_paste: bool,
 ) -> InjectionReport {
     let requires_keys = expansion_requires_keystrokes(&steps, delete_count);
@@ -488,7 +488,7 @@ fn inject_expansion_inner(
         && text.chars().count() <= SMALL_TYPE_LIMIT
         && !text.contains('\n')
         && !text.contains('\r')
-        && !taurine_core::utils::html::has_html_tags(text)
+        && !nite_core::utils::html::has_html_tags(text)
         && let Some((left_nav, right_nav)) = extract_nav_steps(&steps[1..])
     {
         let success = crate::platform::get_injector().inject_atomic_text_expansion_with_nav(
@@ -651,7 +651,7 @@ fn inject_expansion_inner(
             }
             ExpansionStep::Script(metadata) => match metadata.behavior {
                 ScriptBehavior::Inline => {
-                    let spinner_handle = taurine_core::utils::spinner::spawn_threaded(
+                    let spinner_handle = nite_core::utils::spinner::spawn_threaded(
                         spinner_style,
                         crate::platform::spinner_renderer::OsSpinnerRenderer::default(),
                     );
@@ -691,7 +691,7 @@ fn inject_expansion_inner(
             },
             ExpansionStep::InlineRun(metadata, transformers) => match metadata.behavior {
                 ScriptBehavior::Inline => {
-                    let spinner_handle = taurine_core::utils::spinner::spawn_threaded(
+                    let spinner_handle = nite_core::utils::spinner::spawn_threaded(
                         spinner_style,
                         crate::platform::spinner_renderer::OsSpinnerRenderer::default(),
                     );
@@ -702,7 +702,7 @@ fn inject_expansion_inner(
                     if let Ok(ref mut output) = script_result {
                         for tr in transformers {
                             if let Some(transformed) =
-                                taurine_core::engine::variables::system::transformers::apply(
+                                nite_core::engine::variables::system::transformers::apply(
                                     tr, output,
                                 )
                             {
@@ -756,8 +756,8 @@ fn inject_expansion_inner(
 }
 
 fn run_script_sync(
-    metadata: &taurine_core::engine::shell::ScriptMetadata,
-) -> taurine_core::Result<String> {
+    metadata: &nite_core::engine::shell::ScriptMetadata,
+) -> nite_core::Result<String> {
     if let Some(handle) = crate::TOKIO_HANDLE.get() {
         tokio::task::block_in_place(|| {
             handle.block_on(crate::platform::executor::execute_script(metadata))
@@ -768,21 +768,21 @@ fn run_script_sync(
             .build()
         {
             Ok(rt) => rt.block_on(crate::platform::executor::execute_script(metadata)),
-            Err(e) => Err(taurine_core::Error::Service(e.to_string())),
+            Err(e) => Err(nite_core::Error::Service(e.to_string())),
         }
     }
 }
 
-fn spawn_script_bg(metadata: taurine_core::engine::shell::ScriptMetadata) {
+fn spawn_script_bg(metadata: nite_core::engine::shell::ScriptMetadata) {
     if let Some(handle) = crate::TOKIO_HANDLE.get() {
         handle.spawn(async move {
             let _ = crate::platform::executor::execute_script(&metadata).await;
         });
     } else {
         let spawn_res = thread::Builder::new()
-            .name("tau-script-bg".to_string())
+            .name("nite-script-bg".to_string())
             .spawn(move || {
-                let _ = crate::platform::panic::catch_worker_panic("tau-script-bg", move || {
+                let _ = crate::platform::panic::catch_worker_panic("nite-script-bg", move || {
                     if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
                         .enable_all()
                         .build()

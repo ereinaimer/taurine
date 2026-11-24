@@ -18,9 +18,9 @@ mod listener_pipeline_tests {
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
 
+    use nite_core::engine::variables::ExpansionStep;
+    use nite_core::engine::{EngineEvent, EngineState, Evaluator};
     use rdev::{Event, EventType, Key};
-    use taurine_core::engine::variables::ExpansionStep;
-    use taurine_core::engine::{EngineEvent, EngineState, Evaluator};
 
     use crate::hook::listener::process_keyboard_event;
 
@@ -47,7 +47,7 @@ mod listener_pipeline_tests {
         state: Arc<EngineState>,
         paused: Arc<AtomicBool>,
         pause_hotkey: Arc<arc_swap::ArcSwap<crate::input::hotkey::HotkeySpec>>,
-        spinner_style: Arc<std::sync::RwLock<taurine_core::settings::SpinnerStyle>>,
+        spinner_style: Arc<std::sync::RwLock<nite_core::settings::SpinnerStyle>>,
         pause_audio_enabled: Arc<AtomicBool>,
         pause_tx: tokio::sync::mpsc::Sender<bool>,
         pause_rx: std::sync::Mutex<tokio::sync::mpsc::Receiver<bool>>,
@@ -97,13 +97,13 @@ mod listener_pipeline_tests {
         fn with_trigger(self, trigger: &str, output: &str) -> Self {
             self.state.load_actions(vec![(
                 trigger.to_string(),
-                taurine_core::db::crud::TriggerAction::text(output),
+                nite_core::db::crud::TriggerAction::text(output),
             )]);
             self
         }
 
         fn with_hotkey_trigger(self, trigger: &str, output: &str) -> Self {
-            let action = taurine_core::db::crud::TriggerAction::text(output);
+            let action = nite_core::db::crud::TriggerAction::text(output);
             self.state
                 .load_hotkey_actions(vec![(trigger.to_string(), action)]);
             self
@@ -166,7 +166,7 @@ mod listener_pipeline_tests {
                 .to_string()
         }
 
-        fn action_key_result(&self) -> Option<taurine_core::engine::ExpansionResult> {
+        fn action_key_result(&self) -> Option<nite_core::engine::ExpansionResult> {
             self.evaluator
                 .lock()
                 .unwrap()
@@ -213,7 +213,7 @@ mod listener_pipeline_tests {
 
     impl TestGuard {
         fn acquire() -> Self {
-            let mutex_guard = taurine_core::testing::TEST_LOCK
+            let mutex_guard = nite_core::testing::TEST_LOCK
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
 
@@ -340,7 +340,7 @@ mod listener_pipeline_tests {
         );
     }
 
-    /// While Taurine is paused, every key event must pass through to the OS
+    /// While Nite is paused, every key event must pass through to the OS
     /// unchanged, and the evaluator buffer must stay empty.
     #[test]
     fn paused_passes_all_events_through_without_buffering() {
@@ -512,11 +512,11 @@ mod listener_pipeline_tests {
         h.state.load_actions(vec![
             (
                 "gm".to_string(),
-                taurine_core::db::crud::TriggerAction::text("Good morning!"),
+                nite_core::db::crud::TriggerAction::text("Good morning!"),
             ),
             (
                 "ty".to_string(),
-                taurine_core::db::crud::TriggerAction::text("Thank you!"),
+                nite_core::db::crud::TriggerAction::text("Thank you!"),
             ),
         ]);
 
@@ -649,11 +649,11 @@ mod listener_pipeline_tests {
         h.state.load_hotkey_actions(vec![
             (
                 "ctrl+mouse1".to_string(),
-                taurine_core::db::crud::TriggerAction::text("clicked_ctrl_mouse1"),
+                nite_core::db::crud::TriggerAction::text("clicked_ctrl_mouse1"),
             ),
             (
                 "ralt+mouse4".to_string(),
-                taurine_core::db::crud::TriggerAction::text("clicked_ralt_mouse4"),
+                nite_core::db::crud::TriggerAction::text("clicked_ralt_mouse4"),
             ),
         ]);
 
@@ -784,7 +784,7 @@ mod listener_pipeline_tests {
     #[test]
     fn test_ctrl_v_inside_inline_ai_is_swallowed_and_appends_placeholder() {
         let h = Harness::new();
-        h.type_str("tau, reformat this: ");
+        h.type_str("nite, reformat this: ");
 
         let _ = h.send(bare_event(EventType::KeyPress(Key::ControlLeft)));
         let paste_ev = h.send(bare_event(EventType::KeyPress(Key::KeyV)));
@@ -793,12 +793,12 @@ mod listener_pipeline_tests {
 
         assert!(
             paste_ev.is_none(),
-            "Ctrl+V inside inline AI prompt must be swallowed by Taurine"
+            "Ctrl+V inside inline AI prompt must be swallowed by Nite"
         );
 
         let buf = h.buf();
         assert!(
-            buf.starts_with("tau, reformat this: [clip:"),
+            buf.starts_with("nite, reformat this: [clip:"),
             "Buffer must contain the clipboard placeholder, got: {buf}"
         );
     }
@@ -806,7 +806,7 @@ mod listener_pipeline_tests {
     #[test]
     fn test_ctrl_v_inside_inline_ai_swallowed_unconditionally() {
         let h = Harness::new();
-        h.type_str("tau, reformat this: ");
+        h.type_str("nite, reformat this: ");
 
         let _ = h.send(bare_event(EventType::KeyPress(Key::ControlLeft)));
         let paste_ev = h.send(bare_event(EventType::KeyPress(Key::KeyV)));
@@ -1123,10 +1123,10 @@ mod listener_pipeline_tests {
         );
     }
 
-    /// Verifies that Taurine's synthetic input magic signature is nonzero
+    /// Verifies that Nite's synthetic input magic signature is nonzero
     /// and consistent between the injector and Windows hook listener.
     #[test]
-    fn taurine_extra_info_magic_is_valid() {
-        assert_ne!(crate::platform::windows::TAURINE_EXTRA_INFO_MAGIC, 0);
+    fn nite_extra_info_magic_is_valid() {
+        assert_ne!(crate::platform::windows::NITE_EXTRA_INFO_MAGIC, 0);
     }
 }

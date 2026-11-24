@@ -1,8 +1,8 @@
 // Script Executor
 use crate::injector;
+use nite_core::engine::shell::{ScriptInterpreter, ScriptMetadata, decompress};
 use std::process::Stdio;
 use std::time::Duration;
-use taurine_core::engine::shell::{ScriptInterpreter, ScriptMetadata, decompress};
 use tokio::process::Command;
 
 use tokio::io::AsyncReadExt;
@@ -422,7 +422,7 @@ pub fn native_shell_open(target: &str, args: Option<&str>) -> Result<(), String>
         use std::os::windows::process::CommandExt;
 
         // CREATE_NEW_CONSOLE forces Windows to allocate a dedicated console host for the child,
-        // breaking console apps (pwsh.exe, cmd.exe) and wrappers (wt.exe) out of Taurine daemon's
+        // breaking console apps (pwsh.exe, cmd.exe) and wrappers (wt.exe) out of Nite daemon's
         // windowless CREATE_NO_WINDOW context to prevent headless zombie states and missing console errors.
         // For GUI applications (Notepad, Calculator, etc.), Windows safely ignores CREATE_NEW_CONSOLE.
         const CREATE_NEW_CONSOLE: u32 = 0x00000010;
@@ -473,10 +473,10 @@ pub fn native_shell_open(target: &str, args: Option<&str>) -> Result<(), String>
         let args_owned = args.map(|a| a.to_string());
 
         std::thread::Builder::new()
-            .name("tau-shell-open".into())
+            .name("nite-shell-open".into())
             .spawn(move || {
                 let _ = crate::platform::panic::catch_worker_panic(
-                    "tau-shell-open",
+                    "nite-shell-open",
                     std::panic::AssertUnwindSafe(|| {
                         use std::ptr;
                         use windows_sys::Win32::System::Com::{
@@ -628,7 +628,7 @@ unsafe impl Send for JobObjectTreeGuard {}
 #[cfg(windows)]
 unsafe impl Sync for JobObjectTreeGuard {}
 
-pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<String> {
+pub async fn execute_script(metadata: &ScriptMetadata) -> nite_core::Result<String> {
     let script_content = decompress(&metadata.compressed_content)?;
 
     // Check for instant native launch intent
@@ -653,7 +653,7 @@ pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<S
     }
 
     // None (script_timeout = 0) means no timeout: the script runs until it finishes.
-    let timeout = taurine_core::settings::Settings::get_script_timeout();
+    let timeout = nite_core::settings::Settings::get_script_timeout();
 
     let mut cmd = match metadata.interpreter {
         ScriptInterpreter::Bash => {
@@ -715,12 +715,12 @@ pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<S
                 ScriptInterpreter::PowerShell => "powershell",
                 ScriptInterpreter::Cmd => "cmd",
             };
-            taurine_core::Error::Service(format!(
+            nite_core::Error::Service(format!(
                 "interpreter '{}' not found in PATH",
                 interpreter_name
             ))
         } else {
-            taurine_core::Error::Service(format!("Failed to spawn interpreter: {}", e))
+            nite_core::Error::Service(format!("Failed to spawn interpreter: {}", e))
         }
     })?;
 
@@ -740,11 +740,11 @@ pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<S
     let stdout_pipe = child
         .stdout
         .take()
-        .ok_or_else(|| taurine_core::Error::Service("Failed to capture stdout".to_string()))?;
+        .ok_or_else(|| nite_core::Error::Service("Failed to capture stdout".to_string()))?;
     let stderr_pipe = child
         .stderr
         .take()
-        .ok_or_else(|| taurine_core::Error::Service("Failed to capture stderr".to_string()))?;
+        .ok_or_else(|| nite_core::Error::Service("Failed to capture stderr".to_string()))?;
 
     let mut stdout_bytes = Vec::new();
     let mut stderr_bytes = Vec::new();
@@ -773,7 +773,7 @@ pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<S
         } => {
             let (status_res, _, _) = res;
             let status = status_res.map_err(|e| {
-                taurine_core::Error::Service(format!("Failed to wait for script: {}", e))
+                nite_core::Error::Service(format!("Failed to wait for script: {}", e))
             })?;
 
             let stdout_final = String::from_utf8_lossy(&stdout_bytes).trim().to_string();
@@ -787,12 +787,12 @@ pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<S
                 } else {
                     stderr_final
                 };
-                Err(taurine_core::Error::Service(err_cleaned))
+                Err(nite_core::Error::Service(err_cleaned))
             }
         }
         _ = &mut timeout_fut => {
             let _ = child.kill().await;
-            Err(taurine_core::Error::Service(format!(
+            Err(nite_core::Error::Service(format!(
                 "Script timed out after {}s",
                 timeout.map(|t| t.as_secs()).unwrap_or(0)
             )))
@@ -807,7 +807,7 @@ pub async fn execute_script(metadata: &ScriptMetadata) -> taurine_core::Result<S
             }
         } => {
             let _ = child.kill().await;
-            Err(taurine_core::Error::Service("Script aborted by user".to_string()))
+            Err(nite_core::Error::Service("Script aborted by user".to_string()))
         }
     }
 }
@@ -818,31 +818,28 @@ mod tests {
 
     #[test]
     fn test_expand_env_vars() {
-        let _guard = taurine_core::testing::TEST_LOCK
+        let _guard = nite_core::testing::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
-        unsafe { std::env::set_var("TAURINE_TEST_DIR", "C:\\TaurineData") };
+        unsafe { std::env::set_var("NITE_TEST_DIR", "C:\\NiteData") };
 
         assert_eq!(
-            expand_env_vars("$ENV:TAURINE_TEST_DIR\\sub"),
-            "C:\\TaurineData\\sub"
+            expand_env_vars("$ENV:NITE_TEST_DIR\\sub"),
+            "C:\\NiteData\\sub"
         );
         assert_eq!(
-            expand_env_vars("$env:TAURINE_TEST_DIR\\sub"),
-            "C:\\TaurineData\\sub"
+            expand_env_vars("$env:NITE_TEST_DIR\\sub"),
+            "C:\\NiteData\\sub"
         );
         assert_eq!(
-            expand_env_vars("${env:TAURINE_TEST_DIR}\\sub"),
-            "C:\\TaurineData\\sub"
+            expand_env_vars("${env:NITE_TEST_DIR}\\sub"),
+            "C:\\NiteData\\sub"
         );
-        assert_eq!(
-            expand_env_vars("%TAURINE_TEST_DIR%\\sub"),
-            "C:\\TaurineData\\sub"
-        );
+        assert_eq!(expand_env_vars("%NITE_TEST_DIR%\\sub"), "C:\\NiteData\\sub");
 
         // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
-        unsafe { std::env::remove_var("TAURINE_TEST_DIR") };
+        unsafe { std::env::remove_var("NITE_TEST_DIR") };
     }
 
     #[test]
@@ -876,7 +873,7 @@ mod tests {
 
     #[test]
     fn test_parse_powershell_start_process_env_var() {
-        let _guard = taurine_core::testing::TEST_LOCK
+        let _guard = nite_core::testing::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
@@ -884,11 +881,11 @@ mod tests {
 
         assert_eq!(
             parse_instant_launch_intent(
-                "Start-Process $ENV:LOCALAPPDATA\\Taurine",
+                "Start-Process $ENV:LOCALAPPDATA\\Nite",
                 ScriptInterpreter::PowerShell
             ),
             LaunchTarget::AppOrFile {
-                path: "C:\\Users\\Test\\AppData\\Local\\Taurine".to_string(),
+                path: "C:\\Users\\Test\\AppData\\Local\\Nite".to_string(),
                 args: vec![]
             }
         );
@@ -1018,7 +1015,7 @@ mod tests {
 
     // Live process-spawn tests: they open real consoles / Terminal / browser and
     // steal focus, so they never run by default. Opt in on a throwaway machine
-    // with `TAURINE_ALLOW_HOST_INPUT=1 cargo test -- --ignored`.
+    // with `NITE_ALLOW_HOST_INPUT=1 cargo test -- --ignored`.
     #[test]
     #[ignore]
     #[cfg(windows)]

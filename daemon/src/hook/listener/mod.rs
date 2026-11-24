@@ -36,8 +36,8 @@ use crate::input::hotkey_evaluator::{
     modifiers_from_sides,
 };
 #[cfg(not(target_os = "linux"))]
-use taurine_core::engine::EngineEvent;
-use taurine_core::engine::Evaluator;
+use nite_core::engine::EngineEvent;
+use nite_core::engine::Evaluator;
 
 #[cfg(not(target_os = "linux"))]
 use super::completion::{
@@ -66,11 +66,11 @@ fn voice_pool() -> &'static crossbeam_channel::Sender<Box<dyn FnOnce() + Send>> 
     VOICE_POOL.get_or_init(|| {
         let (tx, rx) = crossbeam_channel::unbounded::<Box<dyn FnOnce() + Send>>();
         std::thread::Builder::new()
-            .name("tau-voice-dispatch".to_string())
+            .name("nite-voice-dispatch".to_string())
             .spawn(move || {
                 for job in rx {
                     let _ = crate::platform::panic::catch_worker_panic(
-                        "tau-voice-dispatch",
+                        "nite-voice-dispatch",
                         std::panic::AssertUnwindSafe(job),
                     );
                 }
@@ -97,10 +97,10 @@ use crate::input::hotkey::{
 #[allow(clippy::too_many_arguments)]
 pub fn start_listener(
     evaluator: Arc<Mutex<Evaluator>>,
-    state: Arc<taurine_core::engine::EngineState>,
+    state: Arc<nite_core::engine::EngineState>,
     paused: Arc<std::sync::atomic::AtomicBool>,
     pause_hotkey: Arc<ArcSwap<hotkey::HotkeySpec>>,
-    spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
+    spinner_style: Arc<RwLock<nite_core::settings::SpinnerStyle>>,
     pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
     audio_tx: tokio::sync::mpsc::Sender<bool>,
     pause_transition_tx: tokio::sync::mpsc::Sender<bool>,
@@ -122,10 +122,10 @@ pub fn start_listener(
 #[allow(clippy::too_many_arguments)]
 pub fn start_listener(
     evaluator: Arc<Mutex<Evaluator>>,
-    state: Arc<taurine_core::engine::EngineState>,
+    state: Arc<nite_core::engine::EngineState>,
     paused: Arc<std::sync::atomic::AtomicBool>,
     pause_hotkey: Arc<ArcSwap<hotkey::HotkeySpec>>,
-    spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
+    spinner_style: Arc<RwLock<nite_core::settings::SpinnerStyle>>,
     pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
     audio_tx: tokio::sync::mpsc::Sender<bool>,
     pause_transition_tx: tokio::sync::mpsc::Sender<bool>,
@@ -159,10 +159,10 @@ pub fn start_listener(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn run_listener_once(
     evaluator: Arc<Mutex<Evaluator>>,
-    state: Arc<taurine_core::engine::EngineState>,
+    state: Arc<nite_core::engine::EngineState>,
     paused: Arc<std::sync::atomic::AtomicBool>,
     pause_hotkey: Arc<ArcSwap<hotkey::HotkeySpec>>,
-    spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
+    spinner_style: Arc<RwLock<nite_core::settings::SpinnerStyle>>,
     pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
     _audio_tx: tokio::sync::mpsc::Sender<bool>,
     pause_transition_tx: tokio::sync::mpsc::Sender<bool>,
@@ -266,10 +266,10 @@ pub(super) fn normalize_key_text(text: &str) -> String {
 pub fn process_keyboard_event(
     event: Event,
     evaluator: &Arc<Mutex<Evaluator>>,
-    state: &Arc<taurine_core::engine::EngineState>,
+    state: &Arc<nite_core::engine::EngineState>,
     paused: &Arc<std::sync::atomic::AtomicBool>,
     pause_hotkey: &Arc<ArcSwap<hotkey::HotkeySpec>>,
-    spinner_style: &Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
+    spinner_style: &Arc<RwLock<nite_core::settings::SpinnerStyle>>,
     pause_audio_enabled: &Arc<std::sync::atomic::AtomicBool>,
     _pause_transition_tx: &tokio::sync::mpsc::Sender<bool>,
     left_alt_down: &std::sync::atomic::AtomicBool,
@@ -292,7 +292,7 @@ pub fn process_keyboard_event(
     }
 
     #[cfg(windows)]
-    if taurine_core::paths::dev_env_var("TAURINE_TEST_HANG_HOOK").is_some()
+    if nite_core::paths::dev_env_var("NITE_TEST_HANG_HOOK").is_some()
         && matches!(event.event_type, EventType::KeyPress(Key::Unknown(254)))
     {
         warn!("Test trigger: Hanging listener thread for 6 seconds!");
@@ -456,12 +456,12 @@ pub fn process_keyboard_event(
         }
 
         // Optimistic icon: flip synchronously so the tray reacts instantly
-        // (icon only); the tau-pause-count thread still owns the deferred
+        // (icon only); the nite-pause-count thread still owns the deferred
         // toggle. Unconditional — the icon must move even with audio off.
         crate::input::hotkey::push_pause_icon_preview();
 
         // No time-debounce: every distinct press queues one token; the
-        // tau-pause-count thread settles the burst and owns the toggle.
+        // nite-pause-count thread settles the burst and owns the toggle.
         clear_undo_state(state.as_ref());
         crate::input::hotkey::push_pause_press();
         return None;
@@ -775,7 +775,7 @@ pub fn process_keyboard_event(
             {
                 let clip_text = crate::platform::read_clipboard_text().unwrap_or_default();
                 let placeholder =
-                    taurine_core::engine::evaluator::format_clipboard_placeholder(&clip_text);
+                    nite_core::engine::evaluator::format_clipboard_placeholder(&clip_text);
                 let _ = with_evaluator_lock(evaluator, "record_ai_clipboard", |lock| {
                     lock.set_captured_ai_clipboard(clip_text);
                     lock.append_to_buffer(&placeholder);

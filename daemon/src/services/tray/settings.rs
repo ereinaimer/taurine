@@ -1,11 +1,11 @@
-use taurine_core::error::Result;
-use taurine_core::settings::{SettingsManager, apply_setting_input};
+use nite_core::error::Result;
+use nite_core::settings::{SettingsManager, apply_setting_input};
 
 pub struct TraySettings;
 
 impl TraySettings {
     pub fn load_quick_settings() -> (bool, bool) {
-        if let Ok(conn) = taurine_core::db::get_conn() {
+        if let Ok(conn) = nite_core::db::get_conn() {
             let manager = SettingsManager::new(&conn);
             let settings = manager.load_all();
             (settings.instant_expand, settings.start_on_boot)
@@ -19,7 +19,7 @@ impl TraySettings {
     /// Only the native (Windows/macOS) tray polls for external edits.
     #[cfg(any(windows, target_os = "macos"))]
     pub fn load_quick_settings_if_changed(last_seen: u64) -> Option<(bool, bool, u64)> {
-        let current = taurine_core::settings::settings_version();
+        let current = nite_core::settings::settings_version();
         if current == last_seen {
             return None;
         }
@@ -58,11 +58,11 @@ impl TraySettings {
     }
 
     pub fn get_voice_input_device() -> Option<String> {
-        if let Ok(conn) = taurine_core::db::get_conn() {
+        if let Ok(conn) = nite_core::db::get_conn() {
             let manager = SettingsManager::new(&conn);
             manager.load_all().voice_input_device
         } else {
-            taurine_core::settings::get_cached_voice_input_device()
+            nite_core::settings::get_cached_voice_input_device()
         }
     }
 
@@ -94,14 +94,14 @@ mod tests {
 
     #[test]
     fn test_toggle_instant_expand() {
-        let _lock = taurine_core::testing::TEST_LOCK
+        let _lock = nite_core::testing::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         crate::hook::tests::mock_keystore::use_mock_keystore();
         let temp_dir = tempfile::tempdir().unwrap();
         // SAFETY: Serialized under TEST_LOCK for test database isolation.
-        unsafe { std::env::set_var("TAURINE_DATA_DIR", temp_dir.path()) };
-        let _env_guard = EnvVarGuard("TAURINE_DATA_DIR");
+        unsafe { std::env::set_var("NITE_DATA_DIR", temp_dir.path()) };
+        let _env_guard = EnvVarGuard("NITE_DATA_DIR");
 
         let (initial_instant, _) = TraySettings::load_quick_settings();
         let new_val = TraySettings::toggle_instant_expand().expect("toggle instant expand");
@@ -113,14 +113,14 @@ mod tests {
 
     #[test]
     fn test_toggle_start_on_boot() {
-        let _lock = taurine_core::testing::TEST_LOCK
+        let _lock = nite_core::testing::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         crate::hook::tests::mock_keystore::use_mock_keystore();
         let temp_dir = tempfile::tempdir().unwrap();
         // SAFETY: Serialized under TEST_LOCK for test database isolation.
-        unsafe { std::env::set_var("TAURINE_DATA_DIR", temp_dir.path()) };
-        let _env_guard = EnvVarGuard("TAURINE_DATA_DIR");
+        unsafe { std::env::set_var("NITE_DATA_DIR", temp_dir.path()) };
+        let _env_guard = EnvVarGuard("NITE_DATA_DIR");
 
         let (_, initial_boot) = TraySettings::load_quick_settings();
         let new_val = TraySettings::toggle_start_on_boot().expect("toggle start on boot");
@@ -132,14 +132,14 @@ mod tests {
 
     #[test]
     fn test_voice_input_device_round_trip() {
-        let _lock = taurine_core::testing::TEST_LOCK
+        let _lock = nite_core::testing::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         crate::hook::tests::mock_keystore::use_mock_keystore();
         let temp_dir = tempfile::tempdir().unwrap();
         // SAFETY: Serialized under TEST_LOCK for test database isolation.
-        unsafe { std::env::set_var("TAURINE_DATA_DIR", temp_dir.path()) };
-        let _env_guard = EnvVarGuard("TAURINE_DATA_DIR");
+        unsafe { std::env::set_var("NITE_DATA_DIR", temp_dir.path()) };
+        let _env_guard = EnvVarGuard("NITE_DATA_DIR");
 
         assert_eq!(TraySettings::get_voice_input_device(), None);
         TraySettings::set_voice_input_device(Some("Microphone Array")).expect("set device");
@@ -154,23 +154,23 @@ mod tests {
     #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn test_load_quick_settings_if_changed_skips_read_on_same_version() {
-        let _lock = taurine_core::testing::TEST_LOCK
+        let _lock = nite_core::testing::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         crate::hook::tests::mock_keystore::use_mock_keystore();
         let temp_dir = tempfile::tempdir().unwrap();
         // SAFETY: Serialized under TEST_LOCK for test database isolation.
-        unsafe { std::env::set_var("TAURINE_DATA_DIR", temp_dir.path()) };
-        let _env_guard = EnvVarGuard("TAURINE_DATA_DIR");
+        unsafe { std::env::set_var("NITE_DATA_DIR", temp_dir.path()) };
+        let _env_guard = EnvVarGuard("NITE_DATA_DIR");
 
-        taurine_core::settings::set_cached_wpm(taurine_core::settings::get_cached_wpm());
-        let version = taurine_core::settings::settings_version();
+        nite_core::settings::set_cached_wpm(nite_core::settings::get_cached_wpm());
+        let version = nite_core::settings::settings_version();
         assert!(
             TraySettings::load_quick_settings_if_changed(version).is_none(),
             "same version must skip the database read"
         );
 
-        taurine_core::settings::set_cached_wpm(taurine_core::settings::get_cached_wpm());
+        nite_core::settings::set_cached_wpm(nite_core::settings::get_cached_wpm());
         let (instant, boot) = TraySettings::load_quick_settings();
         let changed = TraySettings::load_quick_settings_if_changed(version)
             .expect("bumped version must reload");

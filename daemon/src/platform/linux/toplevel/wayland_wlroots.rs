@@ -1,7 +1,7 @@
+use nite_core::engine::{ActiveWindowInfo, EngineState};
 use std::os::unix::io::AsRawFd;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use taurine_core::engine::{ActiveWindowInfo, EngineState};
 use tracing::{debug, error, info};
 use wayland_client::{Connection, Dispatch, QueueHandle, protocol::wl_registry};
 use wayland_protocols_wlr::foreign_toplevel::v1::client::{
@@ -170,7 +170,7 @@ pub fn start_listener(
     active_window_store: Arc<Mutex<Option<String>>>,
 ) {
     let spawn_result = std::thread::Builder::new()
-        .name("tau-lnx-wlroots".to_string())
+        .name("nite-lnx-wlroots".to_string())
         .spawn(move || {
             let conn = match Connection::connect_to_env() {
                 Ok(c) => c,

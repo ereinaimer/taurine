@@ -9,7 +9,7 @@ use tracing::{debug, error, info, trace, warn};
 #[derive(Debug, Default)]
 pub struct AudioFrameBuffer {
     samples: Mutex<Vec<f32>>,
-    spooler: Mutex<Option<taurine_core::voice::AudioSpooler>>,
+    spooler: Mutex<Option<nite_core::voice::AudioSpooler>>,
 }
 
 impl AudioFrameBuffer {
@@ -22,13 +22,13 @@ impl AudioFrameBuffer {
     }
 
     /// Attach an active disk audio spooler for crash recovery journaling.
-    pub fn set_spooler(&self, spooler: taurine_core::voice::AudioSpooler) {
+    pub fn set_spooler(&self, spooler: nite_core::voice::AudioSpooler) {
         let mut lock = self.spooler.lock().unwrap_or_else(|p| p.into_inner());
         *lock = Some(spooler);
     }
 
     /// Detaches and returns the active spooler, if any.
-    pub fn take_spooler(&self) -> Option<taurine_core::voice::AudioSpooler> {
+    pub fn take_spooler(&self) -> Option<nite_core::voice::AudioSpooler> {
         let mut lock = self.spooler.lock().unwrap_or_else(|p| p.into_inner());
         lock.take()
     }
@@ -681,7 +681,7 @@ mod win_com {
     }
 }
 
-pub use taurine_core::voice::devices::friendly_device_name;
+pub use nite_core::voice::devices::friendly_device_name;
 
 /// Query the system default communications audio capture device name on Windows.
 ///
@@ -794,7 +794,7 @@ pub struct AudioCapture {
 }
 
 // SAFETY: `_stream` is protected behind a `Mutex` and cpal audio stream handles can safely be
-// transferred across thread boundaries within Taurine daemon's audio capture runtime.
+// transferred across thread boundaries within Nite daemon's audio capture runtime.
 unsafe impl Send for AudioCapture {}
 
 // SAFETY: All fields of `AudioCapture` are protected by internal synchronization (`Arc`, `AtomicBool`, `Mutex`),
@@ -886,7 +886,7 @@ impl AudioCapture {
     /// Snapshot the current mic identity: cached configured device plus the
     /// effective device a fresh open would record from.
     fn current_mic_identity(&self) -> (Option<String>, String) {
-        let configured = taurine_core::settings::get_cached_voice_input_device();
+        let configured = nite_core::settings::get_cached_voice_input_device();
         let effective = configured
             .clone()
             .unwrap_or_else(|| self.current_default_identity());
@@ -956,7 +956,7 @@ impl AudioCapture {
         if self.is_running() {
             return false;
         }
-        let cached = taurine_core::settings::get_cached_voice_input_device();
+        let cached = nite_core::settings::get_cached_voice_input_device();
         let Some(name) = cached.as_deref() else {
             return false;
         };
@@ -969,7 +969,7 @@ impl AudioCapture {
 
     /// Enumerate all unique audio input device names currently available on the system.
     pub fn list_input_devices() -> Vec<String> {
-        taurine_core::voice::devices::list_input_devices()
+        nite_core::voice::devices::list_input_devices()
     }
 
     /// Resolve the appropriate audio input device: checks configured `voice_input_device`
@@ -978,7 +978,7 @@ impl AudioCapture {
     pub fn resolve_input_device(host: &cpal::Host) -> Result<cpal::Device, String> {
         use cpal::traits::HostTrait;
 
-        if let Some(configured_name) = taurine_core::settings::get_cached_voice_input_device()
+        if let Some(configured_name) = nite_core::settings::get_cached_voice_input_device()
             && !configured_name.trim().is_empty()
         {
             let configured_lower = configured_name.trim().to_lowercase();
@@ -1627,8 +1627,8 @@ mod tests {
         let lock = crate::hook::tests::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        let prev = taurine_core::settings::get_cached_voice_input_device();
-        taurine_core::settings::set_cached_voice_input_device(None);
+        let prev = nite_core::settings::get_cached_voice_input_device();
+        nite_core::settings::set_cached_voice_input_device(None);
         (lock, prev)
     }
 
@@ -1648,7 +1648,7 @@ mod tests {
             2,
             "every press opens fresh; nothing is parked"
         );
-        taurine_core::settings::set_cached_voice_input_device(prev);
+        nite_core::settings::set_cached_voice_input_device(prev);
     }
 
     #[test]
@@ -1666,7 +1666,7 @@ mod tests {
         cap.start().expect("reopen");
         assert_eq!(cap.open_count_for_test(), 2);
         assert!(!cap.is_device_disconnected());
-        taurine_core::settings::set_cached_voice_input_device(prev);
+        nite_core::settings::set_cached_voice_input_device(prev);
     }
 
     #[test]
@@ -1683,7 +1683,7 @@ mod tests {
             "OS disconnect must force a clean reopen"
         );
         assert!(!cap.is_device_disconnected());
-        taurine_core::settings::set_cached_voice_input_device(prev);
+        nite_core::settings::set_cached_voice_input_device(prev);
     }
 
     #[test]
@@ -1691,19 +1691,19 @@ mod tests {
         let _lock = crate::hook::tests::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        let prev = taurine_core::settings::get_cached_voice_input_device();
-        taurine_core::settings::set_cached_voice_input_device(None);
+        let prev = nite_core::settings::get_cached_voice_input_device();
+        nite_core::settings::set_cached_voice_input_device(None);
         let cap = mic_test_capture();
         cap.start().expect("open");
         cap.stop();
-        taurine_core::settings::set_cached_voice_input_device(Some("External Mic".to_string()));
+        nite_core::settings::set_cached_voice_input_device(Some("External Mic".to_string()));
         cap.start().expect("reopen");
         assert_eq!(
             cap.open_count_for_test(),
             2,
             "next press after a configured change opens the new device"
         );
-        taurine_core::settings::set_cached_voice_input_device(prev);
+        nite_core::settings::set_cached_voice_input_device(prev);
     }
 
     #[test]
@@ -1720,7 +1720,7 @@ mod tests {
             2,
             "OS default-device change must reopen, never record from the stale mic"
         );
-        taurine_core::settings::set_cached_voice_input_device(prev);
+        nite_core::settings::set_cached_voice_input_device(prev);
     }
 
     #[test]
@@ -1731,7 +1731,7 @@ mod tests {
         // enumeration, no persist. Entry exists, callable while idle,
         // returns bool, never panics.
         assert!(!cap.persist_fallback_if_configured_missing());
-        taurine_core::settings::set_cached_voice_input_device(prev);
+        nite_core::settings::set_cached_voice_input_device(prev);
     }
 
     #[test]
@@ -1749,7 +1749,7 @@ mod tests {
             cap.live_device_stale(),
             "OS default move must stale the live stream"
         );
-        taurine_core::settings::set_cached_voice_input_device(prev);
+        nite_core::settings::set_cached_voice_input_device(prev);
     }
 
     #[test]
@@ -1768,7 +1768,7 @@ mod tests {
             !cap.live_device_stale(),
             "a stopped capture holds no live state"
         );
-        taurine_core::settings::set_cached_voice_input_device(prev);
+        nite_core::settings::set_cached_voice_input_device(prev);
     }
 
     #[test]
@@ -1786,7 +1786,7 @@ mod tests {
             cap.is_running(),
             "recording must stay running across restart"
         );
-        taurine_core::settings::set_cached_voice_input_device(prev);
+        nite_core::settings::set_cached_voice_input_device(prev);
     }
 
     #[test]

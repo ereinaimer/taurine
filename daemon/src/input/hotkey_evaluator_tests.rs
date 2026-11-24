@@ -1,9 +1,9 @@
 use super::hotkey_evaluator::*;
-use taurine_core::db::crud::TriggerAction;
-use taurine_core::engine::EngineState;
-use taurine_core::engine::{EngineEvent, Evaluator};
-use taurine_core::keys::Modifier;
-use taurine_core::keys::{LogicalKey, Modifiers, MouseButton};
+use nite_core::db::crud::TriggerAction;
+use nite_core::engine::EngineState;
+use nite_core::engine::{EngineEvent, Evaluator};
+use nite_core::keys::Modifier;
+use nite_core::keys::{LogicalKey, Modifiers, MouseButton};
 
 fn modifiers_with(modifiers: &[Modifier]) -> Modifiers {
     let mut bitset = Modifiers::new();
@@ -37,7 +37,7 @@ fn hotkey_match_returns_expansion_result_and_swallow_outcome() {
             assert_eq!(expansion.undo_trigger, None);
             assert_eq!(
                 expansion.steps,
-                vec![taurine_core::engine::variables::ExpansionStep::Text(
+                vec![nite_core::engine::variables::ExpansionStep::Text(
                     "git status".to_string()
                 )]
             );
@@ -52,7 +52,7 @@ fn hotkey_miss_falls_through_and_preserves_word_evaluator_behavior() {
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let state = std::sync::Arc::new(EngineState::with_source(std::sync::Arc::new(
-        taurine_core::engine::source::MemorySource::new(),
+        nite_core::engine::source::MemorySource::new(),
     )));
     state.load_actions(vec![(
         "gm".to_string(),
@@ -86,7 +86,7 @@ fn hotkey_miss_falls_through_and_preserves_word_evaluator_behavior() {
         .expect("word trigger should still expand on hotkey miss");
     assert_eq!(
         expansion.steps,
-        vec![taurine_core::engine::variables::ExpansionStep::Text(
+        vec![nite_core::engine::variables::ExpansionStep::Text(
             "Good morning!".to_string()
         )]
     );
@@ -428,7 +428,7 @@ fn hotkey_match_priority_preserved_with_mixed_filtered_unfiltered_entries() {
             assert_eq!(expansion.trigger, "ctrl+shift+g");
             assert_eq!(
                 expansion.steps,
-                vec![taurine_core::engine::variables::ExpansionStep::Text(
+                vec![nite_core::engine::variables::ExpansionStep::Text(
                     "unfiltered".to_string()
                 )]
             );
@@ -536,7 +536,7 @@ fn mouse_hotkey_ralt_mouse4_and_ctrl_mouse1_match_and_swallow_release() {
             assert_eq!(expansion.trigger, "ralt+mouse4");
             assert_eq!(
                 expansion.steps,
-                vec![taurine_core::engine::variables::ExpansionStep::Text(
+                vec![nite_core::engine::variables::ExpansionStep::Text(
                     "action ralt mouse4".to_string()
                 )]
             );
@@ -565,7 +565,7 @@ fn mouse_hotkey_ralt_mouse4_and_ctrl_mouse1_match_and_swallow_release() {
             assert_eq!(expansion.trigger, "ctrl+mouse1");
             assert_eq!(
                 expansion.steps,
-                vec![taurine_core::engine::variables::ExpansionStep::Text(
+                vec![nite_core::engine::variables::ExpansionStep::Text(
                     "action ctrl mouse1".to_string()
                 )]
             );

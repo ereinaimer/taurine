@@ -64,11 +64,11 @@ impl HookHealthSnapshot {
             && now > self.last_keyboard_event_at_unix_ms + 35_000;
 
         if !self.listener_running && self.hook_thread_started_at_unix_ms != 0 {
-            Some("run `taurine restart` to reinitialize keyboard capture".to_string())
+            Some("run `nite restart` to reinitialize keyboard capture".to_string())
         } else if self.pending_recovery_reason.is_some()
             && self.last_keyboard_event_at_unix_ms < self.last_recovery_signal_at_unix_ms
         {
-            Some("press a few keys; if capture does not recover, run `taurine restart`".to_string())
+            Some("press a few keys; if capture does not recover, run `nite restart`".to_string())
         } else if stale {
             Some("press a key to verify keyboard capture is active".to_string())
         } else {
@@ -290,7 +290,7 @@ impl HookHealth {
         let now = now_unix_ms();
         let capture_state = snapshot.keyboard_capture_state();
         if capture_state != KeyboardCaptureState::Healthy {
-            tracing::warn!(target: "taurine::hook",
+            tracing::warn!(target: "nite::hook",
                 capture_state = capture_state.as_str(),
                 listener_running = snapshot.listener_running,
                 ms_since_thread_start = now.saturating_sub(snapshot.hook_thread_started_at_unix_ms),
@@ -300,7 +300,7 @@ impl HookHealth {
                 "health"
             );
         } else {
-            tracing::trace!(target: "taurine::hook",
+            tracing::trace!(target: "nite::hook",
                 capture_state = capture_state.as_str(),
                 listener_running = snapshot.listener_running,
                 ms_since_thread_start = now.saturating_sub(snapshot.hook_thread_started_at_unix_ms),
@@ -313,11 +313,11 @@ impl HookHealth {
     }
 
     pub fn log_recovery(&self, reason: &str) {
-        tracing::warn!(target: "taurine::hook", reason, "recovery");
+        tracing::warn!(target: "nite::hook", reason, "recovery");
     }
 
     pub fn log_failure(&self, error: &str) {
-        tracing::error!(target: "taurine::hook", error, "failure");
+        tracing::error!(target: "nite::hook", error, "failure");
     }
 }
 

@@ -188,9 +188,9 @@ pub(super) fn prepare_clipboard_for_expansion(
     let _timer_guard = HighResolutionTimerGuard::acquire();
     let original = clipboard.get_text()?;
 
-    let is_html = taurine_core::utils::html::has_html_tags(payload);
+    let is_html = nite_core::utils::html::has_html_tags(payload);
     let expected = if is_html {
-        let plaintext = taurine_core::utils::html::strip_html(payload);
+        let plaintext = nite_core::utils::html::strip_html(payload);
         clipboard.set_html(payload, &plaintext)?;
         plaintext
     } else {

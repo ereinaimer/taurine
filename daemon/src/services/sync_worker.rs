@@ -1,21 +1,21 @@
-use rusqlite::OptionalExtension;
-use std::sync::Arc;
-use std::time::Duration;
-use taurine_core::cloud::CloudClient;
-use taurine_core::db::crud::triggers::{
+use nite_core::cloud::CloudClient;
+use nite_core::db::crud::triggers::{
     CloudSnippetPayload, ReconcileOutcome, purge_deleted_tombstones, reconcile_cloud_snippet,
 };
-use taurine_core::db::crud::{
+use nite_core::db::crud::{
     CloudActivityEventPayload, CloudSettingPayload, CloudTriggerDailyStatPayload,
     CloudUserAppStatPayload, CloudUserStatPayload, SettingReconcileOutcome,
     reconcile_cloud_activity_events, reconcile_cloud_app_stats, reconcile_cloud_setting,
     reconcile_cloud_trigger_daily_stats, reconcile_cloud_user_stats,
 };
+use rusqlite::OptionalExtension;
+use std::sync::Arc;
+use std::time::Duration;
 
 /// Connection provider handed to the sync worker: yields a fresh database
 /// connection (pooled or raw) per sync cycle.
 pub type ConnProvider =
-    Arc<dyn Fn() -> taurine_core::Result<taurine_core::db::DbConnection> + Send + Sync>;
+    Arc<dyn Fn() -> nite_core::Result<nite_core::db::DbConnection> + Send + Sync>;
 
 /// Provider that opens a fresh keyed connection via `db::init::setup()`
 /// (schema + seed included). Intended for tests against temp data dirs; the
@@ -23,13 +23,13 @@ pub type ConnProvider =
 /// kept available for hermetic tests rather than used today.
 #[allow(dead_code)]
 pub(crate) fn raw_conn_provider() -> ConnProvider {
-    Arc::new(|| taurine_core::db::init::setup().map(taurine_core::db::DbConnection::Raw))
+    Arc::new(|| nite_core::db::init::setup().map(nite_core::db::DbConnection::Raw))
 }
 
 /// Provider that checks a connection out of the shared keyed r2d2 pool.
 /// Used by the daemon's periodic sync cycles.
 pub(crate) fn pooled_conn_provider() -> ConnProvider {
-    Arc::new(taurine_core::db::get_conn)
+    Arc::new(nite_core::db::get_conn)
 }
 
 /// The execution outcome of a sync cycle.
@@ -86,7 +86,7 @@ impl SyncWorker {
 
     fn handle_outbox_failure(
         conn: &rusqlite::Connection,
-        entry: &taurine_core::db::crud::OutboxEntry,
+        entry: &nite_core::db::crud::OutboxEntry,
         status: reqwest::StatusCode,
         text: &str,
     ) -> Option<SyncStatus> {
@@ -97,7 +97,7 @@ impl SyncWorker {
                 entry.id,
                 entry.entity_type
             );
-            let _ = taurine_core::db::crud::quarantine_outbox_entry(conn, entry.id, &error_msg);
+            let _ = nite_core::db::crud::quarantine_outbox_entry(conn, entry.id, &error_msg);
             None
         } else {
             tracing::warn!(
@@ -105,7 +105,7 @@ impl SyncWorker {
                 entry.id,
                 entry.entity_type
             );
-            let _ = taurine_core::db::crud::record_outbox_failure(conn, entry.id, &error_msg);
+            let _ = nite_core::db::crud::record_outbox_failure(conn, entry.id, &error_msg);
             Some(SyncStatus::Error(format!(
                 "Failed to push {} ({status}): {text}",
                 entry.entity_type
@@ -115,7 +115,7 @@ impl SyncWorker {
 
     fn handle_outbox_network_error(
         conn: &rusqlite::Connection,
-        entry: &taurine_core::db::crud::OutboxEntry,
+        entry: &nite_core::db::crud::OutboxEntry,
         e: &reqwest::Error,
     ) -> Option<SyncStatus> {
         let error_msg = format!("Network error: {e}");
@@ -124,7 +124,7 @@ impl SyncWorker {
             entry.id,
             entry.entity_type
         );
-        let _ = taurine_core::db::crud::record_outbox_failure(conn, entry.id, &error_msg);
+        let _ = nite_core::db::crud::record_outbox_failure(conn, entry.id, &error_msg);
         Some(SyncStatus::Error(format!(
             "Network error pushing {}: {e}",
             entry.entity_type
@@ -133,19 +133,18 @@ impl SyncWorker {
 
     fn prepare_snippet_payload(
         conn: &rusqlite::Connection,
-        entry: &taurine_core::db::crud::OutboxEntry,
+        entry: &nite_core::db::crud::OutboxEntry,
         user_id: &str,
     ) -> serde_json::Value {
         let mut payload = if entry.operation == "upsert"
             && let Ok(Some(trigger)) =
-                taurine_core::db::crud::triggers::get_trigger(conn, &entry.entity_id)
+                nite_core::db::crud::triggers::get_trigger(conn, &entry.entity_id)
         {
-            let aliases = taurine_core::db::crud::triggers::list_aliases(conn, &entry.entity_id)
+            let aliases = nite_core::db::crud::triggers::list_aliases(conn, &entry.entity_id)
                 .unwrap_or_default();
-            let assets =
-                taurine_core::db::crud::triggers::load_trigger_assets(conn, &entry.entity_id)
-                    .unwrap_or_default();
-            let snippet_obj = taurine_core::db::crud::triggers::serialize_trigger_to_cloud_snippet(
+            let assets = nite_core::db::crud::triggers::load_trigger_assets(conn, &entry.entity_id)
+                .unwrap_or_default();
+            let snippet_obj = nite_core::db::crud::triggers::serialize_trigger_to_cloud_snippet(
                 &trigger, &aliases, &assets,
             );
             serde_json::to_value(&snippet_obj).unwrap_or_else(|_| entry.payload.clone())
@@ -213,7 +212,7 @@ impl SyncWorker {
         E: std::fmt::Display,
     {
         std::thread::Builder::new()
-            .name("tau-sync".to_string())
+            .name("nite-sync".to_string())
             .spawn(move || {
                 let rt = match tokio::runtime::Builder::new_current_thread()
                     .enable_all()
@@ -242,7 +241,7 @@ impl SyncWorker {
                     }
                 });
             })
-            .expect("spawn tau-sync thread")
+            .expect("spawn nite-sync thread")
     }
 
     /// Spawns a background thread running event-driven sync cycles with micro-debouncing and cooldown.
@@ -252,7 +251,7 @@ impl SyncWorker {
         notify: std::sync::Arc<tokio::sync::Notify>,
     ) -> std::thread::JoinHandle<()> {
         std::thread::Builder::new()
-            .name("tau-sync".to_string())
+            .name("nite-sync".to_string())
             .spawn(move || {
                 let rt = match tokio::runtime::Builder::new_current_thread()
                     .enable_all()
@@ -307,7 +306,7 @@ impl SyncWorker {
                                 // If triggered by rapid hotkey toggles within 2s of a completed sync and outbox is clean,
                                 // skip duplicate redundant remote requests.
                                 if last_sync.elapsed() < Duration::from_millis(2000) {
-                                    let has_outbox = taurine_core::db::crud::fetch_outbox_batch(&conn, 1)
+                                    let has_outbox = nite_core::db::crud::fetch_outbox_batch(&conn, 1)
                                         .map(|b| !b.is_empty())
                                         .unwrap_or(false);
                                     if !has_outbox {
@@ -375,7 +374,7 @@ impl SyncWorker {
                 }
 
                 if pulled_snippets > 0 || pulled_settings > 0 {
-                    taurine_core::rpc::notify_daemon_reload_internal(true);
+                    nite_core::rpc::notify_daemon_reload_internal(true);
                 }
             }
             SyncStatus::Error(err) => {
@@ -400,15 +399,13 @@ impl SyncWorker {
         let _sync_guard = SYNC_MUTEX.lock().await;
 
         // 0. Flush any pending in-memory quota deltas to SQLite (applies locally regardless of cloud auth)
-        if let Ok(key) = taurine_core::db::key::get_or_create_db_key() {
+        if let Ok(key) = nite_core::db::key::get_or_create_db_key() {
             let _ = crate::engine::quota_guard::QuotaGuard::global().flush_to_db(conn, &key);
         }
 
-        if taurine_core::db::crud::get_sync_checkpoint(conn, "snippets_backfilled").unwrap_or(0)
-            == 0
-        {
-            let _ = taurine_core::db::crud::triggers::backfill_untracked_triggers_to_outbox(conn);
-            let _ = taurine_core::db::crud::set_sync_checkpoint(conn, "snippets_backfilled", 1);
+        if nite_core::db::crud::get_sync_checkpoint(conn, "snippets_backfilled").unwrap_or(0) == 0 {
+            let _ = nite_core::db::crud::triggers::backfill_untracked_triggers_to_outbox(conn);
+            let _ = nite_core::db::crud::set_sync_checkpoint(conn, "snippets_backfilled", 1);
         }
 
         let client = match client {
@@ -416,7 +413,7 @@ impl SyncWorker {
             None => return SyncStatus::NotAuthenticated,
         };
 
-        let mut tokens = match taurine_core::cloud::get_cloud_tokens() {
+        let mut tokens = match nite_core::cloud::get_cloud_tokens() {
             Ok(Some(t)) => t,
             Ok(None) => return SyncStatus::NotAuthenticated,
             Err(e) => return SyncStatus::Error(format!("Keystore error: {e}")),
@@ -451,7 +448,7 @@ impl SyncWorker {
         // 1. Push Phase (Outbox Drain)
         let mut attempted_ids = std::collections::HashSet::new();
         loop {
-            let batch = match taurine_core::db::crud::fetch_outbox_batch(conn, 50) {
+            let batch = match nite_core::db::crud::fetch_outbox_batch(conn, 50) {
                 Ok(b) => b,
                 Err(e) => return SyncStatus::Error(format!("Failed to fetch outbox batch: {e}")),
             };
@@ -486,7 +483,7 @@ impl SyncWorker {
                 match push_res {
                     Ok(res) if res.status().is_success() => {
                         for entry in &snippet_entries {
-                            let _ = taurine_core::db::crud::delete_outbox_entry(conn, entry.id);
+                            let _ = nite_core::db::crud::delete_outbox_entry(conn, entry.id);
                             pushed_snippets += 1;
                         }
                     }
@@ -506,7 +503,7 @@ impl SyncWorker {
                             match single_res {
                                 Ok(r) if r.status().is_success() => {
                                     let _ =
-                                        taurine_core::db::crud::delete_outbox_entry(conn, entry.id);
+                                        nite_core::db::crud::delete_outbox_entry(conn, entry.id);
                                     pushed_snippets += 1;
                                 }
                                 Ok(r) => {
@@ -565,7 +562,7 @@ impl SyncWorker {
                                 return err_status;
                             }
                         } else {
-                            let _ = taurine_core::db::crud::delete_outbox_entry(conn, entry.id);
+                            let _ = nite_core::db::crud::delete_outbox_entry(conn, entry.id);
                             pushed_snippets += 1;
                         }
                     }
@@ -583,8 +580,8 @@ impl SyncWorker {
 
                 match entry.entity_type.as_str() {
                     "setting" => {
-                        if !taurine_core::db::crud::is_setting_syncable(&entry.entity_id) {
-                            let _ = taurine_core::db::crud::delete_outbox_entry(conn, entry.id);
+                        if !nite_core::db::crud::is_setting_syncable(&entry.entity_id) {
+                            let _ = nite_core::db::crud::delete_outbox_entry(conn, entry.id);
                             continue;
                         }
 
@@ -619,7 +616,7 @@ impl SyncWorker {
                                     }
                                     continue;
                                 }
-                                let _ = taurine_core::db::crud::delete_outbox_entry(conn, entry.id);
+                                let _ = nite_core::db::crud::delete_outbox_entry(conn, entry.id);
                                 pushed_settings += 1;
                             }
                             Err(e) => {
@@ -633,7 +630,7 @@ impl SyncWorker {
                         }
                     }
                     "quota" => {
-                        let device_id = taurine_core::cloud::cached_device_hardware_id();
+                        let device_id = nite_core::cloud::cached_device_hardware_id();
                         let rpc_payload = serde_json::json!({
                             "p_week_epoch": entry.payload.get("week_epoch").and_then(|v| v.as_i64()).unwrap_or(0),
                             "p_delta": entry.payload.get("delta").and_then(|v| v.as_f64()).unwrap_or(0.0),
@@ -663,7 +660,7 @@ impl SyncWorker {
                                     continue;
                                 }
 
-                                let _ = taurine_core::db::crud::delete_outbox_entry(conn, entry.id);
+                                let _ = nite_core::db::crud::delete_outbox_entry(conn, entry.id);
 
                                 if let Ok(val) = res.json::<serde_json::Value>().await {
                                     let new_balance = val
@@ -674,17 +671,16 @@ impl SyncWorker {
                                     if let Some(balance) = new_balance {
                                         crate::engine::quota_guard::QuotaGuard::global()
                                             .set_balance(balance);
-                                        if let Ok(key) =
-                                            taurine_core::db::key::get_or_create_db_key()
+                                        if let Ok(key) = nite_core::db::key::get_or_create_db_key()
                                         {
                                             let week_epoch = entry
                                                 .payload
                                                 .get("week_epoch")
                                                 .and_then(|v| v.as_i64())
                                                 .unwrap_or_else(|| {
-                                                    taurine_core::db::crud::quota::calculate_week_start_epoch(now_epoch)
+                                                    nite_core::db::crud::quota::calculate_week_start_epoch(now_epoch)
                                                 });
-                                            let _ = taurine_core::db::crud::quota::set_quota_balance_from_cloud(
+                                            let _ = nite_core::db::crud::quota::set_quota_balance_from_cloud(
                                                 conn,
                                                 &key,
                                                 week_epoch,
@@ -718,7 +714,7 @@ impl SyncWorker {
                                     let version: i64 = row.get(9)?;
                                     Ok(CloudActivityEventPayload {
                                         user_id: Some(tokens.user_id.clone()),
-                                        device_id: taurine_core::cloud::cached_device_hardware_id()
+                                        device_id: nite_core::cloud::cached_device_hardware_id()
                                             .to_string(),
                                         id: row.get(0)?,
                                         trigger_id: row.get(1)?,
@@ -753,7 +749,7 @@ impl SyncWorker {
                                     map.insert(
                                         "device_id".to_string(),
                                         serde_json::Value::String(
-                                            taurine_core::cloud::cached_device_hardware_id()
+                                            nite_core::cloud::cached_device_hardware_id()
                                                 .to_string(),
                                         ),
                                     );
@@ -778,7 +774,7 @@ impl SyncWorker {
                                     }
                                     continue;
                                 }
-                                let _ = taurine_core::db::crud::delete_outbox_entry(conn, entry.id);
+                                let _ = nite_core::db::crud::delete_outbox_entry(conn, entry.id);
                                 pushed_stats += 1;
                             }
                             Err(e) => {
@@ -822,7 +818,7 @@ impl SyncWorker {
                             Some(ref app_key),
                         ) = (lookup_trigger_id, lookup_date, lookup_app_key)
                         {
-                            let device_id = taurine_core::cloud::cached_device_hardware_id();
+                            let device_id = nite_core::cloud::cached_device_hardware_id();
                             conn.query_row(
                                 "SELECT trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version
                                  FROM trigger_daily_stats WHERE device_id = ?1 AND trigger_id = ?2 AND date = ?3 AND app_key = ?4",
@@ -835,7 +831,7 @@ impl SyncWorker {
                                     let version: i64 = row.get(7)?;
                                     Ok(CloudTriggerDailyStatPayload {
                                         user_id: Some(tokens.user_id.clone()),
-                                        device_id: taurine_core::cloud::cached_device_hardware_id()
+                                        device_id: nite_core::cloud::cached_device_hardware_id()
                                             .to_string(),
                                         trigger_id: row.get(0)?,
                                         date: row.get(1)?,
@@ -870,7 +866,7 @@ impl SyncWorker {
                                     map.insert(
                                         "device_id".to_string(),
                                         serde_json::Value::String(
-                                            taurine_core::cloud::cached_device_hardware_id()
+                                            nite_core::cloud::cached_device_hardware_id()
                                                 .to_string(),
                                         ),
                                     );
@@ -895,7 +891,7 @@ impl SyncWorker {
                                     }
                                     continue;
                                 }
-                                let _ = taurine_core::db::crud::delete_outbox_entry(conn, entry.id);
+                                let _ = nite_core::db::crud::delete_outbox_entry(conn, entry.id);
                                 pushed_stats += 1;
                             }
                             Err(e) => {
@@ -909,7 +905,7 @@ impl SyncWorker {
                         }
                     }
                     "stat" | "user_stat" => {
-                        let device_id = taurine_core::cloud::cached_device_hardware_id();
+                        let device_id = nite_core::cloud::cached_device_hardware_id();
                         let db_stat = conn
                             .query_row(
                                 "SELECT date, executions, ai_executions, voice_executions, words_spoken, words_expanded, time_saved_ms, version
@@ -918,7 +914,7 @@ impl SyncWorker {
                                 |row| {
                                     Ok(CloudUserStatPayload {
                                         user_id: Some(tokens.user_id.clone()),
-                                        device_id: taurine_core::cloud::cached_device_hardware_id()
+                                        device_id: nite_core::cloud::cached_device_hardware_id()
                                             .to_string(),
                                         date: row.get(0)?,
                                         executions: row.get(1)?,
@@ -950,7 +946,7 @@ impl SyncWorker {
                                     map.insert(
                                         "device_id".to_string(),
                                         serde_json::Value::String(
-                                            taurine_core::cloud::cached_device_hardware_id()
+                                            nite_core::cloud::cached_device_hardware_id()
                                                 .to_string(),
                                         ),
                                     );
@@ -975,7 +971,7 @@ impl SyncWorker {
                                     }
                                     continue;
                                 }
-                                let _ = taurine_core::db::crud::delete_outbox_entry(conn, entry.id);
+                                let _ = nite_core::db::crud::delete_outbox_entry(conn, entry.id);
                                 pushed_stats += 1;
                             }
                             Err(e) => {
@@ -1003,7 +999,7 @@ impl SyncWorker {
                         let db_app_stat = if let (Some(ref app_key), Some(ref date)) =
                             (lookup_app_key, lookup_date)
                         {
-                            let device_id = taurine_core::cloud::cached_device_hardware_id();
+                            let device_id = nite_core::cloud::cached_device_hardware_id();
                             conn.query_row(
                                 "SELECT app_key, date, executions, words_spoken, words_expanded, time_saved_ms, version
                                  FROM app_stats WHERE device_id = ?1 AND app_key = ?2 AND date = ?3",
@@ -1016,7 +1012,7 @@ impl SyncWorker {
                                     let version: i64 = row.get(6)?;
                                     Ok(CloudUserAppStatPayload {
                                         user_id: Some(tokens.user_id.clone()),
-                                        device_id: taurine_core::cloud::cached_device_hardware_id()
+                                        device_id: nite_core::cloud::cached_device_hardware_id()
                                             .to_string(),
                                         app_key: row.get(0)?,
                                         date: row.get(1)?,
@@ -1050,7 +1046,7 @@ impl SyncWorker {
                                     map.insert(
                                         "device_id".to_string(),
                                         serde_json::Value::String(
-                                            taurine_core::cloud::cached_device_hardware_id()
+                                            nite_core::cloud::cached_device_hardware_id()
                                                 .to_string(),
                                         ),
                                     );
@@ -1075,7 +1071,7 @@ impl SyncWorker {
                                     }
                                     continue;
                                 }
-                                let _ = taurine_core::db::crud::delete_outbox_entry(conn, entry.id);
+                                let _ = nite_core::db::crud::delete_outbox_entry(conn, entry.id);
                                 pushed_stats += 1;
                             }
                             Err(e) => {
@@ -1090,14 +1086,14 @@ impl SyncWorker {
                     }
                     unknown => {
                         tracing::warn!("Unknown outbox entity_type: {unknown}");
-                        let _ = taurine_core::db::crud::delete_outbox_entry(conn, entry.id);
+                        let _ = nite_core::db::crud::delete_outbox_entry(conn, entry.id);
                     }
                 }
             }
         }
 
         // 2. Pull Phase (Checkpoint Watermark with Pagination)
-        let last_cp = taurine_core::db::crud::get_sync_checkpoint(conn, "snippets").unwrap_or(0);
+        let last_cp = nite_core::db::crud::get_sync_checkpoint(conn, "snippets").unwrap_or(0);
         let rfc3339_cp = CloudClient::format_rfc3339_timestamp(last_cp);
         let mut max_ts = last_cp;
         const PULL_PAGE_SIZE: usize = 500;
@@ -1198,14 +1194,14 @@ impl SyncWorker {
         }
 
         if max_ts > last_cp
-            && let Err(e) = taurine_core::db::crud::set_sync_checkpoint(conn, "snippets", max_ts)
+            && let Err(e) = nite_core::db::crud::set_sync_checkpoint(conn, "snippets", max_ts)
         {
             tracing::warn!("Failed to set snippets sync checkpoint: {e}");
         }
 
         // Pull remote settings
         let last_settings_cp =
-            taurine_core::db::crud::get_sync_checkpoint(conn, "user_settings").unwrap_or(0);
+            nite_core::db::crud::get_sync_checkpoint(conn, "user_settings").unwrap_or(0);
         let rfc3339_settings_cp = CloudClient::format_rfc3339_timestamp(last_settings_cp);
         let mut settings_max_ts = last_settings_cp;
         let mut settings_offset: usize = 0;
@@ -1278,13 +1274,13 @@ impl SyncWorker {
 
         if settings_max_ts > last_settings_cp
             && let Err(e) =
-                taurine_core::db::crud::set_sync_checkpoint(conn, "user_settings", settings_max_ts)
+                nite_core::db::crud::set_sync_checkpoint(conn, "user_settings", settings_max_ts)
         {
             tracing::warn!("Failed to set user_settings sync checkpoint: {e}");
         }
 
         // Pull remote quota ledger for the current week
-        let current_week = taurine_core::db::crud::quota::calculate_week_start_epoch(now_epoch);
+        let current_week = nite_core::db::crud::quota::calculate_week_start_epoch(now_epoch);
         let quota_pull_res = client
             .postgrest_get(
                 &format!("quota_ledger?week_start_epoch=eq.{current_week}&limit=1"),
@@ -1324,12 +1320,12 @@ impl SyncWorker {
                     .optional()
                     .unwrap_or(None);
 
-                let db_key = taurine_core::db::key::get_or_create_db_key();
+                let db_key = nite_core::db::key::get_or_create_db_key();
                 if let Ok(key) = db_key {
                     match local_quota {
                         None => {
                             if let Ok(row) =
-                                taurine_core::db::crud::quota::set_quota_balance_from_cloud(
+                                nite_core::db::crud::quota::set_quota_balance_from_cloud(
                                     conn,
                                     &key,
                                     remote.week_start_epoch,
@@ -1345,7 +1341,7 @@ impl SyncWorker {
                             if (remote.updated_at > local_updated_at
                                 || remote.remaining_percentage < local_pct)
                                 && let Ok(row) =
-                                    taurine_core::db::crud::quota::set_quota_balance_from_cloud(
+                                    nite_core::db::crud::quota::set_quota_balance_from_cloud(
                                         conn,
                                         &key,
                                         remote.week_start_epoch,
@@ -1364,7 +1360,7 @@ impl SyncWorker {
 
         // Pull remote activity events (clamped to active 30-day retention window on initial sync)
         let last_events_cp =
-            taurine_core::db::crud::get_sync_checkpoint(conn, "activity_events").unwrap_or(0);
+            nite_core::db::crud::get_sync_checkpoint(conn, "activity_events").unwrap_or(0);
         let effective_events_cp = if last_events_cp == 0 {
             now_epoch.saturating_sub(30 * 86400)
         } else {
@@ -1445,14 +1441,14 @@ impl SyncWorker {
 
         if events_max_ts > last_events_cp
             && let Err(e) =
-                taurine_core::db::crud::set_sync_checkpoint(conn, "activity_events", events_max_ts)
+                nite_core::db::crud::set_sync_checkpoint(conn, "activity_events", events_max_ts)
         {
             tracing::warn!("Failed to set activity_events sync checkpoint: {e}");
         }
 
         // Pull remote trigger daily stats
         let last_trigger_stats_cp =
-            taurine_core::db::crud::get_sync_checkpoint(conn, "trigger_daily_stats").unwrap_or(0);
+            nite_core::db::crud::get_sync_checkpoint(conn, "trigger_daily_stats").unwrap_or(0);
         let rfc3339_trigger_stats_cp = CloudClient::format_rfc3339_timestamp(last_trigger_stats_cp);
         let mut trigger_stats_max_ts = last_trigger_stats_cp;
         let mut trigger_stats_offset: usize = 0;
@@ -1514,7 +1510,7 @@ impl SyncWorker {
         }
 
         if trigger_stats_max_ts > last_trigger_stats_cp
-            && let Err(e) = taurine_core::db::crud::set_sync_checkpoint(
+            && let Err(e) = nite_core::db::crud::set_sync_checkpoint(
                 conn,
                 "trigger_daily_stats",
                 trigger_stats_max_ts,
@@ -1525,7 +1521,7 @@ impl SyncWorker {
 
         // Pull remote global user stats
         let last_user_stats_cp =
-            taurine_core::db::crud::get_sync_checkpoint(conn, "user_stats").unwrap_or(0);
+            nite_core::db::crud::get_sync_checkpoint(conn, "user_stats").unwrap_or(0);
         let rfc3339_user_stats_cp = CloudClient::format_rfc3339_timestamp(last_user_stats_cp);
         let mut user_stats_max_ts = last_user_stats_cp;
         let mut user_stats_offset: usize = 0;
@@ -1585,14 +1581,14 @@ impl SyncWorker {
 
         if user_stats_max_ts > last_user_stats_cp
             && let Err(e) =
-                taurine_core::db::crud::set_sync_checkpoint(conn, "user_stats", user_stats_max_ts)
+                nite_core::db::crud::set_sync_checkpoint(conn, "user_stats", user_stats_max_ts)
         {
             tracing::warn!("Failed to set user_stats sync checkpoint: {e}");
         }
 
         // Pull remote user app stats
         let last_user_app_stats_cp =
-            taurine_core::db::crud::get_sync_checkpoint(conn, "user_app_stats").unwrap_or(0);
+            nite_core::db::crud::get_sync_checkpoint(conn, "user_app_stats").unwrap_or(0);
         let rfc3339_user_app_stats_cp =
             CloudClient::format_rfc3339_timestamp(last_user_app_stats_cp);
         let mut user_app_stats_max_ts = last_user_app_stats_cp;
@@ -1652,7 +1648,7 @@ impl SyncWorker {
         }
 
         if user_app_stats_max_ts > last_user_app_stats_cp
-            && let Err(e) = taurine_core::db::crud::set_sync_checkpoint(
+            && let Err(e) = nite_core::db::crud::set_sync_checkpoint(
                 conn,
                 "user_app_stats",
                 user_app_stats_max_ts,

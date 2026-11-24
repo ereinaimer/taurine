@@ -1,7 +1,7 @@
+use nite_core::settings::{AudioTheme, get_cached_audio_theme, get_cached_audio_volume};
 use rodio::{Decoder, DeviceSinkBuilder, Player};
 use std::io::Cursor;
 use std::time::{Duration, Instant};
-use taurine_core::settings::{AudioTheme, get_cached_audio_theme, get_cached_audio_volume};
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
@@ -254,7 +254,7 @@ static VOICE_SINK_CACHE: std::sync::Mutex<Option<CachedVoiceSink>> = std::sync::
 /// back-to-back cues share one verdict instead of each paying the stall.
 const REVALIDATE_THROTTLE: Duration = Duration::from_secs(2);
 
-/// Single cold-open retry delay. The retry runs on the `tau-voice-cue`
+/// Single cold-open retry delay. The retry runs on the `nite-voice-cue`
 /// thread only — hotkey, capture, and transcription never wait. 100ms is
 /// enough for a virtual-endpoint flap (FxSound re-route) to settle without
 /// making a heard blip feel late. Tests pay this sleep once per retry case.
@@ -559,7 +559,7 @@ pub fn play_voice_cue(start: bool) {
     // Caller (hook/session) never waits either way.
     for _ in 0..3 {
         match std::thread::Builder::new()
-            .name("tau-voice-cue".to_string())
+            .name("nite-voice-cue".to_string())
             .spawn(move || {
                 let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     play_cached_voice_cue(&RodioVoiceBackend, &VOICE_SINK_CACHE, data, volume, tag);
@@ -578,7 +578,7 @@ pub fn play_voice_cue(start: bool) {
 /// Plays a non-blocking pause/resume cue for the global pause toggle.
 ///
 /// Audio-first: called synchronously at the top of the chord arm, before the
-/// toggle and before any channel send. Each press spawns its own `tau-pause-cue`
+/// toggle and before any channel send. Each press spawns its own `nite-pause-cue`
 /// thread running the existing blocking `play_cue`, so rapid presses overlap
 /// (each tap plays fully) instead of cutting each other.
 pub fn play_pause_cue(is_paused: bool) {
@@ -593,7 +593,7 @@ pub fn play_pause_cue(is_paused: bool) {
     }
 
     std::thread::Builder::new()
-        .name("tau-pause-cue".to_string())
+        .name("nite-pause-cue".to_string())
         .spawn(move || {
             let _ = play_cue(is_paused);
         })
@@ -628,7 +628,7 @@ pub fn play_voice_error_cue() {
     let tag = "error";
     for _ in 0..3 {
         match std::thread::Builder::new()
-            .name("tau-voice-cue".to_string())
+            .name("nite-voice-cue".to_string())
             .spawn(move || {
                 let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     play_cached_voice_cue(&RodioVoiceBackend, &VOICE_SINK_CACHE, data, volume, tag);
@@ -646,10 +646,10 @@ pub fn play_voice_error_cue() {
 
 pub fn start_worker(mut rx: mpsc::Receiver<bool>) {
     let spawn_result = std::thread::Builder::new()
-        .name("tau-audio".to_string())
+        .name("nite-audio".to_string())
         .spawn(move || {
             let _ = crate::platform::panic::catch_worker_panic(
-                "tau-audio",
+                "nite-audio",
                 std::panic::AssertUnwindSafe(move || {
                     debug!("Audio worker thread started (embedded audio themes)");
                     let mut backoff =
@@ -657,7 +657,7 @@ pub fn start_worker(mut rx: mpsc::Receiver<bool>) {
 
                     while let Some(is_paused) = rx.blocking_recv() {
                         let res = crate::platform::panic::catch_worker_panic(
-                            "tau-audio-cue",
+                            "nite-audio-cue",
                             std::panic::AssertUnwindSafe(|| play_cue(is_paused)),
                         );
 

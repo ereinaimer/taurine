@@ -23,7 +23,7 @@ pub(crate) fn stop() {
 
 pub(crate) fn start(context: ListenerContext) {
     let spawn_result = thread::Builder::new()
-        .name("tau-lnx-in-sup".to_string())
+        .name("nite-lnx-in-sup".to_string())
         .spawn(move || run(context));
 
     if let Err(error) = spawn_result {

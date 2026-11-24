@@ -15,7 +15,7 @@ use crate::input::hotkey::{HotkeySpec, is_pause_chord_evdev};
 use crate::input::hotkey_evaluator::{
     HotkeyEvaluation, HotkeyEvaluator, logical_key_from_evdev, modifiers_from_sides,
 };
-use taurine_core::engine::{EngineEvent, Evaluator};
+use nite_core::engine::{EngineEvent, Evaluator};
 
 #[derive(Debug)]
 pub(crate) struct DeviceExit {
@@ -40,10 +40,10 @@ fn is_modifier_evdev(key: KeyCode) -> bool {
 #[derive(Clone)]
 pub(crate) struct ListenerContext {
     evaluator: Arc<Mutex<Evaluator>>,
-    state: Arc<taurine_core::engine::EngineState>,
+    state: Arc<nite_core::engine::EngineState>,
     paused: Arc<AtomicBool>,
     pause_hotkey: Arc<ArcSwap<HotkeySpec>>,
-    spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
+    spinner_style: Arc<RwLock<nite_core::settings::SpinnerStyle>>,
     pause_audio_enabled: Arc<AtomicBool>,
     audio_tx: tokio::sync::mpsc::Sender<bool>,
     pause_transition_tx: tokio::sync::mpsc::Sender<bool>,
@@ -53,10 +53,10 @@ impl ListenerContext {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         evaluator: Arc<Mutex<Evaluator>>,
-        state: Arc<taurine_core::engine::EngineState>,
+        state: Arc<nite_core::engine::EngineState>,
         paused: Arc<AtomicBool>,
         pause_hotkey: Arc<ArcSwap<HotkeySpec>>,
-        spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
+        spinner_style: Arc<RwLock<nite_core::settings::SpinnerStyle>>,
         pause_audio_enabled: Arc<AtomicBool>,
         audio_tx: tokio::sync::mpsc::Sender<bool>,
         pause_transition_tx: tokio::sync::mpsc::Sender<bool>,
@@ -117,7 +117,7 @@ impl ModifierSides {
         self.left_meta || self.right_meta
     }
 
-    fn current_modifiers(&self) -> taurine_core::keys::Modifiers {
+    fn current_modifiers(&self) -> nite_core::keys::Modifiers {
         modifiers_from_sides(
             self.left_ctrl,
             self.right_ctrl,
@@ -142,10 +142,10 @@ fn update_flag(flag: &mut bool, is_press: bool, is_release: bool) {
 #[allow(clippy::too_many_arguments)]
 pub fn start_listener(
     evaluator: Arc<Mutex<Evaluator>>,
-    state: Arc<taurine_core::engine::EngineState>,
+    state: Arc<nite_core::engine::EngineState>,
     paused: Arc<AtomicBool>,
     pause_hotkey: Arc<ArcSwap<HotkeySpec>>,
-    spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
+    spinner_style: Arc<RwLock<nite_core::settings::SpinnerStyle>>,
     pause_audio_enabled: Arc<AtomicBool>,
     audio_tx: tokio::sync::mpsc::Sender<bool>,
     pause_transition_tx: tokio::sync::mpsc::Sender<bool>,
@@ -178,7 +178,7 @@ pub(crate) fn open_keyboard_device(path: &Path) -> io::Result<Option<(Device, De
 
     let name = device.name().unwrap_or("Unknown Device");
     if name == crate::platform::linux::VIRTUAL_DEVICE_NAME {
-        debug!("Ignoring Taurine virtual keyboard: {:?}", path);
+        debug!("Ignoring Nite virtual keyboard: {:?}", path);
         return Ok(None);
     }
 
@@ -210,7 +210,7 @@ pub(crate) fn spawn_device_listener(
     let xkb = XkbMapper::new().map_err(io::Error::other)?;
 
     thread::Builder::new()
-        .name("tau-lnx-evdev".to_string())
+        .name("nite-lnx-evdev".to_string())
         .spawn(move || {
             let mut xkb = xkb;
             let mut modifier_sides = ModifierSides::default();
@@ -335,10 +335,10 @@ fn process_frame(
     frame: &[InputEvent],
     grab_enabled: bool,
     evaluator: &Arc<Mutex<Evaluator>>,
-    state: &Arc<taurine_core::engine::EngineState>,
+    state: &Arc<nite_core::engine::EngineState>,
     paused: &Arc<AtomicBool>,
     pause_hotkey: &Arc<ArcSwap<HotkeySpec>>,
-    spinner_style: &Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
+    spinner_style: &Arc<RwLock<nite_core::settings::SpinnerStyle>>,
     pause_audio_enabled: &Arc<AtomicBool>,
     _audio_tx: &tokio::sync::mpsc::Sender<bool>,
     _pause_transition_tx: &tokio::sync::mpsc::Sender<bool>,
@@ -510,7 +510,7 @@ fn process_frame(
                         if !crate::input::hotkey::PTT_KEY_DOWN.swap(true, Ordering::Relaxed) {
                             let session = session.clone();
                             if let Err(e) = std::thread::Builder::new()
-                                .name("taurine-voice-ptt-start".to_string())
+                                .name("nite-voice-ptt-start".to_string())
                                 .spawn(move || {
                                     if let Err(e) = session.start_ptt() {
                                         warn!("Voice PTT start error: {e}");
@@ -666,9 +666,9 @@ fn process_frame(
 
             let cycle_dir = if !shift_active && !ctrl_active && !alt_active && !meta_active {
                 if key == KeyCode::KEY_LEFT {
-                    Some(taurine_core::engine::CycleDirection::Prev)
+                    Some(nite_core::engine::CycleDirection::Prev)
                 } else if key == KeyCode::KEY_RIGHT {
-                    Some(taurine_core::engine::CycleDirection::Next)
+                    Some(nite_core::engine::CycleDirection::Next)
                 } else {
                     None
                 }
@@ -726,7 +726,7 @@ fn process_frame(
             {
                 let clip_text = crate::platform::read_clipboard_text().unwrap_or_default();
                 let placeholder =
-                    taurine_core::engine::evaluator::format_clipboard_placeholder(&clip_text);
+                    nite_core::engine::evaluator::format_clipboard_placeholder(&clip_text);
                 if let Ok(mut lock) = evaluator.lock() {
                     lock.set_captured_ai_clipboard(clip_text);
                     lock.append_to_buffer(&placeholder);
@@ -830,11 +830,11 @@ fn process_frame(
     }
 }
 
-fn clear_undo_state(state: &taurine_core::engine::EngineState) {
+fn clear_undo_state(state: &nite_core::engine::EngineState) {
     state.clear_undo_state();
 }
 
-fn take_active_undo_state(state: &taurine_core::engine::EngineState) -> Option<(String, usize)> {
+fn take_active_undo_state(state: &nite_core::engine::EngineState) -> Option<(String, usize)> {
     state
         .take_active_undo_state()
         .map(|undo| (undo.trigger_string, undo.output_length))
@@ -842,7 +842,7 @@ fn take_active_undo_state(state: &taurine_core::engine::EngineState) -> Option<(
 
 fn spawn_undo_dispatch(trigger_string: String, output_length: usize) {
     if let Err(e) = thread::Builder::new()
-        .name("tau-ev-undo".to_string())
+        .name("nite-ev-undo".to_string())
         .spawn(move || injector::inject_undo(trigger_string, output_length))
     {
         error!("Failed to spawn evdev undo dispatch thread: {}", e);
@@ -898,10 +898,10 @@ fn is_solo_modifier_press(
 mod tests {
     use super::*;
     use crate::input::hotkey_evaluator::HotkeyEvaluator;
+    use nite_core::engine::{EngineState, Evaluator};
     use std::sync::RwLock;
     use std::sync::atomic::AtomicBool;
     use std::sync::{Arc, Mutex};
-    use taurine_core::engine::{EngineState, Evaluator};
 
     #[test]
     fn process_frame_bypasses_hotkey_evaluation_when_is_injecting_is_true() {
@@ -909,7 +909,7 @@ mod tests {
         // Mock a basic hotkey to ensure it WOULD match if not bypassing
         state.load_hotkey_actions(vec![(
             "ctrl+shift+g".to_string(),
-            taurine_core::db::crud::TriggerAction::text("test"),
+            nite_core::db::crud::TriggerAction::text("test"),
         )]);
 
         let evaluator = Arc::new(Mutex::new(Evaluator::new(state.clone())));
@@ -918,7 +918,7 @@ mod tests {
         let pause_hotkey = Arc::new(arc_swap::ArcSwap::from_pointee(
             crate::input::hotkey::parse_pause_hotkey_setting("Alt + `").unwrap(),
         ));
-        let spinner_style = Arc::new(RwLock::new(taurine_core::settings::SpinnerStyle::default()));
+        let spinner_style = Arc::new(RwLock::new(nite_core::settings::SpinnerStyle::default()));
         let pause_audio = Arc::new(AtomicBool::new(false));
         let (audio_tx, _) = tokio::sync::mpsc::channel(1);
         let (pause_transition_tx, _) = tokio::sync::mpsc::channel(1);
@@ -982,7 +982,7 @@ mod tests {
         let pause_hotkey = Arc::new(arc_swap::ArcSwap::from_pointee(
             crate::input::hotkey::parse_pause_hotkey_setting("Alt + `").unwrap(),
         ));
-        let spinner_style = Arc::new(RwLock::new(taurine_core::settings::SpinnerStyle::default()));
+        let spinner_style = Arc::new(RwLock::new(nite_core::settings::SpinnerStyle::default()));
         let pause_audio = Arc::new(AtomicBool::new(false));
         let (audio_tx, _) = tokio::sync::mpsc::channel(1);
         let (pause_transition_tx, _) = tokio::sync::mpsc::channel(1);
@@ -1027,7 +1027,7 @@ mod tests {
     /// which never exists in hermetic tests, so a real press cannot arm it here.
     #[test]
     fn ptt_release_during_injection_clears_flag() {
-        let _lock = taurine_core::testing::TEST_LOCK
+        let _lock = nite_core::testing::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         crate::injector::IS_INJECTING.store(false, Ordering::SeqCst);
@@ -1053,7 +1053,7 @@ mod tests {
     /// hands-free chord only, not the PTT chord, isolating this test to one flag.
     #[test]
     fn handsfree_release_during_injection_clears_flag() {
-        let _lock = taurine_core::testing::TEST_LOCK
+        let _lock = nite_core::testing::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         crate::injector::IS_INJECTING.store(false, Ordering::SeqCst);
@@ -1080,7 +1080,7 @@ mod tests {
     /// with no direct toggle or transition from the hook path.
     #[test]
     fn pause_chord_feeds_press_channel_without_toggling() {
-        let _lock = taurine_core::testing::TEST_LOCK
+        let _lock = nite_core::testing::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         crate::injector::IS_INJECTING.store(false, Ordering::SeqCst);
@@ -1094,7 +1094,7 @@ mod tests {
         let pause_hotkey = Arc::new(arc_swap::ArcSwap::from_pointee(
             crate::input::hotkey::parse_pause_hotkey_setting("Alt + `").unwrap(),
         ));
-        let spinner_style = Arc::new(RwLock::new(taurine_core::settings::SpinnerStyle::default()));
+        let spinner_style = Arc::new(RwLock::new(nite_core::settings::SpinnerStyle::default()));
         let pause_audio = Arc::new(AtomicBool::new(false));
         let (audio_tx, _) = tokio::sync::mpsc::channel(1);
         let (pause_transition_tx, mut pause_rx) = tokio::sync::mpsc::channel(8);

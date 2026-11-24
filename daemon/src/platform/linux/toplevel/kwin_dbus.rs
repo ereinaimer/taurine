@@ -1,8 +1,8 @@
 use futures::StreamExt;
+use nite_core::engine::{ActiveWindowInfo, EngineState};
 use std::fs;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use taurine_core::engine::{ActiveWindowInfo, EngineState};
 use tracing::{debug, error, info};
 use zbus::Connection;
 
@@ -12,7 +12,7 @@ static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 const KWIN_SCRIPT: &str = r#"
 function emitActive(client) {
     if (client) {
-        callDBus("com.taurine.WindowTracker", "/WindowTracker", "com.taurine.WindowTracker", "ActiveWindowChanged", 
+        callDBus("com.nite.WindowTracker", "/WindowTracker", "com.nite.WindowTracker", "ActiveWindowChanged", 
                  client.caption || "", 
                  client.resourceClass || "", 
                  client.fullScreen ? true : false);
@@ -28,7 +28,7 @@ if (workspace.activeWindow) {
 
 pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Option<String>>>) {
     let spawn_result = std::thread::Builder::new()
-        .name("tau-lnx-kwin".to_string())
+        .name("nite-lnx-kwin".to_string())
         .spawn(move || {
             let rt = match tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -52,7 +52,7 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
 
                 // The script broadcasts via callDBus, allowing signals to be listened to globally.
 
-                let temp_dir = taurine_core::system::paths::ensure_temp_dir()
+                let temp_dir = nite_core::system::paths::ensure_temp_dir()
                     .join(format!("kwin_script_{}", uuid::Uuid::new_v4()));
                 let _ = fs::create_dir_all(&temp_dir);
                 #[cfg(unix)]
@@ -71,9 +71,9 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
                 meta_path.push("metadata.json");
                 let meta_json = r#"{
     "KPlugin": {
-        "Id": "taurine_window_tracker",
-        "Name": "Taurine Window Tracker",
-        "Description": "Taurine Window Tracker"
+        "Id": "nite_window_tracker",
+        "Name": "Nite Window Tracker",
+        "Description": "Nite Window Tracker"
     }
 }"#;
                 let _ = fs::write(&meta_path, meta_json);
@@ -94,7 +94,7 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
 
                 if let Ok(proxy) = proxy {
                     let script_path = temp_dir.to_string_lossy().to_string();
-                    let plugin_name = "taurine_window_tracker".to_string();
+                    let plugin_name = "nite_window_tracker".to_string();
 
                     let reply: Result<i32, _> =
                         proxy.call("loadScript", &(script_path, plugin_name)).await;
@@ -115,7 +115,7 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
                 }
 
                 let match_rule_builder = match zbus::MatchRule::builder()
-                    .interface("com.taurine.WindowTracker")
+                    .interface("com.nite.WindowTracker")
                     .and_then(|b| b.member("ActiveWindowChanged"))
                 {
                     Ok(builder) => builder.build(),
@@ -148,8 +148,7 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
                             .await
                     {
                         let header = msg.header();
-                        if header.interface().map(|i| i.as_str())
-                            == Some("com.taurine.WindowTracker")
+                        if header.interface().map(|i| i.as_str()) == Some("com.nite.WindowTracker")
                             && let Ok(body) = msg.body().deserialize::<(String, String, bool)>()
                         {
                             let (title, class, is_fullscreen) = body;

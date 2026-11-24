@@ -11,11 +11,11 @@ use tracing::{error, warn};
 use super::settings::TraySettings;
 use super::snooze::SnoozeController;
 
-const TOOLTIP: &str = "Taurine";
+const TOOLTIP: &str = "Nite";
 
 pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> JoinHandle<()> {
     std::thread::Builder::new()
-        .name("tau-tray".to_string())
+        .name("nite-tray".to_string())
         .spawn(move || {
             let runtime = match tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -53,11 +53,11 @@ enum TrayEvent {
 
 impl ksni::Tray for KsniTray {
     fn id(&self) -> String {
-        "taurine".into()
+        "nite".into()
     }
 
     fn title(&self) -> String {
-        "Taurine".into()
+        "Nite".into()
     }
 
     fn icon_theme_path(&self) -> String {
@@ -444,9 +444,9 @@ async fn spawn_tray(
 fn handle_pause() {
     if let Some(rt) = crate::TOKIO_HANDLE.get() {
         rt.spawn(async move {
-            match taurine_core::rpc::get_client().await {
+            match nite_core::rpc::get_client().await {
                 Ok(mut client) => {
-                    if let Err(error) = client.pause(taurine_core::rpc::PauseRequest {}).await {
+                    if let Err(error) = client.pause(nite_core::rpc::PauseRequest {}).await {
                         warn!(%error, "tray pause request failed");
                     }
                 }
@@ -461,9 +461,9 @@ fn handle_pause() {
 fn handle_resume() {
     if let Some(rt) = crate::TOKIO_HANDLE.get() {
         rt.spawn(async move {
-            match taurine_core::rpc::get_client().await {
+            match nite_core::rpc::get_client().await {
                 Ok(mut client) => {
-                    if let Err(error) = client.resume(taurine_core::rpc::ResumeRequest {}).await {
+                    if let Err(error) = client.resume(nite_core::rpc::ResumeRequest {}).await {
                         warn!(%error, "tray resume request failed");
                     }
                 }
@@ -480,13 +480,12 @@ fn handle_shutdown() {
     // never triggers `Restart=`; a bare self-exit does (legacy units used
     // `Restart=always`). Best-effort: no-op outside systemd sessions, where
     // the gRPC shutdown below still stops a standalone daemon.
-    taurine_core::service::request_systemd_stop();
+    nite_core::service::request_systemd_stop();
     if let Some(rt) = crate::TOKIO_HANDLE.get() {
         rt.spawn(async move {
-            match taurine_core::rpc::get_client().await {
+            match nite_core::rpc::get_client().await {
                 Ok(mut client) => {
-                    if let Err(error) = client.shutdown(taurine_core::rpc::ShutdownRequest {}).await
-                    {
+                    if let Err(error) = client.shutdown(nite_core::rpc::ShutdownRequest {}).await {
                         warn!(%error, "tray shutdown request failed");
                     }
                 }
@@ -499,10 +498,10 @@ fn handle_shutdown() {
     // Watcher: dies with the process on a successful shutdown. If the process is
     // still alive past the stop timeout, the quit did not stick — notify user.
     let _ = std::thread::Builder::new()
-        .name("tau-quit-watch".to_string())
+        .name("nite-quit-watch".to_string())
         .spawn(|| {
             std::thread::sleep(std::time::Duration::from_secs(20));
-            if taurine_core::service::is_service_running() {
+            if nite_core::service::is_service_running() {
                 crate::services::notify::notify_shutdown_failed();
             }
         });

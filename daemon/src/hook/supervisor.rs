@@ -8,7 +8,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::input::hook_health::HookHealth;
 use crate::input::hotkey;
-use taurine_core::engine::Evaluator;
+use nite_core::engine::Evaluator;
 
 use super::listener::{LISTENER_EPOCH, spawn_windows_hook_listener, sync_physical_modifiers};
 
@@ -36,10 +36,10 @@ pub(super) struct ListenerHandle {
 #[allow(clippy::too_many_arguments)]
 pub fn start_windows_supervisor(
     evaluator: Arc<Mutex<Evaluator>>,
-    state: Arc<taurine_core::engine::EngineState>,
+    state: Arc<nite_core::engine::EngineState>,
     paused: Arc<std::sync::atomic::AtomicBool>,
     pause_hotkey: Arc<arc_swap::ArcSwap<hotkey::HotkeySpec>>,
-    spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
+    spinner_style: Arc<RwLock<nite_core::settings::SpinnerStyle>>,
     pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
     audio_tx: tokio::sync::mpsc::Sender<bool>,
     pause_transition_tx: tokio::sync::mpsc::Sender<bool>,
@@ -81,10 +81,10 @@ pub fn start_windows_supervisor(
     }
 
     let spawn_result = std::thread::Builder::new()
-        .name("tau-hook-super".to_string())
+        .name("nite-hook-super".to_string())
         .spawn(move || {
             let _ = crate::platform::panic::catch_worker_panic(
-                "tau-hook-super",
+                "nite-hook-super",
                 std::panic::AssertUnwindSafe(move || {
                     let mut listener_handle: Option<ListenerHandle> = Some(spawn_windows_hook_listener(
                 evaluator.clone(),

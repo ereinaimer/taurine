@@ -1,10 +1,10 @@
 use crate::hook::listener::{LISTENER_EPOCH, run_listener_once};
 use crate::input::hook_health::HookHealth;
 use crate::input::hotkey;
+use nite_core::engine::Evaluator;
 use std::ffi::c_void;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, RwLock};
-use taurine_core::engine::Evaluator;
 use tracing::{debug, error, info, warn};
 
 pub(super) fn windows_grab(
@@ -49,8 +49,8 @@ pub(super) fn windows_grab(
             if code == HC_ACTION as i32 {
                 // SAFETY: lparam is a valid pointer to KBDLLHOOKSTRUCT for the duration of this call.
                 let kbds = *(lparam as *const KBDLLHOOKSTRUCT);
-                if kbds.dwExtraInfo == crate::platform::windows::TAURINE_EXTRA_INFO_MAGIC {
-                    // Synthetic event from Taurine's own SendInput (e.g. simulated backspaces, expansion text, paste).
+                if kbds.dwExtraInfo == crate::platform::windows::NITE_EXTRA_INFO_MAGIC {
+                    // Synthetic event from Nite's own SendInput (e.g. simulated backspaces, expansion text, paste).
                     // Pass directly to the next hook and never process as physical input.
                     let hhook = TL_HHOOK.with(|h| *h.borrow());
                     return CallNextHookEx(hhook, code, wparam, lparam);
@@ -145,7 +145,7 @@ pub(super) fn windows_grab(
 
                 // SAFETY: lparam is a valid pointer to MSLLHOOKSTRUCT for the duration of this call.
                 let ms = *(lparam as *const MSLLHOOKSTRUCT);
-                if ms.dwExtraInfo == crate::platform::windows::TAURINE_EXTRA_INFO_MAGIC {
+                if ms.dwExtraInfo == crate::platform::windows::NITE_EXTRA_INFO_MAGIC {
                     let hhook = TL_MOUSE_HHOOK.with(|h| *h.borrow());
                     return CallNextHookEx(hhook, code, wparam, lparam);
                 }
@@ -704,10 +704,10 @@ pub(crate) fn sync_physical_modifiers(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn spawn_windows_hook_listener(
     evaluator: Arc<Mutex<Evaluator>>,
-    state: Arc<taurine_core::engine::EngineState>,
+    state: Arc<nite_core::engine::EngineState>,
     paused: Arc<std::sync::atomic::AtomicBool>,
     pause_hotkey: Arc<arc_swap::ArcSwap<hotkey::HotkeySpec>>,
-    spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
+    spinner_style: Arc<RwLock<nite_core::settings::SpinnerStyle>>,
     pause_audio_enabled: Arc<std::sync::atomic::AtomicBool>,
     audio_tx: tokio::sync::mpsc::Sender<bool>,
     pause_transition_tx: tokio::sync::mpsc::Sender<bool>,
@@ -735,7 +735,7 @@ pub(crate) fn spawn_windows_hook_listener(
     let (thread_id_tx, thread_id_rx) = std::sync::mpsc::channel::<u32>();
 
     let spawn_result = std::thread::Builder::new()
-        .name("tau-hook-listn".to_string())
+        .name("nite-hook-listn".to_string())
         .spawn(move || {
             // SAFETY: GetCurrentThreadId() returns the OS thread ID of the calling
             // thread. It always succeeds, has no failure mode, and requires no

@@ -9,7 +9,7 @@ use tray_icon::{TrayIconBuilder, TrayIconEvent};
 use super::settings::TraySettings;
 use super::snooze::SnoozeController;
 
-const TOOLTIP: &str = "Taurine";
+const TOOLTIP: &str = "Nite";
 
 #[cfg(target_os = "windows")]
 fn initialize_windows_ui() {
@@ -106,7 +106,7 @@ impl TrayLiveState {
 
 #[cfg(target_os = "windows")]
 // SAFETY: tray_menu_subclass_proc is invoked by ComCtl32 for the tray window on the GUI thread.
-// ref_data is a valid pointer to TrayLiveState that lives on the stack of the tau-tray thread.
+// ref_data is a valid pointer to TrayLiveState that lives on the stack of the nite-tray thread.
 unsafe extern "system" fn tray_menu_subclass_proc(
     hwnd: windows_sys::Win32::Foundation::HWND,
     msg: u32,
@@ -122,7 +122,7 @@ unsafe extern "system" fn tray_menu_subclass_proc(
 
     match msg {
         WM_ENTERMENULOOP => {
-            // SAFETY: ref_data points to live_state valid for the duration of the tau-tray thread.
+            // SAFETY: ref_data points to live_state valid for the duration of the nite-tray thread.
             let state = unsafe { &*(ref_data as *const TrayLiveState) };
             if state.paused.load(Ordering::Relaxed) && state.snooze.is_active() {
                 state.update_label_and_redraw();
@@ -133,7 +133,7 @@ unsafe extern "system" fn tray_menu_subclass_proc(
             }
         }
         WM_TIMER if wparam == SNOOZE_TIMER_ID => {
-            // SAFETY: ref_data points to live_state valid for the duration of the tau-tray thread.
+            // SAFETY: ref_data points to live_state valid for the duration of the nite-tray thread.
             let state = unsafe { &*(ref_data as *const TrayLiveState) };
             if state.paused.load(Ordering::Relaxed) && state.snooze.is_active() {
                 state.update_label_and_redraw();
@@ -153,7 +153,7 @@ unsafe extern "system" fn tray_menu_subclass_proc(
             }
         }
         WM_DEVICECHANGE => {
-            // SAFETY: ref_data points to live_state valid for the duration of the tau-tray thread.
+            // SAFETY: ref_data points to live_state valid for the duration of the nite-tray thread.
             let state = unsafe { &*(ref_data as *const TrayLiveState) };
             state.device_dirty.store(true, Ordering::Relaxed);
             // Proactive cue-cache drop: the next blip opens fresh on the new
@@ -778,14 +778,14 @@ fn run_tray_loop_once(paused: &Arc<AtomicBool>, system_tray_enabled: &Arc<Atomic
 
 pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> JoinHandle<()> {
     let spawn_result = std::thread::Builder::new()
-        .name("tau-tray".to_string())
+        .name("nite-tray".to_string())
         .spawn(move || {
             let mut backoff = crate::platform::circuit_breaker::ExponentialBackoff::default();
             loop {
                 let p = paused.clone();
                 let ste = system_tray_enabled.clone();
                 let run_res = crate::platform::panic::catch_worker_panic(
-                    "tau-tray",
+                    "nite-tray",
                     std::panic::AssertUnwindSafe(|| run_tray_loop_once(&p, &ste)),
                 );
                 match run_res {
@@ -816,9 +816,8 @@ pub fn spawn(paused: Arc<AtomicBool>, system_tray_enabled: Arc<AtomicBool>) -> J
     }
 }
 
-type DaemonClient = taurine_core::system::rpc::daemon_control_client::DaemonControlClient<
-    tonic::transport::Channel,
->;
+type DaemonClient =
+    nite_core::system::rpc::daemon_control_client::DaemonControlClient<tonic::transport::Channel>;
 
 /// Fire a daemon RPC off the tray thread, logging failures instead of dropping
 /// them silently. Returns false when no runtime exists to run on.
@@ -834,7 +833,7 @@ where
         return false;
     };
     rt.spawn(async move {
-        match taurine_core::rpc::get_client().await {
+        match nite_core::rpc::get_client().await {
             Ok(client) => call(client).await,
             Err(error) => tracing::warn!(%error, "tray {label} dropped: daemon unreachable"),
         }
@@ -901,7 +900,7 @@ pub fn process_menu_event(
             // notify directly or the coordinator never learns about the expiry.
             notify_tray_transition("tray snooze expiry", false);
             spawn_daemon_call("resume", |mut client| async move {
-                if let Err(error) = client.resume(taurine_core::rpc::ResumeRequest {}).await {
+                if let Err(error) = client.resume(nite_core::rpc::ResumeRequest {}).await {
                     tracing::warn!(%error, "tray resume request failed");
                 }
             });
@@ -909,7 +908,7 @@ pub fn process_menu_event(
         items.resume_item.set_text(snooze.resume_label());
 
         if !spawn_daemon_call("pause", |mut client| async move {
-            if let Err(error) = client.pause(taurine_core::rpc::PauseRequest {}).await {
+            if let Err(error) = client.pause(nite_core::rpc::PauseRequest {}).await {
                 tracing::warn!(%error, "tray pause request failed");
             }
         }) {
@@ -925,7 +924,7 @@ pub fn process_menu_event(
         snooze.cancel();
         items.resume_item.set_text("Resume");
         if !spawn_daemon_call("pause", |mut client| async move {
-            if let Err(error) = client.pause(taurine_core::rpc::PauseRequest {}).await {
+            if let Err(error) = client.pause(nite_core::rpc::PauseRequest {}).await {
                 tracing::warn!(%error, "tray pause request failed");
             }
         }) {
@@ -940,7 +939,7 @@ pub fn process_menu_event(
         snooze.cancel();
         items.resume_item.set_text("Resume");
         if !spawn_daemon_call("resume", |mut client| async move {
-            if let Err(error) = client.resume(taurine_core::rpc::ResumeRequest {}).await {
+            if let Err(error) = client.resume(nite_core::rpc::ResumeRequest {}).await {
                 tracing::warn!(%error, "tray resume request failed");
             }
         }) {
@@ -965,7 +964,7 @@ pub fn process_menu_event(
         true
     } else if event_id == items.quit_item.id() {
         spawn_daemon_call("shutdown", |mut client| async move {
-            if let Err(error) = client.shutdown(taurine_core::rpc::ShutdownRequest {}).await {
+            if let Err(error) = client.shutdown(nite_core::rpc::ShutdownRequest {}).await {
                 tracing::warn!(%error, "tray shutdown request failed");
             }
         });
@@ -984,7 +983,7 @@ pub fn process_menu_event(
                 } else {
                     spawn_daemon_call("reload", |mut client| async move {
                         if let Err(error) = client
-                            .reload(taurine_core::rpc::ReloadRequest { skip_sync: false })
+                            .reload(nite_core::rpc::ReloadRequest { skip_sync: false })
                             .await
                         {
                             tracing::warn!(%error, "tray reload request failed");
@@ -1110,12 +1109,12 @@ mod tests {
 
     #[test]
     fn test_process_menu_event_quick_settings_toggles() {
-        let _lock = taurine_core::testing::TEST_LOCK
+        let _lock = nite_core::testing::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let temp_dir = tempfile::tempdir().unwrap();
         // SAFETY: Serialized under TEST_LOCK for test database isolation.
-        unsafe { std::env::set_var("TAURINE_DATA_DIR", temp_dir.path()) };
+        unsafe { std::env::set_var("NITE_DATA_DIR", temp_dir.path()) };
 
         struct EnvGuard(&'static str);
         impl Drop for EnvGuard {
@@ -1124,7 +1123,7 @@ mod tests {
                 unsafe { std::env::remove_var(self.0) };
             }
         }
-        let _guard = EnvGuard("TAURINE_DATA_DIR");
+        let _guard = EnvGuard("NITE_DATA_DIR");
 
         let paused = Arc::new(AtomicBool::new(false));
         let snooze = SnoozeController::new();
@@ -1161,12 +1160,12 @@ mod tests {
 
     #[test]
     fn test_process_menu_event_voice_device_selection() {
-        let _lock = taurine_core::testing::TEST_LOCK
+        let _lock = nite_core::testing::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let temp_dir = tempfile::tempdir().unwrap();
         // SAFETY: Serialized under TEST_LOCK for test database isolation.
-        unsafe { std::env::set_var("TAURINE_DATA_DIR", temp_dir.path()) };
+        unsafe { std::env::set_var("NITE_DATA_DIR", temp_dir.path()) };
 
         struct EnvGuard(&'static str);
         impl Drop for EnvGuard {
@@ -1175,7 +1174,7 @@ mod tests {
                 unsafe { std::env::remove_var(self.0) };
             }
         }
-        let _guard = EnvGuard("TAURINE_DATA_DIR");
+        let _guard = EnvGuard("NITE_DATA_DIR");
 
         let paused = Arc::new(AtomicBool::new(false));
         let snooze = SnoozeController::new();
@@ -1246,7 +1245,7 @@ mod tests {
 
     #[test]
     fn test_tray_pause_audio_gate_respects_setting() {
-        let _lock = taurine_core::testing::TEST_LOCK
+        let _lock = nite_core::testing::TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         set_tray_pause_audio(Arc::new(AtomicBool::new(false)));

@@ -1,11 +1,11 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, OnceLock, RwLock};
-use taurine_core::engine::EngineState;
-use taurine_core::rpc::{
+use nite_core::engine::EngineState;
+use nite_core::rpc::{
     PauseRequest, PauseResponse, ReloadRequest, ReloadResponse, ResumeRequest, ResumeResponse,
     ShutdownRequest, ShutdownResponse, StatusRequest, StatusResponse, SyncRequest, SyncResponse,
     daemon_control_server::DaemonControl,
 };
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock, RwLock};
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
 use tracing::debug;
@@ -18,7 +18,7 @@ pub struct DaemonService {
     pause_hotkey_spec: Arc<arc_swap::ArcSwap<crate::input::hotkey::HotkeySpec>>,
     pause_hotkey_display: Arc<RwLock<String>>,
     #[allow(dead_code)]
-    spinner_style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
+    spinner_style: Arc<RwLock<nite_core::settings::SpinnerStyle>>,
     pause_audio_enabled: Arc<AtomicBool>,
     system_tray_enabled: Arc<AtomicBool>,
     hook_health: crate::input::hook_health::HookHealth,
@@ -36,11 +36,11 @@ impl DaemonService {
 
     pub fn reload_engine_state(&self, conn: &rusqlite::Connection) -> Result<(), Status> {
         // 1. Reload Snippets
-        let active = taurine_core::db::crud::get_all_active_triggers(conn)
+        let active = nite_core::db::crud::get_all_active_triggers(conn)
             .map_err(|e| Status::internal(format!("Failed to retrieve triggers: {}", e)))?;
-        let hotkeys = taurine_core::db::crud::get_all_active_hotkey_triggers(conn)
+        let hotkeys = nite_core::db::crud::get_all_active_hotkey_triggers(conn)
             .map_err(|e| Status::internal(format!("Failed to retrieve hotkey triggers: {}", e)))?;
-        let regexes = taurine_core::db::crud::get_all_active_regex_triggers(conn)
+        let regexes = nite_core::db::crud::get_all_active_regex_triggers(conn)
             .map_err(|e| Status::internal(format!("Failed to retrieve regex triggers: {}", e)))?;
 
         self.state.load_actions(active);
@@ -48,46 +48,46 @@ impl DaemonService {
         self.state.load_regex_actions(regexes);
         let warm_state = self.state.clone();
         std::thread::Builder::new()
-            .name("tau-regex-warm".to_string())
+            .name("nite-regex-warm".to_string())
             .spawn(move || warm_state.regex_catalog.warm())
             .ok();
 
         // 2. Reload Settings
-        use taurine_core::settings::SettingsManager;
+        use nite_core::settings::SettingsManager;
         let settings_manager = SettingsManager::new(conn);
         let settings = settings_manager.load_all();
 
-        taurine_core::settings::set_cached_inline_date_format(settings.inline_date_format.clone());
-        taurine_core::settings::set_cached_inline_time_format(settings.inline_time_format.clone());
-        taurine_core::settings::set_cached_inline_datetime_format(
+        nite_core::settings::set_cached_inline_date_format(settings.inline_date_format.clone());
+        nite_core::settings::set_cached_inline_time_format(settings.inline_time_format.clone());
+        nite_core::settings::set_cached_inline_datetime_format(
             settings.inline_datetime_format.clone(),
         );
 
         // Update voice settings cache
-        taurine_core::settings::set_cached_voice_ptt_hotkey(settings.voice_ptt_hotkey.clone());
-        taurine_core::settings::set_cached_voice_handsfree_hotkey(
+        nite_core::settings::set_cached_voice_ptt_hotkey(settings.voice_ptt_hotkey.clone());
+        nite_core::settings::set_cached_voice_handsfree_hotkey(
             settings.voice_handsfree_hotkey.clone(),
         );
         crate::input::hotkey::refresh_cached_voice_specs(
             &settings.voice_ptt_hotkey,
             &settings.voice_handsfree_hotkey,
         );
-        taurine_core::settings::set_cached_voice_dictionary(settings.voice_dictionary.clone());
-        taurine_core::settings::set_cached_voice_preferred_languages(
+        nite_core::settings::set_cached_voice_dictionary(settings.voice_dictionary.clone());
+        nite_core::settings::set_cached_voice_preferred_languages(
             settings.voice_preferred_languages.clone(),
         );
-        taurine_core::settings::set_cached_pause_media_while_dictating(
+        nite_core::settings::set_cached_pause_media_while_dictating(
             settings.pause_media_while_dictating,
         );
-        let prev_voice_device = taurine_core::settings::get_cached_voice_input_device();
-        taurine_core::settings::set_cached_voice_input_device(settings.voice_input_device.clone());
+        let prev_voice_device = nite_core::settings::get_cached_voice_input_device();
+        nite_core::settings::set_cached_voice_input_device(settings.voice_input_device.clone());
         if prev_voice_device != settings.voice_input_device {
             crate::voice::device_monitor::mark_device_change();
         }
 
         // Sync live voice session manager
         if let Some(session) = crate::VOICE_SESSION.get() {
-            session.set_dictionary(taurine_core::voice::VoiceDictionary::from_csv(
+            session.set_dictionary(nite_core::voice::VoiceDictionary::from_csv(
                 &settings.voice_dictionary,
             ));
             if session.capture().is_running() {
@@ -123,16 +123,16 @@ impl DaemonService {
         }
 
         // Update auth status, user tier, and QuotaGuard unlimited status
-        let is_auth = taurine_core::cloud::get_tokens()
+        let is_auth = nite_core::cloud::get_tokens()
             .map(|t| t.is_some())
             .unwrap_or(false);
         crate::engine::quota_guard::QuotaGuard::global().set_authenticated(is_auth);
 
-        let tier = taurine_core::db::crud::tier::get_user_tier(conn);
+        let tier = nite_core::db::crud::tier::get_user_tier(conn);
         crate::engine::quota_guard::QuotaGuard::global().set_unlimited(tier.is_unlimited());
 
-        taurine_core::settings::set_cached_audio_theme(settings.audio_theme);
-        taurine_core::settings::set_cached_audio_volume(settings.audio_volume);
+        nite_core::settings::set_cached_audio_theme(settings.audio_theme);
+        nite_core::settings::set_cached_audio_volume(settings.audio_volume);
 
         Ok(())
     }
@@ -148,7 +148,7 @@ impl DaemonService {
         let guard = self.reload_lock.clone().lock_owned().await;
         let result = tokio::task::spawn_blocking(move || {
             let _guard = guard;
-            let conn = taurine_core::db::get_conn()
+            let conn = nite_core::db::get_conn()
                 .map_err(|e| Status::internal(format!("Database connection failed: {}", e)))?;
             service.reload_engine_state(&conn)
         })
@@ -167,7 +167,7 @@ pub struct DaemonServiceBuilder {
     paused: Option<Arc<AtomicBool>>,
     pause_hotkey_spec: Option<Arc<arc_swap::ArcSwap<crate::input::hotkey::HotkeySpec>>>,
     pause_hotkey_display: Option<Arc<RwLock<String>>>,
-    spinner_style: Option<Arc<RwLock<taurine_core::settings::SpinnerStyle>>>,
+    spinner_style: Option<Arc<RwLock<nite_core::settings::SpinnerStyle>>>,
     pause_audio_enabled: Option<Arc<AtomicBool>>,
     system_tray_enabled: Option<Arc<AtomicBool>>,
     hook_health: Option<crate::input::hook_health::HookHealth>,
@@ -226,10 +226,7 @@ impl DaemonServiceBuilder {
         self
     }
 
-    pub fn spinner_style(
-        mut self,
-        style: Arc<RwLock<taurine_core::settings::SpinnerStyle>>,
-    ) -> Self {
+    pub fn spinner_style(mut self, style: Arc<RwLock<nite_core::settings::SpinnerStyle>>) -> Self {
         self.spinner_style = Some(style);
         self
     }
@@ -287,10 +284,10 @@ impl DaemonServiceBuilder {
     }
 }
 
-static SHARED_CLOUD_CLIENT: OnceLock<taurine_core::cloud::CloudClient> = OnceLock::new();
+static SHARED_CLOUD_CLIENT: OnceLock<nite_core::cloud::CloudClient> = OnceLock::new();
 
-fn shared_cloud_client() -> &'static taurine_core::cloud::CloudClient {
-    SHARED_CLOUD_CLIENT.get_or_init(taurine_core::cloud::CloudClient::default_or_from_env)
+fn shared_cloud_client() -> &'static nite_core::cloud::CloudClient {
+    SHARED_CLOUD_CLIENT.get_or_init(nite_core::cloud::CloudClient::default_or_from_env)
 }
 
 #[tonic::async_trait]
@@ -381,7 +378,7 @@ impl DaemonControl for DaemonService {
     async fn sync(&self, _request: Request<SyncRequest>) -> Result<Response<SyncResponse>, Status> {
         let handle = tokio::runtime::Handle::current();
         let outcome = tokio::task::spawn_blocking(move || {
-            let conn = taurine_core::db::get_conn()
+            let conn = nite_core::db::get_conn()
                 .map_err(|e| format!("Database connection failed: {}", e))?;
             let client = shared_cloud_client();
             let status = handle.block_on(crate::services::sync_worker::SyncWorker::run_sync_cycle(
@@ -426,7 +423,7 @@ impl DaemonControl for DaemonService {
                     pushed_settings: 0,
                     pulled_events: 0,
                     pushed_stats: 0,
-                    error_message: "User is not authenticated. Run taurine login to continue."
+                    error_message: "User is not authenticated. Run nite login to continue."
                         .to_string(),
                 }))
             }
@@ -449,11 +446,11 @@ impl DaemonControl for DaemonService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nite_core::db::crud::{TriggerType, add_trigger, upsert_trigger_with_type};
+    use nite_core::db::init;
+    use nite_core::engine::EngineState;
     use std::sync::Arc;
     use std::sync::atomic::AtomicBool;
-    use taurine_core::db::crud::{TriggerType, add_trigger, upsert_trigger_with_type};
-    use taurine_core::db::init;
-    use taurine_core::engine::EngineState;
     use tokio::sync::mpsc;
     use tonic::Request;
 
@@ -465,11 +462,11 @@ mod tests {
             .unwrap_or_else(|e| e.into_inner());
         crate::hook::tests::mock_keystore::use_mock_keystore();
         // Setup tracing + env override for test dir
-        taurine_core::logs::init_tracing_for_tests();
+        nite_core::logs::init_tracing_for_tests();
         let temp = tempfile::tempdir().expect("tempdir");
         let test_dir = temp.path();
         // SAFETY: Setting environment variable for database isolation in server test.
-        unsafe { std::env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
+        unsafe { std::env::set_var("NITE_DATA_DIR", test_dir.to_str().unwrap()) };
 
         let conn = init::setup().expect("Failed to setup DB");
 
@@ -487,7 +484,7 @@ mod tests {
             .pause_hotkey_spec(pause_hotkey_spec)
             .pause_hotkey_display(Arc::new(std::sync::RwLock::new(pause_hotkey)))
             .spinner_style(Arc::new(std::sync::RwLock::new(
-                taurine_core::settings::SpinnerStyle::default(),
+                nite_core::settings::SpinnerStyle::default(),
             )))
             .pause_audio_enabled(Arc::new(AtomicBool::new(true)))
             .system_tray_enabled(Arc::new(AtomicBool::new(true)))
@@ -503,7 +500,7 @@ mod tests {
         add_trigger(&conn, "hello", "world", "all", None, None, None).expect("Failed to add to DB");
 
         // trigger reload directly via gRPC service method
-        let req = Request::new(taurine_core::rpc::ReloadRequest { skip_sync: false });
+        let req = Request::new(nite_core::rpc::ReloadRequest { skip_sync: false });
         let res = service.reload(req).await.expect("Reload failed");
 
         assert!(
@@ -517,7 +514,7 @@ mod tests {
             .expect("reload should repopulate cache");
         assert_eq!(
             expansion.steps,
-            vec![taurine_core::engine::variables::ExpansionStep::Text(
+            vec![nite_core::engine::variables::ExpansionStep::Text(
                 "world".to_string()
             )]
         );
@@ -539,7 +536,7 @@ mod tests {
         )
         .unwrap();
 
-        let req = Request::new(taurine_core::rpc::ReloadRequest { skip_sync: false });
+        let req = Request::new(nite_core::rpc::ReloadRequest { skip_sync: false });
         service.reload(req).await.expect("Reload failed");
 
         assert_eq!(
@@ -548,17 +545,17 @@ mod tests {
         );
         assert!(state.fetch_expansion("ctrl+shift+g", None).is_none());
 
-        taurine_core::settings::SettingsManager::new(&conn)
+        nite_core::settings::SettingsManager::new(&conn)
             .update_setting("instant_expand", true)
             .unwrap();
 
-        let req = Request::new(taurine_core::rpc::ReloadRequest { skip_sync: false });
+        let req = Request::new(nite_core::rpc::ReloadRequest { skip_sync: false });
         service.reload(req).await.expect("Reload failed");
 
         assert!(state.instant_expand.load(Ordering::Relaxed));
 
         // Cleanup
-        unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
+        unsafe { std::env::remove_var("NITE_DATA_DIR") };
     }
 
     #[tokio::test]
@@ -578,7 +575,7 @@ mod tests {
             .pause_hotkey_spec(pause_hotkey_spec)
             .pause_hotkey_display(Arc::new(std::sync::RwLock::new(pause_hotkey)))
             .spinner_style(Arc::new(std::sync::RwLock::new(
-                taurine_core::settings::SpinnerStyle::default(),
+                nite_core::settings::SpinnerStyle::default(),
             )))
             .pause_audio_enabled(Arc::new(AtomicBool::new(true)))
             .system_tray_enabled(Arc::new(AtomicBool::new(true)))
@@ -589,7 +586,7 @@ mod tests {
 
         // 1. Send Pause RPC
         let res = service
-            .pause(Request::new(taurine_core::rpc::PauseRequest {}))
+            .pause(Request::new(nite_core::rpc::PauseRequest {}))
             .await
             .expect("pause request");
         assert!(res.into_inner().success);
@@ -598,7 +595,7 @@ mod tests {
 
         // 2. Duplicate pause should be a no-op for transition tx
         let res = service
-            .pause(Request::new(taurine_core::rpc::PauseRequest {}))
+            .pause(Request::new(nite_core::rpc::PauseRequest {}))
             .await
             .expect("duplicate pause request");
         assert!(res.into_inner().success);
@@ -606,7 +603,7 @@ mod tests {
 
         // 3. Send Resume RPC
         let res = service
-            .resume(Request::new(taurine_core::rpc::ResumeRequest {}))
+            .resume(Request::new(nite_core::rpc::ResumeRequest {}))
             .await
             .expect("resume request");
         assert!(res.into_inner().success);
@@ -615,7 +612,7 @@ mod tests {
 
         // 4. Duplicate resume should be a no-op for transition tx
         let res = service
-            .resume(Request::new(taurine_core::rpc::ResumeRequest {}))
+            .resume(Request::new(nite_core::rpc::ResumeRequest {}))
             .await
             .expect("duplicate resume request");
         assert!(res.into_inner().success);
@@ -641,7 +638,7 @@ mod tests {
             .pause_hotkey_spec(pause_hotkey_spec)
             .pause_hotkey_display(Arc::new(std::sync::RwLock::new(pause_hotkey)))
             .spinner_style(Arc::new(std::sync::RwLock::new(
-                taurine_core::settings::SpinnerStyle::default(),
+                nite_core::settings::SpinnerStyle::default(),
             )))
             .pause_audio_enabled(Arc::new(AtomicBool::new(true)))
             .system_tray_enabled(Arc::new(AtomicBool::new(true)))
@@ -651,7 +648,7 @@ mod tests {
             .expect("builder call site is fully populated");
 
         let res = service
-            .pause(Request::new(taurine_core::rpc::PauseRequest {}))
+            .pause(Request::new(nite_core::rpc::PauseRequest {}))
             .await
             .expect("pause request");
         assert!(res.into_inner().success);
@@ -672,11 +669,11 @@ mod tests {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         crate::hook::tests::mock_keystore::use_mock_keystore();
-        taurine_core::logs::init_tracing_for_tests();
-        let test_dir = std::env::temp_dir().join("taurine_sync_grpc_test");
-        let prev_data_dir = std::env::var("TAURINE_DATA_DIR").ok();
+        nite_core::logs::init_tracing_for_tests();
+        let test_dir = std::env::temp_dir().join("nite_sync_grpc_test");
+        let prev_data_dir = std::env::var("NITE_DATA_DIR").ok();
         // SAFETY: Setting environment variable for database isolation in server test under TEST_LOCK.
-        unsafe { std::env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
+        unsafe { std::env::set_var("NITE_DATA_DIR", test_dir.to_str().unwrap()) };
         let _ = std::fs::remove_dir_all(&test_dir);
         std::fs::create_dir_all(&test_dir).unwrap();
 
@@ -690,8 +687,8 @@ mod tests {
                 // SAFETY: Restoring environment variable after server test under TEST_LOCK.
                 unsafe {
                     match &self.prev {
-                        Some(v) => std::env::set_var("TAURINE_DATA_DIR", v),
-                        None => std::env::remove_var("TAURINE_DATA_DIR"),
+                        Some(v) => std::env::set_var("NITE_DATA_DIR", v),
+                        None => std::env::remove_var("NITE_DATA_DIR"),
                     }
                 }
             }
@@ -717,7 +714,7 @@ mod tests {
             .pause_hotkey_spec(pause_hotkey_spec)
             .pause_hotkey_display(Arc::new(std::sync::RwLock::new(pause_hotkey)))
             .spinner_style(Arc::new(std::sync::RwLock::new(
-                taurine_core::settings::SpinnerStyle::default(),
+                nite_core::settings::SpinnerStyle::default(),
             )))
             .pause_audio_enabled(Arc::new(AtomicBool::new(true)))
             .system_tray_enabled(Arc::new(AtomicBool::new(true)))
@@ -726,14 +723,14 @@ mod tests {
             .build()
             .expect("builder call site is fully populated");
 
-        let req = Request::new(taurine_core::rpc::SyncRequest {});
+        let req = Request::new(nite_core::rpc::SyncRequest {});
         let res = service.sync(req).await.expect("sync request failed");
         let inner = res.into_inner();
 
         assert!(!inner.success);
         assert_eq!(
             inner.error_message,
-            "User is not authenticated. Run taurine login to continue."
+            "User is not authenticated. Run nite login to continue."
         );
         assert_eq!(inner.pulled_snippets, 0);
         assert_eq!(inner.pushed_snippets, 0);
@@ -746,11 +743,11 @@ mod tests {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         crate::hook::tests::mock_keystore::use_mock_keystore();
-        taurine_core::logs::init_tracing_for_tests();
-        let test_dir = std::env::temp_dir().join("taurine_reload_engine_state_test");
-        let prev_data_dir = std::env::var("TAURINE_DATA_DIR").ok();
+        nite_core::logs::init_tracing_for_tests();
+        let test_dir = std::env::temp_dir().join("nite_reload_engine_state_test");
+        let prev_data_dir = std::env::var("NITE_DATA_DIR").ok();
         // SAFETY: Setting environment variable for database isolation in server test under TEST_LOCK.
-        unsafe { std::env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
+        unsafe { std::env::set_var("NITE_DATA_DIR", test_dir.to_str().unwrap()) };
         let _ = std::fs::remove_dir_all(&test_dir);
         std::fs::create_dir_all(&test_dir).unwrap();
 
@@ -764,8 +761,8 @@ mod tests {
                 // SAFETY: Restoring environment variable after server test under TEST_LOCK.
                 unsafe {
                     match &self.prev {
-                        Some(v) => std::env::set_var("TAURINE_DATA_DIR", v),
-                        None => std::env::remove_var("TAURINE_DATA_DIR"),
+                        Some(v) => std::env::set_var("NITE_DATA_DIR", v),
+                        None => std::env::remove_var("NITE_DATA_DIR"),
                     }
                 }
             }
@@ -791,7 +788,7 @@ mod tests {
             .pause_hotkey_spec(pause_hotkey_spec)
             .pause_hotkey_display(Arc::new(std::sync::RwLock::new(pause_hotkey)))
             .spinner_style(Arc::new(std::sync::RwLock::new(
-                taurine_core::settings::SpinnerStyle::default(),
+                nite_core::settings::SpinnerStyle::default(),
             )))
             .pause_audio_enabled(Arc::new(AtomicBool::new(true)))
             .system_tray_enabled(Arc::new(AtomicBool::new(true)))
@@ -817,7 +814,7 @@ mod tests {
             .expect("reload_engine_state should immediately populate engine state cache");
         assert_eq!(
             expansion.steps,
-            vec![taurine_core::engine::variables::ExpansionStep::Text(
+            vec![nite_core::engine::variables::ExpansionStep::Text(
                 "pulled payload".to_string()
             )]
         );

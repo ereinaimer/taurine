@@ -213,7 +213,7 @@ pub fn init_injection_pool() {
     for i in 0..2 {
         let rx = rx.clone();
         if let Err(error) = std::thread::Builder::new()
-            .name(format!("tau-inject-{i}"))
+            .name(format!("nite-inject-{i}"))
             .spawn(move || {
                 loop {
                     let task = match rx.lock() {

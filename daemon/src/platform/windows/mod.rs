@@ -10,11 +10,11 @@ pub use active_window::{
 };
 
 /// Unique signature stamped in `KEYBDINPUT.dwExtraInfo` and `MOUSEINPUT.dwExtraInfo`
-/// so Taurine's low-level hooks can identify and ignore its own simulated inputs.
+/// so Nite's low-level hooks can identify and ignore its own simulated inputs.
 #[cfg(target_pointer_width = "64")]
-pub const TAURINE_EXTRA_INFO_MAGIC: usize = 0x5441_5552_494E_4501;
+pub const NITE_EXTRA_INFO_MAGIC: usize = 0x4E49_5445_0000_0001; // NITE\0\0\0\x01
 #[cfg(target_pointer_width = "32")]
-pub const TAURINE_EXTRA_INFO_MAGIC: usize = 0x5441_5501;
+pub const NITE_EXTRA_INFO_MAGIC: usize = 0x4E49_5401; // NIT\x01
 
 pub struct WindowsClipboard;
 

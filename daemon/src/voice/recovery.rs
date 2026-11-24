@@ -10,9 +10,9 @@ use crate::platform::ClipboardManager;
 static ACTIVE_TRANSCRIPT_DUMP: Mutex<Option<String>> = Mutex::new(None);
 static PANIC_HOOK_INSTALLED: AtomicBool = AtomicBool::new(false);
 
-/// Returns the path to the crash recovery directory inside the Taurine data dir.
+/// Returns the path to the crash recovery directory inside the Nite data dir.
 pub fn recovery_dir() -> std::io::Result<PathBuf> {
-    let dir = taurine_core::paths::get_data_dir().join("recovery");
+    let dir = nite_core::paths::get_data_dir().join("recovery");
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }
@@ -71,7 +71,7 @@ pub fn install_emergency_panic_handler() {
 
     let prev_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        let data_dir = taurine_core::paths::get_data_dir();
+        let data_dir = nite_core::paths::get_data_dir();
         emergency_dump_to_disk_and_clipboard(&data_dir);
         prev_hook(info);
     }));
@@ -81,15 +81,15 @@ pub fn install_emergency_panic_handler() {
 /// transcribes them, records them in the activity log, copies the text to the clipboard,
 /// and deletes the recovery files.
 pub fn recover_orphaned_audio_sessions(
-    cloud_client: &taurine_core::voice::GroqVoiceClient,
-    dict: &taurine_core::voice::VoiceDictionary,
+    cloud_client: &nite_core::voice::GroqVoiceClient,
+    dict: &nite_core::voice::VoiceDictionary,
 ) -> Result<Vec<String>, String> {
     let dir = match recovery_dir() {
         Ok(d) => d,
         Err(e) => return Err(format!("Failed to access recovery directory: {e}")),
     };
 
-    let orphaned_files = match taurine_core::voice::list_orphaned_sessions(&dir) {
+    let orphaned_files = match nite_core::voice::list_orphaned_sessions(&dir) {
         Ok(files) => files,
         Err(e) => return Err(format!("Failed to list orphaned voice sessions: {e}")),
     };
@@ -99,8 +99,8 @@ pub fn recover_orphaned_audio_sessions(
 
 /// Recovers specific orphaned audio session files from disk.
 pub fn recover_orphaned_files(
-    cloud_client: &taurine_core::voice::GroqVoiceClient,
-    dict: &taurine_core::voice::VoiceDictionary,
+    cloud_client: &nite_core::voice::GroqVoiceClient,
+    dict: &nite_core::voice::VoiceDictionary,
     orphaned_files: Vec<PathBuf>,
 ) -> Result<Vec<String>, String> {
     if orphaned_files.is_empty() {
@@ -116,7 +116,7 @@ pub fn recover_orphaned_files(
     let terms = dict.terms().to_vec();
 
     for file in orphaned_files {
-        let samples = match taurine_core::voice::read_spooled_samples(&file) {
+        let samples = match nite_core::voice::read_spooled_samples(&file) {
             Ok(s) => s,
             Err(e) => {
                 warn!(
@@ -128,7 +128,7 @@ pub fn recover_orphaned_files(
             }
         };
 
-        if !taurine_core::voice::has_voice_activity(&samples) {
+        if !nite_core::voice::has_voice_activity(&samples) {
             info!(
                 "VoiceRecovery: orphaned session {:?} contains no voice activity; discarding",
                 file
@@ -144,7 +144,7 @@ pub fn recover_orphaned_files(
             file
         );
 
-        let preferred_langs = taurine_core::settings::get_cached_voice_preferred_languages();
+        let preferred_langs = nite_core::settings::get_cached_voice_preferred_languages();
 
         match cloud_client.transcribe_blocking(
             &samples,
@@ -154,7 +154,7 @@ pub fn recover_orphaned_files(
             Some(&preferred_langs),
         ) {
             Ok(text) => {
-                let formatted = taurine_core::voice::format_transcript(&text);
+                let formatted = nite_core::voice::format_transcript(&text);
                 let trimmed = formatted.trim();
                 if !trimmed.is_empty() {
                     info!(
@@ -164,7 +164,7 @@ pub fn recover_orphaned_files(
                     copy_to_clipboard(trimmed);
 
                     let word_count = trimmed.split_whitespace().count();
-                    taurine_core::db::crud::stats::record_voice_dictation_usage(
+                    nite_core::db::crud::stats::record_voice_dictation_usage(
                         word_count,
                         trimmed.len(),
                         None,
@@ -229,7 +229,7 @@ mod tests {
             .unwrap_or_else(|e| e.into_inner());
         let temp_dir = tempfile::tempdir().unwrap();
         crate::platform::test_injector().clear();
-        taurine_core::settings::set_cached_voice_preferred_languages("en,ja".to_string());
+        nite_core::settings::set_cached_voice_preferred_languages("en,ja".to_string());
 
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -274,23 +274,22 @@ mod tests {
             let _ = stream_ref.flush();
         });
 
-        let client = taurine_core::voice::GroqVoiceClient::with_endpoint(
+        let client = nite_core::voice::GroqVoiceClient::with_endpoint(
             Some("test-key".to_string()),
             format!("http://127.0.0.1:{port}/transcribe"),
             "whisper-large-v3".to_string(),
         )
         .with_cleanup_enabled(false);
 
-        let dict = taurine_core::voice::VoiceDictionary::from_csv("");
+        let dict = nite_core::voice::VoiceDictionary::from_csv("");
         let samples = vec![0.1f32; 16000];
-        let mut spooler =
-            taurine_core::voice::AudioSpooler::new(temp_dir.path(), "test_req").unwrap();
+        let mut spooler = nite_core::voice::AudioSpooler::new(temp_dir.path(), "test_req").unwrap();
         spooler.append_samples(&samples).unwrap();
         let file_path = spooler.path().to_path_buf();
 
         let result = recover_orphaned_files(&client, &dict, vec![file_path]).unwrap();
         server_thread.join().unwrap();
         assert_eq!(result, vec!["Rescued audio test".to_string()]);
-        taurine_core::settings::set_cached_voice_preferred_languages("auto".to_string());
+        nite_core::settings::set_cached_voice_preferred_languages("auto".to_string());
     }
 }

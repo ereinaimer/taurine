@@ -1,6 +1,6 @@
+use nite_core::db::crud::{ResolvedInvocation, increment_usage_count_by_id};
+use nite_core::engine::variables::{ArgMap, ExpansionStep};
 use rusqlite::Connection;
-use taurine_core::db::crud::{ResolvedInvocation, increment_usage_count_by_id};
-use taurine_core::engine::variables::{ArgMap, ExpansionStep};
 
 /// Expands a matched voice trigger through the canonical expansion pipeline
 /// and dispatches injection on a guarded thread. Voice has no typed text to
@@ -14,11 +14,11 @@ pub fn fire_voice_trigger_with_args(
     spoken_transcript: &str,
     conn: &mut Connection,
     active_app: Option<String>,
-    spinner_style: taurine_core::settings::SpinnerStyle,
+    spinner_style: nite_core::settings::SpinnerStyle,
 ) -> Option<String> {
     if !crate::engine::quota_guard::QuotaGuard::global().can_expand() {
         if !crate::engine::quota_guard::QuotaGuard::global().is_authenticated() {
-            tracing::debug!("Please log in to use Taurine.");
+            tracing::debug!("Please log in to use Nite.");
         } else {
             tracing::warn!("Voice trigger dropped: Weekly quota exhausted");
         }
@@ -26,11 +26,9 @@ pub fn fire_voice_trigger_with_args(
     }
 
     let action = inv.action.clone();
-    let Some(expansion) = taurine_core::engine::catalog::expand_trigger_action_with_args(
-        action,
-        args,
-        &inv.invocation,
-    ) else {
+    let Some(expansion) =
+        nite_core::engine::catalog::expand_trigger_action_with_args(action, args, &inv.invocation)
+    else {
         tracing::warn!(
             "Voice trigger '{}' expanded to None; skipping",
             inv.invocation
@@ -43,7 +41,7 @@ pub fn fire_voice_trigger_with_args(
         .deplete(crate::engine::quota_guard::ExpansionType::VoiceTrigger)
     {
         if !crate::engine::quota_guard::QuotaGuard::global().is_authenticated() {
-            tracing::debug!("Please log in to use Taurine.");
+            tracing::debug!("Please log in to use Nite.");
         } else {
             tracing::warn!("Voice trigger dropped: Weekly quota exhausted");
         }
@@ -70,10 +68,10 @@ pub fn fire_voice_trigger_with_args(
     };
     let output_chars = display.chars().count();
     let steps = expansion.steps;
-    crate::injector::spawn_guarded_injection_thread("tau-voice-disp", move || {
+    crate::injector::spawn_guarded_injection_thread("nite-voice-disp", move || {
         crate::injector::inject_expansion_for_voice(steps, spinner_style);
     });
-    taurine_core::db::crud::record_voice_trigger_usage_with_conn(
+    nite_core::db::crud::record_voice_trigger_usage_with_conn(
         conn,
         spoken_transcript,
         output_chars,
@@ -94,7 +92,7 @@ pub fn fire_voice_trigger(
     inv: ResolvedInvocation,
     conn: &mut Connection,
     active_app: Option<String>,
-    spinner_style: taurine_core::settings::SpinnerStyle,
+    spinner_style: nite_core::settings::SpinnerStyle,
 ) {
     let spoken = inv.invocation.clone();
     let _ = fire_voice_trigger_with_args(

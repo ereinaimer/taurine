@@ -17,14 +17,16 @@ pub mod spinner_renderer;
 #[cfg(not(target_os = "linux"))]
 pub mod rdev_injector;
 
-pub use taurine_core::keys::MouseButton;
+pub use nite_core::keys::MouseButton;
 
 /// True only when the user explicitly opts into host-affecting tests.
 /// Default test runs must never touch keyboard, clipboard, windows,
 /// audio, mic, or spawned processes.
 pub fn host_tests_allowed() -> bool {
     matches!(
-        std::env::var("TAURINE_ALLOW_HOST_INPUT").as_deref(),
+        std::env::var("NITE_ALLOW_HOST_INPUT")
+            .or_else(|_| std::env::var("TAURINE_ALLOW_HOST_INPUT"))
+            .as_deref(),
         Ok("1") | Ok("true")
     )
 }
@@ -369,13 +371,13 @@ pub fn get_mouse_pos() -> Option<(i32, i32)> {
 static ACTIVE_WINDOW_INFO_CACHE: std::sync::Mutex<
     Option<(
         std::time::Instant,
-        Option<taurine_core::engine::ActiveWindowInfo>,
+        Option<nite_core::engine::ActiveWindowInfo>,
     )>,
 > = std::sync::Mutex::new(None);
 
 const ACTIVE_WINDOW_CACHE_TTL: std::time::Duration = std::time::Duration::from_millis(50);
 
-pub fn get_active_window_info() -> Option<taurine_core::engine::ActiveWindowInfo> {
+pub fn get_active_window_info() -> Option<nite_core::engine::ActiveWindowInfo> {
     if let Ok(guard) = ACTIVE_WINDOW_INFO_CACHE.lock()
         && let Some((cached_at, ref info)) = *guard
         && cached_at.elapsed() < ACTIVE_WINDOW_CACHE_TTL
@@ -398,15 +400,15 @@ pub fn get_active_window_label() -> Option<String> {
 }
 
 #[cfg(windows)]
-fn get_active_window_info_uncached() -> Option<taurine_core::engine::ActiveWindowInfo> {
+fn get_active_window_info_uncached() -> Option<nite_core::engine::ActiveWindowInfo> {
     windows::active_window::get_active_window_info()
 }
 
 #[cfg(target_os = "linux")]
-fn get_active_window_info_uncached() -> Option<taurine_core::engine::ActiveWindowInfo> {
+fn get_active_window_info_uncached() -> Option<nite_core::engine::ActiveWindowInfo> {
     let s = linux::toplevel::get_active_window_label()?;
     serde_json::from_str(&s).ok().or_else(|| {
-        Some(taurine_core::engine::ActiveWindowInfo {
+        Some(nite_core::engine::ActiveWindowInfo {
             exec_name: Some(s),
             ..Default::default()
         })
@@ -414,7 +416,7 @@ fn get_active_window_info_uncached() -> Option<taurine_core::engine::ActiveWindo
 }
 
 #[cfg(target_os = "macos")]
-fn get_active_window_info_uncached() -> Option<taurine_core::engine::ActiveWindowInfo> {
+fn get_active_window_info_uncached() -> Option<nite_core::engine::ActiveWindowInfo> {
     use objc2_app_kit::NSWorkspace;
 
     let workspace = NSWorkspace::sharedWorkspace();
@@ -423,7 +425,7 @@ fn get_active_window_info_uncached() -> Option<taurine_core::engine::ActiveWindo
     let localized_name = frontmost_app.localizedName().map(|s| s.to_string());
     let bundle_id = frontmost_app.bundleIdentifier().map(|s| s.to_string());
 
-    Some(taurine_core::engine::ActiveWindowInfo {
+    Some(nite_core::engine::ActiveWindowInfo {
         title: None,
         class: bundle_id,
         exec_name: localized_name,
@@ -432,7 +434,7 @@ fn get_active_window_info_uncached() -> Option<taurine_core::engine::ActiveWindo
 }
 
 #[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "macos")))]
-fn get_active_window_info_uncached() -> Option<taurine_core::engine::ActiveWindowInfo> {
+fn get_active_window_info_uncached() -> Option<nite_core::engine::ActiveWindowInfo> {
     None
 }
 
@@ -443,7 +445,7 @@ pub fn read_clipboard_text() -> Result<String, String> {
 
 pub fn capture_active_app() -> Option<String> {
     let json = get_active_window_label()?;
-    let info: taurine_core::engine::ActiveWindowInfo = serde_json::from_str(&json).ok()?;
+    let info: nite_core::engine::ActiveWindowInfo = serde_json::from_str(&json).ok()?;
     let exec_name = info.exec_name?;
     let key = exec_name.trim().to_lowercase();
     if key.is_empty() { None } else { Some(key) }
@@ -465,7 +467,11 @@ mod tests {
     #[test]
     fn test_host_gate_defaults_to_closed() {
         // Guard against accidental opt-in: host tests run only with explicit env.
-        assert!(!host_tests_allowed() || std::env::var("TAURINE_ALLOW_HOST_INPUT").is_ok());
+        assert!(
+            !host_tests_allowed()
+                || std::env::var("NITE_ALLOW_HOST_INPUT").is_ok()
+                || std::env::var("TAURINE_ALLOW_HOST_INPUT").is_ok()
+        );
     }
 
     #[test]

@@ -1,6 +1,6 @@
+use nite_core::engine::{ActiveWindowInfo, EngineState};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
-use taurine_core::engine::{ActiveWindowInfo, EngineState};
 use tracing::{debug, error};
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{AtomEnum, ConnectionExt, EventMask};
@@ -109,7 +109,7 @@ pub fn get_active_window_label_sync() -> Option<String> {
 
 pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Option<String>>>) {
     let spawn_result = std::thread::Builder::new()
-        .name("tau-lnx-x11".to_string())
+        .name("nite-lnx-x11".to_string())
         .spawn(move || {
             let (conn, screen_num) = match x11rb::connect(None) {
                 Ok(c) => c,
@@ -176,18 +176,18 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
                 return;
             }
 
-            let taurine_shutdown_atom = match conn
-                .intern_atom(false, b"TAURINE_SHUTDOWN")
+            let nite_shutdown_atom = match conn
+                .intern_atom(false, b"NITE_SHUTDOWN")
             {
                 Ok(cookie) => match cookie.reply() {
                     Ok(reply) => reply.atom,
                     Err(e) => {
-                        error!("Failed to reply TAURINE_SHUTDOWN atom: {:?}", e);
+                        error!("Failed to reply NITE_SHUTDOWN atom: {:?}", e);
                         return;
                     }
                 },
                 Err(e) => {
-                    error!("Failed to intern TAURINE_SHUTDOWN atom: {:?}", e);
+                    error!("Failed to intern NITE_SHUTDOWN atom: {:?}", e);
                     return;
                 }
             };
@@ -222,7 +222,7 @@ pub fn start_listener(state: Arc<EngineState>, active_window_store: Arc<Mutex<Op
                         );
                     }
                     x11rb::protocol::Event::ClientMessage(ev)
-                        if ev.window == dummy_window && ev.type_ == taurine_shutdown_atom =>
+                        if ev.window == dummy_window && ev.type_ == nite_shutdown_atom =>
                     {
                         debug!("Shutdown client message received. Exiting X11 fullscreen listener thread.");
                         let _ = conn.destroy_window(dummy_window);
@@ -250,15 +250,15 @@ pub fn stop_listener() {
     let dummy_window = DUMMY_WINDOW.swap(0, Ordering::Relaxed);
     if dummy_window != 0
         && let Ok((conn, _)) = x11rb::connect(None)
-        && let Ok(cookie) = conn.intern_atom(false, b"TAURINE_SHUTDOWN")
-        && let Ok(taurine_shutdown_atom) = cookie.reply()
+        && let Ok(cookie) = conn.intern_atom(false, b"NITE_SHUTDOWN")
+        && let Ok(nite_shutdown_atom) = cookie.reply()
     {
         let event = x11rb::protocol::xproto::ClientMessageEvent {
             response_type: x11rb::protocol::xproto::CLIENT_MESSAGE_EVENT,
             format: 32,
             sequence: 0,
             window: dummy_window,
-            type_: taurine_shutdown_atom.atom,
+            type_: nite_shutdown_atom.atom,
             data: x11rb::protocol::xproto::ClientMessageData::from([0u32; 5]),
         };
         let raw_event = event.serialize();

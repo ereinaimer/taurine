@@ -1,7 +1,7 @@
 use evdev::KeyCode;
+use nite_core::engine::EngineEvent;
+use nite_core::keys::{Modifier, Modifiers};
 use std::collections::HashMap;
-use taurine_core::engine::EngineEvent;
-use taurine_core::keys::{Modifier, Modifiers};
 use tracing::warn;
 use xkbcommon::xkb;
 

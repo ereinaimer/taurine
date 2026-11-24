@@ -11,7 +11,7 @@ unsafe extern "system" {
     fn WaitForInputIdle(hprocess: HANDLE, dwmilliseconds: u32) -> u32;
 }
 
-pub fn get_active_window_info() -> Option<taurine_core::engine::ActiveWindowInfo> {
+pub fn get_active_window_info() -> Option<nite_core::engine::ActiveWindowInfo> {
     // SAFETY: GetForegroundWindow returns a valid HWND or null.
     // GetWindowThreadProcessId, OpenProcess, QueryFullProcessImageNameW, GetClassNameW, GetWindowTextW
     // and CloseHandle are Win32 APIs, safe with null/bounds checks.
@@ -48,7 +48,7 @@ pub fn get_active_window_info() -> Option<taurine_core::engine::ActiveWindowInfo
         // 3. Get process path & name
         let process_handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, process_id);
         if process_handle.is_null() {
-            return Some(taurine_core::engine::ActiveWindowInfo {
+            return Some(nite_core::engine::ActiveWindowInfo {
                 title,
                 class: class_name,
                 exec_name: None,
@@ -72,7 +72,7 @@ pub fn get_active_window_info() -> Option<taurine_core::engine::ActiveWindowInfo
             }
         }
 
-        Some(taurine_core::engine::ActiveWindowInfo {
+        Some(nite_core::engine::ActiveWindowInfo {
             title,
             class: class_name,
             exec_name,

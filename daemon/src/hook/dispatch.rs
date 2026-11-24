@@ -5,13 +5,13 @@ use crate::injector;
 use crate::platform::spinner_renderer::OsSpinnerRenderer;
 
 #[cfg(not(target_os = "linux"))]
-pub(super) fn clear_undo_state(state: &taurine_core::engine::EngineState) {
+pub(super) fn clear_undo_state(state: &nite_core::engine::EngineState) {
     state.clear_undo_state();
 }
 
 #[cfg(not(target_os = "linux"))]
 pub(super) fn take_active_undo_state(
-    state: &taurine_core::engine::EngineState,
+    state: &nite_core::engine::EngineState,
 ) -> Option<(String, usize)> {
     state
         .take_active_undo_state()
@@ -20,17 +20,17 @@ pub(super) fn take_active_undo_state(
 
 #[cfg(not(target_os = "linux"))]
 pub(super) fn spawn_undo_dispatch(trigger_string: String, output_length: usize) {
-    injector::spawn_guarded_injection_thread("tau-undo-disp", move || {
+    injector::spawn_guarded_injection_thread("nite-undo-disp", move || {
         injector::inject_undo(trigger_string, output_length);
     });
 }
 
 pub(crate) fn spawn_expansion_dispatch(
-    expansion: taurine_core::engine::ExpansionResult,
-    spinner_style: taurine_core::settings::SpinnerStyle,
-    state: Arc<taurine_core::engine::EngineState>,
+    expansion: nite_core::engine::ExpansionResult,
+    spinner_style: nite_core::settings::SpinnerStyle,
+    state: Arc<nite_core::engine::EngineState>,
 ) {
-    injector::spawn_guarded_injection_thread("tau-exp-disp", move || {
+    injector::spawn_guarded_injection_thread("nite-exp-disp", move || {
         dispatch_expansion_with(
             expansion,
             spinner_style,
@@ -42,21 +42,21 @@ pub(crate) fn spawn_expansion_dispatch(
 }
 
 pub(crate) fn spawn_completion_rewrite_dispatch(
-    rewrite: taurine_core::engine::CompletionRewrite,
-    spinner_style: taurine_core::settings::SpinnerStyle,
+    rewrite: nite_core::engine::CompletionRewrite,
+    spinner_style: nite_core::settings::SpinnerStyle,
 ) {
-    injector::spawn_guarded_injection_thread("tau-comp-rw", move || {
+    injector::spawn_guarded_injection_thread("nite-comp-rw", move || {
         dispatch_completion_rewrite_with(rewrite, spinner_style, crate::injector::inject_expansion);
     });
 }
 
 pub(crate) fn spawn_placeholder_injection_dispatch(
     placeholder: String,
-    spinner_style: taurine_core::settings::SpinnerStyle,
+    spinner_style: nite_core::settings::SpinnerStyle,
 ) {
-    injector::spawn_guarded_injection_thread("tau-placeholder", move || {
+    injector::spawn_guarded_injection_thread("nite-placeholder", move || {
         crate::injector::inject_expansion(
-            vec![taurine_core::engine::variables::ExpansionStep::Text(
+            vec![nite_core::engine::variables::ExpansionStep::Text(
                 placeholder,
             )],
             0,
@@ -66,17 +66,17 @@ pub(crate) fn spawn_placeholder_injection_dispatch(
 }
 
 pub(super) fn dispatch_completion_rewrite_with<I>(
-    rewrite: taurine_core::engine::CompletionRewrite,
-    spinner_style: taurine_core::settings::SpinnerStyle,
+    rewrite: nite_core::engine::CompletionRewrite,
+    spinner_style: nite_core::settings::SpinnerStyle,
     inject: I,
 ) where
     I: FnOnce(
-        Vec<taurine_core::engine::variables::ExpansionStep>,
+        Vec<nite_core::engine::variables::ExpansionStep>,
         usize,
-        taurine_core::settings::SpinnerStyle,
+        nite_core::settings::SpinnerStyle,
     ) -> crate::injector::InjectionReport,
 {
-    let taurine_core::engine::CompletionRewrite {
+    let nite_core::engine::CompletionRewrite {
         delete_count,
         replacement,
     } = rewrite;
@@ -86,7 +86,7 @@ pub(super) fn dispatch_completion_rewrite_with<I>(
         "Starting completion rewrite dispatch"
     );
     let injection = inject(
-        vec![taurine_core::engine::variables::ExpansionStep::Text(
+        vec![nite_core::engine::variables::ExpansionStep::Text(
             replacement,
         )],
         delete_count,
@@ -101,23 +101,20 @@ pub(super) fn dispatch_completion_rewrite_with<I>(
 }
 
 pub(crate) fn dispatch_expansion_with<I, L>(
-    expansion: taurine_core::engine::ExpansionResult,
-    spinner_style: taurine_core::settings::SpinnerStyle,
-    state: Arc<taurine_core::engine::EngineState>,
+    expansion: nite_core::engine::ExpansionResult,
+    spinner_style: nite_core::settings::SpinnerStyle,
+    state: Arc<nite_core::engine::EngineState>,
     inject_expansion: I,
     launch_follow_up_fn: L,
 ) where
     I: FnOnce(
-        Vec<taurine_core::engine::variables::ExpansionStep>,
+        Vec<nite_core::engine::variables::ExpansionStep>,
         usize,
-        taurine_core::settings::SpinnerStyle,
+        nite_core::settings::SpinnerStyle,
     ) -> crate::injector::InjectionReport,
-    L: FnOnce(
-        Option<taurine_core::engine::ExpansionFollowUp>,
-        taurine_core::settings::SpinnerStyle,
-    ),
+    L: FnOnce(Option<nite_core::engine::ExpansionFollowUp>, nite_core::settings::SpinnerStyle),
 {
-    let taurine_core::engine::ExpansionResult {
+    let nite_core::engine::ExpansionResult {
         delete_count,
         steps,
         trigger,
@@ -134,8 +131,8 @@ pub(crate) fn dispatch_expansion_with<I, L>(
         || steps.iter().any(|s| {
             matches!(
                 s,
-                taurine_core::engine::variables::ExpansionStep::Script(..)
-                    | taurine_core::engine::variables::ExpansionStep::InlineRun(..)
+                nite_core::engine::variables::ExpansionStep::Script(..)
+                    | nite_core::engine::variables::ExpansionStep::InlineRun(..)
             )
         });
     let expansion_type = if is_dynamic {
@@ -146,7 +143,7 @@ pub(crate) fn dispatch_expansion_with<I, L>(
 
     if !crate::engine::quota_guard::QuotaGuard::global().can_expand() {
         if !crate::engine::quota_guard::QuotaGuard::global().is_authenticated() {
-            tracing::debug!("Please log in to use Taurine.");
+            tracing::debug!("Please log in to use Nite.");
         } else {
             tracing::warn!("Expansion dropped: Weekly quota exhausted");
         }
@@ -159,7 +156,7 @@ pub(crate) fn dispatch_expansion_with<I, L>(
         let expected_output_chars: usize = steps
             .iter()
             .map(|s| {
-                if let taurine_core::engine::variables::ExpansionStep::Text(t) = s {
+                if let nite_core::engine::variables::ExpansionStep::Text(t) = s {
                     t.chars().count()
                 } else {
                     0
@@ -171,7 +168,7 @@ pub(crate) fn dispatch_expansion_with<I, L>(
             let expanded_text = steps
                 .iter()
                 .filter_map(|s| {
-                    if let taurine_core::engine::variables::ExpansionStep::Text(t) = s {
+                    if let nite_core::engine::variables::ExpansionStep::Text(t) = s {
                         Some(t.clone())
                     } else {
                         None
@@ -187,9 +184,9 @@ pub(crate) fn dispatch_expansion_with<I, L>(
         step_count, has_follow_up, track_usage, "Starting expansion dispatch"
     );
     let is_silent_script = steps.iter().any(|s| match s {
-        taurine_core::engine::variables::ExpansionStep::Script(m)
-        | taurine_core::engine::variables::ExpansionStep::InlineRun(m, _) => {
-            m.behavior == taurine_core::engine::shell::ScriptBehavior::Silent
+        nite_core::engine::variables::ExpansionStep::Script(m)
+        | nite_core::engine::variables::ExpansionStep::InlineRun(m, _) => {
+            m.behavior == nite_core::engine::shell::ScriptBehavior::Silent
         }
         _ => false,
     });
@@ -198,17 +195,17 @@ pub(crate) fn dispatch_expansion_with<I, L>(
     } else {
         let mut text_buf = String::new();
         for s in &steps {
-            if let taurine_core::engine::variables::ExpansionStep::Text(t) = s {
+            if let nite_core::engine::variables::ExpansionStep::Text(t) = s {
                 text_buf.push_str(t);
             }
         }
         if text_buf.is_empty() {
             let script_content: Option<String> = steps.iter().find_map(|s| match s {
-                taurine_core::engine::variables::ExpansionStep::Script(m)
-                | taurine_core::engine::variables::ExpansionStep::InlineRun(m, _)
-                    if m.behavior == taurine_core::engine::shell::ScriptBehavior::Inline =>
+                nite_core::engine::variables::ExpansionStep::Script(m)
+                | nite_core::engine::variables::ExpansionStep::InlineRun(m, _)
+                    if m.behavior == nite_core::engine::shell::ScriptBehavior::Inline =>
                 {
-                    taurine_core::engine::shell::decompress(&m.compressed_content).ok()
+                    nite_core::engine::shell::decompress(&m.compressed_content).ok()
                 }
                 _ => None,
             });
@@ -217,7 +214,7 @@ pub(crate) fn dispatch_expansion_with<I, L>(
                     let wc = if sc.trim().is_empty() {
                         None
                     } else {
-                        Some(taurine_core::stats::count_words(&sc))
+                        Some(nite_core::stats::count_words(&sc))
                     };
                     (Some(sc), wc)
                 }
@@ -227,7 +224,7 @@ pub(crate) fn dispatch_expansion_with<I, L>(
             let wc = if text_buf.trim().is_empty() {
                 None
             } else {
-                Some(taurine_core::stats::count_words(&text_buf))
+                Some(nite_core::stats::count_words(&text_buf))
             };
             (Some(text_buf), wc)
         }
@@ -254,9 +251,9 @@ pub(crate) fn dispatch_expansion_with<I, L>(
     }
     launch_follow_up_fn(follow_up, spinner_style);
 
-    if track_usage && stat_kind != taurine_core::db::crud::TriggerStatKind::InlineAi {
+    if track_usage && stat_kind != nite_core::db::crud::TriggerStatKind::InlineAi {
         let app = crate::platform::capture_active_app();
-        taurine_core::db::crud::record_trigger_stat(taurine_core::db::crud::TriggerStatEvent {
+        nite_core::db::crud::record_trigger_stat(nite_core::db::crud::TriggerStatEvent {
             trigger_id: None,
             trigger: Some(trigger.clone()),
             trigger_chars: trigger.chars().count(),
@@ -267,7 +264,7 @@ pub(crate) fn dispatch_expansion_with<I, L>(
                 injection.successful_chars
             },
             kind: if is_calculation {
-                taurine_core::db::crud::TriggerStatKind::Calculation
+                nite_core::db::crud::TriggerStatKind::Calculation
             } else {
                 stat_kind
             },
@@ -280,14 +277,14 @@ pub(crate) fn dispatch_expansion_with<I, L>(
 }
 
 pub(super) fn launch_follow_up(
-    follow_up: Option<taurine_core::engine::ExpansionFollowUp>,
-    spinner_style: taurine_core::settings::SpinnerStyle,
+    follow_up: Option<nite_core::engine::ExpansionFollowUp>,
+    spinner_style: nite_core::settings::SpinnerStyle,
 ) {
     let Some(runtime_handle) = crate::TOKIO_HANDLE.get().cloned() else {
         tracing::error!("Tokio runtime not initialized; skipping follow-up dispatch");
         return;
     };
-    if let Some(taurine_core::engine::ExpansionFollowUp::InlineAi {
+    if let Some(nite_core::engine::ExpansionFollowUp::InlineAi {
         prompt,
         system_prompt_override,
     }) = follow_up
@@ -295,7 +292,7 @@ pub(super) fn launch_follow_up(
         debug!("Starting inline AI follow-up dispatch");
         let injection_guard = crate::injector::InjectionFlagGuard::begin();
 
-        let spinner_handle = taurine_core::utils::spinner::spawn_async(
+        let spinner_handle = nite_core::utils::spinner::spawn_async(
             spinner_style,
             OsSpinnerRenderer::default(),
             &runtime_handle,
@@ -313,14 +310,14 @@ pub(super) fn launch_follow_up(
         return;
     }
 
-    if let Some(taurine_core::engine::ExpansionFollowUp::AiTransformer {
+    if let Some(nite_core::engine::ExpansionFollowUp::AiTransformer {
         template_with_markers,
     }) = follow_up
     {
         debug!("Starting AI transformer follow-up dispatch");
         let injection_guard = crate::injector::InjectionFlagGuard::begin();
 
-        let spinner_handle = taurine_core::utils::spinner::spawn_async(
+        let spinner_handle = nite_core::utils::spinner::spawn_async(
             spinner_style,
             OsSpinnerRenderer::default(),
             &runtime_handle,
@@ -337,13 +334,13 @@ pub(super) fn launch_follow_up(
         return;
     }
 
-    if let Some(taurine_core::engine::ExpansionFollowUp::DictionaryLookup { word, lookup_type }) =
+    if let Some(nite_core::engine::ExpansionFollowUp::DictionaryLookup { word, lookup_type }) =
         follow_up
     {
         debug!("Starting dictionary follow-up dispatch for word: {}", word);
         let injection_guard = crate::injector::InjectionFlagGuard::begin();
 
-        let spinner_handle = taurine_core::utils::spinner::spawn_async(
+        let spinner_handle = nite_core::utils::spinner::spawn_async(
             spinner_style,
             OsSpinnerRenderer::default(),
             &runtime_handle,
@@ -351,7 +348,7 @@ pub(super) fn launch_follow_up(
 
         runtime_handle.spawn(async move {
             let _guard = injection_guard;
-            let entries = taurine_core::engine::dictionary::lookup_word(&word).await;
+            let entries = nite_core::engine::dictionary::lookup_word(&word).await;
             let _ = spinner_handle.cancel.send(());
             let _ = spinner_handle.task.await;
 
@@ -362,7 +359,7 @@ pub(super) fn launch_follow_up(
                 } else {
                     let entry = &entries[0];
                     match lookup_type {
-                        taurine_core::engine::dictionary::types::DictionaryLookupType::Meaning => {
+                        nite_core::engine::dictionary::types::DictionaryLookupType::Meaning => {
                             output.push_str(&format!("{}:\n", entry.word));
                             for meaning in &entry.meanings {
                                 if let Some(def) = meaning.definitions.first() {
@@ -373,7 +370,7 @@ pub(super) fn launch_follow_up(
                                 }
                             }
                         }
-                        taurine_core::engine::dictionary::types::DictionaryLookupType::Synonyms => {
+                        nite_core::engine::dictionary::types::DictionaryLookupType::Synonyms => {
                             output.push_str(&format!("synonyms of {}:\n", entry.word));
                             let mut all_syns = Vec::new();
                             for meaning in &entry.meanings {
@@ -390,7 +387,7 @@ pub(super) fn launch_follow_up(
                                 output.push_str(&format!("    {}\n", all_syns.join(", ")));
                             }
                         }
-                        taurine_core::engine::dictionary::types::DictionaryLookupType::Antonyms => {
+                        nite_core::engine::dictionary::types::DictionaryLookupType::Antonyms => {
                             output.push_str(&format!("antonyms of {}:\n", entry.word));
                             let mut all_ants = Vec::new();
                             for meaning in &entry.meanings {

@@ -90,13 +90,13 @@ impl QuotaGuard {
         Self::global().set_balance(initial_balance);
     }
 
-    /// Sets whether the user is authenticated with Taurine Cloud.
+    /// Sets whether the user is authenticated with Nite Cloud.
     pub fn set_authenticated(&self, authenticated: bool) {
         let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         inner.is_authenticated = authenticated;
     }
 
-    /// Returns whether the user is authenticated with Taurine Cloud.
+    /// Returns whether the user is authenticated with Nite Cloud.
     pub fn is_authenticated(&self) -> bool {
         self.inner
             .lock()
@@ -207,7 +207,7 @@ impl QuotaGuard {
         &self,
         conn: &rusqlite::Connection,
         hmac_key: &[u8; 32],
-    ) -> taurine_core::Result<()> {
+    ) -> nite_core::Result<()> {
         let delta = {
             let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
             if inner.unflushed_delta <= 0.0 {
@@ -223,9 +223,7 @@ impl QuotaGuard {
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
 
-        match taurine_core::db::crud::quota::record_quota_depletion(
-            conn, hmac_key, delta, now_epoch,
-        ) {
+        match nite_core::db::crud::quota::record_quota_depletion(conn, hmac_key, delta, now_epoch) {
             Ok(row) => {
                 let week_epoch = row.week_start_epoch;
                 let mutation_id = uuid::Uuid::new_v4().to_string();
@@ -234,7 +232,7 @@ impl QuotaGuard {
                     "delta": delta,
                     "mutation_id": mutation_id
                 });
-                let _ = taurine_core::db::crud::enqueue_outbox(
+                let _ = nite_core::db::crud::enqueue_outbox(
                     conn,
                     "quota",
                     &week_epoch.to_string(),
