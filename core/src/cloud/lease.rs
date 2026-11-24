@@ -1,6 +1,6 @@
 //! Capability lease engine and monotonic clock drift verification.
 
-use crate::cloud::device::get_device_hardware_id;
+use crate::cloud::device::cached_device_hardware_id;
 use crate::db::crud::tier::UserTier;
 use crate::system::error::{Error, Result};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
@@ -149,7 +149,7 @@ pub fn validate_lease(
         now_instant,
         now_system_time,
         verifying_key_bytes,
-        &get_device_hardware_id(),
+        cached_device_hardware_id(),
     )
 }
 

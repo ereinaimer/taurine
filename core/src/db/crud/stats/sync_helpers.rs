@@ -27,7 +27,7 @@ impl From<TriggerDailyStatRow> for CloudTriggerDailyStatPayload {
     fn from(row: TriggerDailyStatRow) -> Self {
         Self {
             user_id: None,
-            device_id: crate::cloud::get_device_hardware_id(),
+            device_id: crate::cloud::cached_device_hardware_id().to_string(),
             trigger_id: row.trigger_id,
             date: row.date,
             app_key: row.app_key,
@@ -45,7 +45,7 @@ impl From<&TriggerDailyStatRow> for CloudTriggerDailyStatPayload {
     fn from(row: &TriggerDailyStatRow) -> Self {
         Self {
             user_id: None,
-            device_id: crate::cloud::get_device_hardware_id(),
+            device_id: crate::cloud::cached_device_hardware_id().to_string(),
             trigger_id: row.trigger_id.clone(),
             date: row.date.clone(),
             app_key: row.app_key.clone(),
@@ -82,7 +82,7 @@ impl From<StatRow> for CloudUserStatPayload {
     fn from(row: StatRow) -> Self {
         Self {
             user_id: None,
-            device_id: crate::cloud::get_device_hardware_id(),
+            device_id: crate::cloud::cached_device_hardware_id().to_string(),
             date: row.date,
             executions: row.executions,
             ai_executions: row.ai_executions,
@@ -100,7 +100,7 @@ impl From<&StatRow> for CloudUserStatPayload {
     fn from(row: &StatRow) -> Self {
         Self {
             user_id: None,
-            device_id: crate::cloud::get_device_hardware_id(),
+            device_id: crate::cloud::cached_device_hardware_id().to_string(),
             date: row.date.clone(),
             executions: row.executions,
             ai_executions: row.ai_executions,
@@ -136,7 +136,7 @@ impl From<AppStatRow> for CloudUserAppStatPayload {
     fn from(row: AppStatRow) -> Self {
         Self {
             user_id: None,
-            device_id: crate::cloud::get_device_hardware_id(),
+            device_id: crate::cloud::cached_device_hardware_id().to_string(),
             app_key: row.app_key,
             date: row.date,
             executions: row.executions,
@@ -153,7 +153,7 @@ impl From<&AppStatRow> for CloudUserAppStatPayload {
     fn from(row: &AppStatRow) -> Self {
         Self {
             user_id: None,
-            device_id: crate::cloud::get_device_hardware_id(),
+            device_id: crate::cloud::cached_device_hardware_id().to_string(),
             app_key: row.app_key.clone(),
             date: row.date.clone(),
             executions: row.executions,
@@ -191,7 +191,7 @@ impl From<ActivityEventRow> for CloudActivityEventPayload {
     fn from(row: ActivityEventRow) -> Self {
         Self {
             user_id: None,
-            device_id: crate::cloud::get_device_hardware_id(),
+            device_id: crate::cloud::cached_device_hardware_id().to_string(),
             id: row.id,
             trigger_id: row.trigger_id,
             timestamp: row.timestamp,
@@ -211,7 +211,7 @@ impl From<&ActivityEventRow> for CloudActivityEventPayload {
     fn from(row: &ActivityEventRow) -> Self {
         Self {
             user_id: None,
-            device_id: crate::cloud::get_device_hardware_id(),
+            device_id: crate::cloud::cached_device_hardware_id().to_string(),
             id: row.id.clone(),
             trigger_id: row.trigger_id.clone(),
             timestamp: row.timestamp,
@@ -230,7 +230,7 @@ impl From<&ActivityEventRow> for CloudActivityEventPayload {
 /// Retrieves dirty global stats rows that have not yet been synchronized (`is_synced = 0`),
 /// ordered chronologically by `updated_at` ascending.
 pub fn get_unsynced_stats(conn: &Connection, limit: usize) -> Result<Vec<StatRow>> {
-    let device_id = crate::cloud::get_device_hardware_id();
+    let device_id = crate::cloud::cached_device_hardware_id();
     let mut stmt = conn.prepare_cached(
         "SELECT date, executions, ai_executions, voice_executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
          FROM stats
@@ -277,7 +277,7 @@ pub fn mark_stats_synced(conn: &Connection, dates: &[&str]) -> Result<()> {
 /// Retrieves dirty app stats rows that have not yet been synchronized,
 /// ordered chronologically by `updated_at` ascending.
 pub fn get_unsynced_app_stats(conn: &Connection, limit: usize) -> Result<Vec<AppStatRow>> {
-    let device_id = crate::cloud::get_device_hardware_id();
+    let device_id = crate::cloud::cached_device_hardware_id();
     let mut stmt = conn.prepare_cached(
         "SELECT app_key, date, executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
          FROM app_stats
@@ -765,7 +765,7 @@ mod tests {
 
     #[test]
     fn test_payload_device_id() {
-        let expected_hw_id = crate::cloud::get_device_hardware_id();
+        let expected_hw_id = crate::cloud::cached_device_hardware_id();
 
         let stat_row = StatRow {
             date: "2026-10-28".to_string(),

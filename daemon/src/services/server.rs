@@ -1,6 +1,5 @@
-use std::sync::Arc;
-use std::sync::RwLock;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock, RwLock};
 use taurine_core::engine::EngineState;
 use taurine_core::rpc::{
     PauseRequest, PauseResponse, ReloadRequest, ReloadResponse, ResumeRequest, ResumeResponse,
@@ -288,6 +287,12 @@ impl DaemonServiceBuilder {
     }
 }
 
+static SHARED_CLOUD_CLIENT: OnceLock<taurine_core::cloud::CloudClient> = OnceLock::new();
+
+fn shared_cloud_client() -> &'static taurine_core::cloud::CloudClient {
+    SHARED_CLOUD_CLIENT.get_or_init(taurine_core::cloud::CloudClient::default_or_from_env)
+}
+
 #[tonic::async_trait]
 impl DaemonControl for DaemonService {
     async fn get_status(
@@ -378,10 +383,10 @@ impl DaemonControl for DaemonService {
         let outcome = tokio::task::spawn_blocking(move || {
             let conn = taurine_core::db::get_conn()
                 .map_err(|e| format!("Database connection failed: {}", e))?;
-            let client = taurine_core::cloud::CloudClient::default_or_from_env();
+            let client = shared_cloud_client();
             let status = handle.block_on(crate::services::sync_worker::SyncWorker::run_sync_cycle(
                 &conn,
-                Some(&client),
+                Some(client),
             ));
             Ok::<_, String>(status)
         })

@@ -1,13 +1,22 @@
 use super::types::DictionaryEntry;
 use reqwest::Client;
+use std::sync::OnceLock;
 use std::time::Duration;
 use tracing::warn;
 
+static CLIENT: OnceLock<Client> = OnceLock::new();
+
+fn shared_client() -> &'static Client {
+    CLIENT.get_or_init(|| {
+        Client::builder()
+            .timeout(Duration::from_secs(3))
+            .build()
+            .unwrap_or_default()
+    })
+}
+
 pub async fn lookup_online(word: &str) -> Option<Vec<DictionaryEntry>> {
-    let client = Client::builder()
-        .timeout(Duration::from_secs(3))
-        .build()
-        .ok()?;
+    let client = shared_client();
 
     let url = format!("https://api.dictionaryapi.dev/api/v2/entries/en/{}", word);
 

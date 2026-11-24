@@ -1,5 +1,12 @@
 //! Device fingerprinting and platform identification for Taurine Cloud.
 
+static HARDWARE_ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// MachineGuid is immutable for the OS lifetime; read once per process.
+pub fn cached_device_hardware_id() -> &'static str {
+    HARDWARE_ID.get_or_init(get_device_hardware_id)
+}
+
 /// Retrieves a persistent hardware identifier for this device.
 /// On Windows, reads `MachineGuid` from `HKLM\SOFTWARE\Microsoft\Cryptography`.
 /// Falls back to a deterministic SHA-256 hash of system identifiers.

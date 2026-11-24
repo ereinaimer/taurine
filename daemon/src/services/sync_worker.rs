@@ -633,7 +633,7 @@ impl SyncWorker {
                         }
                     }
                     "quota" => {
-                        let device_id = taurine_core::cloud::get_device_hardware_id();
+                        let device_id = taurine_core::cloud::cached_device_hardware_id();
                         let rpc_payload = serde_json::json!({
                             "p_week_epoch": entry.payload.get("week_epoch").and_then(|v| v.as_i64()).unwrap_or(0),
                             "p_delta": entry.payload.get("delta").and_then(|v| v.as_f64()).unwrap_or(0.0),
@@ -718,7 +718,8 @@ impl SyncWorker {
                                     let version: i64 = row.get(9)?;
                                     Ok(CloudActivityEventPayload {
                                         user_id: Some(tokens.user_id.clone()),
-                                        device_id: taurine_core::cloud::get_device_hardware_id(),
+                                        device_id: taurine_core::cloud::cached_device_hardware_id()
+                                            .to_string(),
                                         id: row.get(0)?,
                                         trigger_id: row.get(1)?,
                                         timestamp: row.get(2)?,
@@ -752,7 +753,8 @@ impl SyncWorker {
                                     map.insert(
                                         "device_id".to_string(),
                                         serde_json::Value::String(
-                                            taurine_core::cloud::get_device_hardware_id(),
+                                            taurine_core::cloud::cached_device_hardware_id()
+                                                .to_string(),
                                         ),
                                     );
                                 }
@@ -820,7 +822,7 @@ impl SyncWorker {
                             Some(ref app_key),
                         ) = (lookup_trigger_id, lookup_date, lookup_app_key)
                         {
-                            let device_id = taurine_core::cloud::get_device_hardware_id();
+                            let device_id = taurine_core::cloud::cached_device_hardware_id();
                             conn.query_row(
                                 "SELECT trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version
                                  FROM trigger_daily_stats WHERE device_id = ?1 AND trigger_id = ?2 AND date = ?3 AND app_key = ?4",
@@ -833,7 +835,8 @@ impl SyncWorker {
                                     let version: i64 = row.get(7)?;
                                     Ok(CloudTriggerDailyStatPayload {
                                         user_id: Some(tokens.user_id.clone()),
-                                        device_id: taurine_core::cloud::get_device_hardware_id(),
+                                        device_id: taurine_core::cloud::cached_device_hardware_id()
+                                            .to_string(),
                                         trigger_id: row.get(0)?,
                                         date: row.get(1)?,
                                         app_key: row.get(2)?,
@@ -867,7 +870,8 @@ impl SyncWorker {
                                     map.insert(
                                         "device_id".to_string(),
                                         serde_json::Value::String(
-                                            taurine_core::cloud::get_device_hardware_id(),
+                                            taurine_core::cloud::cached_device_hardware_id()
+                                                .to_string(),
                                         ),
                                     );
                                 }
@@ -905,7 +909,7 @@ impl SyncWorker {
                         }
                     }
                     "stat" | "user_stat" => {
-                        let device_id = taurine_core::cloud::get_device_hardware_id();
+                        let device_id = taurine_core::cloud::cached_device_hardware_id();
                         let db_stat = conn
                             .query_row(
                                 "SELECT date, executions, ai_executions, voice_executions, words_spoken, words_expanded, time_saved_ms, version
@@ -914,7 +918,8 @@ impl SyncWorker {
                                 |row| {
                                     Ok(CloudUserStatPayload {
                                         user_id: Some(tokens.user_id.clone()),
-                                        device_id: taurine_core::cloud::get_device_hardware_id(),
+                                        device_id: taurine_core::cloud::cached_device_hardware_id()
+                                            .to_string(),
                                         date: row.get(0)?,
                                         executions: row.get(1)?,
                                         ai_executions: row.get(2)?,
@@ -945,7 +950,8 @@ impl SyncWorker {
                                     map.insert(
                                         "device_id".to_string(),
                                         serde_json::Value::String(
-                                            taurine_core::cloud::get_device_hardware_id(),
+                                            taurine_core::cloud::cached_device_hardware_id()
+                                                .to_string(),
                                         ),
                                     );
                                 }
@@ -997,7 +1003,7 @@ impl SyncWorker {
                         let db_app_stat = if let (Some(ref app_key), Some(ref date)) =
                             (lookup_app_key, lookup_date)
                         {
-                            let device_id = taurine_core::cloud::get_device_hardware_id();
+                            let device_id = taurine_core::cloud::cached_device_hardware_id();
                             conn.query_row(
                                 "SELECT app_key, date, executions, words_spoken, words_expanded, time_saved_ms, version
                                  FROM app_stats WHERE device_id = ?1 AND app_key = ?2 AND date = ?3",
@@ -1010,7 +1016,8 @@ impl SyncWorker {
                                     let version: i64 = row.get(6)?;
                                     Ok(CloudUserAppStatPayload {
                                         user_id: Some(tokens.user_id.clone()),
-                                        device_id: taurine_core::cloud::get_device_hardware_id(),
+                                        device_id: taurine_core::cloud::cached_device_hardware_id()
+                                            .to_string(),
                                         app_key: row.get(0)?,
                                         date: row.get(1)?,
                                         executions: executions as u64,
@@ -1043,7 +1050,8 @@ impl SyncWorker {
                                     map.insert(
                                         "device_id".to_string(),
                                         serde_json::Value::String(
-                                            taurine_core::cloud::get_device_hardware_id(),
+                                            taurine_core::cloud::cached_device_hardware_id()
+                                                .to_string(),
                                         ),
                                     );
                                 }
@@ -1199,69 +1207,80 @@ impl SyncWorker {
         let last_settings_cp =
             taurine_core::db::crud::get_sync_checkpoint(conn, "user_settings").unwrap_or(0);
         let rfc3339_settings_cp = CloudClient::format_rfc3339_timestamp(last_settings_cp);
-        let settings_pull_res = client
-            .postgrest_get(
-                &format!("user_settings?updated_at=gt.{rfc3339_settings_cp}&order=updated_at.asc"),
-                &mut tokens,
-            )
-            .await;
+        let mut settings_max_ts = last_settings_cp;
+        let mut settings_offset: usize = 0;
 
-        match settings_pull_res {
-            Ok(res) => {
-                if !res.status().is_success() {
-                    let status = res.status();
-                    let text = res.text().await.unwrap_or_default();
-                    return SyncStatus::Error(format!(
-                        "Failed to pull settings ({status}): {text}"
-                    ));
-                }
-                match res.json::<Vec<CloudSettingPayload>>().await {
-                    Ok(remote_settings) => {
-                        let mut max_ts = last_settings_cp;
-                        for setting in &remote_settings {
-                            let ts = setting
-                                .updated_at
-                                .as_deref()
-                                .and_then(|s| CloudClient::parse_rfc3339_timestamp(s).ok())
-                                .unwrap_or(0);
-                            if ts > max_ts {
-                                max_ts = ts;
-                            }
-                            match reconcile_cloud_setting(conn, setting) {
-                                Ok(outcome) => {
-                                    if matches!(outcome, SettingReconcileOutcome::UpdatedFromRemote)
-                                    {
-                                        pulled_settings += 1;
-                                    }
-                                }
-                                Err(e) => {
-                                    tracing::warn!(
-                                        "Failed to reconcile setting {}: {e}",
-                                        setting.key
-                                    );
-                                }
-                            }
-                        }
-                        if max_ts > last_settings_cp
-                            && let Err(e) = taurine_core::db::crud::set_sync_checkpoint(
-                                conn,
-                                "user_settings",
-                                max_ts,
-                            )
-                        {
-                            tracing::warn!("Failed to set user_settings sync checkpoint: {e}");
-                        }
-                    }
-                    Err(e) => {
+        loop {
+            let settings_pull_res = client
+                .postgrest_get(
+                    &format!(
+                        "user_settings?updated_at=gt.{rfc3339_settings_cp}&order=updated_at.asc&limit={PULL_PAGE_SIZE}&offset={settings_offset}"
+                    ),
+                    &mut tokens,
+                )
+                .await;
+
+            match settings_pull_res {
+                Ok(res) => {
+                    if !res.status().is_success() {
+                        let status = res.status();
+                        let text = res.text().await.unwrap_or_default();
                         return SyncStatus::Error(format!(
-                            "Failed to deserialize remote settings: {e}"
+                            "Failed to pull settings ({status}): {text}"
                         ));
                     }
+                    match res.json::<Vec<CloudSettingPayload>>().await {
+                        Ok(remote_settings) => {
+                            let count = remote_settings.len();
+                            for setting in &remote_settings {
+                                let ts = setting
+                                    .updated_at
+                                    .as_deref()
+                                    .and_then(|s| CloudClient::parse_rfc3339_timestamp(s).ok())
+                                    .unwrap_or(0);
+                                if ts > settings_max_ts {
+                                    settings_max_ts = ts;
+                                }
+                                match reconcile_cloud_setting(conn, setting) {
+                                    Ok(outcome) => {
+                                        if matches!(
+                                            outcome,
+                                            SettingReconcileOutcome::UpdatedFromRemote
+                                        ) {
+                                            pulled_settings += 1;
+                                        }
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            "Failed to reconcile setting {}: {e}",
+                                            setting.key
+                                        );
+                                    }
+                                }
+                            }
+                            if count < PULL_PAGE_SIZE {
+                                break;
+                            }
+                            settings_offset += count;
+                        }
+                        Err(e) => {
+                            return SyncStatus::Error(format!(
+                                "Failed to deserialize remote settings: {e}"
+                            ));
+                        }
+                    }
+                }
+                Err(e) => {
+                    return SyncStatus::Error(format!("Network error pulling settings: {e}"));
                 }
             }
-            Err(e) => {
-                return SyncStatus::Error(format!("Network error pulling settings: {e}"));
-            }
+        }
+
+        if settings_max_ts > last_settings_cp
+            && let Err(e) =
+                taurine_core::db::crud::set_sync_checkpoint(conn, "user_settings", settings_max_ts)
+        {
+            tracing::warn!("Failed to set user_settings sync checkpoint: {e}");
         }
 
         // Pull remote quota ledger for the current week
@@ -1352,192 +1371,223 @@ impl SyncWorker {
             last_events_cp
         };
         let rfc3339_events_cp = CloudClient::format_rfc3339_timestamp(effective_events_cp);
-        let events_pull_res = client
-            .postgrest_get(
-                &format!("activity_events?updated_at=gt.{rfc3339_events_cp}&order=updated_at.asc&limit=500"),
-                &mut tokens,
-            )
-            .await;
-
+        let mut events_max_ts = last_events_cp;
+        let mut events_offset: usize = 0;
         let mut pulled_events = 0;
-        match events_pull_res {
-            Ok(res) => {
-                if !res.status().is_success() {
-                    let status = res.status();
-                    let text = res.text().await.unwrap_or_default();
-                    return SyncStatus::Error(format!(
-                        "Failed to pull activity events ({status}): {text}"
-                    ));
-                }
-                match res.json::<Vec<CloudActivityEventPayload>>().await {
-                    Ok(remote_events) => {
-                        let mut max_ts = last_events_cp;
-                        for event in &remote_events {
-                            let ts = event
-                                .updated_at
-                                .as_deref()
-                                .and_then(|s| CloudClient::parse_rfc3339_timestamp(s).ok())
-                                .unwrap_or_else(|| {
-                                    if event.timestamp > 100_000_000_000_000 {
-                                        event.timestamp
-                                    } else if event.timestamp > 100_000_000_000 {
-                                        event.timestamp * 1_000
-                                    } else {
-                                        event.timestamp * 1_000_000
-                                    }
-                                });
-                            if ts > max_ts {
-                                max_ts = ts;
-                            }
-                        }
-                        match reconcile_cloud_activity_events(conn, &remote_events) {
-                            Ok(count) => {
-                                pulled_events += count;
-                            }
-                            Err(e) => {
-                                tracing::warn!("Failed to reconcile activity events: {e}");
-                            }
-                        }
-                        if max_ts > last_events_cp
-                            && let Err(e) = taurine_core::db::crud::set_sync_checkpoint(
-                                conn,
-                                "activity_events",
-                                max_ts,
-                            )
-                        {
-                            tracing::warn!("Failed to set activity_events sync checkpoint: {e}");
-                        }
-                    }
-                    Err(e) => {
+
+        loop {
+            let events_pull_res = client
+                .postgrest_get(
+                    &format!(
+                        "activity_events?updated_at=gt.{rfc3339_events_cp}&order=updated_at.asc&limit={PULL_PAGE_SIZE}&offset={events_offset}"
+                    ),
+                    &mut tokens,
+                )
+                .await;
+
+            match events_pull_res {
+                Ok(res) => {
+                    if !res.status().is_success() {
+                        let status = res.status();
+                        let text = res.text().await.unwrap_or_default();
                         return SyncStatus::Error(format!(
-                            "Failed to deserialize remote activity events: {e}"
+                            "Failed to pull activity events ({status}): {text}"
                         ));
                     }
+                    match res.json::<Vec<CloudActivityEventPayload>>().await {
+                        Ok(remote_events) => {
+                            let count = remote_events.len();
+                            for event in &remote_events {
+                                let ts = event
+                                    .updated_at
+                                    .as_deref()
+                                    .and_then(|s| CloudClient::parse_rfc3339_timestamp(s).ok())
+                                    .unwrap_or_else(|| {
+                                        if event.timestamp > 100_000_000_000_000 {
+                                            event.timestamp
+                                        } else if event.timestamp > 100_000_000_000 {
+                                            event.timestamp * 1_000
+                                        } else {
+                                            event.timestamp * 1_000_000
+                                        }
+                                    });
+                                if ts > events_max_ts {
+                                    events_max_ts = ts;
+                                }
+                            }
+                            match reconcile_cloud_activity_events(conn, &remote_events) {
+                                Ok(count) => {
+                                    pulled_events += count;
+                                }
+                                Err(e) => {
+                                    tracing::warn!("Failed to reconcile activity events: {e}");
+                                }
+                            }
+                            if count < PULL_PAGE_SIZE {
+                                break;
+                            }
+                            events_offset += count;
+                        }
+                        Err(e) => {
+                            return SyncStatus::Error(format!(
+                                "Failed to deserialize remote activity events: {e}"
+                            ));
+                        }
+                    }
+                }
+                Err(e) => {
+                    return SyncStatus::Error(format!(
+                        "Network error pulling activity events: {e}"
+                    ));
                 }
             }
-            Err(e) => {
-                return SyncStatus::Error(format!("Network error pulling activity events: {e}"));
-            }
+        }
+
+        if events_max_ts > last_events_cp
+            && let Err(e) =
+                taurine_core::db::crud::set_sync_checkpoint(conn, "activity_events", events_max_ts)
+        {
+            tracing::warn!("Failed to set activity_events sync checkpoint: {e}");
         }
 
         // Pull remote trigger daily stats
         let last_trigger_stats_cp =
             taurine_core::db::crud::get_sync_checkpoint(conn, "trigger_daily_stats").unwrap_or(0);
         let rfc3339_trigger_stats_cp = CloudClient::format_rfc3339_timestamp(last_trigger_stats_cp);
-        let trigger_stats_pull_res = client
-            .postgrest_get(
-                &format!("trigger_daily_stats?updated_at=gt.{rfc3339_trigger_stats_cp}&order=updated_at.asc"),
-                &mut tokens,
-            )
-            .await;
+        let mut trigger_stats_max_ts = last_trigger_stats_cp;
+        let mut trigger_stats_offset: usize = 0;
 
-        match trigger_stats_pull_res {
-            Ok(res) => {
-                if !res.status().is_success() {
-                    let status = res.status();
-                    let text = res.text().await.unwrap_or_default();
-                    return SyncStatus::Error(format!(
-                        "Failed to pull trigger daily stats ({status}): {text}"
-                    ));
-                }
-                match res.json::<Vec<CloudTriggerDailyStatPayload>>().await {
-                    Ok(remote_stats) => {
-                        let mut max_ts = last_trigger_stats_cp;
-                        for stat in &remote_stats {
-                            let ts = stat
-                                .updated_at
-                                .as_deref()
-                                .and_then(|s| CloudClient::parse_rfc3339_timestamp(s).ok())
-                                .unwrap_or(0);
-                            if ts > max_ts {
-                                max_ts = ts;
-                            }
-                        }
-                        if let Err(e) = reconcile_cloud_trigger_daily_stats(conn, &remote_stats) {
-                            tracing::warn!("Failed to reconcile trigger daily stats: {e}");
-                        }
-                        if max_ts > last_trigger_stats_cp
-                            && let Err(e) = taurine_core::db::crud::set_sync_checkpoint(
-                                conn,
-                                "trigger_daily_stats",
-                                max_ts,
-                            )
-                        {
-                            tracing::warn!(
-                                "Failed to set trigger_daily_stats sync checkpoint: {e}"
-                            );
-                        }
-                    }
-                    Err(e) => {
+        loop {
+            let trigger_stats_pull_res = client
+                .postgrest_get(
+                    &format!(
+                        "trigger_daily_stats?updated_at=gt.{rfc3339_trigger_stats_cp}&order=updated_at.asc&limit={PULL_PAGE_SIZE}&offset={trigger_stats_offset}"
+                    ),
+                    &mut tokens,
+                )
+                .await;
+
+            match trigger_stats_pull_res {
+                Ok(res) => {
+                    if !res.status().is_success() {
+                        let status = res.status();
+                        let text = res.text().await.unwrap_or_default();
                         return SyncStatus::Error(format!(
-                            "Failed to deserialize remote trigger daily stats: {e}"
+                            "Failed to pull trigger daily stats ({status}): {text}"
                         ));
                     }
+                    match res.json::<Vec<CloudTriggerDailyStatPayload>>().await {
+                        Ok(remote_stats) => {
+                            let count = remote_stats.len();
+                            for stat in &remote_stats {
+                                let ts = stat
+                                    .updated_at
+                                    .as_deref()
+                                    .and_then(|s| CloudClient::parse_rfc3339_timestamp(s).ok())
+                                    .unwrap_or(0);
+                                if ts > trigger_stats_max_ts {
+                                    trigger_stats_max_ts = ts;
+                                }
+                            }
+                            if let Err(e) = reconcile_cloud_trigger_daily_stats(conn, &remote_stats)
+                            {
+                                tracing::warn!("Failed to reconcile trigger daily stats: {e}");
+                            }
+                            if count < PULL_PAGE_SIZE {
+                                break;
+                            }
+                            trigger_stats_offset += count;
+                        }
+                        Err(e) => {
+                            return SyncStatus::Error(format!(
+                                "Failed to deserialize remote trigger daily stats: {e}"
+                            ));
+                        }
+                    }
+                }
+                Err(e) => {
+                    return SyncStatus::Error(format!(
+                        "Network error pulling trigger daily stats: {e}"
+                    ));
                 }
             }
-            Err(e) => {
-                return SyncStatus::Error(format!(
-                    "Network error pulling trigger daily stats: {e}"
-                ));
-            }
+        }
+
+        if trigger_stats_max_ts > last_trigger_stats_cp
+            && let Err(e) = taurine_core::db::crud::set_sync_checkpoint(
+                conn,
+                "trigger_daily_stats",
+                trigger_stats_max_ts,
+            )
+        {
+            tracing::warn!("Failed to set trigger_daily_stats sync checkpoint: {e}");
         }
 
         // Pull remote global user stats
         let last_user_stats_cp =
             taurine_core::db::crud::get_sync_checkpoint(conn, "user_stats").unwrap_or(0);
         let rfc3339_user_stats_cp = CloudClient::format_rfc3339_timestamp(last_user_stats_cp);
-        let user_stats_pull_res = client
-            .postgrest_get(
-                &format!("user_stats?updated_at=gt.{rfc3339_user_stats_cp}&order=updated_at.asc"),
-                &mut tokens,
-            )
-            .await;
+        let mut user_stats_max_ts = last_user_stats_cp;
+        let mut user_stats_offset: usize = 0;
 
-        match user_stats_pull_res {
-            Ok(res) => {
-                if !res.status().is_success() {
-                    let status = res.status();
-                    let text = res.text().await.unwrap_or_default();
-                    return SyncStatus::Error(format!(
-                        "Failed to pull user stats ({status}): {text}"
-                    ));
-                }
-                match res.json::<Vec<CloudUserStatPayload>>().await {
-                    Ok(remote_stats) => {
-                        let mut max_ts = last_user_stats_cp;
-                        for stat in &remote_stats {
-                            let ts = stat
-                                .updated_at
-                                .as_deref()
-                                .and_then(|s| CloudClient::parse_rfc3339_timestamp(s).ok())
-                                .unwrap_or(0);
-                            if ts > max_ts {
-                                max_ts = ts;
-                            }
-                        }
-                        if let Err(e) = reconcile_cloud_user_stats(conn, &remote_stats) {
-                            tracing::warn!("Failed to reconcile user stats: {e}");
-                        }
-                        if max_ts > last_user_stats_cp
-                            && let Err(e) = taurine_core::db::crud::set_sync_checkpoint(
-                                conn,
-                                "user_stats",
-                                max_ts,
-                            )
-                        {
-                            tracing::warn!("Failed to set user_stats sync checkpoint: {e}");
-                        }
-                    }
-                    Err(e) => {
+        loop {
+            let user_stats_pull_res = client
+                .postgrest_get(
+                    &format!(
+                        "user_stats?updated_at=gt.{rfc3339_user_stats_cp}&order=updated_at.asc&limit={PULL_PAGE_SIZE}&offset={user_stats_offset}"
+                    ),
+                    &mut tokens,
+                )
+                .await;
+
+            match user_stats_pull_res {
+                Ok(res) => {
+                    if !res.status().is_success() {
+                        let status = res.status();
+                        let text = res.text().await.unwrap_or_default();
                         return SyncStatus::Error(format!(
-                            "Failed to deserialize remote user stats: {e}"
+                            "Failed to pull user stats ({status}): {text}"
                         ));
                     }
+                    match res.json::<Vec<CloudUserStatPayload>>().await {
+                        Ok(remote_stats) => {
+                            let count = remote_stats.len();
+                            for stat in &remote_stats {
+                                let ts = stat
+                                    .updated_at
+                                    .as_deref()
+                                    .and_then(|s| CloudClient::parse_rfc3339_timestamp(s).ok())
+                                    .unwrap_or(0);
+                                if ts > user_stats_max_ts {
+                                    user_stats_max_ts = ts;
+                                }
+                            }
+                            if let Err(e) = reconcile_cloud_user_stats(conn, &remote_stats) {
+                                tracing::warn!("Failed to reconcile user stats: {e}");
+                            }
+                            if count < PULL_PAGE_SIZE {
+                                break;
+                            }
+                            user_stats_offset += count;
+                        }
+                        Err(e) => {
+                            return SyncStatus::Error(format!(
+                                "Failed to deserialize remote user stats: {e}"
+                            ));
+                        }
+                    }
+                }
+                Err(e) => {
+                    return SyncStatus::Error(format!("Network error pulling user stats: {e}"));
                 }
             }
-            Err(e) => {
-                return SyncStatus::Error(format!("Network error pulling user stats: {e}"));
-            }
+        }
+
+        if user_stats_max_ts > last_user_stats_cp
+            && let Err(e) =
+                taurine_core::db::crud::set_sync_checkpoint(conn, "user_stats", user_stats_max_ts)
+        {
+            tracing::warn!("Failed to set user_stats sync checkpoint: {e}");
         }
 
         // Pull remote user app stats
@@ -1545,60 +1595,70 @@ impl SyncWorker {
             taurine_core::db::crud::get_sync_checkpoint(conn, "user_app_stats").unwrap_or(0);
         let rfc3339_user_app_stats_cp =
             CloudClient::format_rfc3339_timestamp(last_user_app_stats_cp);
-        let app_stats_pull_res = client
-            .postgrest_get(
-                &format!(
-                    "user_app_stats?updated_at=gt.{rfc3339_user_app_stats_cp}&order=updated_at.asc"
-                ),
-                &mut tokens,
-            )
-            .await;
+        let mut user_app_stats_max_ts = last_user_app_stats_cp;
+        let mut user_app_stats_offset: usize = 0;
 
-        match app_stats_pull_res {
-            Ok(res) => {
-                if !res.status().is_success() {
-                    let status = res.status();
-                    let text = res.text().await.unwrap_or_default();
-                    return SyncStatus::Error(format!(
-                        "Failed to pull app stats ({status}): {text}"
-                    ));
-                }
-                match res.json::<Vec<CloudUserAppStatPayload>>().await {
-                    Ok(remote_stats) => {
-                        let mut max_ts = last_user_app_stats_cp;
-                        for stat in &remote_stats {
-                            let ts = stat
-                                .updated_at
-                                .as_deref()
-                                .and_then(|s| CloudClient::parse_rfc3339_timestamp(s).ok())
-                                .unwrap_or(0);
-                            if ts > max_ts {
-                                max_ts = ts;
-                            }
-                        }
-                        if let Err(e) = reconcile_cloud_app_stats(conn, &remote_stats) {
-                            tracing::warn!("Failed to reconcile app stats: {e}");
-                        }
-                        if max_ts > last_user_app_stats_cp
-                            && let Err(e) = taurine_core::db::crud::set_sync_checkpoint(
-                                conn,
-                                "user_app_stats",
-                                max_ts,
-                            )
-                        {
-                            tracing::warn!("Failed to set user_app_stats sync checkpoint: {e}");
-                        }
-                    }
-                    Err(e) => {
+        loop {
+            let app_stats_pull_res = client
+                .postgrest_get(
+                    &format!(
+                        "user_app_stats?updated_at=gt.{rfc3339_user_app_stats_cp}&order=updated_at.asc&limit={PULL_PAGE_SIZE}&offset={user_app_stats_offset}"
+                    ),
+                    &mut tokens,
+                )
+                .await;
+
+            match app_stats_pull_res {
+                Ok(res) => {
+                    if !res.status().is_success() {
+                        let status = res.status();
+                        let text = res.text().await.unwrap_or_default();
                         return SyncStatus::Error(format!(
-                            "Failed to deserialize remote app stats: {e}"
+                            "Failed to pull app stats ({status}): {text}"
                         ));
                     }
+                    match res.json::<Vec<CloudUserAppStatPayload>>().await {
+                        Ok(remote_stats) => {
+                            let count = remote_stats.len();
+                            for stat in &remote_stats {
+                                let ts = stat
+                                    .updated_at
+                                    .as_deref()
+                                    .and_then(|s| CloudClient::parse_rfc3339_timestamp(s).ok())
+                                    .unwrap_or(0);
+                                if ts > user_app_stats_max_ts {
+                                    user_app_stats_max_ts = ts;
+                                }
+                            }
+                            if let Err(e) = reconcile_cloud_app_stats(conn, &remote_stats) {
+                                tracing::warn!("Failed to reconcile app stats: {e}");
+                            }
+                            if count < PULL_PAGE_SIZE {
+                                break;
+                            }
+                            user_app_stats_offset += count;
+                        }
+                        Err(e) => {
+                            return SyncStatus::Error(format!(
+                                "Failed to deserialize remote app stats: {e}"
+                            ));
+                        }
+                    }
+                }
+                Err(e) => {
+                    return SyncStatus::Error(format!("Network error pulling app stats: {e}"));
                 }
             }
-            Err(e) => {
-                return SyncStatus::Error(format!("Network error pulling app stats: {e}"));
-            }
+        }
+
+        if user_app_stats_max_ts > last_user_app_stats_cp
+            && let Err(e) = taurine_core::db::crud::set_sync_checkpoint(
+                conn,
+                "user_app_stats",
+                user_app_stats_max_ts,
+            )
+        {
+            tracing::warn!("Failed to set user_app_stats sync checkpoint: {e}");
         }
 
         SyncStatus::Success {

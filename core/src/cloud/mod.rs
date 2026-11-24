@@ -11,7 +11,9 @@ pub use crypto::{
     EncryptedEnvelope, clear_vault_dek, decrypt_payload, derive_vault_keys,
     get_or_create_vault_dek, get_vault_dek, store_vault_dek,
 };
-pub use device::{get_device_hardware_id, get_device_name, get_device_platform};
+pub use device::{
+    cached_device_hardware_id, get_device_hardware_id, get_device_name, get_device_platform,
+};
 pub use keyring::{
     clear_cloud_tokens, clear_tokens, get_cloud_tokens, get_tokens, store_cloud_tokens,
     store_tokens,

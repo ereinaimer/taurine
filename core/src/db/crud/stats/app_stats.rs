@@ -110,7 +110,7 @@ pub fn upsert_app_stat_with_conn(
     time_saved_ms: u64,
 ) -> Result<()> {
     let now = crate::db::now_unix_secs();
-    let device_id = crate::cloud::get_device_hardware_id();
+    let device_id = crate::cloud::cached_device_hardware_id();
     conn.prepare_cached(
         "INSERT INTO app_stats (
             device_id, app_key, date, executions, words_spoken, words_expanded, time_saved_ms, version, updated_at

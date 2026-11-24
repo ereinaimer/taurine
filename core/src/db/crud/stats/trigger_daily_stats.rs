@@ -55,7 +55,7 @@ pub fn upsert_trigger_daily_stat_with_conn(
     time_saved_ms: u64,
 ) -> rusqlite::Result<()> {
     let now = crate::db::now_unix_secs();
-    let device_id = crate::cloud::get_device_hardware_id();
+    let device_id = crate::cloud::cached_device_hardware_id();
     conn.prepare_cached(
         "INSERT INTO trigger_daily_stats (
             device_id, trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version, updated_at
@@ -199,7 +199,7 @@ pub fn get_unsynced_trigger_daily_stats(
     conn: &Connection,
     limit: usize,
 ) -> rusqlite::Result<Vec<TriggerDailyStatRow>> {
-    let device_id = crate::cloud::get_device_hardware_id();
+    let device_id = crate::cloud::cached_device_hardware_id();
     let mut stmt = conn.prepare_cached(
         "SELECT trigger_id, date, app_key, executions, words_spoken, words_expanded, time_saved_ms, version, 0 AS is_synced, updated_at
          FROM trigger_daily_stats

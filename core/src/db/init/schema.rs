@@ -273,7 +273,7 @@ pub fn migrate_legacy_columns(conn: &Connection) -> Result<()> {
     }
 
     if table_exists(conn, "stats")? && !column_exists(conn, "stats", "device_id")? {
-        let device_id = crate::cloud::get_device_hardware_id();
+        let device_id = crate::cloud::cached_device_hardware_id();
         conn.execute_batch(
             "CREATE TABLE stats_migrating (
                 device_id        TEXT    NOT NULL DEFAULT '',
@@ -305,7 +305,7 @@ pub fn migrate_legacy_columns(conn: &Connection) -> Result<()> {
     }
 
     if table_exists(conn, "app_stats")? && !column_exists(conn, "app_stats", "device_id")? {
-        let device_id = crate::cloud::get_device_hardware_id();
+        let device_id = crate::cloud::cached_device_hardware_id();
         conn.execute_batch(
             "CREATE TABLE app_stats_migrating (
                 device_id        TEXT    NOT NULL DEFAULT '',
@@ -337,7 +337,7 @@ pub fn migrate_legacy_columns(conn: &Connection) -> Result<()> {
     if table_exists(conn, "trigger_daily_stats")?
         && !column_exists(conn, "trigger_daily_stats", "device_id")?
     {
-        let device_id = crate::cloud::get_device_hardware_id();
+        let device_id = crate::cloud::cached_device_hardware_id();
         conn.execute_batch(
             "CREATE TABLE trigger_daily_stats_migrating (
                 device_id        TEXT    NOT NULL DEFAULT '',

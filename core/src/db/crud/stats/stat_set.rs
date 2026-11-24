@@ -10,7 +10,7 @@ use crate::db::now_unix_secs;
 /// - `updated_at` is always set to the current Unix timestamp.
 pub fn increment_stat(conn: &Connection, date: &str, deltas: &StatDeltas) -> Result<()> {
     let now = now_unix_secs();
-    let device_id = crate::cloud::get_device_hardware_id();
+    let device_id = crate::cloud::cached_device_hardware_id();
 
     conn.prepare_cached(
         "INSERT INTO stats (
