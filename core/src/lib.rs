@@ -1,6 +1,6 @@
-//! # Taurine Core
+//! # Nite Core
 //!
-//! The architectural foundation of the Taurine text expander.
+//! The architectural foundation of the Nite text expander.
 //!
 //! This crate provides the foundational abstractions and business logic used by
 //! the daemon and CLI:

@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package taurine;
+package nite;
 
 service DaemonControl {
     rpc GetStatus (StatusRequest) returns (StatusResponse);

@@ -104,7 +104,7 @@ pub fn spawn_threaded<R: SpinnerRenderer + 'static>(
     let frame_width = frames[0].chars().count();
 
     let thread = match std::thread::Builder::new()
-        .name("tau-spinner".to_string())
+        .name("nite-spinner".to_string())
         .spawn(move || {
             let mut idx = 0;
 

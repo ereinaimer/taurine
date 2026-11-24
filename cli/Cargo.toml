@@ -20,7 +20,7 @@ vendored-openssl = ["taurine_core/vendored-openssl", "taurine_daemon/vendored-op
 tempfile = "3.10"
 
 [dependencies]
-taurine_core = { path = "../core", default-features = false }
+taurine_core = { package = "nite_core", path = "../core", default-features = false }
 taurine_daemon = { path = "../daemon", default-features = false }
 taurine_tui = { path = "../tui", default-features = false }
 clap = { version = "4", features = ["derive"] }

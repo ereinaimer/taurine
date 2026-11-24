@@ -1,5 +1,5 @@
 [package]
-name = "taurine_core"
+name = "nite_core"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -15,7 +15,7 @@ crate-type = ["lib", "cdylib", "staticlib"]
 # Default build links a self-contained OpenSSL (no machine setup).
 # Fast dev loop links the system libcrypto instead — same SQLCipher,
 # same encrypted DB bytes, minus the multi-minute source build:
-#   cargo check -p taurine_core --no-default-features
+#   cargo check -p nite_core --no-default-features
 default = ["vendored-openssl"]
 vendored-openssl = ["rusqlite/bundled-sqlcipher-vendored-openssl", "r2d2_sqlite/bundled-sqlcipher-vendored-openssl"]
 

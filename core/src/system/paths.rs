@@ -40,10 +40,10 @@ pub fn dev_env_var(name: &str) -> Option<String> {
 /// - Linux:    ~/.local/share/APP_NAME_SLUG
 /// - Android:  Directory provided via `init_android_path()`.
 ///
-/// DEV builds honor `TAURINE_DATA_DIR` (tests, `cargo run`); release ignores it.
+/// DEV builds honor `NITE_DATA_DIR` (tests, `cargo run`); release ignores it.
 pub fn get_data_dir() -> PathBuf {
-    if let Some(env_path) = dev_env_var("TAURINE_DATA_DIR") {
-        debug!("TAURINE_DATA_DIR override enabled");
+    if let Some(env_path) = dev_env_var("NITE_DATA_DIR") {
+        debug!("NITE_DATA_DIR override enabled");
         return PathBuf::from(env_path);
     }
 
@@ -127,7 +127,7 @@ pub fn ensure_data_dir() -> PathBuf {
 }
 
 /// Resolves the exact file path for the SQLite database.
-/// Always `<data dir>/taurine.db`; DEV isolation goes through `TAURINE_DATA_DIR`.
+/// Always `<data dir>/nite.db`; DEV isolation goes through `NITE_DATA_DIR`.
 pub fn get_db_path() -> PathBuf {
     #[cfg(target_os = "android")]
     {
@@ -310,28 +310,28 @@ pub fn get_startup_exe_path() -> PathBuf {
             );
         }
     }
-    startup_dir.join("taurine-startup.exe")
+    startup_dir.join("nite-startup.exe")
 }
 
-/// Resolves the canonical directory where the taurine binary should be installed.
+/// Resolves the canonical directory where the nite binary should be installed.
 ///
 /// This is always a "bin/" subdirectory of get_data_dir():
-/// - Windows:  %LOCALAPPDATA%\Taurine\bin\
-/// - macOS:    ~/Library/Application Support/Taurine/bin/
-/// - Linux:    ~/.local/share/taurine/bin/
+/// - Windows:  %LOCALAPPDATA%\Nite\bin\
+/// - macOS:    ~/Library/Application Support/Nite/bin/
+/// - Linux:    ~/.local/share/nite/bin/
 ///
 /// Future GUI assets will go in get_data_dir().join("app"), keeping
-/// all taurine files under a single parent directory per OS.
+/// all nite files under a single parent directory per OS.
 pub fn get_install_bin_dir() -> PathBuf {
     get_data_dir().join(BIN_DIR_NAME)
 }
 
-/// Resolves the canonical path of the taurine executable.
+/// Resolves the canonical path of the nite executable.
 pub fn get_install_exe_path() -> PathBuf {
     let exe_name = if cfg!(target_os = "windows") {
-        "taurine.exe"
+        "nite.exe"
     } else {
-        "taurine"
+        "nite"
     };
     get_install_bin_dir().join(exe_name)
 }
@@ -351,27 +351,27 @@ mod tests {
         crate::testing::init_tracing_for_tests();
         let test_dir = "some/custom/app_dir";
         // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
-        unsafe { env::set_var("TAURINE_DATA_DIR", test_dir) };
+        unsafe { env::set_var("NITE_DATA_DIR", test_dir) };
 
         let path = get_data_dir();
         assert_eq!(path.to_str().unwrap(), test_dir);
 
         // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
-        unsafe { env::remove_var("TAURINE_DATA_DIR") };
+        unsafe { env::remove_var("NITE_DATA_DIR") };
     }
 
     #[test]
     fn test_db_path_follows_data_dir() {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         crate::testing::init_tracing_for_tests();
-        let test_dir = std::env::temp_dir().join("taurine_db_follows_data_test");
+        let test_dir = std::env::temp_dir().join("nite_db_follows_data_test");
         // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
-        unsafe { env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
+        unsafe { env::set_var("NITE_DATA_DIR", test_dir.to_str().unwrap()) };
 
         assert_eq!(get_db_path(), test_dir.join(DB_FILENAME));
 
         // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
-        unsafe { env::remove_var("TAURINE_DATA_DIR") };
+        unsafe { env::remove_var("NITE_DATA_DIR") };
         let _ = fs::remove_dir_all(&test_dir);
     }
 
@@ -386,26 +386,26 @@ mod tests {
                 return;
             }
 
-            let backup_data = env::var("TAURINE_DATA_DIR").ok();
+            let backup_data = env::var("NITE_DATA_DIR").ok();
             unsafe {
-                env::remove_var("TAURINE_DATA_DIR");
+                env::remove_var("NITE_DATA_DIR");
             };
 
             let db_path = get_db_path();
             let data_dir = get_data_dir();
 
-            assert!(db_path.ends_with("taurine.db"));
+            assert!(db_path.ends_with("nite.db"));
             assert_eq!(db_path.parent().unwrap(), data_dir.as_path());
 
             #[cfg(any(target_os = "windows", target_os = "macos"))]
-            assert!(data_dir.ends_with("Taurine") || data_dir.ends_with("taurine"));
+            assert!(data_dir.ends_with("Nite") || data_dir.ends_with("nite"));
 
             #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "android")))]
-            assert!(data_dir.ends_with("taurine"));
+            assert!(data_dir.ends_with("nite"));
 
             unsafe {
                 if let Some(val) = backup_data {
-                    env::set_var("TAURINE_DATA_DIR", val);
+                    env::set_var("NITE_DATA_DIR", val);
                 }
             }
         }
@@ -416,12 +416,12 @@ mod tests {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         crate::testing::init_tracing_for_tests();
 
-        let test_dir = std::env::temp_dir().join("taurine_exe_test");
+        let test_dir = std::env::temp_dir().join("nite_exe_test");
         // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
-        unsafe { env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
+        unsafe { env::set_var("NITE_DATA_DIR", test_dir.to_str().unwrap()) };
 
         let exe_path = get_startup_exe_path();
-        assert!(exe_path.ends_with("taurine-startup.exe"));
+        assert!(exe_path.ends_with("nite-startup.exe"));
 
         let startup_dir = exe_path.parent().unwrap();
         assert!(startup_dir.ends_with("startup"));
@@ -430,7 +430,7 @@ mod tests {
         // Cleanup
         let _ = fs::remove_dir_all(&test_dir);
         // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
-        unsafe { env::remove_var("TAURINE_DATA_DIR") };
+        unsafe { env::remove_var("NITE_DATA_DIR") };
     }
 
     #[test]
@@ -438,11 +438,11 @@ mod tests {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         crate::testing::init_tracing_for_tests();
 
-        let test_dir = std::env::temp_dir().join("taurine_perms_test");
+        let test_dir = std::env::temp_dir().join("nite_perms_test");
         let _ = fs::remove_dir_all(&test_dir);
 
         // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
-        unsafe { env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
+        unsafe { env::set_var("NITE_DATA_DIR", test_dir.to_str().unwrap()) };
 
         let data_dir = ensure_data_dir();
         assert!(data_dir.exists());
@@ -457,7 +457,7 @@ mod tests {
         // Cleanup
         let _ = fs::remove_dir_all(&test_dir);
         // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
-        unsafe { env::remove_var("TAURINE_DATA_DIR") };
+        unsafe { env::remove_var("NITE_DATA_DIR") };
     }
 
     #[test]
@@ -465,11 +465,11 @@ mod tests {
         let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         crate::testing::init_tracing_for_tests();
 
-        let test_dir = std::env::temp_dir().join("taurine_cache_test");
+        let test_dir = std::env::temp_dir().join("nite_cache_test");
         let _ = fs::remove_dir_all(&test_dir);
 
         // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
-        unsafe { env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
+        unsafe { env::set_var("NITE_DATA_DIR", test_dir.to_str().unwrap()) };
 
         let cache_dir = ensure_cache_dir();
         assert!(cache_dir.exists());
@@ -485,7 +485,7 @@ mod tests {
         // Cleanup
         let _ = fs::remove_dir_all(&test_dir);
         // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
-        unsafe { env::remove_var("TAURINE_DATA_DIR") };
+        unsafe { env::remove_var("NITE_DATA_DIR") };
     }
 
     #[test]
@@ -495,13 +495,13 @@ mod tests {
 
         // Create a temporary file to block directory creation
         let temp_dir = std::env::temp_dir();
-        let file_path = temp_dir.join(format!("taurine-test-file-{}", uuid::Uuid::new_v4()));
+        let file_path = temp_dir.join(format!("nite-test-file-{}", uuid::Uuid::new_v4()));
         fs::write(&file_path, "").unwrap();
 
-        // Set TAURINE_DATA_DIR to a subdirectory of the file (which is invalid)
+        // Set NITE_DATA_DIR to a subdirectory of the file (which is invalid)
         let invalid_data_dir = file_path.join("invalid_dir");
         // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
-        unsafe { env::set_var("TAURINE_DATA_DIR", &invalid_data_dir) };
+        unsafe { env::set_var("NITE_DATA_DIR", &invalid_data_dir) };
 
         // Calling ensure_cache_dir should not panic, even though dir creation fails
         let cache_dir = ensure_cache_dir();
@@ -509,7 +509,7 @@ mod tests {
 
         // Clean up
         // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
-        unsafe { env::remove_var("TAURINE_DATA_DIR") };
+        unsafe { env::remove_var("NITE_DATA_DIR") };
         let _ = fs::remove_file(&file_path);
     }
 
@@ -519,11 +519,11 @@ mod tests {
         crate::testing::init_tracing_for_tests();
 
         let test_dir =
-            std::env::temp_dir().join(format!("taurine_temp_sec_test_{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("nite_temp_sec_test_{}", uuid::Uuid::new_v4()));
         let _ = fs::remove_dir_all(&test_dir);
 
         // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
-        unsafe { env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
+        unsafe { env::set_var("NITE_DATA_DIR", test_dir.to_str().unwrap()) };
 
         let temp_dir = ensure_temp_dir();
         assert!(temp_dir.exists());
@@ -564,6 +564,6 @@ mod tests {
         // Cleanup
         let _ = fs::remove_dir_all(&test_dir);
         // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
-        unsafe { env::remove_var("TAURINE_DATA_DIR") };
+        unsafe { env::remove_var("NITE_DATA_DIR") };
     }
 }

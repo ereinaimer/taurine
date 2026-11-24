@@ -1,4 +1,4 @@
-tonic::include_proto!("taurine");
+tonic::include_proto!("nite");
 
 /// Control traffic travels over OS-local transports only: a `0600` Unix socket on
 /// Unix, a same-user named pipe on Windows. No TCP, no auth token; other local
@@ -10,7 +10,7 @@ pub async fn connect_to_daemon() -> Result<tonic::transport::Channel, tonic::tra
         use tokio::net::UnixStream;
         use tower::service_fn;
 
-        let socket_path = crate::paths::get_data_dir().join("taurine.sock");
+        let socket_path = crate::paths::get_data_dir().join("nite.sock");
 
         tonic::transport::Endpoint::try_from("http://[::]:50051")?
             .connect_timeout(std::time::Duration::from_millis(500))
@@ -29,8 +29,8 @@ pub async fn connect_to_daemon() -> Result<tonic::transport::Channel, tonic::tra
         use tokio::net::windows::named_pipe::ClientOptions;
         use tower::service_fn;
 
-        let pipe_path = crate::paths::dev_env_var("TAURINE_PIPE_PATH")
-            .unwrap_or_else(|| r"\\.\pipe\taurine".to_string());
+        let pipe_path = crate::paths::dev_env_var("NITE_PIPE_PATH")
+            .unwrap_or_else(|| r"\\.\pipe\nite".to_string());
 
         tonic::transport::Endpoint::try_from("http://[::]:50051")?
             .connect_timeout(std::time::Duration::from_millis(500))
@@ -67,14 +67,14 @@ pub async fn get_client() -> Result<
 /// toast. Blocks, so call it from a synchronous thread.
 pub fn set_daemon_paused(paused: bool) -> Result<(), String> {
     if !crate::service::is_service_running() {
-        return Err("Taurine is not running.".to_string());
+        return Err("Nite is not running.".to_string());
     }
 
     let action = if paused { "pause" } else { "resume" };
     let perform = async move {
         let mut client = get_client()
             .await
-            .map_err(|e| format!("Could not reach Taurine: {e}"))?;
+            .map_err(|e| format!("Could not reach Nite: {e}"))?;
         let response = if paused {
             client
                 .pause(tonic::Request::new(PauseRequest {}))
@@ -88,8 +88,8 @@ pub fn set_daemon_paused(paused: bool) -> Result<(), String> {
         };
         match response {
             Ok(true) => Ok(()),
-            Ok(false) => Err(format!("Taurine refused to {action}.")),
-            Err(status) => Err(format!("Could not {action} Taurine: {}", status.message())),
+            Ok(false) => Err(format!("Nite refused to {action}.")),
+            Err(status) => Err(format!("Could not {action} Nite: {}", status.message())),
         }
     };
 
@@ -171,7 +171,7 @@ pub fn notify_daemon_reload_internal(skip_sync: bool) {
 pub async fn trigger_daemon_sync() -> Result<SyncResponse, String> {
     let mut client = get_client()
         .await
-        .map_err(|e| format!("Could not reach Taurine daemon: {e}"))?;
+        .map_err(|e| format!("Could not reach Nite daemon: {e}"))?;
     let response = client
         .sync(tonic::Request::new(SyncRequest {}))
         .await
@@ -181,7 +181,7 @@ pub async fn trigger_daemon_sync() -> Result<SyncResponse, String> {
 
 pub fn request_daemon_sync() -> Result<SyncResponse, String> {
     if !crate::service::is_service_running() {
-        return Err("Taurine service is not running.".to_string());
+        return Err("Nite service is not running.".to_string());
     }
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -207,12 +207,13 @@ mod tests {
         // SAFETY: Tests hold TEST_LOCK while this variable is set.
         #[cfg(target_os = "windows")]
         unsafe {
+            std::env::set_var("NITE_SERVICE_LIVENESS_NAME", "Local\\NiteTestNonExistent");
             std::env::set_var(
                 "TAURINE_SERVICE_LIVENESS_NAME",
-                "Local\\TaurineTestNonExistent",
+                "Local\\NiteTestNonExistent",
             );
         }
-        // Non-Windows liveness ignores TAURINE_SERVICE_LIVENESS_NAME and
+        // Non-Windows liveness ignores NITE_SERVICE_LIVENESS_NAME and
         // probes a lock file instead, so point it at a fresh temp path.
         // Otherwise the test depends on real filesystem state.
         #[cfg(not(target_os = "windows"))]
@@ -221,10 +222,18 @@ mod tests {
             // SAFETY: Tests hold TEST_LOCK while this variable is set.
             unsafe {
                 std::env::set_var(
+                    "NITE_SERVICE_LIVENESS_PATH",
+                    temp_dir
+                        .path()
+                        .join("nite_test_nonexistent.lock")
+                        .to_string_lossy()
+                        .to_string(),
+                );
+                std::env::set_var(
                     "TAURINE_SERVICE_LIVENESS_PATH",
                     temp_dir
                         .path()
-                        .join("taurine_test_nonexistent.lock")
+                        .join("nite_test_nonexistent.lock")
                         .to_string_lossy()
                         .to_string(),
                 );
@@ -245,11 +254,13 @@ mod tests {
         // SAFETY: Tests hold TEST_LOCK while this variable is set.
         #[cfg(target_os = "windows")]
         unsafe {
+            std::env::remove_var("NITE_SERVICE_LIVENESS_NAME");
             std::env::remove_var("TAURINE_SERVICE_LIVENESS_NAME");
         }
         // SAFETY: Tests hold TEST_LOCK while this variable is set.
         #[cfg(not(target_os = "windows"))]
         unsafe {
+            std::env::remove_var("NITE_SERVICE_LIVENESS_PATH");
             std::env::remove_var("TAURINE_SERVICE_LIVENESS_PATH");
         }
     }
@@ -293,7 +304,7 @@ mod tests {
         let result = set_daemon_paused(true);
         let elapsed = start.elapsed();
         clear_offline_override();
-        assert_eq!(result, Err("Taurine is not running.".to_string()));
+        assert_eq!(result, Err("Nite is not running.".to_string()));
         assert!(
             elapsed.as_millis() < 50,
             "set_daemon_paused should return in < 50ms when service is offline, took {:?}",
@@ -309,7 +320,7 @@ mod tests {
         let result = request_daemon_sync();
         let elapsed = start.elapsed();
         clear_offline_override();
-        assert_eq!(result, Err("Taurine service is not running.".to_string()));
+        assert_eq!(result, Err("Nite service is not running.".to_string()));
         assert!(
             elapsed.as_millis() < 50,
             "request_daemon_sync should return in < 50ms when service is offline, took {:?}",

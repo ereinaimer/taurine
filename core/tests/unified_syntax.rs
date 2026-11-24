@@ -1,7 +1,7 @@
-use taurine_core::engine::variables::plan::ExecutionPlan;
-use taurine_core::engine::variables::tags::find_next_tag;
-use taurine_core::engine::variables::types::{ArgMap, ExpansionOrigin, ExpansionStep};
-use taurine_core::engine::variables::validate_system_call;
+use nite_core::engine::variables::plan::ExecutionPlan;
+use nite_core::engine::variables::tags::find_next_tag;
+use nite_core::engine::variables::types::{ArgMap, ExpansionOrigin, ExpansionStep};
+use nite_core::engine::variables::validate_system_call;
 
 #[test]
 fn test_inner_tag_whitespace_tolerance() {
@@ -151,7 +151,7 @@ fn test_run_system_variable() {
         ExpansionStep::InlineRun(meta, _) => {
             assert_eq!(
                 meta.behavior,
-                taurine_core::engine::shell::ScriptBehavior::Inline
+                nite_core::engine::shell::ScriptBehavior::Inline
             );
         }
         _ => panic!("expected InlineRun"),
@@ -164,7 +164,7 @@ fn test_run_system_variable() {
         ExpansionStep::InlineRun(meta, _) => {
             assert_eq!(
                 meta.behavior,
-                taurine_core::engine::shell::ScriptBehavior::Silent
+                nite_core::engine::shell::ScriptBehavior::Silent
             );
         }
         _ => panic!("expected InlineRun silent"),
@@ -176,7 +176,7 @@ fn test_run_system_variable() {
         ExpansionStep::InlineRun(meta, _) => {
             assert_eq!(
                 meta.behavior,
-                taurine_core::engine::shell::ScriptBehavior::Silent
+                nite_core::engine::shell::ScriptBehavior::Silent
             );
         }
         _ => panic!("expected InlineRun silent"),
@@ -330,7 +330,7 @@ fn test_all_casing_filters() {
 
 #[test]
 fn test_rejection_diagnostics_dot_notation_and_deleted_roots() {
-    use taurine_core::engine::variables::registry::validate_system_call;
+    use nite_core::engine::variables::registry::validate_system_call;
 
     // Dot notation rejected
     assert!(validate_system_call("date.utc", None).is_err());

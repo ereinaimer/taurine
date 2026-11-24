@@ -1,20 +1,20 @@
 // Licensed under the Aimer Software License (ASL).
 // See LICENSE for details.
 
-use rusqlite::Connection;
-use taurine_core::db::crud::{
+use nite_core::db::crud::{
     InvocationType, NewEntry, create_entry, delete_alias, find_parent_by_invocation, get_trigger,
     increment_usage_count_by_id, list_active_voice_invocations, threshold_for_phrase,
     validate_voice_phrase,
 };
-use taurine_core::db::crud::{record_voice_dictation_usage, record_voice_trigger_usage};
-use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
-use taurine_core::voice::{VoiceDictionary, format_transcript};
+use nite_core::db::crud::{record_voice_dictation_usage, record_voice_trigger_usage};
+use nite_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
+use nite_core::voice::{VoiceDictionary, format_transcript};
+use rusqlite::Connection;
 
 fn setup_test_db() -> Connection {
     let conn = Connection::open_in_memory().expect("failed to open in-memory sqlite db");
-    taurine_core::db::init::schema::ensure_schema(&conn).expect("ensure_schema failed");
-    taurine_core::db::init::seed::ensure_defaults(&conn).expect("ensure_defaults failed");
+    nite_core::db::init::schema::ensure_schema(&conn).expect("ensure_schema failed");
+    nite_core::db::init::seed::ensure_defaults(&conn).expect("ensure_defaults failed");
     conn
 }
 
@@ -128,7 +128,7 @@ struct TempDataDir {
 }
 
 impl TempDataDir {
-    /// Callers must hold `taurine_core::testing::TEST_LOCK` for the whole
+    /// Callers must hold `nite_core::testing::TEST_LOCK` for the whole
     /// isolated section; the env var is process-global.
     fn isolated() -> Self {
         // SAFETY: callers hold TEST_LOCK across the isolated section.
@@ -238,7 +238,7 @@ fn test_voice_trigger_database_crud_lifecycle() {
     // Hermetic: usage-log writes below go through the global DB handle, so
     // isolate TAURINE_DATA_DIR. The env var is process-global: hold the lock
     // for the whole test.
-    let _lock = taurine_core::testing::TEST_LOCK
+    let _lock = nite_core::testing::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let _data = TempDataDir::isolated();
@@ -339,12 +339,12 @@ fn test_phonetic_dictionary_pipeline() {
     // Lexicon immunity needs the offline DB; seed a temp one so the test is
     // hermetic and never touches the real data dir. Serialized via TEST_LOCK
     // since TAURINE_DATA_DIR and the dictionary connection cache are global.
-    let _lock = taurine_core::testing::TEST_LOCK
+    let _lock = nite_core::testing::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let _data_dir = TempDataDir::isolated();
     {
-        use taurine_core::settings::{InlineDictionaryMode, set_cached_inline_dictionary_mode};
+        use nite_core::settings::{InlineDictionaryMode, set_cached_inline_dictionary_mode};
         let dict_dir = std::env::var("TAURINE_DATA_DIR")
             .map(std::path::PathBuf::from)
             .expect("TAURINE_DATA_DIR must be set")
@@ -362,7 +362,7 @@ fn test_phonetic_dictionary_pipeline() {
         }
         drop(conn);
         set_cached_inline_dictionary_mode(InlineDictionaryMode::Lite);
-        taurine_core::engine::dictionary::offline::close_cached_connection();
+        nite_core::engine::dictionary::offline::close_cached_connection();
     }
     let dict = VoiceDictionary::from_csv("Taurine");
     // Distinct English words like "torrent" or "thirty" are preserved
@@ -380,15 +380,15 @@ fn test_phonetic_dictionary_pipeline() {
         dict.apply("Dorin is the best text expander in the world"),
         "Taurine is the best text expander in the world"
     );
-    taurine_core::engine::dictionary::offline::close_cached_connection();
+    nite_core::engine::dictionary::offline::close_cached_connection();
 }
 
-fn test_voice_invocation(phrase: &str, output: &str) -> taurine_core::db::crud::ResolvedInvocation {
-    taurine_core::db::crud::ResolvedInvocation {
+fn test_voice_invocation(phrase: &str, output: &str) -> nite_core::db::crud::ResolvedInvocation {
+    nite_core::db::crud::ResolvedInvocation {
         trigger_id: format!("id-{phrase}"),
         invocation: phrase.to_string(),
-        invocation_type: taurine_core::db::crud::InvocationType::Voice,
-        action: taurine_core::db::crud::TriggerAction::text(output),
+        invocation_type: nite_core::db::crud::InvocationType::Voice,
+        action: nite_core::db::crud::TriggerAction::text(output),
         require_confirmation: false,
         strict_threshold: 0.75,
     }
@@ -396,7 +396,7 @@ fn test_voice_invocation(phrase: &str, output: &str) -> taurine_core::db::crud::
 
 #[test]
 fn test_exact_static_trigger_takes_precedence_over_parameterized() {
-    use taurine_core::voice::rank_voice_invocations;
+    use nite_core::voice::rank_voice_invocations;
 
     let static_trig = test_voice_invocation("say hi", "Hello there!");
     let param_trig = test_voice_invocation("say hi to [$person]", "Hello, [$person]!");
@@ -415,7 +415,7 @@ fn test_exact_static_trigger_takes_precedence_over_parameterized() {
 
 #[test]
 fn test_static_fuzzy_fallback_when_no_parameterized_match() {
-    use taurine_core::voice::rank_voice_invocations;
+    use nite_core::voice::rank_voice_invocations;
 
     let static_trig = test_voice_invocation("movies folder", "opened");
     let param_trig = test_voice_invocation("send [$msg] to [$person]", "To: [$person]!");
@@ -429,8 +429,8 @@ fn test_static_fuzzy_fallback_when_no_parameterized_match() {
 
 #[test]
 fn voice_trigger_outranks_plain_dictation_on_fuzzy_match() {
-    use taurine_core::db::crud::{normalize_voice_phrase, threshold_for_phrase};
-    use taurine_core::voice::score_trigger;
+    use nite_core::db::crud::{normalize_voice_phrase, threshold_for_phrase};
+    use nite_core::voice::score_trigger;
 
     let spoken = normalize_voice_phrase("open my terminal please");
     let trigger_score = score_trigger(&spoken, "open terminal");
@@ -451,7 +451,7 @@ async fn test_live_cloud_voice_clean_transcript_and_prewarm() {
     if std::env::var("TAURINE_ALLOW_HOST_INPUT").unwrap_or_default() != "1" {
         return;
     }
-    let client = taurine_core::voice::GroqVoiceClient::from_env_or_keyring();
+    let client = nite_core::voice::GroqVoiceClient::from_env_or_keyring();
     client.prewarm().await;
 
     let clean = client

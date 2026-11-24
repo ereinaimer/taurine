@@ -28,6 +28,6 @@ impl LogComponent {
     }
 }
 
-pub(crate) const LOG_FILE_PREFIX: &str = "taurine-";
+pub(crate) const LOG_FILE_PREFIX: &str = "nite-";
 pub(crate) const LOG_FILE_SUFFIX: &str = ".log";
 pub(crate) const DEFAULT_RETENTION_DAYS: i64 = 7;

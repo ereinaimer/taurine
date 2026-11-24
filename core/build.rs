@@ -24,7 +24,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Fast path: reuse a fresh launcher instead of spawning nested cargo.
         // Same sources + same profile => identical bytes embedded below.
         if exe_up_to_date(&exe_path, &runner_dir)
-            || env::var("TAURINE_SKIP_STARTUP_BUILD").as_deref() == Ok("1") && exe_path.exists()
+            || env::var("NITE_SKIP_STARTUP_BUILD").as_deref() == Ok("1") && exe_path.exists()
         {
             println!("cargo:rustc-env=STARTUP_RUNNER_PATH={}", exe_path.display());
         } else {
