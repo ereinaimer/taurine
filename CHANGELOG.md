@@ -47,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Modern Settings Overlay**: Quick-access settings modal (`Ctrl+,`) with inline field editing, graphical animated toggles, volume sliders, and connected microphone pickers.
 
 ### Changed
+- **Performance**: The daemon now uses noticeably less idle CPU and memory while typing, recording voice, and syncing.
 - **Voice Gateway Architecture**: Routed voice dictation through an authenticated cloud gateway, eliminating manual API key configuration.
 - **Shell and Network Simplification**: Replaced language-specific script tags with native shell execution and synchronous local network IP resolution.
 - **Streamlined Settings Architecture**: Compacted configuration down to 19 essential user preferences, standardized date and time formatting keys, and internalized timing heuristics.
