@@ -12,30 +12,27 @@ use std::path::PathBuf;
 use std::process::Command;
 use tracing::{debug, error, info};
 
-const ALIAS: &str = "tau";
-
 pub(crate) fn handle_completion(
     action: Option<&ShellCompletionAction>,
-) -> taurine_core::error::Result<()> {
+) -> nite_core::error::Result<()> {
     let Some(action) = action else {
-        let diag =
-            taurine_core::diagnostic::Diagnostic::problem("Missing shell completions action")
-                .help("Specify a shell to generate completions for, or use install:")
-                .options(
-                    "Available actions",
-                    &[
-                        "bash",
-                        "elvish",
-                        "fish",
-                        "powershell",
-                        "zsh",
-                        "install",
-                        "uninstall",
-                    ],
-                )
-                .example("taurine completions powershell")
-                .example("taurine completions install");
-        return Err(taurine_core::error::Error::Config(diag.render()));
+        let diag = nite_core::diagnostic::Diagnostic::problem("Missing shell completions action")
+            .help("Specify a shell to generate completions for, or use install:")
+            .options(
+                "Available actions",
+                &[
+                    "bash",
+                    "elvish",
+                    "fish",
+                    "powershell",
+                    "zsh",
+                    "install",
+                    "uninstall",
+                ],
+            )
+            .example("nite completions powershell")
+            .example("nite completions install");
+        return Err(nite_core::error::Error::Config(diag.render()));
     };
 
     let mut cmd = Cli::command();
@@ -54,56 +51,23 @@ pub(crate) fn handle_completion(
 }
 
 fn print_completion<G: Generator + Copy>(generator: G, cmd: &mut clap::Command) {
-    generate_with_alias(generator, cmd, &mut io::stdout());
+    generate_completion(generator, cmd, &mut io::stdout());
 }
 
 fn print_powershell_completion(cmd: &mut clap::Command) {
-    generate_powershell_with_alias(cmd, &mut io::stdout());
+    generate_completion(PowerShell, cmd, &mut io::stdout());
 }
 
 fn print_zsh_completion(cmd: &mut clap::Command) {
-    generate_zsh_with_alias(cmd, &mut io::stdout());
+    generate_completion(Zsh, cmd, &mut io::stdout());
 }
 
-pub(crate) fn generate_with_alias<G: Generator + Copy>(
+pub(crate) fn generate_completion<G: Generator + Copy>(
     generator: G,
     cmd: &mut clap::Command,
     writer: &mut dyn io::Write,
 ) {
-    let mut buf = Vec::new();
-    generate(generator, cmd, "taurine", &mut buf);
-    generate(generator, cmd, ALIAS, &mut buf);
-    let _ = writer.write_all(&buf);
-}
-
-pub(crate) fn generate_powershell_with_alias(cmd: &mut clap::Command, writer: &mut dyn io::Write) {
-    let mut buf1 = Vec::new();
-    generate(PowerShell, cmd, "taurine", &mut buf1);
-    let mut buf2 = Vec::new();
-    generate(PowerShell, cmd, ALIAS, &mut buf2);
-
-    let script2 = String::from_utf8_lossy(&buf2);
-    let body2 = script2
-        .lines()
-        .skip_while(|line| line.is_empty() || line.starts_with("using namespace"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let _ = writer.write_all(&buf1);
-    let _ = writer.write_all(body2.as_bytes());
-}
-
-pub(crate) fn generate_zsh_with_alias(cmd: &mut clap::Command, writer: &mut dyn io::Write) {
-    let mut buf1 = Vec::new();
-    generate(Zsh, cmd, "taurine", &mut buf1);
-    let mut buf2 = Vec::new();
-    generate(Zsh, cmd, ALIAS, &mut buf2);
-
-    let script1 = String::from_utf8_lossy(&buf1);
-    let script2 = String::from_utf8_lossy(&buf2);
-    let body1 = script1.lines().skip(1).collect::<Vec<_>>().join("\n");
-    let body2 = script2.lines().skip(1).collect::<Vec<_>>().join("\n");
-    let output = format!("#compdef taurine {ALIAS}\n{body1}\n{body2}");
-    let _ = writer.write_all(output.as_bytes());
+    generate(generator, cmd, "nite", writer);
 }
 
 fn install_completion(cmd: &mut clap::Command) {
@@ -145,14 +109,14 @@ fn install_windows(cmd: &mut clap::Command) {
             return;
         }
 
-        let data_dir = taurine_core::paths::get_data_dir();
+        let data_dir = nite_core::paths::get_data_dir();
         let completions_dir = data_dir.join("completions");
         if let Err(error) = fs::create_dir_all(&completions_dir) {
             error!("Failed to create completions directory: {error}");
             return;
         }
 
-        let ps_file = completions_dir.join("_taurine.ps1");
+        let ps_file = completions_dir.join("_nite.ps1");
         let mut file = match fs::File::create(&ps_file) {
             Ok(file) => file,
             Err(error) => {
@@ -161,7 +125,7 @@ fn install_windows(cmd: &mut clap::Command) {
             }
         };
 
-        generate_powershell_with_alias(cmd, &mut file);
+        generate_completion(PowerShell, cmd, &mut file);
         debug!("Installed PowerShell completion to: {}", ps_file.display());
 
         for profile_path in profile_paths {
@@ -217,10 +181,10 @@ fn install_windows(cmd: &mut clap::Command) {
         let completions_dir = home.join(".bash_completions");
         let _ = fs::create_dir_all(&completions_dir);
 
-        let bash_file = completions_dir.join("taurine.bash");
+        let bash_file = completions_dir.join("nite.bash");
         match fs::File::create(&bash_file) {
             Ok(mut file) => {
-                generate_with_alias(Bash, cmd, &mut file);
+                generate_completion(Bash, cmd, &mut file);
                 debug!("Installed Bash completion to: {}", bash_file.display());
                 debug!(
                     "Ensure this line is sourced in ~/.bashrc or ~/.bash_profile: source \"{}\"",
@@ -234,7 +198,7 @@ fn install_windows(cmd: &mut clap::Command) {
         debug!(
             "Could not detect a supported shell (PowerShell or Git Bash) for automatic installation."
         );
-        debug!("Generate a script manually with 'taurine completions <shell> > <file>'.");
+        debug!("Generate a script manually with 'nite completions <shell> > <file>'.");
     }
 }
 
@@ -245,7 +209,7 @@ fn install_windows(_cmd: &mut clap::Command) {}
 fn install_unix(cmd: &mut clap::Command) {
     let shell = std::env::var("SHELL").unwrap_or_default();
 
-    let data_dir = taurine_core::paths::get_data_dir();
+    let data_dir = nite_core::paths::get_data_dir();
     let completions_dir = data_dir.join("completions");
     if let Err(error) = fs::create_dir_all(&completions_dir) {
         error!("Failed to create completions directory: {error}");
@@ -266,11 +230,11 @@ fn install_unix(_cmd: &mut clap::Command) {}
 
 #[cfg(not(target_os = "windows"))]
 fn install_bash(cmd: &mut clap::Command, completions_dir: &std::path::Path) {
-    let bash_file = completions_dir.join("taurine.bash");
+    let bash_file = completions_dir.join("nite.bash");
 
     match fs::File::create(&bash_file) {
         Ok(mut file) => {
-            generate_with_alias(Bash, cmd, &mut file);
+            generate_completion(Bash, cmd, &mut file);
             debug!("Installed Bash completion to: {}", bash_file.display());
 
             if let Some(home) = dirs::home_dir() {
@@ -290,11 +254,11 @@ fn install_bash(cmd: &mut clap::Command, completions_dir: &std::path::Path) {
 
 #[cfg(not(target_os = "windows"))]
 fn install_zsh(cmd: &mut clap::Command, completions_dir: &std::path::Path) {
-    let zsh_file = completions_dir.join("_taurine");
+    let zsh_file = completions_dir.join("_nite");
 
     match fs::File::create(&zsh_file) {
         Ok(mut file) => {
-            generate_zsh_with_alias(cmd, &mut file);
+            generate_completion(Zsh, cmd, &mut file);
             debug!("Installed Zsh completion to: {}", zsh_file.display());
 
             if let Some(home) = dirs::home_dir() {
@@ -324,10 +288,10 @@ fn install_fish(cmd: &mut clap::Command) {
         return;
     }
 
-    let fish_file = completions_dir.join("taurine.fish");
+    let fish_file = completions_dir.join("nite.fish");
     match fs::File::create(&fish_file) {
         Ok(mut file) => {
-            generate_with_alias(Fish, cmd, &mut file);
+            generate_completion(Fish, cmd, &mut file);
             debug!("Installed Fish completion to: {}", fish_file.display());
             info!("Fish completion scripts were installed successfully.");
         }
@@ -363,31 +327,36 @@ fn append_to_rc_file(path: &std::path::Path, content: &str) {
 
 #[cfg(target_os = "windows")]
 fn uninstall_windows() {
-    let data_dir = taurine_core::paths::get_data_dir();
+    let _ = crate::platform::alias::clean_legacy_tau_alias();
+    let data_dir = nite_core::paths::get_data_dir();
     let completions_dir = data_dir.join("completions");
-    let ps_file = completions_dir.join("_taurine.ps1");
+    let ps_file = completions_dir.join("_nite.ps1");
+    let legacy_ps_file = completions_dir.join("_taurine.ps1");
 
-    if ps_file.exists() {
-        match fs::remove_file(&ps_file) {
-            Ok(_) => {
-                debug!("Removed completion file: {}", ps_file.display());
-                info!("PowerShell completion scripts were uninstalled successfully.");
+    for file in [&ps_file, &legacy_ps_file] {
+        if file.exists() {
+            match fs::remove_file(file) {
+                Ok(_) => {
+                    debug!("Removed completion file: {}", file.display());
+                    info!("PowerShell completion scripts were uninstalled successfully.");
+                }
+                Err(error) => error!("Failed to remove completion file: {error}"),
             }
-            Err(error) => error!("Failed to remove completion file: {error}"),
         }
-    } else {
-        debug!("Completion file not found: {}", ps_file.display());
     }
 
     if let Some(home) = dirs::home_dir() {
-        let bash_file = home.join(".bash_completions").join("taurine.bash");
-        if bash_file.exists() {
-            match fs::remove_file(&bash_file) {
-                Ok(_) => {
-                    debug!("Removed Git Bash completion file: {}", bash_file.display());
-                    info!("Bash completion scripts were uninstalled successfully.");
+        let bash_file = home.join(".bash_completions").join("nite.bash");
+        let legacy_bash_file = home.join(".bash_completions").join("taurine.bash");
+        for file in [&bash_file, &legacy_bash_file] {
+            if file.exists() {
+                match fs::remove_file(file) {
+                    Ok(_) => {
+                        debug!("Removed Git Bash completion file: {}", file.display());
+                        info!("Bash completion scripts were uninstalled successfully.");
+                    }
+                    Err(error) => error!("Failed to remove Git Bash completion file: {error}"),
                 }
-                Err(error) => error!("Failed to remove Git Bash completion file: {error}"),
             }
         }
     }
@@ -404,12 +373,15 @@ fn uninstall_windows() {
         }
 
         let source_line = format!(". \"{}\"", ps_file.display());
+        let legacy_source_line = format!(". \"{}\"", legacy_ps_file.display());
         match fs::read_to_string(&profile_path) {
             Ok(content) => {
-                if content.contains(&source_line) {
+                if content.contains(&source_line) || content.contains(&legacy_source_line) {
                     let new_content = content
                         .lines()
-                        .filter(|line| !line.contains(&source_line))
+                        .filter(|line| {
+                            !line.contains(&source_line) && !line.contains(&legacy_source_line)
+                        })
                         .collect::<Vec<_>>()
                         .join("\n");
 
@@ -440,25 +412,33 @@ fn uninstall_windows() {}
 
 #[cfg(not(target_os = "windows"))]
 fn uninstall_unix() {
-    let data_dir = taurine_core::paths::get_data_dir();
+    let _ = crate::platform::alias::clean_legacy_tau_alias();
+    let data_dir = nite_core::paths::get_data_dir();
     let completions_dir = data_dir.join("completions");
-    let bash_file = completions_dir.join("taurine.bash");
-    if bash_file.exists() {
-        let _ = fs::remove_file(&bash_file);
-        info!("Bash completion scripts were uninstalled successfully.");
+
+    for name in ["nite.bash", "taurine.bash"] {
+        let bash_file = completions_dir.join(name);
+        if bash_file.exists() {
+            let _ = fs::remove_file(&bash_file);
+            info!("Bash completion scripts were uninstalled successfully.");
+        }
     }
 
-    let zsh_file = completions_dir.join("_taurine");
-    if zsh_file.exists() {
-        let _ = fs::remove_file(&zsh_file);
-        info!("Zsh completion scripts were uninstalled successfully.");
+    for name in ["_nite", "_taurine"] {
+        let zsh_file = completions_dir.join(name);
+        if zsh_file.exists() {
+            let _ = fs::remove_file(&zsh_file);
+            info!("Zsh completion scripts were uninstalled successfully.");
+        }
     }
 
     if let Some(home) = dirs::home_dir() {
-        let fish_file = home.join(".config/fish/completions/taurine.fish");
-        if fish_file.exists() {
-            let _ = fs::remove_file(&fish_file);
-            info!("Fish completion scripts were uninstalled successfully.");
+        for name in ["nite.fish", "taurine.fish"] {
+            let fish_file = home.join(".config/fish/completions").join(name);
+            if fish_file.exists() {
+                let _ = fs::remove_file(&fish_file);
+                info!("Fish completion scripts were uninstalled successfully.");
+            }
         }
 
         let rc_file = if cfg!(target_os = "macos") {
@@ -466,7 +446,17 @@ fn uninstall_unix() {
         } else {
             home.join(".bashrc")
         };
-        remove_line_from_file(&rc_file, &format!("source \"{}\"", bash_file.display()));
+        remove_line_from_file(
+            &rc_file,
+            &format!("source \"{}\"", completions_dir.join("nite.bash").display()),
+        );
+        remove_line_from_file(
+            &rc_file,
+            &format!(
+                "source \"{}\"",
+                completions_dir.join("taurine.bash").display()
+            ),
+        );
 
         let zshrc = home.join(".zshrc");
         let zsh_line = format!("fpath=(\"{}\" $fpath)", completions_dir.display());

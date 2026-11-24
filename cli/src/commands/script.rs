@@ -1,20 +1,20 @@
 use crate::args::{AddArgs, AddSubcommand};
 use crate::commands::add::{existing_entry_defaults, resolve_display};
 use crate::commands::validate::format_trigger_log;
-use std::fs;
-use std::path::PathBuf;
-use taurine_core::db::crud::{
+use nite_core::db::crud::{
     AddOutcome, InvocationType, NewEntry, TriggerAliasRow, TriggerType, audit_script_payload_tags,
     find_parent_by_invocation, upsert_entry_full,
 };
+use std::fs;
+use std::path::PathBuf;
 
-use taurine_core::db::init;
-use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
+use nite_core::db::init;
+use nite_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 
 /// Maximum invocations (word + typed) per add command (§0.14).
 const MAX_INVOCATIONS: usize = 20;
 
-pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()> {
+pub fn execute_args(args: AddArgs, json: bool) -> nite_core::error::Result<()> {
     let AddSubcommand::Script {
         positional,
         hotkey,
@@ -38,29 +38,28 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
     let typed_total = hotkey.len() + regex.len() + voice.len();
     let (words, content) = if let Some(ref path) = file {
         if positional.is_empty() && typed_total == 0 {
-            let diag = taurine_core::diagnostic::Diagnostic::problem("Missing trigger for script")
+            let diag = nite_core::diagnostic::Diagnostic::problem("Missing trigger for script")
                 .help("Specify a trigger word or hotkey for the script:")
-                .example("taurine add script :run -f ./myscript.sh")
-                .example("taurine add script :greet \"echo hello\"");
-            return Err(taurine_core::error::Error::Config(diag.render()));
+                .example("nite add script :run -f ./myscript.sh")
+                .example("nite add script :greet \"echo hello\"");
+            return Err(nite_core::error::Error::Config(diag.render()));
         }
         // With --file every positional is a word trigger; content comes from the file.
         (positional, read_script_file(path)?)
     } else {
         match positional.len() {
             0 => {
-                let diag =
-                    taurine_core::diagnostic::Diagnostic::problem("Missing trigger for script")
-                        .help("Specify a trigger word or hotkey for the script:")
-                        .example("taurine add script :run -f ./myscript.sh")
-                        .example("taurine add script :greet \"echo hello\"");
-                return Err(taurine_core::error::Error::Config(diag.render()));
+                let diag = nite_core::diagnostic::Diagnostic::problem("Missing trigger for script")
+                    .help("Specify a trigger word or hotkey for the script:")
+                    .example("nite add script :run -f ./myscript.sh")
+                    .example("nite add script :greet \"echo hello\"");
+                return Err(nite_core::error::Error::Config(diag.render()));
             }
             1 if typed_total == 0 => {
-                let diag = taurine_core::diagnostic::Diagnostic::problem("no trigger specified")
+                let diag = nite_core::diagnostic::Diagnostic::problem("no trigger specified")
                     .help("Specify at least one trigger plus the script content:")
-                    .example("taurine add script :greet \"echo hello\"");
-                return Err(taurine_core::error::Error::Config(diag.render()));
+                    .example("nite add script :greet \"echo hello\"");
+                return Err(nite_core::error::Error::Config(diag.render()));
             }
             n => (positional[..n - 1].to_vec(), positional[n - 1].clone()),
         }
@@ -82,7 +81,7 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
     // Voice aliases on a script entry confirm before execution unless -y/--yes.
     invocations.extend(voice.into_iter().map(|v| (InvocationType::Voice, v, !yes)));
     if invocations.len() > MAX_INVOCATIONS {
-        return Err(taurine_core::Error::Config(format!(
+        return Err(nite_core::Error::Config(format!(
             "Too many invocations ({}); maximum is {} per add",
             invocations.len(),
             MAX_INVOCATIONS
@@ -93,7 +92,7 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
     let os = os
         .to_db_str()
         .map(|s| s.to_string())
-        .unwrap_or_else(|| taurine_core::db::get_current_os_db_string().to_string());
+        .unwrap_or_else(|| nite_core::db::get_current_os_db_string().to_string());
 
     let interpreter = resolve_interpreter(lang.map(Into::into), file.as_deref(), &content)?;
     let behavior: ScriptBehavior = mode.into();
@@ -119,18 +118,18 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
     let description = description.or(reuse_description);
     let tags_json = match tag {
         Some(tags) => {
-            serde_json::to_string(&tags).map_err(|e| taurine_core::Error::Config(e.to_string()))?
+            serde_json::to_string(&tags).map_err(|e| nite_core::Error::Config(e.to_string()))?
         }
         None => reuse_tags,
     };
 
     let target_ws = if let Some(ref ws_name) = workspace {
-        let workspaces = taurine_core::db::crud::get_workspaces(&conn)?;
+        let workspaces = nite_core::db::crud::get_workspaces(&conn)?;
         let found = workspaces
             .iter()
             .find(|w| w.id == *ws_name || w.name.eq_ignore_ascii_case(ws_name))
             .ok_or_else(|| {
-                taurine_core::Error::NotFound(format!("Workspace '{ws_name}' not found"))
+                nite_core::Error::NotFound(format!("Workspace '{ws_name}' not found"))
             })?;
         Some(found.id.clone())
     } else {
@@ -164,7 +163,7 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
                     )
                     .is_ok()
                 {
-                    let _ = taurine_core::db::crud::triggers::enqueue_trigger_outbox(
+                    let _ = nite_core::db::crud::triggers::enqueue_trigger_outbox(
                         &conn, &pid, "upsert",
                     );
                 }
@@ -197,18 +196,18 @@ pub fn execute(
     os: String,
     include_apps: Option<String>,
     exclude_apps: Option<String>,
-) -> taurine_core::error::Result<()> {
+) -> nite_core::error::Result<()> {
     let (words, content) = if let Some(ref path) = file_path {
         (vec![trigger], read_script_file(path)?)
     } else if let Some(text) = content {
         (vec![trigger], text)
     } else {
-        let diag = taurine_core::diagnostic::Diagnostic::problem(
+        let diag = nite_core::diagnostic::Diagnostic::problem(
             "Neither script content nor script file provided",
         )
         .help("Provide inline script content or specify a script file using -f / --file:")
-        .example("taurine add script :run -f ./myscript.sh");
-        return Err(taurine_core::error::Error::Service(diag.render()));
+        .example("nite add script :run -f ./myscript.sh");
+        return Err(nite_core::error::Error::Service(diag.render()));
     };
 
     let invocation_type = if use_hotkey {
@@ -284,7 +283,7 @@ pub fn execute_with_trigger_type(
     _description: Option<String>,
     auto_case: bool,
     _json: bool,
-) -> taurine_core::error::Result<()> {
+) -> nite_core::error::Result<()> {
     let trigger = if auto_case && !matches!(trigger_type, TriggerType::Regex) {
         trigger.to_lowercase()
     } else {
@@ -303,30 +302,29 @@ pub fn execute_with_trigger_type(
     )
 }
 
-fn read_script_file(path: &PathBuf) -> taurine_core::error::Result<String> {
+fn read_script_file(path: &PathBuf) -> nite_core::error::Result<String> {
     if !path.exists() {
-        let diag = taurine_core::diagnostic::Diagnostic::problem(format!(
+        let diag = nite_core::diagnostic::Diagnostic::problem(format!(
             "Script file does not exist: {}",
             path.display()
         ))
         .help("Verify that the file path is correct and accessible.")
-        .example("taurine add script -f ./scripts/deploy.sh :deploy");
-        return Err(taurine_core::error::Error::NotFound(diag.render()));
+        .example("nite add script -f ./scripts/deploy.sh :deploy");
+        return Err(nite_core::error::Error::NotFound(diag.render()));
     }
-    fs::read_to_string(path).map_err(|e| {
-        taurine_core::error::Error::Service(format!("Failed to read script file: {}", e))
-    })
+    fs::read_to_string(path)
+        .map_err(|e| nite_core::error::Error::Service(format!("Failed to read script file: {}", e)))
 }
 
 fn resolve_interpreter(
     lang: Option<ScriptInterpreter>,
     path: Option<&std::path::Path>,
     content: &str,
-) -> taurine_core::error::Result<ScriptInterpreter> {
+) -> nite_core::error::Result<ScriptInterpreter> {
     match lang {
         Some(i) => Ok(i),
         None => infer_interpreter(path, content).ok_or_else(|| {
-            let diag = taurine_core::diagnostic::Diagnostic::problem(
+            let diag = nite_core::diagnostic::Diagnostic::problem(
                 "Could not infer script language from content or file extension",
             )
             .help("Specify the interpreter explicitly using --lang:")
@@ -334,8 +332,8 @@ fn resolve_interpreter(
                 "Supported languages",
                 &["bash", "powershell", "python", "node", "cmd"],
             )
-            .example("taurine add script :py \"print(1)\" --lang python");
-            taurine_core::error::Error::Service(diag.render())
+            .example("nite add script :py \"print(1)\" --lang python");
+            nite_core::error::Error::Service(diag.render())
         }),
     }
 }
@@ -373,7 +371,7 @@ fn report_outcome(
     );
     tracing::info!("{}", log_msg);
     if matches!(outcome, AddOutcome::Created | AddOutcome::Updated) {
-        taurine_core::rpc::notify_daemon_reload();
+        nite_core::rpc::notify_daemon_reload();
     }
     if json {
         println!(
@@ -387,5 +385,5 @@ pub(crate) fn infer_interpreter(
     path: Option<&std::path::Path>,
     content: &str,
 ) -> Option<ScriptInterpreter> {
-    taurine_core::engine::shell::infer_interpreter(path, content)
+    nite_core::engine::shell::infer_interpreter(path, content)
 }

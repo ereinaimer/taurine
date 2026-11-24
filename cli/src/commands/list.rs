@@ -1,6 +1,6 @@
 use crate::args::SortBy;
-use taurine_core::db::crud::{TriggerListItem, get_triggers_list};
-use taurine_core::db::init;
+use nite_core::db::crud::{TriggerListItem, get_triggers_list};
+use nite_core::db::init;
 
 pub fn execute(
     sort: Option<SortBy>,
@@ -10,17 +10,17 @@ pub fn execute(
     tags: Option<Vec<String>>,
     voice: bool,
     workspace: Option<String>,
-) -> taurine_core::error::Result<()> {
+) -> nite_core::error::Result<()> {
     let conn = init::setup()?;
     let mut triggers = get_triggers_list(&conn)?;
 
     if let Some(ref ws_name) = workspace {
-        let workspaces = taurine_core::db::crud::get_workspaces(&conn)?;
+        let workspaces = nite_core::db::crud::get_workspaces(&conn)?;
         let target_ws = workspaces
             .iter()
             .find(|w| w.id == *ws_name || w.name.eq_ignore_ascii_case(ws_name))
             .ok_or_else(|| {
-                taurine_core::Error::NotFound(format!("Workspace '{ws_name}' not found"))
+                nite_core::Error::NotFound(format!("Workspace '{ws_name}' not found"))
             })?;
         let mut stmt =
             conn.prepare("SELECT id FROM triggers WHERE workspace_id = ?1 AND is_deleted = 0")?;
@@ -38,7 +38,7 @@ pub fn execute(
         triggers.retain(|item| {
             item.invocations
                 .iter()
-                .any(|a| a.invocation_type == taurine_core::db::crud::InvocationType::Voice)
+                .any(|a| a.invocation_type == nite_core::db::crud::InvocationType::Voice)
         });
         if triggers.is_empty() {
             if json {
@@ -175,7 +175,7 @@ fn flatten_rows(items: &[TriggerListItem], voice: bool) -> Vec<Row> {
             item.invocations
                 .iter()
                 .filter(|a| {
-                    !voice || a.invocation_type == taurine_core::db::crud::InvocationType::Voice
+                    !voice || a.invocation_type == nite_core::db::crud::InvocationType::Voice
                 })
                 .map(|a| Row {
                     trigger: a.invocation.clone(),
@@ -196,9 +196,9 @@ fn truncate(s: &str, max: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use taurine_core::db::crud::triggers::TriggerListItem;
-    use taurine_core::db::crud::{InvocationType, TriggerAliasRow};
-    use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
+    use nite_core::db::crud::triggers::TriggerListItem;
+    use nite_core::db::crud::{InvocationType, TriggerAliasRow};
+    use nite_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 
     fn alias_row(invocation: &str, invocation_type: InvocationType) -> TriggerAliasRow {
         TriggerAliasRow {

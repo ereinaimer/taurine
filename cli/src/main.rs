@@ -12,7 +12,7 @@ fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
 
     if cli.version {
-        println!("taurine {}", VERSION);
+        println!("nite {}", VERSION);
         return std::process::ExitCode::SUCCESS;
     }
 
@@ -29,12 +29,12 @@ fn main() -> std::process::ExitCode {
     let quiet = cli.quiet || (is_interactive_command && cli.verbose == 0);
 
     let component = if cli.daemon {
-        taurine_core::logs::LogComponent::Daemon
+        nite_core::logs::LogComponent::Daemon
     } else {
-        taurine_core::logs::LogComponent::Cli
+        nite_core::logs::LogComponent::Cli
     };
 
-    let _guard = taurine_core::logs::init_tracing_for_app(
+    let _guard = nite_core::logs::init_tracing_for_app(
         cli.verbose,
         quiet,
         cli.no_log_file,
@@ -55,15 +55,15 @@ fn main() -> std::process::ExitCode {
         let broken_pipe = panic_info
             .payload()
             .downcast_ref::<&str>()
-            .is_some_and(|s| taurine_core::logs::panic_payload_is_broken_pipe(s))
+            .is_some_and(|s| nite_core::logs::panic_payload_is_broken_pipe(s))
             || panic_info
                 .payload()
                 .downcast_ref::<String>()
-                .is_some_and(|s| taurine_core::logs::panic_payload_is_broken_pipe(s));
+                .is_some_and(|s| nite_core::logs::panic_payload_is_broken_pipe(s));
         if broken_pipe {
             std::process::exit(0);
         }
-        taurine_core::logs::handle_panic_info(panic_info);
+        nite_core::logs::handle_panic_info(panic_info);
         color_eyre_panic(panic_info);
     }));
 
@@ -78,22 +78,22 @@ fn main() -> std::process::ExitCode {
     std::process::ExitCode::SUCCESS
 }
 
-fn is_broken_pipe(e: &taurine_core::error::Error) -> bool {
+fn is_broken_pipe(e: &nite_core::error::Error) -> bool {
     match e {
-        taurine_core::error::Error::Io(io) => taurine_core::logs::io_error_is_broken_pipe(io),
+        nite_core::error::Error::Io(io) => nite_core::logs::io_error_is_broken_pipe(io),
         _ => false,
     }
 }
 
-fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()> {
+fn run(cli: Cli, launch_target: LaunchTarget) -> nite_core::error::Result<()> {
     let json = cli.json;
     match launch_target {
         LaunchTarget::Daemon => {
-            info!("Initializing Taurine v{VERSION}");
+            info!("Initializing Nite v{VERSION}");
             commands::auth::ensure_authenticated()?;
             // Execute the startup sequence (database init, seed, etc.)
-            taurine_daemon::start()?;
-            info!("Taurine service has been stopped cleanly.");
+            nite_daemon::start()?;
+            info!("Nite service has been stopped cleanly.");
             return Ok(());
         }
         LaunchTarget::AutoUpdate => {
@@ -101,7 +101,7 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
             return Ok(());
         }
         LaunchTarget::Tui => {
-            return taurine_tui::run();
+            return nite_tui::run();
         }
         LaunchTarget::Command => {}
     }
@@ -109,7 +109,7 @@ fn run(cli: Cli, launch_target: LaunchTarget) -> taurine_core::error::Result<()>
     match cli.command {
         #[cfg(target_os = "linux")]
         Some(Commands::Setup) => {
-            taurine_core::service::linux_setup()?;
+            nite_core::service::linux_setup()?;
         }
         Some(Commands::Login {
             no_browser,

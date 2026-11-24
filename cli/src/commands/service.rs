@@ -1,12 +1,12 @@
-use taurine_core::error::Error;
+use nite_core::error::Error;
 
 pub fn execute_up(json: bool) -> Result<(), Error> {
     let settings = {
-        let conn = taurine_core::db::init::setup()?;
-        taurine_core::settings::SettingsManager::new(&conn).load_all()
+        let conn = nite_core::db::init::setup()?;
+        nite_core::settings::SettingsManager::new(&conn).load_all()
     };
 
-    taurine_core::service::up(settings.start_on_boot)?;
+    nite_core::service::up(settings.start_on_boot)?;
     if json {
         println!("{}", serde_json::json!({"status": "started"}));
     }
@@ -14,7 +14,7 @@ pub fn execute_up(json: bool) -> Result<(), Error> {
 }
 
 pub fn execute_down(json: bool) -> Result<(), Error> {
-    taurine_core::service::down()?;
+    nite_core::service::down()?;
     if json {
         println!("{}", serde_json::json!({"status": "stopped"}));
     }
@@ -23,7 +23,7 @@ pub fn execute_down(json: bool) -> Result<(), Error> {
 
 pub fn execute_restart(json: bool) -> Result<(), Error> {
     let start_on_boot = start_on_boot_preference()?;
-    taurine_core::service::restart(start_on_boot)?;
+    nite_core::service::restart(start_on_boot)?;
     if json {
         println!("{}", serde_json::json!({"status": "restarted"}));
     }
@@ -32,7 +32,7 @@ pub fn execute_restart(json: bool) -> Result<(), Error> {
 
 pub fn execute_status(json: bool) -> Result<(), Error> {
     if json {
-        use taurine_core::rpc;
+        use nite_core::rpc;
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
@@ -64,7 +64,7 @@ pub fn execute_status(json: bool) -> Result<(), Error> {
             None => println!("{}", serde_json::json!({"running": false})),
         }
     } else {
-        taurine_core::service::status()?;
+        nite_core::service::status()?;
     }
     Ok(())
 }
@@ -73,8 +73,8 @@ fn start_on_boot_preference() -> Result<bool, Error> {
     // Open the DB (idempotent: initializes schema + seeds if needed) and
     // read the user's start_on_boot preference before handing off to
     // the platform service layer.
-    use taurine_core::db::init;
-    use taurine_core::settings::SettingsManager;
+    use nite_core::db::init;
+    use nite_core::settings::SettingsManager;
     let conn = init::setup()?;
     Ok(SettingsManager::new(&conn).load_all().start_on_boot)
 }

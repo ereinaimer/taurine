@@ -5,9 +5,9 @@ use std::sync::Mutex;
 
 use tracing::info;
 
-use taurine_core::ai::{AiProvider, CredentialStore, OsKeyringStore, configured_providers};
-use taurine_core::db::init;
-use taurine_core::settings::SettingsManager;
+use nite_core::ai::{AiProvider, CredentialStore, OsKeyringStore, configured_providers};
+use nite_core::db::init;
+use nite_core::settings::SettingsManager;
 
 #[derive(Debug, Clone, Default)]
 pub struct AiCommandArgs {
@@ -21,9 +21,9 @@ pub struct AiCommandArgs {
     pub json: bool,
 }
 
-pub fn execute(args: AiCommandArgs) -> taurine_core::error::Result<()> {
+pub fn execute(args: AiCommandArgs) -> nite_core::error::Result<()> {
     if !args.yes {
-        return taurine_tui::run_ai_overlay();
+        return nite_tui::run_ai_overlay();
     }
 
     let conn = init::setup()?;
@@ -77,25 +77,25 @@ pub fn execute(args: AiCommandArgs) -> taurine_core::error::Result<()> {
 
     if let Some(p) = args.provider {
         if p != AiProvider::Custom && args.key.is_none() {
-            let diag = taurine_core::diagnostic::Diagnostic::problem(format!(
+            let diag = nite_core::diagnostic::Diagnostic::problem(format!(
                 "API key is required for provider {}",
                 p.as_str()
             ))
             .help("Provide an API key using the --key flag:")
-            .example(format!("taurine ai --provider {} --key <KEY>", p.as_str()));
-            return Err(taurine_core::Error::Config(diag.render()));
+            .example(format!("nite ai --provider {} --key <KEY>", p.as_str()));
+            return Err(nite_core::Error::Config(diag.render()));
         }
 
         if p == AiProvider::Custom
             && args.endpoint.is_none()
             && manager.load_all().ai_custom_endpoint.is_none()
         {
-            let diag = taurine_core::diagnostic::Diagnostic::problem(
+            let diag = nite_core::diagnostic::Diagnostic::problem(
                 "Endpoint URL is required for custom AI provider",
             )
             .help("Specify the custom API endpoint URL using --endpoint:")
-            .example("taurine ai --provider custom --endpoint https://api.example.com/v1");
-            return Err(taurine_core::Error::Config(diag.render()));
+            .example("nite ai --provider custom --endpoint https://api.example.com/v1");
+            return Err(nite_core::Error::Config(diag.render()));
         }
 
         if let Some(ref k) = args.key {
@@ -178,10 +178,7 @@ pub fn execute(args: AiCommandArgs) -> taurine_core::error::Result<()> {
     Ok(())
 }
 
-fn remove_provider_credential<S>(
-    store: &S,
-    provider: AiProvider,
-) -> taurine_core::error::Result<bool>
+fn remove_provider_credential<S>(store: &S, provider: AiProvider) -> nite_core::error::Result<bool>
 where
     S: CredentialStore,
 {
@@ -190,7 +187,7 @@ where
 
 fn remove_all_providers<S: CredentialStore>(
     store: &S,
-) -> taurine_core::error::Result<Vec<&'static str>> {
+) -> nite_core::error::Result<Vec<&'static str>> {
     let configured = configured_providers(store)?;
     let mut removed = Vec::new();
     for provider in &configured {
@@ -211,17 +208,17 @@ mod tests {
             &self,
             provider: AiProvider,
             api_key: &str,
-        ) -> taurine_core::error::Result<Vec<String>>;
+        ) -> nite_core::error::Result<Vec<String>>;
     }
 
     fn add_provider_with_prompt<S, F>(
         store: &S,
         provider: AiProvider,
         prompt: F,
-    ) -> taurine_core::error::Result<()>
+    ) -> nite_core::error::Result<()>
     where
         S: CredentialStore,
-        F: FnOnce(AiProvider) -> taurine_core::error::Result<String>,
+        F: FnOnce(AiProvider) -> nite_core::error::Result<String>,
     {
         let mut secret = prompt(provider)?;
         store_provider_secret(store, provider, &mut secret)
@@ -231,13 +228,13 @@ mod tests {
         store: &S,
         catalog: &M,
         provider: AiProvider,
-    ) -> taurine_core::error::Result<Vec<String>>
+    ) -> nite_core::error::Result<Vec<String>>
     where
         S: CredentialStore,
         M: ModelCatalog,
     {
         let secret = store.get_secret(provider)?.ok_or_else(|| {
-            taurine_core::error::Error::Config(format!(
+            nite_core::error::Error::Config(format!(
                 "Provider '{}' is not configured",
                 provider.as_str()
             ))
@@ -249,7 +246,7 @@ mod tests {
         store: &S,
         provider: AiProvider,
         secret: &mut String,
-    ) -> taurine_core::error::Result<()>
+    ) -> nite_core::error::Result<()>
     where
         S: CredentialStore,
     {
@@ -264,11 +261,7 @@ mod tests {
     }
 
     impl CredentialStore for MemoryCredentialStore {
-        fn set_secret(
-            &self,
-            provider: AiProvider,
-            secret: &str,
-        ) -> taurine_core::error::Result<()> {
+        fn set_secret(&self, provider: AiProvider, secret: &str) -> nite_core::error::Result<()> {
             self.secrets
                 .lock()
                 .expect("memory store poisoned")
@@ -279,7 +272,7 @@ mod tests {
         fn get_secret(
             &self,
             provider: AiProvider,
-        ) -> taurine_core::error::Result<Option<zeroize::Zeroizing<String>>> {
+        ) -> nite_core::error::Result<Option<zeroize::Zeroizing<String>>> {
             Ok(self
                 .secrets
                 .lock()
@@ -288,7 +281,7 @@ mod tests {
                 .map(|s| zeroize::Zeroizing::new(s.clone())))
         }
 
-        fn delete_secret(&self, provider: AiProvider) -> taurine_core::error::Result<bool> {
+        fn delete_secret(&self, provider: AiProvider) -> nite_core::error::Result<bool> {
             Ok(self
                 .secrets
                 .lock()
@@ -317,7 +310,7 @@ mod tests {
             &self,
             provider: AiProvider,
             api_key: &str,
-        ) -> taurine_core::error::Result<Vec<String>> {
+        ) -> nite_core::error::Result<Vec<String>> {
             self.calls
                 .lock()
                 .expect("recording catalog poisoned")
@@ -531,7 +524,7 @@ mod tests {
         crate::commands::test_keyring::use_shared_test_keyring();
         let dir = tempfile::tempdir().expect("temp dir");
         // SAFETY: Test runs under TEST_LOCK and temporary dir is cleaned up.
-        unsafe { std::env::set_var("TAURINE_DATA_DIR", dir.path()) };
+        unsafe { std::env::set_var("NITE_DATA_DIR", dir.path()) };
 
         let result = execute(AiCommandArgs {
             yes: true,
@@ -541,7 +534,7 @@ mod tests {
         });
 
         // SAFETY: Test runs under TEST_LOCK to restore process environment safely.
-        unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
+        unsafe { std::env::remove_var("NITE_DATA_DIR") };
 
         let err = result.unwrap_err().to_string();
         assert!(
@@ -553,7 +546,7 @@ mod tests {
             "Error was: {err}"
         );
         assert!(
-            err.contains("taurine ai --provider openai --key <KEY>"),
+            err.contains("nite ai --provider openai --key <KEY>"),
             "Error was: {err}"
         );
         assert!(!err.contains('`'), "Must not contain backticks: {err}");
@@ -566,7 +559,7 @@ mod tests {
         crate::commands::test_keyring::use_shared_test_keyring();
         let dir = tempfile::tempdir().expect("temp dir");
         // SAFETY: Test runs under TEST_LOCK and temporary dir is cleaned up.
-        unsafe { std::env::set_var("TAURINE_DATA_DIR", dir.path()) };
+        unsafe { std::env::set_var("NITE_DATA_DIR", dir.path()) };
 
         let result = execute(AiCommandArgs {
             yes: true,
@@ -576,7 +569,7 @@ mod tests {
         });
 
         // SAFETY: Test runs under TEST_LOCK to restore process environment safely.
-        unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
+        unsafe { std::env::remove_var("NITE_DATA_DIR") };
 
         let err = result.unwrap_err().to_string();
         assert!(
@@ -588,7 +581,7 @@ mod tests {
             "Error was: {err}"
         );
         assert!(
-            err.contains("taurine ai --provider custom --endpoint"),
+            err.contains("nite ai --provider custom --endpoint"),
             "Error was: {err}"
         );
         assert!(!err.contains('`'), "Must not contain backticks: {err}");

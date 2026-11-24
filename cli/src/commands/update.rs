@@ -1,11 +1,11 @@
+use nite_core::error::{Error, Result};
+use nite_core::paths::{get_install_bin_dir, get_install_exe_path};
 use reqwest::blocking::Client;
 use sha2::Digest;
 use std::fs;
 use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
-use taurine_core::error::{Error, Result};
-use taurine_core::paths::{get_install_bin_dir, get_install_exe_path};
 use tracing::{error, info};
 
 fn platform_key() -> &'static str {
@@ -138,7 +138,7 @@ fn download_archive(
     })
 }
 
-pub use taurine_core::service::spawn_updater_process;
+pub use nite_core::service::spawn_updater_process;
 
 pub fn run_auto_update() -> Result<()> {
     if let Err(e) = execute_inner(true, false) {
@@ -158,7 +158,8 @@ fn execute_inner(silent: bool, json: bool) -> Result<()> {
         .build()
         .map_err(|e| Error::Engine(e.to_string()))?;
 
-    let manifest_url = taurine_core::paths::dev_env_var("TAURINE_UPDATE_MANIFEST_URL")
+    let manifest_url = nite_core::paths::dev_env_var("NITE_UPDATE_MANIFEST_URL")
+        .or_else(|| nite_core::paths::dev_env_var("TAURINE_UPDATE_MANIFEST_URL"))
         .unwrap_or_else(|| {
             "https://github.com/ereinaimer/taurine/releases/latest/download/manifest.json"
                 .to_string()
@@ -176,12 +177,9 @@ fn execute_inner(silent: bool, json: bool) -> Result<()> {
     let current_version = env!("CARGO_PKG_VERSION");
     let is_newer = is_newer_version(current_version, &manifest.version);
 
-    // Ensure the tau alias is set up on every update invocation
-    crate::platform::alias::ensure_tau_alias();
-
     if !is_newer {
         if !silent {
-            info!("Taurine is already up to date (v{}).", current_version);
+            info!("Nite is already up to date (v{}).", current_version);
         }
         return Ok(());
     }
@@ -206,9 +204,9 @@ fn execute_inner(silent: bool, json: bool) -> Result<()> {
         None
     };
 
-    let base_label = format!("Downloading taurine v{}", manifest.version);
+    let base_label = format!("Downloading nite v{}", manifest.version);
 
-    let temp_dir = taurine_core::system::paths::ensure_temp_dir();
+    let temp_dir = nite_core::system::paths::ensure_temp_dir();
     let archive_ext = if artifact.url.ends_with(".tar.xz") {
         "tar.xz"
     } else if artifact.url.ends_with(".tar.gz") {
@@ -219,11 +217,11 @@ fn execute_inner(silent: bool, json: bool) -> Result<()> {
         "tar"
     };
     let archive_path = temp_dir.join(format!(
-        "taurine-update-{}.{}",
+        "nite-update-{}.{}",
         uuid::Uuid::new_v4(),
         archive_ext
     ));
-    let binary_path = temp_dir.join(format!("taurine-bin-{}", uuid::Uuid::new_v4()));
+    let binary_path = temp_dir.join(format!("nite-bin-{}", uuid::Uuid::new_v4()));
 
     // Long-timeout client for the archive body (the 10s manifest client above
     // would kill slow downloads mid-stream). Mirrors --max-time 300 in sh/ps1.
@@ -277,7 +275,7 @@ fn execute_inner(silent: bool, json: bool) -> Result<()> {
         s.step_with_done(
             "Extracting",
             &format!(
-                "Downloaded taurine v{} ({} in {})",
+                "Downloaded nite v{} ({} in {})",
                 manifest.version,
                 format_bytes(stats.bytes),
                 format_duration(stats.elapsed.as_secs())
@@ -318,7 +316,7 @@ fn execute_inner(silent: bool, json: bool) -> Result<()> {
     // transitioned it with the totals line.)
 
     if cfg!(target_os = "windows") {
-        let extract_dir = temp_dir.join(format!("taurine-ext-{}", uuid::Uuid::new_v4()));
+        let extract_dir = temp_dir.join(format!("nite-ext-{}", uuid::Uuid::new_v4()));
         let status = std::process::Command::new("powershell")
             .arg("-NoProfile")
             .arg("-Command")
@@ -332,12 +330,12 @@ fn execute_inner(silent: bool, json: bool) -> Result<()> {
         if !status.success() {
             return Err(Error::Engine("Failed to extract update".into()));
         }
-        let source_bin = find_binary_in_dir(&extract_dir, "taurine.exe")
-            .ok_or_else(|| Error::Engine("Extracted archive did not contain taurine.exe".into()))?;
+        let source_bin = find_binary_in_dir(&extract_dir, "nite.exe")
+            .ok_or_else(|| Error::Engine("Extracted archive did not contain nite.exe".into()))?;
         fs::copy(source_bin, &binary_path).map_err(|e| Error::Engine(e.to_string()))?;
         let _ = fs::remove_dir_all(extract_dir);
     } else {
-        let extract_dir = temp_dir.join(format!("taurine-ext-{}", uuid::Uuid::new_v4()));
+        let extract_dir = temp_dir.join(format!("nite-ext-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&extract_dir).map_err(|e| Error::Engine(e.to_string()))?;
         let status = std::process::Command::new("tar")
             .arg("-xf")
@@ -349,9 +347,8 @@ fn execute_inner(silent: bool, json: bool) -> Result<()> {
         if !status.success() {
             return Err(Error::Engine("Failed to extract update".into()));
         }
-        let source_bin = find_binary_in_dir(&extract_dir, "taurine").ok_or_else(|| {
-            Error::Engine("Extracted archive did not contain taurine binary".into())
-        })?;
+        let source_bin = find_binary_in_dir(&extract_dir, "nite")
+            .ok_or_else(|| Error::Engine("Extracted archive did not contain nite binary".into()))?;
         fs::copy(source_bin, &binary_path).map_err(|e| Error::Engine(e.to_string()))?;
         #[cfg(unix)]
         {
@@ -370,7 +367,7 @@ fn execute_inner(silent: bool, json: bool) -> Result<()> {
     // Stop the running service only after the archive is fully downloaded,
     // validated, and extracted, minimizing service downtime and avoiding stopping
     // if download or checksum fails.
-    let _ = taurine_core::service::down();
+    let _ = nite_core::service::down();
 
     let current = std::env::current_exe().map_err(|e| Error::Engine(e.to_string()))?;
     let canonical = get_install_exe_path();
@@ -381,7 +378,7 @@ fn execute_inner(silent: bool, json: bool) -> Result<()> {
     } else {
         fs::create_dir_all(get_install_bin_dir()).map_err(|e| Error::Engine(e.to_string()))?;
         if canonical.exists() {
-            let backup_path = temp_dir.join(format!("taurine-old-{}", uuid::Uuid::new_v4()));
+            let backup_path = temp_dir.join(format!("nite-old-{}", uuid::Uuid::new_v4()));
             if let Err(e) = fs::rename(&canonical, &backup_path) {
                 tracing::debug!("Failed to rename canonical binary before copy: {}", e);
             } else {
@@ -403,17 +400,14 @@ fn execute_inner(silent: bool, json: bool) -> Result<()> {
     if let Some(s) = sp.take() {
         s.finish();
         if !silent && path_updated {
-            info!("PATH updated - restart your shell to use `taurine` directly");
+            info!("PATH updated - restart your shell to use nite directly");
         }
-        info!("✓ taurine updated to v{}", manifest.version);
+        info!("✓ nite updated to v{}", manifest.version);
     }
 
     let _ = notify_rust::Notification::new()
-        .summary("Taurine Updated")
-        .body(&format!(
-            "Taurine has been updated to v{}",
-            manifest.version
-        ))
+        .summary("Nite Updated")
+        .body(&format!("Nite has been updated to v{}", manifest.version))
         .show();
 
     let mut up_cmd = std::process::Command::new(&canonical);
@@ -534,11 +528,11 @@ mod tests {
             "version": "1.0.0",
             "artifacts": {
                 "windows-x86_64": {
-                    "url": "https://example.com/taurine-windows.zip",
+                    "url": "https://example.com/nite-windows.zip",
                     "sha256": "abcdef1234567890"
                 },
                 "linux-x86_64": {
-                    "url": "https://example.com/taurine-linux.tar"
+                    "url": "https://example.com/nite-linux.tar"
                 }
             }
         }"#;
@@ -548,11 +542,11 @@ mod tests {
         assert_eq!(manifest.artifacts.len(), 2);
 
         let win_artifact = manifest.artifacts.get("windows-x86_64").unwrap();
-        assert_eq!(win_artifact.url, "https://example.com/taurine-windows.zip");
+        assert_eq!(win_artifact.url, "https://example.com/nite-windows.zip");
         assert_eq!(win_artifact.sha256.as_deref(), Some("abcdef1234567890"));
 
         let linux_artifact = manifest.artifacts.get("linux-x86_64").unwrap();
-        assert_eq!(linux_artifact.url, "https://example.com/taurine-linux.tar");
+        assert_eq!(linux_artifact.url, "https://example.com/nite-linux.tar");
         assert_eq!(linux_artifact.sha256, None);
     }
 
@@ -704,7 +698,7 @@ mod tests {
         // 4. standard sha256sum line with filename
         assert_eq!(
             parse_expected_sha256(
-                "6c7be92d1ab87ad13c9ed3af58ac6ca956b3b9a994ecf83909f6b280c45595be  taurine-v1.0.0-windows-x86_64.zip"
+                "6c7be92d1ab87ad13c9ed3af58ac6ca956b3b9a994ecf83909f6b280c45595be  nite-v1.0.0-windows-x86_64.zip"
             ),
             "6c7be92d1ab87ad13c9ed3af58ac6ca956b3b9a994ecf83909f6b280c45595be"
         );

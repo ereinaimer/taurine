@@ -1,10 +1,10 @@
-use std::io::Write;
-use taurine_core::db::crud::{
+use nite_core::db::crud::{
     InvocationType, count_aliases, count_triggers_by_pattern, delete_triggers_by_pattern,
     delete_triggers_by_tag, delete_triggers_by_values, find_parent_by_invocation, get_trigger,
     list_active_voice_invocations,
 };
-use taurine_core::db::init;
+use nite_core::db::init;
+use std::io::Write;
 use tracing::{info, warn};
 
 pub fn execute(
@@ -12,14 +12,13 @@ pub fn execute(
     tag: Option<String>,
     yes: bool,
     json: bool,
-) -> taurine_core::error::Result<()> {
+) -> nite_core::error::Result<()> {
     if triggers.is_empty() && tag.is_none() {
-        let diag =
-            taurine_core::diagnostic::Diagnostic::problem("Missing trigger or tag to delete")
-                .help("Specify one or more triggers or use --tag to delete triggers by tag:")
-                .example("taurine delete :brb")
-                .example("taurine delete --tag snippet");
-        return Err(taurine_core::Error::Config(diag.render()));
+        let diag = nite_core::diagnostic::Diagnostic::problem("Missing trigger or tag to delete")
+            .help("Specify one or more triggers or use --tag to delete triggers by tag:")
+            .example("nite delete :brb")
+            .example("nite delete --tag snippet");
+        return Err(nite_core::Error::Config(diag.render()));
     }
 
     let conn = init::setup()?;
@@ -99,12 +98,12 @@ pub fn execute(
                 .collect();
             let tag_refs: Vec<&str> = existing_tags.iter().map(|s| s.as_str()).collect();
 
-            let diag = taurine_core::diagnostic::Diagnostic::problem(format!(
+            let diag = nite_core::diagnostic::Diagnostic::problem(format!(
                 "No active trigger found with tag {t}"
             ))
             .suggest(t, &tag_refs)
-            .help("To view all active triggers and their tags, run: taurine list")
-            .example("taurine list");
+            .help("To view all active triggers and their tags, run: nite list")
+            .example("nite list");
             warn!("{}", diag.render());
 
             if json {
@@ -129,12 +128,12 @@ pub fn execute(
             let active_refs: Vec<&str> = active_triggers.iter().map(|s| s.as_str()).collect();
 
             for trig in &triggers {
-                let diag = taurine_core::diagnostic::Diagnostic::problem(format!(
+                let diag = nite_core::diagnostic::Diagnostic::problem(format!(
                     "No active trigger matches {trig}"
                 ))
                 .suggest(trig, &active_refs)
-                .help("To view all active triggers, run: taurine list")
-                .example("taurine list");
+                .help("To view all active triggers, run: nite list")
+                .example("nite list");
                 warn!("{}", diag.render());
             }
 
@@ -175,7 +174,7 @@ pub fn execute(
                 serde_json::json!({"status": "deleted", "count": removed_count})
             );
         }
-        taurine_core::rpc::notify_daemon_reload();
+        nite_core::rpc::notify_daemon_reload();
     }
 
     Ok(())
@@ -184,9 +183,9 @@ pub fn execute(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use taurine_core::db::crud::TriggerType;
-    use taurine_core::db::crud::upsert_trigger_with_type;
-    use taurine_core::logs::init_tracing_for_tests;
+    use nite_core::db::crud::TriggerType;
+    use nite_core::db::crud::upsert_trigger_with_type;
+    use nite_core::logs::init_tracing_for_tests;
 
     struct TestDbEnvGuard {
         _dir: tempfile::TempDir,
@@ -195,14 +194,14 @@ mod tests {
     impl TestDbEnvGuard {
         fn new() -> Self {
             let dir = tempfile::tempdir().expect("temp dir");
-            unsafe { std::env::set_var("TAURINE_DATA_DIR", dir.path()) };
+            unsafe { std::env::set_var("NITE_DATA_DIR", dir.path()) };
             Self { _dir: dir }
         }
 
         fn db_path(&self) -> String {
             self._dir
                 .path()
-                .join("taurine.db")
+                .join("nite.db")
                 .to_string_lossy()
                 .to_string()
         }
@@ -210,7 +209,7 @@ mod tests {
 
     impl Drop for TestDbEnvGuard {
         fn drop(&mut self) {
-            unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
+            unsafe { std::env::remove_var("NITE_DATA_DIR") };
         }
     }
 
@@ -224,7 +223,7 @@ mod tests {
 
     fn open_keyed_db(db_path: &str) -> rusqlite::Connection {
         crate::commands::test_keyring::use_shared_test_keyring();
-        taurine_core::db::key::open_keyed_connection(std::path::Path::new(db_path)).unwrap()
+        nite_core::db::key::open_keyed_connection(std::path::Path::new(db_path)).unwrap()
     }
 
     fn seed_word_entry(conn: &rusqlite::Connection, invocation: &str, output: &str) {
@@ -237,9 +236,9 @@ mod tests {
         output: &str,
         tags_json: &str,
     ) {
-        taurine_core::db::crud::create_entry(
+        nite_core::db::crud::create_entry(
             conn,
-            taurine_core::db::crud::NewEntry {
+            nite_core::db::crud::NewEntry {
                 description: None,
                 content: output.to_string(),
                 action_type: "text".to_string(),
@@ -274,7 +273,7 @@ mod tests {
 
         with_test_db(|db_path| {
             let conn = open_keyed_db(db_path);
-            taurine_core::db::init::schema::ensure_schema(&conn).unwrap();
+            nite_core::db::init::schema::ensure_schema(&conn).unwrap();
 
             upsert_trigger_with_type(
                 &conn,
@@ -318,7 +317,7 @@ mod tests {
 
         with_test_db(|db_path| {
             let conn = open_keyed_db(db_path);
-            taurine_core::db::init::schema::ensure_schema(&conn).unwrap();
+            nite_core::db::init::schema::ensure_schema(&conn).unwrap();
 
             upsert_trigger_with_type(
                 &conn,
@@ -363,10 +362,10 @@ mod tests {
 
         with_test_db(|db_path| {
             let conn = open_keyed_db(db_path);
-            taurine_core::db::init::schema::ensure_schema(&conn).unwrap();
-            taurine_core::db::crud::create_entry(
+            nite_core::db::init::schema::ensure_schema(&conn).unwrap();
+            nite_core::db::crud::create_entry(
                 &conn,
-                taurine_core::db::crud::NewEntry {
+                nite_core::db::crud::NewEntry {
                     description: None,
                     content: "Hello!".to_string(),
                     action_type: "text".to_string(),
@@ -411,7 +410,7 @@ mod tests {
         let db_path = db_guard.db_path();
 
         let conn = open_keyed_db(&db_path);
-        taurine_core::db::init::schema::ensure_schema(&conn).unwrap();
+        nite_core::db::init::schema::ensure_schema(&conn).unwrap();
 
         seed_word_entry(&conn, "test_foo", "echo 1");
         seed_word_entry(&conn, "test_bar", "echo 2");
@@ -435,7 +434,7 @@ mod tests {
         let db_path = db_guard.db_path();
 
         let conn = open_keyed_db(&db_path);
-        taurine_core::db::init::schema::ensure_schema(&conn).unwrap();
+        nite_core::db::init::schema::ensure_schema(&conn).unwrap();
 
         seed_word_entry(&conn, "gs", "echo 1");
         drop(conn);
@@ -454,7 +453,7 @@ mod tests {
         let db_path = db_guard.db_path();
 
         let conn = open_keyed_db(&db_path);
-        taurine_core::db::init::schema::ensure_schema(&conn).unwrap();
+        nite_core::db::init::schema::ensure_schema(&conn).unwrap();
 
         seed_word_entry(&conn, "a", "out");
         seed_word_entry(&conn, "b", "out");
@@ -476,7 +475,7 @@ mod tests {
         let db_path = db_guard.db_path();
 
         let conn = open_keyed_db(&db_path);
-        taurine_core::db::init::schema::ensure_schema(&conn).unwrap();
+        nite_core::db::init::schema::ensure_schema(&conn).unwrap();
         drop(conn);
 
         // Should not error, just warn
@@ -489,7 +488,7 @@ mod tests {
 
         with_test_db(|db_path| {
             let conn = open_keyed_db(db_path);
-            taurine_core::db::init::schema::ensure_schema(&conn).unwrap();
+            nite_core::db::init::schema::ensure_schema(&conn).unwrap();
 
             seed_word_entry_with_tags(&conn, "tagged_one", "echo 1", r#"["work"]"#);
             seed_word_entry_with_tags(&conn, "tagged_two", "echo 2", r#"["work"]"#);
@@ -511,7 +510,7 @@ mod tests {
 
         with_test_db(|db_path| {
             let conn = open_keyed_db(db_path);
-            taurine_core::db::init::schema::ensure_schema(&conn).unwrap();
+            nite_core::db::init::schema::ensure_schema(&conn).unwrap();
             seed_word_entry_with_tags(&conn, "tagged", "echo 1", r#"["work"]"#);
             drop(conn);
 
@@ -535,7 +534,7 @@ mod tests {
             err.contains("Specify one or more triggers or use --tag to delete triggers by tag:"),
             "Error was: {err}"
         );
-        assert!(err.contains("taurine delete :brb"), "Error was: {err}");
+        assert!(err.contains("nite delete :brb"), "Error was: {err}");
         assert!(!err.contains('`'), "Must not contain backticks: {err}");
         assert!(!err.contains('\''), "Must not contain single quotes: {err}");
     }

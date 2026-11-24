@@ -3211,6 +3211,44 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
+name = "nite"
+version = "1.0.0-alpha.19"
+dependencies = [
+ "clap",
+ "clap_complete",
+ "color-eyre",
+ "dirs 7.0.0",
+ "genai",
+ "keyring",
+ "nite_core",
+ "nite_daemon",
+ "nite_tui",
+ "notify-rust",
+ "regex",
+ "reqwest",
+ "rusqlite",
+ "self-replace",
+ "serde",
+ "serde_json",
+ "service-manager",
+ "sha2 0.11.0",
+ "sysinfo",
+ "tempfile",
+ "time",
+ "tokio",
+ "tonic",
+ "tracing",
+ "tracing-error",
+ "tracing-subscriber",
+ "unicode-normalization",
+ "uuid",
+ "windows-sys 0.61.2",
+ "winreg",
+ "winres",
+ "zeroize",
+]
+
+[[package]]
 name = "nite_core"
 version = "1.0.0-alpha.19"
 dependencies = [
@@ -5857,44 +5895,6 @@ dependencies = [
  "thiserror 2.0.18",
  "windows 0.61.3",
  "windows-version",
-]
-
-[[package]]
-name = "taurine"
-version = "1.0.0-alpha.19"
-dependencies = [
- "clap",
- "clap_complete",
- "color-eyre",
- "dirs 7.0.0",
- "genai",
- "keyring",
- "nite_core",
- "nite_daemon",
- "nite_tui",
- "notify-rust",
- "regex",
- "reqwest",
- "rusqlite",
- "self-replace",
- "serde",
- "serde_json",
- "service-manager",
- "sha2 0.11.0",
- "sysinfo",
- "tempfile",
- "time",
- "tokio",
- "tonic",
- "tracing",
- "tracing-error",
- "tracing-subscriber",
- "unicode-normalization",
- "uuid",
- "windows-sys 0.61.2",
- "winreg",
- "winres",
- "zeroize",
 ]
 
 [[package]]

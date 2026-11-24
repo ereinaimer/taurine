@@ -1,11 +1,11 @@
 use super::script::*;
+use nite_core::db::crud::TriggerType;
+use nite_core::db::crud::{InvocationType, find_parent_by_invocation};
+use nite_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 use std::path::Path;
 use std::path::PathBuf;
-use taurine_core::db::crud::TriggerType;
-use taurine_core::db::crud::{InvocationType, find_parent_by_invocation};
-use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 
-use taurine_core::logs::init_tracing_for_tests;
+use nite_core::logs::init_tracing_for_tests;
 
 struct TestDataDirGuard {
     _dir: tempfile::TempDir,
@@ -14,14 +14,14 @@ struct TestDataDirGuard {
 impl TestDataDirGuard {
     fn new() -> Self {
         let dir = tempfile::tempdir().expect("temp dir");
-        unsafe { std::env::set_var("TAURINE_DATA_DIR", dir.path()) };
+        unsafe { std::env::set_var("NITE_DATA_DIR", dir.path()) };
         Self { _dir: dir }
     }
 
     fn db_path(&self) -> String {
         self._dir
             .path()
-            .join("taurine.db")
+            .join("nite.db")
             .to_string_lossy()
             .to_string()
     }
@@ -29,7 +29,7 @@ impl TestDataDirGuard {
 
 impl Drop for TestDataDirGuard {
     fn drop(&mut self) {
-        unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
+        unsafe { std::env::remove_var("NITE_DATA_DIR") };
     }
 }
 
@@ -43,7 +43,7 @@ fn with_test_db<T>(f: impl FnOnce(&str) -> T) -> T {
 
 fn open_keyed_db(db_path: &str) -> rusqlite::Connection {
     crate::commands::test_keyring::use_shared_test_keyring();
-    taurine_core::db::key::open_keyed_connection(std::path::Path::new(db_path)).unwrap()
+    nite_core::db::key::open_keyed_connection(std::path::Path::new(db_path)).unwrap()
 }
 
 #[test]
@@ -545,7 +545,7 @@ fn test_script_inference_failure_diagnostic() {
             err.contains("Supported languages: bash, powershell, python, node, cmd"),
             "Error was: {err}"
         );
-        assert!(err.contains("taurine add script"), "Error was: {err}");
+        assert!(err.contains("nite add script"), "Error was: {err}");
         assert!(!err.contains('`'), "Must not contain backticks: {err}");
         assert!(!err.contains('\''), "Must not contain single quotes: {err}");
     });
@@ -577,7 +577,7 @@ fn test_script_file_not_found_diagnostic() {
             err.contains("Verify that the file path is correct and accessible."),
             "Error was: {err}"
         );
-        assert!(err.contains("taurine add script -f"), "Error was: {err}");
+        assert!(err.contains("nite add script -f"), "Error was: {err}");
         assert!(!err.contains('`'), "Must not contain backticks: {err}");
         assert!(!err.contains('\''), "Must not contain single quotes: {err}");
     });

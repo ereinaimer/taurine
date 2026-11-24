@@ -1,9 +1,9 @@
-use taurine_core::db::init;
-use taurine_core::settings::{
+use nite_core::db::init;
+use nite_core::settings::{
     SettingKey, Settings, SettingsManager, apply_setting_input, reset_setting_to_default,
 };
 
-pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
+pub fn execute_list(json: bool) -> nite_core::error::Result<()> {
     let conn = init::setup()?;
     let manager = SettingsManager::new(&conn);
     let settings = manager.load_all();
@@ -82,14 +82,14 @@ pub fn execute_list(json: bool) -> taurine_core::error::Result<()> {
     Ok(())
 }
 
-fn reject_tui_only_key(actual_key: &str) -> taurine_core::error::Result<()> {
+fn reject_tui_only_key(actual_key: &str) -> nite_core::error::Result<()> {
     if actual_key == SettingKey::TuiCursorStyle.storage_key() {
-        let diag = taurine_core::diagnostic::Diagnostic::problem(format!(
+        let diag = nite_core::diagnostic::Diagnostic::problem(format!(
             "{actual_key} is only available in TUI settings"
         ))
         .help("Open the TUI settings page to change the cursor style.")
         .render();
-        return Err(taurine_core::error::Error::Config(diag));
+        return Err(nite_core::error::Error::Config(diag));
     }
     Ok(())
 }
@@ -98,31 +98,30 @@ pub fn execute_set(
     key: Option<String>,
     value: Option<String>,
     json: bool,
-) -> taurine_core::error::Result<()> {
+) -> nite_core::error::Result<()> {
     let (key, value) = match (key, value) {
         (Some(k), Some(v)) => (k, v),
         (Some(k), None) => {
-            let diag = taurine_core::diagnostic::Diagnostic::problem(format!(
+            let diag = nite_core::diagnostic::Diagnostic::problem(format!(
                 "Missing value for setting {k}"
             ))
             .help("Specify the value to set:")
-            .example(format!("taurine config set {k} <VALUE>"));
-            return Err(taurine_core::error::Error::Config(diag.render()));
+            .example(format!("nite config set {k} <VALUE>"));
+            return Err(nite_core::error::Error::Config(diag.render()));
         }
         _ => {
-            let diag =
-                taurine_core::diagnostic::Diagnostic::problem("Missing setting key and value")
-                    .help("Specify both the setting key and the new value to set:")
-                    .example("taurine config set audio_theme minimal")
-                    .example("taurine config set audio_volume 80");
-            return Err(taurine_core::error::Error::Config(diag.render()));
+            let diag = nite_core::diagnostic::Diagnostic::problem("Missing setting key and value")
+                .help("Specify both the setting key and the new value to set:")
+                .example("nite config set audio_theme minimal")
+                .example("nite config set audio_volume 80");
+            return Err(nite_core::error::Error::Config(diag.render()));
         }
     };
     let actual_key = Settings::resolve_key(&key);
     reject_tui_only_key(actual_key)?;
     apply_setting_input(actual_key, Some(&value))?;
 
-    taurine_core::rpc::notify_daemon_reload();
+    nite_core::rpc::notify_daemon_reload();
 
     if json {
         println!(
@@ -132,11 +131,11 @@ pub fn execute_set(
     }
     Ok(())
 }
-pub fn execute_reset(key: String, json: bool) -> taurine_core::error::Result<()> {
+pub fn execute_reset(key: String, json: bool) -> nite_core::error::Result<()> {
     let actual_key = Settings::resolve_key(&key);
     reject_tui_only_key(actual_key)?;
     reset_setting_to_default(actual_key)?;
-    taurine_core::rpc::notify_daemon_reload();
+    nite_core::rpc::notify_daemon_reload();
 
     if json {
         println!(
@@ -147,11 +146,11 @@ pub fn execute_reset(key: String, json: bool) -> taurine_core::error::Result<()>
     Ok(())
 }
 
-pub fn execute_reset_all(json: bool) -> taurine_core::error::Result<()> {
+pub fn execute_reset_all(json: bool) -> nite_core::error::Result<()> {
     for key in SettingKey::ALL.iter().filter(|key| key.cli_visible()) {
         reset_setting_to_default(key.storage_key())?;
     }
-    taurine_core::rpc::notify_daemon_reload();
+    nite_core::rpc::notify_daemon_reload();
 
     if json {
         println!("{}", serde_json::json!({"status": "reset_all"}));
@@ -163,17 +162,17 @@ pub fn execute_reset_command(
     key: Option<String>,
     all: bool,
     json: bool,
-) -> taurine_core::error::Result<()> {
+) -> nite_core::error::Result<()> {
     if all {
         execute_reset_all(json)
     } else if let Some(k) = key {
         execute_reset(k, json)
     } else {
-        Err(taurine_core::error::Error::Config(
-            taurine_core::diagnostic::Diagnostic::problem("Missing setting key to reset")
+        Err(nite_core::error::Error::Config(
+            nite_core::diagnostic::Diagnostic::problem("Missing setting key to reset")
                 .help("Specify a key or use --all to restore factory defaults:")
-                .example("taurine config reset audio_theme")
-                .example("taurine config reset --all")
+                .example("nite config reset audio_theme")
+                .example("nite config reset --all")
                 .render(),
         ))
     }
@@ -200,10 +199,10 @@ mod tests {
 
     impl Drop for TestDbEnv {
         fn drop(&mut self) {
-            // SAFETY: test-only; access to TAURINE_DATA_DIR is serialized by
+            // SAFETY: test-only; access to NITE_DATA_DIR is serialized by
             // crate::commands::TEST_LOCK, so no other thread mutates the
             // variable concurrently with this drop.
-            unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
+            unsafe { std::env::remove_var("NITE_DATA_DIR") };
         }
     }
 
@@ -213,14 +212,14 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp dir");
         let _env = TestDbEnv;
         // SAFETY: test-only; serialized by crate::commands::TEST_LOCK, so
-        // exactly one thread manipulates TAURINE_DATA_DIR at a time.
-        unsafe { std::env::set_var("TAURINE_DATA_DIR", dir.path()) };
+        // exactly one thread manipulates NITE_DATA_DIR at a time.
+        unsafe { std::env::set_var("NITE_DATA_DIR", dir.path()) };
         f()
     }
 
     #[test]
     fn reset_auto_update_restores_default() {
-        let restored = with_test_db(|| -> taurine_core::error::Result<bool> {
+        let restored = with_test_db(|| -> nite_core::error::Result<bool> {
             execute_set(
                 Some("auto_update".to_string()),
                 Some("false".to_string()),
@@ -236,7 +235,7 @@ mod tests {
 
     #[test]
     fn reset_all_restores_every_setting() {
-        let restored = with_test_db(|| -> taurine_core::error::Result<(bool, bool, bool)> {
+        let restored = with_test_db(|| -> nite_core::error::Result<(bool, bool, bool)> {
             let conn = init::setup()?;
             let manager = SettingsManager::new(&conn);
             manager.update_setting("auto_update", false)?;
@@ -301,7 +300,7 @@ mod tests {
 
     #[test]
     fn set_and_reset_voice_preferred_languages() {
-        let (updated, reset) = with_test_db(|| -> taurine_core::error::Result<(String, String)> {
+        let (updated, reset) = with_test_db(|| -> nite_core::error::Result<(String, String)> {
             execute_set(
                 Some("voice_preferred_languages".to_string()),
                 Some("en, ml".to_string()),
@@ -334,19 +333,19 @@ mod tests {
             let manager = SettingsManager::new(&conn);
             assert_eq!(
                 manager.load_all().tui_cursor_style,
-                taurine_core::settings::TuiCursorStyle::Block
+                nite_core::settings::TuiCursorStyle::Block
             );
             let value: serde_json::Value =
                 serde_json::from_str(&format_settings_json(&manager.load_all())).unwrap();
             assert!(value.get("tui_cursor_style").is_none());
-            Ok::<(), taurine_core::error::Error>(())
+            Ok::<(), nite_core::error::Error>(())
         })
         .unwrap();
     }
 
     #[test]
     fn set_instant_expand_persists() {
-        let persisted = with_test_db(|| -> taurine_core::error::Result<bool> {
+        let persisted = with_test_db(|| -> nite_core::error::Result<bool> {
             execute_set(
                 Some("instant_expand".to_string()),
                 Some("false".to_string()),
@@ -363,7 +362,7 @@ mod tests {
     #[test]
     fn set_and_reset_voice_input_device_persists() {
         let (persisted, reset_val) = with_test_db(
-            || -> taurine_core::error::Result<(Option<String>, Option<String>)> {
+            || -> nite_core::error::Result<(Option<String>, Option<String>)> {
                 execute_set(
                     Some("voice_input_device".to_string()),
                     Some("External Microphone".to_string()),
@@ -389,7 +388,7 @@ mod tests {
 
     #[test]
     fn set_and_reset_pause_media_while_dictating_persists() {
-        let (set_val, reset_val) = with_test_db(|| -> taurine_core::error::Result<(bool, bool)> {
+        let (set_val, reset_val) = with_test_db(|| -> nite_core::error::Result<(bool, bool)> {
             execute_set(
                 Some("pause_media_while_dictating".to_string()),
                 Some("true".to_string()),
@@ -438,13 +437,13 @@ mod tests {
     #[test]
     fn core_ai_provider_parser_validates_config_value() {
         assert_eq!(
-            taurine_core::ai::AiProvider::try_from("gemini")
+            nite_core::ai::AiProvider::try_from("gemini")
                 .expect("gemini should parse")
                 .as_str(),
             "gemini"
         );
         assert!(
-            taurine_core::ai::AiProvider::try_from("unknown").is_err(),
+            nite_core::ai::AiProvider::try_from("unknown").is_err(),
             "invalid provider must be rejected"
         );
     }
@@ -508,7 +507,7 @@ mod tests {
     #[test]
     fn test_settings_all_enum_variants_serialize() {
         let settings = Settings {
-            audio_theme: taurine_core::settings::AudioTheme::Arcade,
+            audio_theme: nite_core::settings::AudioTheme::Arcade,
             ..Settings::default()
         };
         let json = serde_json::to_string(&settings).unwrap();
@@ -520,7 +519,7 @@ mod tests {
     #[test]
     fn test_set_audio_theme_persists() {
         let persisted = with_test_db(
-            || -> taurine_core::error::Result<taurine_core::settings::AudioTheme> {
+            || -> nite_core::error::Result<nite_core::settings::AudioTheme> {
                 execute_set(
                     Some("audio_theme".to_string()),
                     Some("arcade".to_string()),
@@ -531,15 +530,12 @@ mod tests {
                 Ok(manager.load_all().audio_theme)
             },
         );
-        assert_eq!(
-            persisted.unwrap(),
-            taurine_core::settings::AudioTheme::Arcade
-        );
+        assert_eq!(persisted.unwrap(), nite_core::settings::AudioTheme::Arcade);
     }
 
     #[test]
     fn test_set_audio_volume_persists() {
-        let persisted = with_test_db(|| -> taurine_core::error::Result<u32> {
+        let persisted = with_test_db(|| -> nite_core::error::Result<u32> {
             execute_set(
                 Some("audio_volume".to_string()),
                 Some("65".to_string()),
@@ -558,7 +554,7 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("Missing setting key and value"));
         assert!(msg.contains("Specify both the setting key and the new value to set:"));
-        assert!(msg.contains("taurine config set audio_theme minimal"));
+        assert!(msg.contains("nite config set audio_theme minimal"));
     }
 
     #[test]
@@ -566,7 +562,7 @@ mod tests {
         let err = execute_set(Some("audio_theme".to_string()), None, false).unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("Missing value for setting audio_theme"));
-        assert!(msg.contains("taurine config set audio_theme <VALUE>"));
+        assert!(msg.contains("nite config set audio_theme <VALUE>"));
     }
 
     #[test]
@@ -575,7 +571,7 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("Missing setting key to reset"));
         assert!(msg.contains("Specify a key or use --all to restore factory defaults:"));
-        assert!(msg.contains("taurine config reset audio_theme"));
-        assert!(msg.contains("taurine config reset --all"));
+        assert!(msg.contains("nite config reset audio_theme"));
+        assert!(msg.contains("nite config reset --all"));
     }
 }

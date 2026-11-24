@@ -1,8 +1,8 @@
-use taurine_core::db::crud::{get_user_tier, get_workspaces};
-use taurine_core::db::init;
-use taurine_core::error::Result;
+use nite_core::db::crud::{get_user_tier, get_workspaces};
+use nite_core::db::init;
+use nite_core::error::Result;
 
-/// Displays status of local daemon service combined with Taurine Cloud status.
+/// Displays status of local daemon service combined with Nite Cloud status.
 pub fn execute_status(json: bool) -> Result<()> {
     // 1. Service status via RPC if daemon is online
     let rt = tokio::runtime::Builder::new_current_thread()
@@ -10,8 +10,8 @@ pub fn execute_status(json: bool) -> Result<()> {
         .build()?;
 
     let rpc_status = rt.block_on(async {
-        if let Ok(mut client) = taurine_core::rpc::get_client().await {
-            let request = tonic::Request::new(taurine_core::rpc::StatusRequest {});
+        if let Ok(mut client) = nite_core::rpc::get_client().await {
+            let request = tonic::Request::new(nite_core::rpc::StatusRequest {});
             client
                 .get_status(request)
                 .await
@@ -29,12 +29,12 @@ pub fn execute_status(json: bool) -> Result<()> {
     };
 
     // 2. Cloud auth status
-    let tokens_opt = taurine_core::cloud::get_tokens().ok().flatten();
+    let tokens_opt = nite_core::cloud::get_tokens().ok().flatten();
     let is_authenticated = tokens_opt.is_some();
     let user_id = tokens_opt.as_ref().map(|t| t.user_id.clone());
     let email = tokens_opt
         .as_ref()
-        .and_then(|t| taurine_core::cloud::extract_jwt_email(&t.access_token));
+        .and_then(|t| nite_core::cloud::extract_jwt_email(&t.access_token));
 
     // 3. Database connection & Tier
     let conn = init::setup()?;
@@ -45,10 +45,10 @@ pub fn execute_status(json: bool) -> Result<()> {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
-    let db_key = taurine_core::db::key::get_or_create_db_key();
+    let db_key = nite_core::db::key::get_or_create_db_key();
 
     let quota_row = db_key.ok().and_then(|k| {
-        taurine_core::db::crud::quota::get_or_init_quota_ledger(&conn, &k, now_epoch).ok()
+        nite_core::db::crud::quota::get_or_init_quota_ledger(&conn, &k, now_epoch).ok()
     });
     let (quota_remaining, rollover_epoch) = match quota_row {
         Some(q) => {
@@ -57,7 +57,7 @@ pub fn execute_status(json: bool) -> Result<()> {
         }
         None => (
             100.0,
-            taurine_core::db::crud::quota::calculate_week_start_epoch(now_epoch) + 7 * 86400,
+            nite_core::db::crud::quota::calculate_week_start_epoch(now_epoch) + 7 * 86400,
         ),
     };
     let remaining_secs = (rollover_epoch - now_epoch).max(0) as u64;
@@ -76,9 +76,9 @@ pub fn execute_status(json: bool) -> Result<()> {
     let workspace_count = get_workspaces(&conn).map(|w| w.len()).unwrap_or(1);
 
     // 7. Active Devices
-    let device_name = taurine_core::cloud::get_device_name();
-    let device_hw_id = taurine_core::cloud::get_device_hardware_id();
-    let device_platform = taurine_core::cloud::get_device_platform();
+    let device_name = nite_core::cloud::get_device_name();
+    let device_hw_id = nite_core::cloud::get_device_hardware_id();
+    let device_platform = nite_core::cloud::get_device_platform();
 
     if json {
         let json_obj = serde_json::json!({
@@ -115,14 +115,14 @@ pub fn execute_status(json: bool) -> Result<()> {
         });
         println!("{}", json_obj);
     } else {
-        println!("Taurine Status");
+        println!("Nite Status");
         println!("  Service:          {}", service_status);
         if let Some(ref em) = email {
             println!("  Account:          {}", em);
         } else if let Some(ref uid) = user_id {
             println!("  Account:          {}", uid);
         } else {
-            println!("  Account:          Not logged in (run 'taurine login')");
+            println!("  Account:          Not logged in (run 'nite login')");
         }
         println!("  Tier:             {:?}", tier);
         println!("  Active Devices:   1 active ({})", device_name);

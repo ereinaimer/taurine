@@ -1,9 +1,9 @@
 // Licensed under the Aimer Software License (ASL)
 // See LICENSE for details.
 
+use nite_core::settings::SpinnerStyle;
+use nite_core::utils::spinner::{SpinnerRenderer, ThreadSpinnerHandle, spawn_threaded};
 use std::io::Write;
-use taurine_core::settings::SpinnerStyle;
-use taurine_core::utils::spinner::{SpinnerRenderer, ThreadSpinnerHandle, spawn_threaded};
 use tracing::info;
 
 pub(crate) struct StdoutStepRenderer {

@@ -1,10 +1,10 @@
 fn main() {
     if cfg!(target_os = "windows") {
         let mut res = winres::WindowsResource::new();
-        res.set("FileDescription", "Taurine");
+        res.set("FileDescription", "Nite");
         res.set("CompanyName", "Erein Aimer");
-        res.set("ProductName", "Taurine");
-        res.set("OriginalFilename", "taurine.exe");
+        res.set("ProductName", "Nite");
+        res.set("OriginalFilename", "nite.exe");
         res.set("LegalCopyright", "Copyright (c) Erein Aimer");
         res.set_manifest(
             r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>

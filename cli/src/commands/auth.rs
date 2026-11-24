@@ -1,17 +1,17 @@
+use nite_core::cloud::open_browser;
+use nite_core::db::crud::UserTier;
+use nite_core::error::Result;
 use std::io::Write;
-use taurine_core::cloud::open_browser;
-use taurine_core::db::crud::UserTier;
-use taurine_core::error::Result;
 
-/// Ensures that the user is currently authenticated with Taurine Cloud.
+/// Ensures that the user is currently authenticated with Nite Cloud.
 ///
 /// Returns the stored AuthTokens if present, or an Error::Config prompting
-/// the user to run `taurine login`.
-pub fn ensure_authenticated() -> Result<taurine_core::cloud::AuthTokens> {
-    match taurine_core::cloud::get_tokens() {
+/// the user to run `nite login`.
+pub fn ensure_authenticated() -> Result<nite_core::cloud::AuthTokens> {
+    match nite_core::cloud::get_tokens() {
         Ok(Some(tokens)) => Ok(tokens),
-        _ => Err(taurine_core::error::Error::Config(
-            "Please log in to use Taurine. Run 'taurine login' to continue.".into(),
+        _ => Err(nite_core::error::Error::Config(
+            "Please log in to use Nite. Run 'nite login' to continue.".into(),
         )),
     }
 }
@@ -34,7 +34,7 @@ pub(crate) fn format_login_success_json(email: &str, user_id: &str) -> serde_jso
 pub(crate) fn format_already_logged_in_text(email: &str) -> (String, String) {
     (
         format!("You are already logged into: {email}"),
-        "Run 'taurine logout' first if you want to switch accounts.".to_string(),
+        "Run 'nite logout' first if you want to switch accounts.".to_string(),
     )
 }
 
@@ -55,8 +55,8 @@ pub fn execute_login(
     email: Option<&str>,
     json: bool,
 ) -> Result<()> {
-    if let Ok(Some(tokens)) = taurine_core::cloud::get_tokens() {
-        let current_email = taurine_core::cloud::extract_jwt_email(&tokens.access_token)
+    if let Ok(Some(tokens)) = nite_core::cloud::get_tokens() {
+        let current_email = nite_core::cloud::extract_jwt_email(&tokens.access_token)
             .unwrap_or_else(|| tokens.user_id.clone());
         if json {
             println!(
@@ -71,9 +71,9 @@ pub fn execute_login(
         return Ok(());
     }
 
-    let (verifier, challenge) = taurine_core::cloud::generate_pkce_challenge();
-    let config = taurine_core::cloud::CloudConfig::default_or_from_env();
-    let client = taurine_core::cloud::CloudClient::new(config);
+    let (verifier, challenge) = nite_core::cloud::generate_pkce_challenge();
+    let config = nite_core::cloud::CloudConfig::default_or_from_env();
+    let client = nite_core::cloud::CloudClient::new(config);
 
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -88,13 +88,13 @@ pub fn execute_login(
         let mut pass_input = String::new();
         std::io::stdin()
             .read_line(&mut pass_input)
-            .map_err(taurine_core::Error::Io)?;
+            .map_err(nite_core::Error::Io)?;
         let password = pass_input.trim();
         rt.block_on(async { client.sign_in_with_password(user_email, password).await })?
     } else {
         let provider_name = provider.unwrap_or("google");
         if !provider_name.eq_ignore_ascii_case("google") {
-            return Err(taurine_core::Error::Config(
+            return Err(nite_core::Error::Config(
                 "Unsupported auth provider. Only 'google' and email login are supported.".into(),
             ));
         }
@@ -120,10 +120,10 @@ pub fn execute_login(
             let mut code_input = String::new();
             std::io::stdin()
                 .read_line(&mut code_input)
-                .map_err(taurine_core::Error::Io)?;
+                .map_err(nite_core::Error::Io)?;
             let trimmed_code = code_input.trim().to_string();
             if trimmed_code.is_empty() {
-                return Err(taurine_core::Error::Config(
+                return Err(nite_core::Error::Config(
                     "No authorization code provided.".into(),
                 ));
             }
@@ -147,14 +147,15 @@ pub fn execute_login(
             let mut request_line = String::new();
             reader.read_line(&mut request_line)?;
 
-            let code = taurine_core::cloud::extract_code_from_request_line(&request_line)
-                .ok_or_else(|| {
-                    taurine_core::Error::Config(
+            let code = nite_core::cloud::extract_code_from_request_line(&request_line).ok_or_else(
+                || {
+                    nite_core::Error::Config(
                         "Failed to extract authorization code from OAuth callback.".into(),
                     )
-                })?;
+                },
+            )?;
 
-            let response_body = "<!DOCTYPE html><html><head><title>Taurine Login</title></head><body><h1>Authentication Successful</h1><p>You can close this tab and return to your terminal.</p></body></html>";
+            let response_body = "<!DOCTYPE html><html><head><title>Nite Login</title></head><body><h1>Authentication Successful</h1><p>You can close this tab and return to your terminal.</p></body></html>";
             let response = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                 response_body.len(),
@@ -173,7 +174,7 @@ pub fn execute_login(
         })?
     };
 
-    taurine_core::cloud::store_tokens(&tokens)?;
+    nite_core::cloud::store_tokens(&tokens)?;
 
     // Fetch profile and update local tier cache
     let profile_res = rt.block_on(async {
@@ -190,26 +191,26 @@ pub fn execute_login(
         }
     };
 
-    let conn = taurine_core::db::init::setup()?;
-    taurine_core::db::crud::set_user_tier(&conn, tier)?;
+    let conn = nite_core::db::init::setup()?;
+    nite_core::db::crud::set_user_tier(&conn, tier)?;
 
     // Backfill untracked triggers created offline so they queue for sync
-    let _ = taurine_core::db::crud::triggers::backfill_untracked_triggers_to_outbox(&conn);
+    let _ = nite_core::db::crud::triggers::backfill_untracked_triggers_to_outbox(&conn);
 
     // Synchronize local database with cloud state immediately upon login
-    let _ = rt.block_on(taurine_daemon::SyncWorker::run_sync_cycle(
+    let _ = rt.block_on(nite_daemon::SyncWorker::run_sync_cycle(
         &conn,
         Some(&client),
     ));
 
-    if taurine_core::service::is_service_running() {
-        taurine_core::rpc::notify_daemon_reload();
+    if nite_core::service::is_service_running() {
+        nite_core::rpc::notify_daemon_reload();
     } else {
-        let settings = taurine_core::settings::SettingsManager::new(&conn).load_all();
-        let _ = taurine_core::service::up(settings.start_on_boot);
+        let settings = nite_core::settings::SettingsManager::new(&conn).load_all();
+        let _ = nite_core::service::up(settings.start_on_boot);
     }
 
-    let email = taurine_core::cloud::extract_jwt_email(&tokens.access_token)
+    let email = nite_core::cloud::extract_jwt_email(&tokens.access_token)
         .unwrap_or_else(|| tokens.user_id.clone());
 
     if json {
@@ -227,12 +228,12 @@ pub fn execute_login(
 pub fn execute_logout(force: bool, json: bool) -> Result<()> {
     // Stop the background service first so any in-memory quota deltas flush to SQLite
     // and all daemon database locks are released before we sync or purge.
-    if taurine_core::service::is_service_running() {
-        let _ = taurine_core::service::down();
+    if nite_core::service::is_service_running() {
+        let _ = nite_core::service::down();
     }
 
-    if let Ok(conn) = taurine_core::db::init::setup() {
-        let has_pending = taurine_core::db::crud::fetch_outbox_batch(&conn, 1)
+    if let Ok(conn) = nite_core::db::init::setup() {
+        let has_pending = nite_core::db::crud::fetch_outbox_batch(&conn, 1)
             .map(|pending| !pending.is_empty())
             .unwrap_or(false);
 
@@ -241,7 +242,7 @@ pub fn execute_logout(force: bool, json: bool) -> Result<()> {
                 .enable_all()
                 .build()
         {
-            let client = taurine_core::cloud::CloudClient::default_or_from_env();
+            let client = nite_core::cloud::CloudClient::default_or_from_env();
             for attempt in 1..=3 {
                 if !json {
                     println!("Flushing pending changes to the cloud (attempt {attempt}/3)...");
@@ -249,14 +250,14 @@ pub fn execute_logout(force: bool, json: bool) -> Result<()> {
                 let res = rt.block_on(async {
                     tokio::time::timeout(
                         std::time::Duration::from_secs(5),
-                        taurine_daemon::SyncWorker::run_sync_cycle(&conn, Some(&client)),
+                        nite_daemon::SyncWorker::run_sync_cycle(&conn, Some(&client)),
                     )
                     .await
                 });
 
                 match res {
-                    Ok(taurine_daemon::SyncStatus::Success { .. }) => {
-                        if let Ok(pending) = taurine_core::db::crud::fetch_outbox_batch(&conn, 1)
+                    Ok(nite_daemon::SyncStatus::Success { .. }) => {
+                        if let Ok(pending) = nite_core::db::crud::fetch_outbox_batch(&conn, 1)
                             && pending.is_empty()
                         {
                             if !json {
@@ -265,12 +266,12 @@ pub fn execute_logout(force: bool, json: bool) -> Result<()> {
                             break;
                         }
                     }
-                    Ok(taurine_daemon::SyncStatus::Error(err)) => {
+                    Ok(nite_daemon::SyncStatus::Error(err)) => {
                         if !json {
                             eprintln!("  Sync attempt {attempt}/3 failed: {err}");
                         }
                     }
-                    Ok(taurine_daemon::SyncStatus::NotAuthenticated) => {
+                    Ok(nite_daemon::SyncStatus::NotAuthenticated) => {
                         if !json {
                             eprintln!("  Sync attempt {attempt}/3 failed: not authenticated");
                         }
@@ -286,7 +287,7 @@ pub fn execute_logout(force: bool, json: bool) -> Result<()> {
         }
 
         // Verify if unsynced mutations still remain after flush attempts
-        let still_pending = taurine_core::db::crud::fetch_outbox_batch(&conn, 1)
+        let still_pending = nite_core::db::crud::fetch_outbox_batch(&conn, 1)
             .map(|pending| !pending.is_empty())
             .unwrap_or(false);
 
@@ -315,16 +316,16 @@ pub fn execute_logout(force: bool, json: bool) -> Result<()> {
                     return Ok(());
                 }
             } else {
-                return Err(taurine_core::Error::Config(
+                return Err(nite_core::Error::Config(
                     "Cannot log out: unsynced changes exist and could not be uploaded. Use --force to discard local data.".to_string(),
                 ));
             }
         }
     }
 
-    let _ = taurine_core::cloud::clear_vault_dek();
-    taurine_core::cloud::clear_tokens()?;
-    taurine_core::db::init::purge_local_database()?;
+    let _ = nite_core::cloud::clear_vault_dek();
+    nite_core::cloud::clear_tokens()?;
+    nite_core::db::init::purge_local_database()?;
 
     if json {
         println!("{}", serde_json::json!({ "status": "logged_out" }));
@@ -341,21 +342,21 @@ mod tests {
     #[test]
     #[ignore = "touches host browser (native_shell_open); opt-in with TAURINE_ALLOW_HOST_INPUT=1"]
     fn test_open_browser_live_url_invocation() {
-        if !taurine_daemon::platform::host_tests_allowed() {
+        if !nite_daemon::platform::host_tests_allowed() {
             return;
         }
-        let _ = taurine_core::cloud::open_browser(
+        let _ = nite_core::cloud::open_browser(
             "https://example.supabase.co/auth/v1/authorize?provider=google&code_challenge=test&redirect_to=http://127.0.0.1:8080",
         );
     }
 
     #[test]
     fn test_login_success_formatting_excludes_tier_and_uses_email() {
-        let email = "engineer@taurine.ai";
+        let email = "engineer@nite.ai";
         let user_id = "00000000-0000-0000-0000-000000000000";
 
         let text_output = format_login_success_text(email);
-        assert_eq!(text_output, "Successfully logged in as engineer@taurine.ai");
+        assert_eq!(text_output, "Successfully logged in as engineer@nite.ai");
         assert!(!text_output.contains("Tier"));
         assert!(!text_output.contains("tier"));
         assert!(!text_output.contains(user_id));
@@ -369,14 +370,14 @@ mod tests {
 
     #[test]
     fn test_already_logged_in_formatting() {
-        let email = "engineer@taurine.ai";
+        let email = "engineer@nite.ai";
         let user_id = "00000000-0000-0000-0000-000000000000";
 
         let (line1, line2) = format_already_logged_in_text(email);
-        assert_eq!(line1, "You are already logged into: engineer@taurine.ai");
+        assert_eq!(line1, "You are already logged into: engineer@nite.ai");
         assert_eq!(
             line2,
-            "Run 'taurine logout' first if you want to switch accounts."
+            "Run 'nite logout' first if you want to switch accounts."
         );
 
         let json_val = format_already_logged_in_json(email, user_id);
@@ -390,16 +391,16 @@ mod tests {
     fn test_login_session_guard_when_already_authenticated_with_email() {
         let _guard = crate::commands::TEST_LOCK.lock().unwrap();
         crate::commands::test_keyring::use_shared_test_keyring();
-        let _ = taurine_core::cloud::clear_tokens();
+        let _ = nite_core::cloud::clear_tokens();
 
-        let mock_tokens = taurine_core::cloud::AuthTokens {
+        let mock_tokens = nite_core::cloud::AuthTokens {
             access_token: "e30.eyJzdWIiOiJ1MSIsImVtYWlsIjoidXNlckBleGFtcGxlLmNvbSJ9.sig"
                 .to_string(),
             refresh_token: "mock-refresh".to_string(),
             user_id: "user-uuid-12345".to_string(),
             expires_at: Some(9999999999),
         };
-        taurine_core::cloud::store_tokens(&mock_tokens).expect("store tokens succeeds");
+        nite_core::cloud::store_tokens(&mock_tokens).expect("store tokens succeeds");
 
         // Plain text execution should hit session guard and return Ok(()) without network or browser
         let res_plain = execute_login(false, None, None, false);
@@ -415,22 +416,22 @@ mod tests {
             "execute_login json must return Ok when already logged in"
         );
 
-        let _ = taurine_core::cloud::clear_tokens();
+        let _ = nite_core::cloud::clear_tokens();
     }
 
     #[test]
     fn test_login_session_guard_fallback_when_token_has_no_email() {
         let _guard = crate::commands::TEST_LOCK.lock().unwrap();
         crate::commands::test_keyring::use_shared_test_keyring();
-        let _ = taurine_core::cloud::clear_tokens();
+        let _ = nite_core::cloud::clear_tokens();
 
-        let mock_tokens = taurine_core::cloud::AuthTokens {
+        let mock_tokens = nite_core::cloud::AuthTokens {
             access_token: "opaque-or-no-email-token".to_string(),
             refresh_token: "mock-refresh".to_string(),
             user_id: "user-fallback-uuid".to_string(),
             expires_at: Some(9999999999),
         };
-        taurine_core::cloud::store_tokens(&mock_tokens).expect("store tokens succeeds");
+        nite_core::cloud::store_tokens(&mock_tokens).expect("store tokens succeeds");
 
         let res = execute_login(true, None, None, false);
         assert!(
@@ -438,34 +439,34 @@ mod tests {
             "execute_login fallback to user_id must succeed"
         );
 
-        let _ = taurine_core::cloud::clear_tokens();
+        let _ = nite_core::cloud::clear_tokens();
     }
 
     #[test]
     fn test_execute_logout_requires_force_when_unsynced_mutations_remain() {
         let _guard = crate::commands::TEST_LOCK.lock().unwrap();
         crate::commands::test_keyring::use_shared_test_keyring();
-        let _ = taurine_core::cloud::clear_tokens();
-        let _ = taurine_core::cloud::clear_vault_dek();
+        let _ = nite_core::cloud::clear_tokens();
+        let _ = nite_core::cloud::clear_vault_dek();
 
         let temp = tempfile::tempdir().unwrap();
         // SAFETY: environment variable manipulation is serialized by TEST_LOCK
         unsafe {
-            std::env::set_var("TAURINE_DATA_DIR", temp.path());
-            std::env::set_var("TAURINE_SUPABASE_URL", "http://127.0.0.1:1");
+            std::env::set_var("NITE_DATA_DIR", temp.path());
+            std::env::set_var("NITE_SUPABASE_URL", "http://127.0.0.1:1");
         }
 
-        let mock_tokens = taurine_core::cloud::AuthTokens {
+        let mock_tokens = nite_core::cloud::AuthTokens {
             access_token: "mock-token-unsynced".to_string(),
             refresh_token: "mock-refresh".to_string(),
             user_id: "user-unsynced-test".to_string(),
             expires_at: Some(9999999999),
         };
-        taurine_core::cloud::store_tokens(&mock_tokens).expect("store tokens succeeds");
-        taurine_core::cloud::store_vault_dek(&[0x77u8; 32]).expect("store vault dek succeeds");
+        nite_core::cloud::store_tokens(&mock_tokens).expect("store tokens succeeds");
+        nite_core::cloud::store_vault_dek(&[0x77u8; 32]).expect("store vault dek succeeds");
 
-        let conn = taurine_core::db::init::setup().expect("setup succeeds");
-        taurine_core::db::crud::enqueue_outbox(
+        let conn = nite_core::db::init::setup().expect("setup succeeds");
+        nite_core::db::crud::enqueue_outbox(
             &conn,
             "snippet",
             "test_unsynced_id",
@@ -485,14 +486,14 @@ mod tests {
         );
 
         assert!(
-            taurine_core::cloud::get_tokens().unwrap().is_none(),
+            nite_core::cloud::get_tokens().unwrap().is_none(),
             "Tokens must be wiped after logout"
         );
         assert!(
-            taurine_core::cloud::get_vault_dek().unwrap().is_none(),
+            nite_core::cloud::get_vault_dek().unwrap().is_none(),
             "Vault DEK must be wiped after logout"
         );
-        let db_path = taurine_core::paths::get_db_path();
+        let db_path = nite_core::paths::get_db_path();
         assert!(
             !db_path.exists(),
             "Local database file must be wiped after logout"
@@ -500,8 +501,8 @@ mod tests {
 
         // SAFETY: environment variable manipulation is serialized by TEST_LOCK
         unsafe {
-            std::env::remove_var("TAURINE_DATA_DIR");
-            std::env::remove_var("TAURINE_SUPABASE_URL");
+            std::env::remove_var("NITE_DATA_DIR");
+            std::env::remove_var("NITE_SUPABASE_URL");
         }
     }
 
@@ -509,26 +510,26 @@ mod tests {
     fn test_execute_logout_succeeds_when_outbox_is_clean() {
         let _guard = crate::commands::TEST_LOCK.lock().unwrap();
         crate::commands::test_keyring::use_shared_test_keyring();
-        let _ = taurine_core::cloud::clear_tokens();
-        let _ = taurine_core::cloud::clear_vault_dek();
+        let _ = nite_core::cloud::clear_tokens();
+        let _ = nite_core::cloud::clear_vault_dek();
 
         let temp = tempfile::tempdir().unwrap();
         // SAFETY: environment variable manipulation is serialized by TEST_LOCK
         unsafe {
-            std::env::set_var("TAURINE_DATA_DIR", temp.path());
-            std::env::set_var("TAURINE_SUPABASE_URL", "http://127.0.0.1:1");
+            std::env::set_var("NITE_DATA_DIR", temp.path());
+            std::env::set_var("NITE_SUPABASE_URL", "http://127.0.0.1:1");
         }
 
-        let mock_tokens = taurine_core::cloud::AuthTokens {
+        let mock_tokens = nite_core::cloud::AuthTokens {
             access_token: "mock-token-clean".to_string(),
             refresh_token: "mock-refresh".to_string(),
             user_id: "user-clean-test".to_string(),
             expires_at: Some(9999999999),
         };
-        taurine_core::cloud::store_tokens(&mock_tokens).expect("store tokens succeeds");
-        taurine_core::cloud::store_vault_dek(&[0x88u8; 32]).expect("store vault dek succeeds");
+        nite_core::cloud::store_tokens(&mock_tokens).expect("store tokens succeeds");
+        nite_core::cloud::store_vault_dek(&[0x88u8; 32]).expect("store vault dek succeeds");
 
-        let conn = taurine_core::db::init::setup().expect("setup succeeds");
+        let conn = nite_core::db::init::setup().expect("setup succeeds");
         conn.execute(
             "INSERT INTO triggers (id, output, created_at, updated_at) VALUES ('trig-clean', 'clean output', 1000, 1000)",
             [],
@@ -540,14 +541,14 @@ mod tests {
         assert!(res.is_ok(), "execute_logout with clean outbox must succeed");
 
         assert!(
-            taurine_core::cloud::get_tokens().unwrap().is_none(),
+            nite_core::cloud::get_tokens().unwrap().is_none(),
             "Tokens must be wiped after logout"
         );
         assert!(
-            taurine_core::cloud::get_vault_dek().unwrap().is_none(),
+            nite_core::cloud::get_vault_dek().unwrap().is_none(),
             "Vault DEK must be wiped after logout"
         );
-        let db_path = taurine_core::paths::get_db_path();
+        let db_path = nite_core::paths::get_db_path();
         assert!(
             !db_path.exists(),
             "Local database must be wiped after logout"
@@ -555,8 +556,8 @@ mod tests {
 
         // SAFETY: environment variable manipulation is serialized by TEST_LOCK
         unsafe {
-            std::env::remove_var("TAURINE_DATA_DIR");
-            std::env::remove_var("TAURINE_SUPABASE_URL");
+            std::env::remove_var("NITE_DATA_DIR");
+            std::env::remove_var("NITE_SUPABASE_URL");
         }
     }
 
@@ -564,22 +565,22 @@ mod tests {
     fn test_e2e_offline_login_sync_logout_relogin_lifecycle() {
         let _guard = crate::commands::TEST_LOCK.lock().unwrap();
         crate::commands::test_keyring::use_shared_test_keyring();
-        let _ = taurine_core::cloud::clear_tokens();
-        let _ = taurine_core::cloud::clear_vault_dek();
+        let _ = nite_core::cloud::clear_tokens();
+        let _ = nite_core::cloud::clear_vault_dek();
 
         let temp = tempfile::tempdir().unwrap();
         // SAFETY: environment variable manipulation is serialized by TEST_LOCK
         unsafe {
-            std::env::set_var("TAURINE_DATA_DIR", temp.path());
-            std::env::set_var("TAURINE_SUPABASE_URL", "http://127.0.0.1:1");
+            std::env::set_var("NITE_DATA_DIR", temp.path());
+            std::env::set_var("NITE_SUPABASE_URL", "http://127.0.0.1:1");
         }
 
-        let conn = taurine_core::db::init::setup().expect("setup succeeds");
+        let conn = nite_core::db::init::setup().expect("setup succeeds");
 
         // 1. Create a local trigger offline
-        let _ = taurine_core::db::crud::add_trigger(
+        let _ = nite_core::db::crud::add_trigger(
             &conn,
-            "tau_offline",
+            "nite_offline",
             "Offline Expansion",
             "all",
             None,
@@ -588,7 +589,7 @@ mod tests {
         )
         .expect("add trigger succeeds");
 
-        let action = taurine_core::db::crud::get_action_by_trigger(&conn, "tau_offline")
+        let action = nite_core::db::crud::get_action_by_trigger(&conn, "nite_offline")
             .expect("lookup succeeds")
             .expect("action exists");
         assert_eq!(action.output, "Offline Expansion");
@@ -596,28 +597,28 @@ mod tests {
         // 2. Clear outbox to simulate legacy/untracked offline state, then verify backfill
         conn.execute("DELETE FROM sync_outbox", []).unwrap();
         assert!(
-            taurine_core::db::crud::fetch_outbox_batch(&conn, 10)
+            nite_core::db::crud::fetch_outbox_batch(&conn, 10)
                 .unwrap()
                 .is_empty()
         );
 
         let backfilled_count =
-            taurine_core::db::crud::backfill_untracked_triggers_to_outbox(&conn).unwrap();
+            nite_core::db::crud::backfill_untracked_triggers_to_outbox(&conn).unwrap();
         assert_eq!(backfilled_count, 1);
 
-        let pending_outbox = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+        let pending_outbox = nite_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
         assert_eq!(pending_outbox.len(), 1);
         assert_eq!(pending_outbox[0].entity_id, action.parent_id);
 
         // 3. Simulate authenticated session
-        let mock_tokens = taurine_core::cloud::AuthTokens {
+        let mock_tokens = nite_core::cloud::AuthTokens {
             access_token: "mock-e2e-token".to_string(),
             refresh_token: "mock-e2e-refresh".to_string(),
             user_id: "user-e2e-12345".to_string(),
             expires_at: Some(9999999999),
         };
-        taurine_core::cloud::store_tokens(&mock_tokens).expect("store tokens succeeds");
-        taurine_core::cloud::store_vault_dek(&[0x42u8; 32]).expect("store vault dek succeeds");
+        nite_core::cloud::store_tokens(&mock_tokens).expect("store tokens succeeds");
+        nite_core::cloud::store_vault_dek(&[0x42u8; 32]).expect("store vault dek succeeds");
         drop(conn);
 
         // 4. Execute logout without --force: aborts because unsynced mutations remain
@@ -632,27 +633,27 @@ mod tests {
         );
 
         assert!(
-            taurine_core::cloud::get_tokens().unwrap().is_none(),
+            nite_core::cloud::get_tokens().unwrap().is_none(),
             "Tokens must be wiped after logout"
         );
         assert!(
-            taurine_core::cloud::get_vault_dek().unwrap().is_none(),
+            nite_core::cloud::get_vault_dek().unwrap().is_none(),
             "Vault DEK must be wiped after logout"
         );
-        let db_path = taurine_core::paths::get_db_path();
+        let db_path = nite_core::paths::get_db_path();
         assert!(!db_path.exists(), "Local database must be purged on logout");
 
         // 5. Simulate re-login with another account: initializes fresh DB and syncs cloud records
-        let relogin_tokens = taurine_core::cloud::AuthTokens {
+        let relogin_tokens = nite_core::cloud::AuthTokens {
             access_token: "mock-e2e-token-2".to_string(),
             refresh_token: "mock-e2e-refresh-2".to_string(),
             user_id: "user-e2e-99999".to_string(),
             expires_at: Some(9999999999),
         };
-        taurine_core::cloud::store_tokens(&relogin_tokens).expect("store relogin tokens succeeds");
+        nite_core::cloud::store_tokens(&relogin_tokens).expect("store relogin tokens succeeds");
 
-        let fresh_conn = taurine_core::db::init::setup().expect("setup after relogin succeeds");
-        let remote_snippet = taurine_core::db::crud::CloudSnippetPayload {
+        let fresh_conn = nite_core::db::init::setup().expect("setup after relogin succeeds");
+        let remote_snippet = nite_core::db::crud::CloudSnippetPayload {
             user_id: Some("user-e2e-99999".to_string()),
             id: "remote_snippet_uuid".to_string(),
             workspace_id: "default".to_string(),
@@ -669,11 +670,11 @@ mod tests {
             is_deleted: false,
             updated_at: 1800000000,
             created_at: 1800000000,
-            aliases: vec![taurine_core::db::crud::TriggerAliasRow {
+            aliases: vec![nite_core::db::crud::TriggerAliasRow {
                 id: "alias_uuid_cloud".to_string(),
                 trigger_id: "remote_snippet_uuid".to_string(),
-                invocation: "tau_cloud".to_string(),
-                invocation_type: taurine_core::db::crud::InvocationType::Word,
+                invocation: "nite_cloud".to_string(),
+                invocation_type: nite_core::db::crud::InvocationType::Word,
                 require_confirmation: false,
                 strict_threshold: None,
                 created_at: 1800000000,
@@ -682,21 +683,21 @@ mod tests {
             assets: Vec::new(),
         };
         let outcome =
-            taurine_core::db::crud::reconcile_cloud_snippet(&fresh_conn, &remote_snippet).unwrap();
+            nite_core::db::crud::reconcile_cloud_snippet(&fresh_conn, &remote_snippet).unwrap();
         assert_eq!(
             outcome,
-            taurine_core::db::crud::ReconcileOutcome::InsertedRemote
+            nite_core::db::crud::ReconcileOutcome::InsertedRemote
         );
 
-        let cloud_action = taurine_core::db::crud::get_action_by_trigger(&fresh_conn, "tau_cloud")
+        let cloud_action = nite_core::db::crud::get_action_by_trigger(&fresh_conn, "nite_cloud")
             .unwrap()
             .unwrap();
         assert_eq!(cloud_action.output, "Cloud synced content");
 
         // SAFETY: environment variable manipulation is serialized by TEST_LOCK
         unsafe {
-            std::env::remove_var("TAURINE_DATA_DIR");
-            std::env::remove_var("TAURINE_SUPABASE_URL");
+            std::env::remove_var("NITE_DATA_DIR");
+            std::env::remove_var("NITE_SUPABASE_URL");
         }
     }
 }

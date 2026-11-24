@@ -195,12 +195,12 @@ mod tests {
     fn test_line_exists_in_rc_file() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(".testrc");
-        fs::write(&path, "alias tau='taurine'\n").unwrap();
+        fs::write(&path, "alias foo='bar'\n").unwrap();
 
         // Exact line match
-        assert!(line_exists_in_rc_file(&path, "alias tau='taurine'"));
+        assert!(line_exists_in_rc_file(&path, "alias foo='bar'"));
         // Substring alone should not match (matches whole lines)
-        assert!(!line_exists_in_rc_file(&path, "alias tau="));
+        assert!(!line_exists_in_rc_file(&path, "alias foo="));
     }
 
     #[test]
@@ -208,10 +208,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(".testrc");
         // The string appears only in a comment, not as an actual executable line
-        fs::write(&path, "# alias tau='taurine'\n").unwrap();
+        fs::write(&path, "# alias foo='bar'\n").unwrap();
 
         assert!(
-            !line_exists_in_rc_file(&path, "alias tau='taurine'"),
+            !line_exists_in_rc_file(&path, "alias foo='bar'"),
             "should not match a commented-out line"
         );
     }

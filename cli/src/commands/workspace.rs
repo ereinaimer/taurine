@@ -1,6 +1,6 @@
-use taurine_core::db::crud::{create_workspace, delete_workspace, get_workspaces};
-use taurine_core::db::init;
-use taurine_core::error::Result;
+use nite_core::db::crud::{create_workspace, delete_workspace, get_workspaces};
+use nite_core::db::init;
+use nite_core::error::Result;
 
 /// Lists all active workspaces.
 pub fn execute_list(json: bool) -> Result<()> {

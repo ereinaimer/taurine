@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
-use taurine_core::db::init;
-use taurine_core::exchange::{
+use nite_core::db::init;
+use nite_core::exchange::{
     ExchangePayload, ExistingTriggerConflict, ImportConflictAction, TriggerExport,
     decode_exchange_blob as decode_exchange_blob_core,
     import_payload_transactionally as import_payload_transactionally_core,
@@ -14,16 +14,14 @@ pub fn execute(
     path: Option<PathBuf>,
     conflict: Option<ImportConflictCli>,
     yes: bool,
-) -> taurine_core::error::Result<()> {
+) -> nite_core::error::Result<()> {
     let (resolved_path, resolved_conflict, overlay_password) = if !yes {
         let path_str = path.as_ref().map(|p| p.to_string_lossy().into_owned());
-        match taurine_tui::run_import_overlay(path_str.as_deref())? {
+        match nite_tui::run_import_overlay(path_str.as_deref())? {
             Some(result) => {
                 let conflict_cli = match result.conflict_mode {
-                    taurine_tui::LibraryImportConflictMode::Skip => ImportConflictCli::Skip,
-                    taurine_tui::LibraryImportConflictMode::Overwrite => {
-                        ImportConflictCli::Overwrite
-                    }
+                    nite_tui::LibraryImportConflictMode::Skip => ImportConflictCli::Skip,
+                    nite_tui::LibraryImportConflictMode::Overwrite => ImportConflictCli::Overwrite,
                 };
                 (result.path, Some(conflict_cli), result.password)
             }
@@ -31,13 +29,13 @@ pub fn execute(
         }
     } else {
         let path = path.ok_or_else(|| {
-            let diag = taurine_core::diagnostic::Diagnostic::problem(
+            let diag = nite_core::diagnostic::Diagnostic::problem(
                 "Missing file path for non-interactive import",
             )
             .help("Specify the file path to import triggers from:")
-            .example("taurine import ./backup.tau -y")
-            .example("taurine import ./backup.tau --conflict overwrite -y");
-            taurine_core::error::Error::Config(diag.render())
+            .example("nite import ./backup.nx -y")
+            .example("nite import ./backup.nx --conflict overwrite -y");
+            nite_core::error::Error::Config(diag.render())
         })?;
         (path, conflict, None)
     };
@@ -56,12 +54,12 @@ pub fn execute(
             if let Some(ref mut pw) = password {
                 pw.zeroize();
             }
-            let diag = taurine_core::diagnostic::Diagnostic::problem(
+            let diag = nite_core::diagnostic::Diagnostic::problem(
                 "Cannot import password-protected file in non-interactive mode",
             )
             .help("Run import without -y to enter the decryption password interactively:")
-            .example("taurine import ./backup.tau");
-            return Err(taurine_core::error::Error::Config(diag.render()));
+            .example("nite import ./backup.nx");
+            return Err(nite_core::error::Error::Config(diag.render()));
         }
         Err(err) => {
             if let Some(ref mut pw) = password {
@@ -78,7 +76,7 @@ pub fn execute(
     let imported = import_payload_transactionally(&mut conn, &payload, resolved_conflict)?;
 
     if imported > 0 {
-        taurine_core::rpc::notify_daemon_reload();
+        nite_core::rpc::notify_daemon_reload();
     }
 
     if imported == 0 {
@@ -101,8 +99,8 @@ fn import_payload_transactionally(
     conn: &mut rusqlite::Connection,
     payload: &ExchangePayload,
     conflict: Option<ImportConflictCli>,
-) -> taurine_core::error::Result<usize> {
-    let mut remembered_choice: Option<taurine_tui::RememberedConflictChoice> = None;
+) -> nite_core::error::Result<usize> {
+    let mut remembered_choice: Option<nite_tui::RememberedConflictChoice> = None;
     import_payload_transactionally_core(conn, payload, |incoming, existing| {
         resolve_conflict_action(incoming, existing, conflict, &mut remembered_choice)
     })
@@ -111,7 +109,7 @@ fn import_payload_transactionally(
 fn decode_exchange_blob(
     bytes: &[u8],
     password: Option<&str>,
-) -> taurine_core::error::Result<ExchangePayload> {
+) -> nite_core::error::Result<ExchangePayload> {
     decode_exchange_blob_core(bytes, password)
 }
 
@@ -119,8 +117,8 @@ fn resolve_conflict_action(
     incoming: &TriggerExport,
     existing: &ExistingTriggerConflict,
     conflict: Option<ImportConflictCli>,
-    remembered_choice: &mut Option<taurine_tui::RememberedConflictChoice>,
-) -> taurine_core::error::Result<ImportConflictAction> {
+    remembered_choice: &mut Option<nite_tui::RememberedConflictChoice>,
+) -> nite_core::error::Result<ImportConflictAction> {
     match conflict {
         Some(ImportConflictCli::Skip) => Ok(ImportConflictAction::Skip),
         Some(ImportConflictCli::Overwrite) => Ok(ImportConflictAction::Overwrite),
@@ -133,16 +131,16 @@ fn resolve_conflict_action(
 fn prompt_conflict_action(
     incoming: &TriggerExport,
     existing: &ExistingTriggerConflict,
-    remembered_choice: &mut Option<taurine_tui::RememberedConflictChoice>,
-) -> taurine_core::error::Result<ImportConflictAction> {
-    taurine_tui::run_conflict_prompt(incoming, existing, remembered_choice)
+    remembered_choice: &mut Option<nite_tui::RememberedConflictChoice>,
+) -> nite_core::error::Result<ImportConflictAction> {
+    nite_tui::run_conflict_prompt(incoming, existing, remembered_choice)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use taurine_core::db::crud::TriggerType;
-    use taurine_core::exchange::{ExchangePayload, crypto, serialize_payload};
+    use nite_core::db::crud::TriggerType;
+    use nite_core::exchange::{ExchangePayload, crypto, serialize_payload};
 
     fn sample_payload() -> ExchangePayload {
         ExchangePayload::new(vec![])
@@ -168,11 +166,11 @@ mod tests {
         ExistingTriggerConflict {
             id: "local-id".to_string(),
             description: None,
-            invocations: vec![taurine_core::db::crud::TriggerAliasRow {
+            invocations: vec![nite_core::db::crud::TriggerAliasRow {
                 id: "alias-1".to_string(),
                 trigger_id: "local-id".to_string(),
                 invocation: "gm".to_string(),
-                invocation_type: taurine_core::db::crud::InvocationType::Word,
+                invocation_type: nite_core::db::crud::InvocationType::Word,
                 require_confirmation: false,
                 strict_threshold: None,
                 created_at: 0,
@@ -189,7 +187,7 @@ mod tests {
 
     #[test]
     fn decode_exchange_blob_routes_passwordless_without_password() {
-        let blob = taurine_core::exchange::encode_exchange_blob(&sample_payload(), None).unwrap();
+        let blob = nite_core::exchange::encode_exchange_blob(&sample_payload(), None).unwrap();
         let payload = decode_exchange_blob(&blob, None).unwrap();
 
         assert_eq!(payload, sample_payload());
@@ -231,24 +229,20 @@ mod tests {
         let _guard = crate::commands::TEST_LOCK.lock().unwrap();
         let dir = tempfile::tempdir().expect("temp dir");
         // SAFETY: Test runs under TEST_LOCK and temporary dir is cleaned up.
-        unsafe { std::env::set_var("TAURINE_DATA_DIR", dir.path()) };
-        let target = dir.path().join("locked.tau");
+        unsafe { std::env::set_var("NITE_DATA_DIR", dir.path()) };
+        let target = dir.path().join("locked.nx");
         let blob =
-            taurine_core::exchange::encode_exchange_blob(&sample_payload(), Some("hunter22"))
-                .unwrap();
+            nite_core::exchange::encode_exchange_blob(&sample_payload(), Some("hunter22")).unwrap();
         std::fs::write(&target, &blob).unwrap();
 
         let result = execute(Some(target), None, true);
 
         // SAFETY: Test runs under TEST_LOCK to restore process environment safely.
-        unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
+        unsafe { std::env::remove_var("NITE_DATA_DIR") };
 
         let err = result.unwrap_err().to_string();
         assert!(err.contains("non-interactive mode"), "Error was: {err}");
-        assert!(
-            err.contains("taurine import ./backup.tau"),
-            "Error was: {err}"
-        );
+        assert!(err.contains("nite import ./backup.nx"), "Error was: {err}");
         assert!(!err.contains('`'), "Must not contain backticks: {err}");
         assert!(!err.contains('\''), "Must not contain single quotes: {err}");
     }
@@ -266,7 +260,7 @@ mod tests {
             "Error was: {err}"
         );
         assert!(
-            err.contains("taurine import ./backup.tau -y"),
+            err.contains("nite import ./backup.nx -y"),
             "Error was: {err}"
         );
         assert!(!err.contains('`'), "Must not contain backticks: {err}");

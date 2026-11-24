@@ -5,9 +5,9 @@ use clap::{Parser, Subcommand, ValueEnum};
 
 pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Taurine Command Line Interface
+/// Nite Command Line Interface
 #[derive(Parser, Debug)]
-#[command(name = "taurine", version = env!("CARGO_PKG_VERSION"), disable_version_flag = true)]
+#[command(name = "nite", version = env!("CARGO_PKG_VERSION"), disable_version_flag = true)]
 #[command(about = "Text expander")]
 pub struct Cli {
     /// Increase console verbosity
@@ -52,20 +52,20 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum Commands {
-    /// Start Taurine
+    /// Start Nite
     #[command(alias = "start")]
     Up,
-    /// Stop Taurine
+    /// Stop Nite
     #[command(alias = "stop")]
     Down,
-    /// Restart Taurine
+    /// Restart Nite
     #[command(alias = "reboot")]
     Restart,
-    /// Update Taurine
+    /// Update Nite
     Update,
-    /// Check Taurine status
+    /// Check Nite status
     Status,
-    /// Log in to Taurine
+    /// Log in to Nite
     #[command(alias = "signin")]
     Login {
         /// Do not open the browser automatically; print URL and prompt for code
@@ -80,7 +80,7 @@ pub(crate) enum Commands {
         #[arg(long)]
         email: Option<String>,
     },
-    /// Log out from Taurine
+    /// Log out from Nite
     #[command(alias = "signout")]
     Logout {
         /// Force logout even if there are unsynced changes that will be lost
@@ -306,7 +306,7 @@ impl AiProvider {
     }
 }
 
-impl From<AiProvider> for taurine_core::ai::AiProvider {
+impl From<AiProvider> for nite_core::ai::AiProvider {
     fn from(value: AiProvider) -> Self {
         match value {
             AiProvider::Openai => Self::Openai,
@@ -448,12 +448,12 @@ pub enum TargetOsCli {
 impl TargetOsCli {
     pub fn to_db_str(&self) -> Option<&'static str> {
         match self {
-            Self::Windows => Some(taurine_core::db::TargetOs::Windows.to_db_str()),
-            Self::Macos => Some(taurine_core::db::TargetOs::MacOs.to_db_str()),
-            Self::Linux => Some(taurine_core::db::TargetOs::Linux.to_db_str()),
-            Self::All => Some(taurine_core::db::TargetOs::All.to_db_str()),
-            Self::Android => Some(taurine_core::db::TargetOs::Android.to_db_str()),
-            Self::Ios => Some(taurine_core::db::TargetOs::Ios.to_db_str()),
+            Self::Windows => Some(nite_core::db::TargetOs::Windows.to_db_str()),
+            Self::Macos => Some(nite_core::db::TargetOs::MacOs.to_db_str()),
+            Self::Linux => Some(nite_core::db::TargetOs::Linux.to_db_str()),
+            Self::All => Some(nite_core::db::TargetOs::All.to_db_str()),
+            Self::Android => Some(nite_core::db::TargetOs::Android.to_db_str()),
+            Self::Ios => Some(nite_core::db::TargetOs::Ios.to_db_str()),
             Self::Current => None,
         }
     }
@@ -468,7 +468,7 @@ pub enum ScriptInterpreterCli {
     Cmd,
 }
 
-impl From<ScriptInterpreterCli> for taurine_core::engine::shell::ScriptInterpreter {
+impl From<ScriptInterpreterCli> for nite_core::engine::shell::ScriptInterpreter {
     fn from(val: ScriptInterpreterCli) -> Self {
         match val {
             ScriptInterpreterCli::Bash => Self::Bash,
@@ -486,7 +486,7 @@ pub enum ScriptBehaviorCli {
     Silent,
 }
 
-impl From<ScriptBehaviorCli> for taurine_core::engine::shell::ScriptBehavior {
+impl From<ScriptBehaviorCli> for nite_core::engine::shell::ScriptBehavior {
     fn from(val: ScriptBehaviorCli) -> Self {
         match val {
             ScriptBehaviorCli::Inline => Self::Inline,

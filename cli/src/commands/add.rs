@@ -1,16 +1,16 @@
 use crate::args::AddArgs;
-use taurine_core::db::crud::{
+use nite_core::db::crud::{
     AddOutcome, InvocationType, NewEntry, TriggerAliasRow, TriggerType, app_filters_overlap,
     audit_payload_tags_with_trigger_type, find_parent_by_invocation, get_trigger,
     target_os_values_overlap, upsert_entry_full,
 };
-use taurine_core::db::init;
+use nite_core::db::init;
 use tracing::info;
 
 /// Maximum invocations (word + typed) per add command (§0.14).
 const MAX_INVOCATIONS: usize = 20;
 
-pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()> {
+pub fn execute_args(args: AddArgs, json: bool) -> nite_core::error::Result<()> {
     if args.sub.is_some() {
         return crate::commands::script::execute_args(args, json);
     }
@@ -18,20 +18,20 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
     let typed_total = args.hotkey.len() + args.regex.len() + args.voice.len();
     let (words, output) = match args.positional.len() {
         0 => {
-            let diag = taurine_core::diagnostic::Diagnostic::problem(
+            let diag = nite_core::diagnostic::Diagnostic::problem(
                 "Missing trigger and replacement output",
             )
             .help("Specify both the trigger and the replacement output, or add a script trigger:")
-            .example("taurine add :brb Be right back!")
-            .example("taurine add script ./greet.sh :greet --lang bash");
-            return Err(taurine_core::Error::Config(diag.render()));
+            .example("nite add :brb Be right back!")
+            .example("nite add script ./greet.sh :greet --lang bash");
+            return Err(nite_core::Error::Config(diag.render()));
         }
         1 if typed_total == 0 => {
-            let diag = taurine_core::diagnostic::Diagnostic::problem("no trigger specified")
+            let diag = nite_core::diagnostic::Diagnostic::problem("no trigger specified")
                 .help("Specify at least one trigger plus the replacement output:")
-                .example("taurine add :brb Be right back!")
-                .example("taurine add --hotkey ctrl+h Be right back!");
-            return Err(taurine_core::Error::Config(diag.render()));
+                .example("nite add :brb Be right back!")
+                .example("nite add --hotkey ctrl+h Be right back!");
+            return Err(nite_core::Error::Config(diag.render()));
         }
         n => (
             args.positional[..n - 1].to_vec(),
@@ -62,7 +62,7 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
             .map(|v| (InvocationType::Voice, v, false)),
     );
     if invocations.len() > MAX_INVOCATIONS {
-        return Err(taurine_core::Error::Config(format!(
+        return Err(nite_core::Error::Config(format!(
             "Too many invocations ({}); maximum is {} per add",
             invocations.len(),
             MAX_INVOCATIONS
@@ -74,7 +74,7 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
         .os
         .to_db_str()
         .map(|s| s.to_string())
-        .unwrap_or_else(|| taurine_core::db::get_current_os_db_string().to_string());
+        .unwrap_or_else(|| nite_core::db::get_current_os_db_string().to_string());
 
     // Single audit + output validation, keyed on the first word invocation
     // (first invocation of any type when there are no words). Runs before any
@@ -93,7 +93,7 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
         .find(|(t, _, _)| *t == InvocationType::Word)
         .or_else(|| invocations.first())
         .map(|(_, s, _)| s.as_str());
-    taurine_core::engine::variables::system::validate_output(&output, first)?;
+    nite_core::engine::variables::system::validate_output(&output, first)?;
 
     // R2: an upsert onto an existing entry reuses its description/tags
     // for flags the user did not pass; new entries default to None/'[]'.
@@ -107,18 +107,18 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
     let description = args.description.or(reuse_description);
     let tags_json = match args.tag {
         Some(tags) => {
-            serde_json::to_string(&tags).map_err(|e| taurine_core::Error::Config(e.to_string()))?
+            serde_json::to_string(&tags).map_err(|e| nite_core::Error::Config(e.to_string()))?
         }
         None => reuse_tags,
     };
 
     let target_ws = if let Some(ref ws_name) = args.workspace {
-        let workspaces = taurine_core::db::crud::get_workspaces(&conn)?;
+        let workspaces = nite_core::db::crud::get_workspaces(&conn)?;
         let found = workspaces
             .iter()
             .find(|w| w.id == *ws_name || w.name.eq_ignore_ascii_case(ws_name))
             .ok_or_else(|| {
-                taurine_core::Error::NotFound(format!("Workspace '{ws_name}' not found"))
+                nite_core::Error::NotFound(format!("Workspace '{ws_name}' not found"))
             })?;
         Some(found.id.clone())
     } else {
@@ -152,7 +152,7 @@ pub fn execute_args(args: AddArgs, json: bool) -> taurine_core::error::Result<()
                     )
                     .is_ok()
                 {
-                    let _ = taurine_core::db::crud::triggers::enqueue_trigger_outbox(
+                    let _ = nite_core::db::crud::triggers::enqueue_trigger_outbox(
                         &conn, &pid, "upsert",
                     );
                 }
@@ -181,7 +181,7 @@ pub fn execute(
     use_hotkey: bool,
     include_apps: Option<String>,
     exclude_apps: Option<String>,
-) -> taurine_core::error::Result<()> {
+) -> nite_core::error::Result<()> {
     let invocation_type = if use_hotkey {
         InvocationType::Hotkey
     } else {
@@ -195,7 +195,7 @@ pub fn execute(
     let conn = init::setup()?;
     let invocations = vec![(invocation_type, trigger.clone(), false)];
     audit_payload_tags_with_trigger_type(&output, trigger_type)?;
-    taurine_core::engine::variables::system::validate_output(&output, Some(&trigger))?;
+    nite_core::engine::variables::system::validate_output(&output, Some(&trigger))?;
     let (description, tags_json) = existing_entry_defaults(
         &conn,
         &invocations,
@@ -243,7 +243,7 @@ pub(crate) fn existing_entry_defaults(
     target_os: &str,
     only_apps: Option<&str>,
     except_apps: Option<&str>,
-) -> taurine_core::error::Result<(Option<String>, String)> {
+) -> nite_core::error::Result<(Option<String>, String)> {
     for (invocation_type, invocation, _) in invocations {
         let Some(pid) = find_parent_by_invocation(conn, *invocation_type, invocation)? else {
             continue;
@@ -311,7 +311,7 @@ fn report_outcome(
             let log_msg =
                 format_trigger_log("Added", display, None, os, include_apps, exclude_apps);
             info!("{}", log_msg);
-            taurine_core::rpc::notify_daemon_reload();
+            nite_core::rpc::notify_daemon_reload();
             if json {
                 println!(
                     "{}",
@@ -340,7 +340,7 @@ fn report_outcome(
             let log_msg =
                 format_trigger_log("Updated", display, None, os, include_apps, exclude_apps);
             info!("{}", log_msg);
-            taurine_core::rpc::notify_daemon_reload();
+            nite_core::rpc::notify_daemon_reload();
             if json {
                 println!(
                     "{}",
@@ -355,8 +355,8 @@ fn report_outcome(
 mod tests {
     use super::*;
     use crate::args::TargetOsCli;
-    use taurine_core::db::crud::{count_aliases, list_aliases};
-    use taurine_core::logs::init_tracing_for_tests;
+    use nite_core::db::crud::{count_aliases, list_aliases};
+    use nite_core::logs::init_tracing_for_tests;
 
     struct TestDbEnvGuard {
         _dir: tempfile::TempDir,
@@ -365,14 +365,14 @@ mod tests {
     impl TestDbEnvGuard {
         fn new() -> Self {
             let dir = tempfile::tempdir().expect("temp dir");
-            unsafe { std::env::set_var("TAURINE_DATA_DIR", dir.path()) };
+            unsafe { std::env::set_var("NITE_DATA_DIR", dir.path()) };
             Self { _dir: dir }
         }
 
         fn db_path(&self) -> String {
             self._dir
                 .path()
-                .join("taurine.db")
+                .join("nite.db")
                 .to_string_lossy()
                 .to_string()
         }
@@ -380,7 +380,7 @@ mod tests {
 
     impl Drop for TestDbEnvGuard {
         fn drop(&mut self) {
-            unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
+            unsafe { std::env::remove_var("NITE_DATA_DIR") };
         }
     }
 
@@ -394,7 +394,7 @@ mod tests {
 
     fn open_keyed_db(db_path: &str) -> rusqlite::Connection {
         crate::commands::test_keyring::use_shared_test_keyring();
-        taurine_core::db::key::open_keyed_connection(std::path::Path::new(db_path)).unwrap()
+        nite_core::db::key::open_keyed_connection(std::path::Path::new(db_path)).unwrap()
     }
 
     fn add_args(
@@ -960,9 +960,8 @@ mod tests {
         init_tracing_for_tests();
 
         with_test_db(|_db_path| {
-            let conn = taurine_core::db::init::setup().unwrap();
-            let ws =
-                taurine_core::db::crud::workspaces::create_workspace(&conn, "ws_test").unwrap();
+            let conn = nite_core::db::init::setup().unwrap();
+            let ws = nite_core::db::crud::workspaces::create_workspace(&conn, "ws_test").unwrap();
 
             let mut args = add_args(vec![":test", "replacement output"], vec![], vec![], vec![]);
             args.workspace = Some("ws_test".to_string());
@@ -972,7 +971,7 @@ mod tests {
             let row = get_trigger(&conn, &pid).unwrap().unwrap();
             assert_eq!(row.workspace_id, ws.id);
 
-            let outbox = taurine_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+            let outbox = nite_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
             assert!(
                 outbox
                     .iter()

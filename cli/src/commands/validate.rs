@@ -1,9 +1,9 @@
 #[cfg(test)]
-use taurine_core::db::crud::TriggerType;
-pub use taurine_core::db::crud::{
+use nite_core::db::crud::TriggerType;
+pub use nite_core::db::crud::{
     PreparedTrigger, audit_payload_tags, audit_payload_tags_with_trigger_type, prepare_trigger,
 };
-use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
+use nite_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 
 pub fn format_trigger_log(
     action: &str,
@@ -226,7 +226,7 @@ mod tests {
     }
 
     #[test]
-    fn prepare_trigger_rejects_taurine_pause_hotkey_only() {
+    fn prepare_trigger_rejects_nite_pause_hotkey_only() {
         let error = prepare_trigger("alt+`", true, "all").unwrap_err();
         assert!(error.to_string().contains("global pause hotkey"));
 
@@ -287,7 +287,7 @@ mod tests {
         assert!(audit_payload_tags("Escaped brackets: \\[$arg=\"ignored\"\\] | Literal pipe: [$arg='default value' \\| case(upper)] | Parsed pipe: [$arg='hello' | case(upper)]").is_ok());
         assert!(audit_payload_tags("Local: [date] [time] | UTC +1w: [date +1w utc \"'Today is' dddd, MMMM D, YYYY\"] | UTC Time -2h: [time -2h hh:mm A utc] | Cased AM/PM: [time A | case(lower)]").is_ok());
         assert!(audit_payload_tags("User (Title Case): [env USERNAME | case(title)] | Home Path (Lowercase): [env USERPROFILE | case(lower)]").is_ok());
-        assert!(audit_payload_tags("Full Content: [file read \"~/taurine_test.txt\" | strip(whitespace)] | Line 2: [file line \"~/taurine_test.txt\" 2 | case(upper)] | Lines 1-3: [file lines \"~/taurine_test.txt\" 1 3]").is_ok());
+        assert!(audit_payload_tags("Full Content: [file read \"~/nite_test.txt\" | strip(whitespace)] | Line 2: [file line \"~/nite_test.txt\" 2 | case(upper)] | Lines 1-3: [file lines \"~/nite_test.txt\" 1 3]").is_ok());
         assert!(audit_payload_tags("Latest (Slugified): [clip | case(slug)] | Second: [clip | strip(whitespace)] | Third (Upper): [clip 1 | case(upper)] | Empty index: [clip 2 | wrap(singlequote)]").is_ok());
         assert!(audit_payload_tags("Cwd Path: [run \"(Get-Location).Path\" | strip(whitespace)] | Cmd Command: [run \"echo hello from cmd\" | case(upper)] | Silent Task: [run silent \"echo 'background task'\"]").is_ok());
         assert!(audit_payload_tags("Status: [run \"curl -s https://httpbin.org/status/200\"] | UA: [run \"curl -s https://httpbin.org/headers\" | json('headers.User-Agent') | truncate(15)]").is_ok());
@@ -311,7 +311,7 @@ mod tests {
 
     #[test]
     fn test_format_trigger_log_sentences() {
-        use taurine_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
+        use nite_core::engine::shell::{ScriptBehavior, ScriptInterpreter};
 
         // Text trigger tests
         assert_eq!(
@@ -376,7 +376,7 @@ mod tests {
 
     #[test]
     fn test_script_payload_lax_validation() {
-        use taurine_core::db::crud::audit_script_payload_tags;
+        use nite_core::db::crud::audit_script_payload_tags;
 
         // Validating PowerShell script payload with type literals using audit_script_payload_tags should pass
         let powershell_script = r#"Add-Type -Assembly System.Windows.Forms; [System.Windows.Forms.Application]::SetSuspendState("Suspend", $false, $false)"#;

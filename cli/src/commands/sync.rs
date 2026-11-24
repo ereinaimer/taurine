@@ -1,29 +1,29 @@
 // Licensed under the Aimer Software License (ASL).
 // See LICENSE for details.
 
-use taurine_core::error::Result;
+use nite_core::error::Result;
 
 pub fn execute_sync(json: bool) -> Result<()> {
     // Check authentication
-    let tokens_opt = taurine_core::cloud::get_tokens().ok().flatten();
+    let tokens_opt = nite_core::cloud::get_tokens().ok().flatten();
     if tokens_opt.is_none() {
         if json {
             println!(
                 "{}",
                 serde_json::json!({
                     "success": false,
-                    "error": "Please log in to use Taurine. Run 'taurine login' to continue."
+                    "error": "Please log in to use Nite. Run 'nite login' to continue."
                 })
             );
         } else {
-            eprintln!("Please log in to use Taurine. Run 'taurine login' to continue.");
+            eprintln!("Please log in to use Nite. Run 'nite login' to continue.");
         }
         return Ok(());
     }
 
     // If daemon is running, call RPC for centralized coordinator
-    if taurine_core::service::is_service_running() {
-        match taurine_core::rpc::request_daemon_sync() {
+    if nite_core::service::is_service_running() {
+        match nite_core::rpc::request_daemon_sync() {
             Ok(resp) => {
                 if json {
                     println!(
@@ -68,16 +68,16 @@ pub fn execute_sync(json: bool) -> Result<()> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
-    let conn = taurine_core::db::init::setup()?;
-    let client = taurine_core::cloud::CloudClient::default_or_from_env();
+    let conn = nite_core::db::init::setup()?;
+    let client = nite_core::cloud::CloudClient::default_or_from_env();
 
-    let outcome = rt.block_on(taurine_daemon::SyncWorker::run_sync_cycle(
+    let outcome = rt.block_on(nite_daemon::SyncWorker::run_sync_cycle(
         &conn,
         Some(&client),
     ));
 
     match outcome {
-        taurine_daemon::SyncStatus::Success {
+        nite_daemon::SyncStatus::Success {
             pulled_snippets,
             pushed_snippets,
             pulled_settings,
@@ -107,17 +107,17 @@ pub fn execute_sync(json: bool) -> Result<()> {
                 );
             }
         }
-        taurine_daemon::SyncStatus::NotAuthenticated => {
+        nite_daemon::SyncStatus::NotAuthenticated => {
             if json {
                 println!(
                     "{}",
                     serde_json::json!({ "success": false, "error": "Not authenticated" })
                 );
             } else {
-                eprintln!("You are not logged in. Run taurine login to continue.");
+                eprintln!("You are not logged in. Run nite login to continue.");
             }
         }
-        taurine_daemon::SyncStatus::Error(err) => {
+        nite_daemon::SyncStatus::Error(err) => {
             if json {
                 println!("{}", serde_json::json!({ "success": false, "error": err }));
             } else {
