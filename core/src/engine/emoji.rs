@@ -1,4 +1,41 @@
+static SHORTCODE_INDEX: std::sync::OnceLock<Vec<(String, String)>> = std::sync::OnceLock::new();
+
+fn build_shortcode_index() -> Vec<(String, String)> {
+    let mut idx = Vec::new();
+    for emoji in emojis::iter() {
+        for shortcode in emoji.shortcodes() {
+            idx.push((
+                shortcode.to_lowercase().replace('_', "-"),
+                emoji.to_string(),
+            ));
+        }
+    }
+    idx
+}
+
+pub fn warm_emoji_caches() {
+    let _ = SHORTCODE_INDEX.get_or_init(build_shortcode_index);
+    let _ = &*EXACT_NL_EMOJI_CACHE; // forces LazyLock init via deref
+}
+
 pub fn search_emoji_shortcodes(query: &str) -> Vec<String> {
+    if query.is_empty() {
+        return Vec::new();
+    }
+    let normalized = query.replace('_', "-");
+    let mut matches = Vec::new();
+    for (hyphen_shortcode, _) in SHORTCODE_INDEX.get_or_init(build_shortcode_index) {
+        if hyphen_shortcode.starts_with(&normalized) {
+            matches.push(hyphen_shortcode.clone());
+        }
+    }
+    matches.sort();
+    matches.dedup();
+    matches
+}
+
+#[cfg(test)]
+fn search_emoji_shortcodes_uncached(query: &str) -> Vec<String> {
     if query.is_empty() {
         return Vec::new();
     }
@@ -284,6 +321,16 @@ fn search_natural_language_emojis_uncached(normalized_query: &str) -> Vec<String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shortcode_index_matches_table_scan() {
+        warm_emoji_caches();
+        for probe in ["smile", "THUMBS-UP", "a", "zzz_no_such", "thumbs_up"] {
+            let via_index = search_emoji_shortcodes(probe);
+            let via_scan = search_emoji_shortcodes_uncached(probe);
+            assert_eq!(via_index, via_scan, "probe: {probe}");
+        }
+    }
 
     #[test]
     fn test_search_and_lookup() {

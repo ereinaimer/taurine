@@ -420,7 +420,10 @@ pub fn start() -> taurine_core::error::Result<()> {
                             let warm_state = state_for_bg.clone();
                             std::thread::Builder::new()
                                 .name("tau-regex-warm".to_string())
-                                .spawn(move || warm_state.regex_catalog.warm())
+                                .spawn(move || {
+                                    warm_state.regex_catalog.warm();
+                                    taurine_core::engine::emoji::warm_emoji_caches();
+                                })
                                 .ok();
                         }
                     }
