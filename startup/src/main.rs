@@ -9,12 +9,12 @@ use winreg::RegKey;
 use winreg::enums::HKEY_CURRENT_USER;
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
-const BOOT_REG_KEY: &str = r"Software\Taurine";
+const BOOT_REG_KEY: &str = r"Software\Nite";
 const BOOT_VALUE: &str = "StartupExe";
 
 /// Reads a DEV-only environment override. Release builds ignore it, so the
 /// logon launcher always targets the fixed install location.
-/// Mirrors `taurine_core::paths::dev_env_var` — this crate is standalone and
+/// Mirrors `nite_core::paths::dev_env_var` — this crate is standalone and
 /// cannot depend on core, keep the two in sync.
 fn dev_env_var(name: &str) -> Option<String> {
     #[cfg(debug_assertions)]
@@ -28,7 +28,7 @@ fn dev_env_var(name: &str) -> Option<String> {
     }
 }
 
-/// Path recorded by the last `taurine up`: the exact binary to boot.
+/// Path recorded by the last `nite up`: the exact binary to boot.
 /// Returns `None` when unset or pointing at a file that no longer exists,
 /// so callers fall back to the fixed install location.
 fn read_boot_target() -> Option<PathBuf> {
@@ -71,15 +71,15 @@ fn log_boot_event(data_dir: &Path, msg: &str) -> () {
 fn main() {
     // Single fixed install location. Mirrors `get_install_exe_path` in
     // core/src/system/paths.rs (duplicated: this crate cannot depend on core).
-    let data_dir: PathBuf = match dev_env_var("TAURINE_DATA_DIR") {
+    let data_dir: PathBuf = match dev_env_var("NITE_DATA_DIR") {
         Some(dir) => dir.into(),
         None => match env::var("LOCALAPPDATA") {
-            Ok(local) => PathBuf::from(local).join("Taurine"),
+            Ok(local) => PathBuf::from(local).join("Nite"),
             Err(_) => return,
         },
     };
 
-    let fallback = data_dir.join("bin").join("taurine.exe");
+    let fallback = data_dir.join("bin").join("nite.exe");
     let candidates = candidates_with(read_boot_target(), fallback);
     for target in candidates {
         log_boot_event(&data_dir, &format!("attempt: {}", target.display()));
@@ -123,7 +123,7 @@ mod tests {
 
     #[test]
     fn candidates_prefer_live_pin_else_fallback() {
-        let dir = TestDir::new("taurine_startup_candidates_test");
+        let dir = TestDir::new("nite_startup_candidates_test");
         let live = dir.path.join("live.exe");
         std::fs::write(&live, b"x").expect("live pin must be written");
         let missing = dir.path.join("missing.exe");
@@ -138,7 +138,7 @@ mod tests {
 
     #[test]
     fn boot_event_logged_to_file() {
-        let dir = TestDir::new("taurine_startup_boot_log_test");
+        let dir = TestDir::new("nite_startup_boot_log_test");
 
         let _: () = log_boot_event(&dir.path, "hello-boot");
 

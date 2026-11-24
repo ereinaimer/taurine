@@ -1,5 +1,5 @@
 [package]
-name = "taurine-startup"
+name = "nite-startup"
 version = "1.0.0-alpha.2"
 edition = "2024"
 authors = ["ereinaimer"]
