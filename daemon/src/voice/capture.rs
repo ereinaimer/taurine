@@ -81,7 +81,7 @@ impl AudioFrameBuffer {
     /// Drain and return all stored samples.
     pub fn drain(&self) -> Vec<f32> {
         let mut lock = self.samples.lock().unwrap_or_else(|p| p.into_inner());
-        std::mem::take(&mut *lock)
+        std::mem::replace(&mut *lock, Vec::with_capacity(32000))
     }
 
     /// Clear all stored samples and cleanly discard the recovery journal.
@@ -314,11 +314,18 @@ struct RubatoResamplerState {
     fifo: Vec<f32>,
 }
 
+struct CaptureScratch {
+    mono: Vec<f32>,
+    stage: Vec<f32>,
+    out: Vec<f32>,
+}
+
 /// Helper to downmix multi-channel audio to mono and resample to 16kHz with anti-aliasing.
 pub struct Resampler16k {
     input_sample_rate: u32,
     channels: u16,
     rubato: Option<Mutex<RubatoResamplerState>>,
+    scratch: Mutex<CaptureScratch>,
     high_pass: Mutex<HighPassFilter80Hz>,
 }
 
@@ -334,7 +341,7 @@ impl std::fmt::Debug for Resampler16k {
 
 impl Resampler16k {
     pub fn new(input_sample_rate: u32, channels: u16) -> Self {
-        let rubato = if input_sample_rate != 16000 && input_sample_rate > 0 {
+        let (rubato, scratch) = if input_sample_rate != 16000 && input_sample_rate > 0 {
             match rubato::Fft::<f32>::new_custom(
                 input_sample_rate as usize,
                 16000,
@@ -344,25 +351,51 @@ impl Resampler16k {
                 rubato::WindowFunction::BlackmanHarris2,
                 rubato::FixedSync::Input,
             ) {
-                Ok(r) => Some(Mutex::new(RubatoResamplerState {
-                    resampler: r,
-                    fifo: Vec::with_capacity(4096),
-                })),
+                Ok(r) => {
+                    use rubato::Resampler;
+                    let needed = r.input_frames_next();
+                    let max_out = r.output_frames_max();
+                    let scratch = CaptureScratch {
+                        mono: Vec::with_capacity(4096),
+                        stage: vec![0.0; needed],
+                        out: vec![0.0; max_out],
+                    };
+                    let state = RubatoResamplerState {
+                        resampler: r,
+                        fifo: Vec::with_capacity(4096),
+                    };
+                    (Some(Mutex::new(state)), Mutex::new(scratch))
+                }
                 Err(e) => {
                     warn!(
                         "Failed to initialize Rubato band-limited resampler for {input_sample_rate}Hz: {e}; falling back to linear"
                     );
-                    None
+                    (
+                        None,
+                        Mutex::new(CaptureScratch {
+                            mono: Vec::with_capacity(4096),
+                            stage: Vec::new(),
+                            out: Vec::new(),
+                        }),
+                    )
                 }
             }
         } else {
-            None
+            (
+                None,
+                Mutex::new(CaptureScratch {
+                    mono: Vec::with_capacity(4096),
+                    stage: Vec::new(),
+                    out: Vec::new(),
+                }),
+            )
         };
 
         Self {
             input_sample_rate,
             channels: channels.max(1),
             rubato,
+            scratch,
             high_pass: Mutex::new(HighPassFilter80Hz::new()),
         }
     }
@@ -376,53 +409,94 @@ impl Resampler16k {
             return Vec::new();
         }
 
+        let mut scratch = self.scratch.lock().unwrap_or_else(|p| p.into_inner());
         let ch = self.channels as usize;
+
         // Step 1: Downmix to mono by averaging channels
-        let mono: Vec<f32> = if ch == 1 {
-            interleaved_samples.to_vec()
+        scratch.mono.clear();
+        if ch == 1 {
+            scratch.mono.extend_from_slice(interleaved_samples);
         } else {
-            interleaved_samples
-                .chunks(ch)
-                .map(|frame| frame.iter().sum::<f32>() / ch as f32)
-                .collect()
-        };
+            scratch.mono.reserve(interleaved_samples.len() / ch);
+            for frame in interleaved_samples.chunks(ch) {
+                scratch.mono.push(frame.iter().sum::<f32>() / ch as f32);
+            }
+        }
 
         // Step 2: Resample to 16kHz with band-limited sinc/FFT anti-aliasing
         let mut out = if self.input_sample_rate == 16000 {
-            mono
-        } else if let Some(ref state_mutex) = self.rubato {
-            if let Ok(mut state) = state_mutex.lock() {
-                use rubato::Resampler;
-                state.fifo.extend_from_slice(&mono);
-                let needed = state.resampler.input_frames_next();
-                let mut resampled_chunks = Vec::new();
-                while state.fifo.len() >= needed {
-                    let chunk: Vec<f32> = state.fifo.drain(..needed).collect();
-                    let input_buf =
-                        match rubato::audioadapter_buffers::owned::InterleavedOwned::new_from(
-                            chunk, 1, needed,
-                        ) {
-                            Ok(buf) => buf,
-                            Err(e) => {
-                                warn!("Rubato input buffer error: {e}");
-                                break;
-                            }
-                        };
-                    match state.resampler.process(&input_buf, None) {
-                        Ok(output_buf) => {
-                            resampled_chunks.extend(output_buf.take_data());
-                        }
+            let out = scratch.mono.clone();
+            drop(scratch);
+            out
+        } else if let Some(ref state_mutex) = self.rubato
+            && let Ok(mut state) = state_mutex.lock()
+        {
+            use rubato::Resampler;
+            let mono_len = scratch.mono.len();
+            state.fifo.extend_from_slice(&scratch.mono);
+            let needed = state.resampler.input_frames_next();
+            let max_out = state.resampler.output_frames_max();
+            let CaptureScratch {
+                stage,
+                out: resamp_out,
+                ..
+            } = &mut *scratch;
+            if stage.len() < needed {
+                stage.resize(needed, 0.0);
+            }
+            if resamp_out.len() < max_out {
+                resamp_out.resize(max_out, 0.0);
+            }
+
+            let rate = self.input_sample_rate.max(1) as usize;
+            let estimated_out = (mono_len * 16000 / rate) + max_out;
+            let mut resampled_chunks = Vec::with_capacity(estimated_out);
+
+            while state.fifo.len() >= needed {
+                stage[..needed].copy_from_slice(&state.fifo[..needed]);
+                drop(state.fifo.drain(..needed));
+
+                let in_buf = match rubato::audioadapter_buffers::direct::InterleavedSlice::new(
+                    &stage[..needed],
+                    1,
+                    needed,
+                ) {
+                    Ok(buf) => buf,
+                    Err(e) => {
+                        warn!("Rubato input buffer error: {e}");
+                        break;
+                    }
+                };
+                let mut out_buf =
+                    match rubato::audioadapter_buffers::direct::InterleavedSlice::new_mut(
+                        &mut resamp_out[..max_out],
+                        1,
+                        max_out,
+                    ) {
+                        Ok(buf) => buf,
                         Err(e) => {
-                            warn!("Rubato resampling error: {e}");
+                            warn!("Rubato output buffer error: {e}");
                             break;
                         }
+                    };
+                match state
+                    .resampler
+                    .process_into_buffer(&in_buf, &mut out_buf, None)
+                {
+                    Ok((_in_frames, out_frames)) => {
+                        resampled_chunks.extend_from_slice(&resamp_out[..out_frames]);
+                    }
+                    Err(e) => {
+                        warn!("Rubato resampling error: {e}");
+                        break;
                     }
                 }
-                resampled_chunks
-            } else {
-                resample_linear(&mono, self.input_sample_rate, 16000)
             }
+            drop(scratch);
+            resampled_chunks
         } else {
+            let mono = scratch.mono.clone();
+            drop(scratch);
             resample_linear(&mono, self.input_sample_rate, 16000)
         };
 
@@ -446,6 +520,11 @@ impl Resampler16k {
             use rubato::Resampler;
             state.fifo.clear();
             state.resampler.reset();
+        }
+        if let Ok(mut scratch) = self.scratch.lock() {
+            scratch.mono.clear();
+            scratch.stage.fill(0.0);
+            scratch.out.fill(0.0);
         }
     }
 }
@@ -1039,12 +1118,14 @@ impl AudioCapture {
             cpal::SampleFormat::I16 => {
                 let resampler_clone = resampler.clone();
                 let buf_clone = buffer_clone.clone();
+                let mut f32_scratch = Vec::with_capacity(4096);
                 device.build_input_stream(
                     config.into(),
                     move |data: &[i16], _: &cpal::InputCallbackInfo| {
-                        let f32_samples: Vec<f32> =
-                            data.iter().map(|&s| s as f32 / 32768.0).collect();
-                        let resampled = resampler_clone.process(&f32_samples);
+                        f32_scratch.clear();
+                        f32_scratch.reserve(data.len());
+                        f32_scratch.extend(data.iter().map(|&s| s as f32 / 32768.0));
+                        let resampled = resampler_clone.process(&f32_scratch);
                         buf_clone.push_samples(&resampled);
                     },
                     err_fn,
@@ -1054,14 +1135,14 @@ impl AudioCapture {
             cpal::SampleFormat::U16 => {
                 let resampler_clone = resampler.clone();
                 let buf_clone = buffer_clone.clone();
+                let mut f32_scratch = Vec::with_capacity(4096);
                 device.build_input_stream(
                     config.into(),
                     move |data: &[u16], _: &cpal::InputCallbackInfo| {
-                        let f32_samples: Vec<f32> = data
-                            .iter()
-                            .map(|&s| (s as f32 - 32768.0) / 32768.0)
-                            .collect();
-                        let resampled = resampler_clone.process(&f32_samples);
+                        f32_scratch.clear();
+                        f32_scratch.reserve(data.len());
+                        f32_scratch.extend(data.iter().map(|&s| (s as f32 - 32768.0) / 32768.0));
+                        let resampled = resampler_clone.process(&f32_scratch);
                         buf_clone.push_samples(&resampled);
                     },
                     err_fn,
@@ -1159,6 +1240,14 @@ mod tests {
         let remaining = buffer.drain();
         assert_eq!(remaining.len(), 512);
         assert!(buffer.is_empty());
+        assert!(
+            buffer
+                .samples
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .capacity()
+                >= 32000
+        );
     }
 
     #[test]
@@ -1248,6 +1337,85 @@ mod tests {
             "len was {}",
             output.len()
         );
+    }
+
+    #[test]
+    fn test_resampler_process_equivalence_deterministic() {
+        // Equivalence test at 44100 Hz (band-limited sinc/FFT resampler)
+        let sample_rate = 44100.0f32;
+        let total_samples = 44100;
+        let mut input_44k = Vec::with_capacity(total_samples);
+        for i in 0..total_samples {
+            let t = i as f32 / sample_rate;
+            let sig = (2.0 * std::f32::consts::PI * 440.0 * t).sin()
+                + 0.5 * (2.0 * std::f32::consts::PI * 1200.0 * t).sin();
+            input_44k.push(sig);
+        }
+
+        let resampler_44k_a = Resampler16k::new(44100, 1);
+        let resampler_44k_b = Resampler16k::new(44100, 1);
+
+        let mut out_44k_a = Vec::new();
+        let mut out_44k_b = Vec::new();
+        for chunk in input_44k.chunks(441) {
+            out_44k_a.extend(resampler_44k_a.process(chunk));
+            out_44k_b.extend(resampler_44k_b.process(chunk));
+        }
+
+        assert_eq!(out_44k_a.len(), out_44k_b.len());
+        assert!(
+            out_44k_a.len() >= 15000 && out_44k_a.len() <= 17000,
+            "44.1k->16k output length was {}",
+            out_44k_a.len()
+        );
+        assert_eq!(
+            out_44k_a, out_44k_b,
+            "deterministic 44.1k runs must yield identical sample values"
+        );
+
+        // Verify reset_filter produces identical output on repeat
+        resampler_44k_a.reset_filter();
+        let mut out_44k_reset = Vec::new();
+        for chunk in input_44k.chunks(441) {
+            out_44k_reset.extend(resampler_44k_a.process(chunk));
+        }
+        assert_eq!(out_44k_reset.len(), out_44k_a.len());
+        assert_eq!(out_44k_reset, out_44k_a);
+
+        // Equivalence test at 16000 Hz (passthrough + high-pass path)
+        let total_samples_16k = 16000;
+        let mut input_16k = Vec::with_capacity(total_samples_16k);
+        for i in 0..total_samples_16k {
+            let t = i as f32 / 16000.0;
+            let sig = (2.0 * std::f32::consts::PI * 300.0 * t).sin()
+                + 0.5 * (2.0 * std::f32::consts::PI * 800.0 * t).sin();
+            input_16k.push(sig);
+        }
+
+        let resampler_16k_a = Resampler16k::new(16000, 1);
+        let resampler_16k_b = Resampler16k::new(16000, 1);
+
+        let mut out_16k_a = Vec::new();
+        let mut out_16k_b = Vec::new();
+        for chunk in input_16k.chunks(320) {
+            out_16k_a.extend(resampler_16k_a.process(chunk));
+            out_16k_b.extend(resampler_16k_b.process(chunk));
+        }
+
+        assert_eq!(out_16k_a.len(), 16000);
+        assert_eq!(out_16k_b.len(), 16000);
+        assert_eq!(
+            out_16k_a, out_16k_b,
+            "deterministic 16k runs must yield identical sample values"
+        );
+
+        resampler_16k_a.reset_filter();
+        let mut out_16k_reset = Vec::new();
+        for chunk in input_16k.chunks(320) {
+            out_16k_reset.extend(resampler_16k_a.process(chunk));
+        }
+        assert_eq!(out_16k_reset.len(), 16000);
+        assert_eq!(out_16k_reset, out_16k_a);
     }
 
     fn sine_wave(freq_hz: f32, amplitude: f32, len: usize) -> Vec<f32> {
