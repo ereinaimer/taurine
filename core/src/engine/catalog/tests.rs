@@ -655,7 +655,7 @@ fn keystroke_path_uses_use_cache_until_reload() {
         fn drop(&mut self) {
             // SAFETY: Serialized via TEST_LOCK; paired with the set_var at entry.
             unsafe {
-                std::env::remove_var("TAURINE_DATA_DIR");
+                std::env::remove_var("NITE_DATA_DIR");
             }
         }
     }
@@ -666,7 +666,7 @@ fn keystroke_path_uses_use_cache_until_reload() {
     let (_dir, _conn) = crate::testing::open_test_db();
     let _env_guard = DataDirGuard;
     unsafe {
-        std::env::set_var("TAURINE_DATA_DIR", _dir.path());
+        std::env::set_var("NITE_DATA_DIR", _dir.path());
     }
     crate::engine::variables::interpolate::clear_use_cache();
 

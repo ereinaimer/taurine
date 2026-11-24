@@ -213,7 +213,7 @@ mod tests {
         fn drop(&mut self) {
             // SAFETY: Serialized via TEST_LOCK; paired with the set_var at entry.
             unsafe {
-                std::env::remove_var("TAURINE_DATA_DIR");
+                std::env::remove_var("NITE_DATA_DIR");
             }
         }
     }
@@ -416,7 +416,7 @@ mod tests {
 
         let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
         // SAFETY: Serialized via TEST_LOCK for test isolation.
-        unsafe { std::env::set_var("TAURINE_DATA_DIR", tmp.path().to_str().unwrap()) };
+        unsafe { std::env::set_var("NITE_DATA_DIR", tmp.path().to_str().unwrap()) };
         let _env_guard = EnvGuard;
 
         let conn = get_conn().expect("get_conn must succeed");
@@ -516,7 +516,7 @@ mod tests {
         let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
         let test_dir = tmp.path().to_path_buf();
 
-        unsafe { std::env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
+        unsafe { std::env::set_var("NITE_DATA_DIR", test_dir.to_str().unwrap()) };
 
         // Calling get_conn() should initialize the DB and ensure permissions
         let conn = get_conn();
@@ -540,6 +540,6 @@ mod tests {
         }
 
         // Cleanup (tmp dir auto-removed on drop)
-        unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
+        unsafe { std::env::remove_var("NITE_DATA_DIR") };
     }
 }

@@ -595,7 +595,7 @@ mod tests {
             .unwrap_or_else(|e| e.into_inner());
         crate::logs::init_tracing_for_tests();
         let test_dir = std::env::temp_dir().join("taurine_exe_lifecycle_test");
-        unsafe { std::env::set_var("TAURINE_DATA_DIR", test_dir.to_str().unwrap()) };
+        unsafe { std::env::set_var("NITE_DATA_DIR", test_dir.to_str().unwrap()) };
 
         let exe_path = crate::paths::get_startup_exe_path();
 
@@ -609,7 +609,7 @@ mod tests {
         assert!(!exe_path.exists());
 
         let _ = std::fs::remove_dir_all(&test_dir);
-        unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
+        unsafe { std::env::remove_var("NITE_DATA_DIR") };
     }
 
     #[test]
@@ -677,9 +677,9 @@ mod tests {
             .unwrap_or_else(|e| e.into_inner());
         crate::logs::init_tracing_for_tests();
         let temp = tempfile::tempdir().expect("tempdir must be created");
-        let prev = std::env::var("TAURINE_DATA_DIR").ok();
+        let prev = std::env::var("NITE_DATA_DIR").ok();
         // SAFETY: Serialized via TEST_LOCK for test isolation.
-        unsafe { std::env::set_var("TAURINE_DATA_DIR", temp.path()) };
+        unsafe { std::env::set_var("NITE_DATA_DIR", temp.path()) };
 
         struct EnvGuard(Option<String>);
         impl Drop for EnvGuard {
@@ -687,8 +687,8 @@ mod tests {
                 // SAFETY: Serialized via TEST_LOCK for test isolation.
                 unsafe {
                     match &self.0 {
-                        Some(v) => std::env::set_var("TAURINE_DATA_DIR", v),
-                        None => std::env::remove_var("TAURINE_DATA_DIR"),
+                        Some(v) => std::env::set_var("NITE_DATA_DIR", v),
+                        None => std::env::remove_var("NITE_DATA_DIR"),
                     }
                 }
             }

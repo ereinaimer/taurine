@@ -145,7 +145,7 @@ mod tests {
 
         let temp = tempdir().unwrap();
         // SAFETY: Setting environment variable for test directory isolation.
-        unsafe { std::env::set_var("TAURINE_DATA_DIR", temp.path().to_str().unwrap()) };
+        unsafe { std::env::set_var("NITE_DATA_DIR", temp.path().to_str().unwrap()) };
 
         let dict_dir = temp.path().join("dict");
         std::fs::create_dir_all(&dict_dir).unwrap();
@@ -192,7 +192,7 @@ mod tests {
         let res = lookup_offline("qualtagh");
         assert!(res.is_none());
 
-        unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
+        unsafe { std::env::remove_var("NITE_DATA_DIR") };
     }
 
     #[test]
@@ -203,7 +203,7 @@ mod tests {
 
         let temp = tempdir().unwrap();
         // SAFETY: Setting environment variable for test directory isolation under TEST_LOCK.
-        unsafe { std::env::set_var("TAURINE_DATA_DIR", temp.path().to_str().unwrap()) };
+        unsafe { std::env::set_var("NITE_DATA_DIR", temp.path().to_str().unwrap()) };
 
         let dict_dir = temp.path().join("dict");
         std::fs::create_dir_all(&dict_dir).unwrap();
@@ -264,6 +264,6 @@ mod tests {
 
         close_cached_connection();
         // SAFETY: Cleaning up environment variable under TEST_LOCK.
-        unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
+        unsafe { std::env::remove_var("NITE_DATA_DIR") };
     }
 }

@@ -741,8 +741,8 @@ mod tests {
         let _guard = lock();
         use_mock_keyring();
         let temp_dir = TempDir::new().expect("temp dir");
-        // SAFETY: access to TAURINE_DATA_DIR is serialized by TEST_LOCK
-        unsafe { std::env::set_var("TAURINE_DATA_DIR", temp_dir.path()) };
+        // SAFETY: access to NITE_DATA_DIR is serialized by TEST_LOCK
+        unsafe { std::env::set_var("NITE_DATA_DIR", temp_dir.path()) };
 
         let conn = setup().expect("setup succeeds");
         conn.execute(
@@ -764,7 +764,7 @@ mod tests {
             assert_eq!(count, 0);
         }
 
-        // SAFETY: access to TAURINE_DATA_DIR is serialized by TEST_LOCK
-        unsafe { std::env::remove_var("TAURINE_DATA_DIR") };
+        // SAFETY: access to NITE_DATA_DIR is serialized by TEST_LOCK
+        unsafe { std::env::remove_var("NITE_DATA_DIR") };
     }
 }

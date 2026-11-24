@@ -555,7 +555,7 @@ mod compatibility_finalize_tests {
                 // SAFETY: Serialized via TEST_LOCK; paired with the set_var at entry.
                 // Drop-based so a mid-test panic cannot leak the override.
                 unsafe {
-                    std::env::remove_var("TAURINE_DATA_DIR");
+                    std::env::remove_var("NITE_DATA_DIR");
                 }
             }
         }
@@ -566,7 +566,7 @@ mod compatibility_finalize_tests {
         let (_dir, _conn) = crate::testing::open_test_db();
         let _env_guard = DataDirGuard;
         unsafe {
-            std::env::set_var("TAURINE_DATA_DIR", _dir.path());
+            std::env::set_var("NITE_DATA_DIR", _dir.path());
         }
 
         // Test Case 1: testvars
@@ -1055,7 +1055,7 @@ fn use_placeholder_cache_matches_db_and_refreshes_after_clear() {
         fn drop(&mut self) {
             // SAFETY: Serialized via TEST_LOCK; paired with the set_var at entry.
             unsafe {
-                std::env::remove_var("TAURINE_DATA_DIR");
+                std::env::remove_var("NITE_DATA_DIR");
             }
         }
     }
@@ -1066,7 +1066,7 @@ fn use_placeholder_cache_matches_db_and_refreshes_after_clear() {
     let (_dir, _conn) = crate::testing::open_test_db();
     let _env_guard = DataDirGuard;
     unsafe {
-        std::env::set_var("TAURINE_DATA_DIR", _dir.path());
+        std::env::set_var("NITE_DATA_DIR", _dir.path());
     }
     crate::engine::variables::interpolate::clear_use_cache();
 
@@ -1138,7 +1138,7 @@ fn use_cache_late_inner_snippet_resolves_after_it_appears() {
         fn drop(&mut self) {
             // SAFETY: Serialized via TEST_LOCK; paired with the set_var at entry.
             unsafe {
-                std::env::remove_var("TAURINE_DATA_DIR");
+                std::env::remove_var("NITE_DATA_DIR");
             }
         }
     }
@@ -1149,7 +1149,7 @@ fn use_cache_late_inner_snippet_resolves_after_it_appears() {
     let (_dir, _conn) = crate::testing::open_test_db();
     let _env_guard = DataDirGuard;
     unsafe {
-        std::env::set_var("TAURINE_DATA_DIR", _dir.path());
+        std::env::set_var("NITE_DATA_DIR", _dir.path());
     }
     crate::engine::variables::interpolate::clear_use_cache();
 
@@ -1218,7 +1218,7 @@ fn use_cache_keeps_args_live_on_cache_hits() {
         fn drop(&mut self) {
             // SAFETY: Serialized via TEST_LOCK; paired with the set_var at entry.
             unsafe {
-                std::env::remove_var("TAURINE_DATA_DIR");
+                std::env::remove_var("NITE_DATA_DIR");
             }
         }
     }
@@ -1229,7 +1229,7 @@ fn use_cache_keeps_args_live_on_cache_hits() {
     let (_dir, _conn) = crate::testing::open_test_db();
     let _env_guard = DataDirGuard;
     unsafe {
-        std::env::set_var("TAURINE_DATA_DIR", _dir.path());
+        std::env::set_var("NITE_DATA_DIR", _dir.path());
     }
     crate::engine::variables::interpolate::clear_use_cache();
 

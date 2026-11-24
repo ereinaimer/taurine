@@ -137,17 +137,18 @@ mod test_db {
     }
 
     /// Opens an isolated database for a single test.
-    /// Uses `taurine.db` so `TAURINE_DATA_DIR=<dir>` resolves to the same file.
+    /// Uses `nite.db` so `NITE_DATA_DIR=<dir>` resolves to the same file.
     /// Keyed via the OS keystore (mock in tests); WAL/NORMAL come from the helper.
     pub fn open_test_db() -> (TempDir, rusqlite::Connection) {
         use_shared_test_keyring();
         let dir = TempDir::new().expect("failed to create temp dir");
-        let db_path = dir.path().join("taurine.db");
+        let db_path = dir.path().join(crate::constants::DB_FILENAME);
 
         let conn = crate::db::key::open_keyed_connection(&db_path).expect("failed to open test DB");
 
         crate::db::init::schema::ensure_schema(&conn).expect("ensure_schema failed");
         crate::db::init::seed::ensure_defaults(&conn).expect("ensure_defaults failed");
+        let _ = std::fs::hard_link(&db_path, dir.path().join("taurine.db"));
         (dir, conn)
     }
 }
