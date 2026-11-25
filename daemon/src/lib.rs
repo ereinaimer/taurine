@@ -478,13 +478,13 @@ pub fn start() -> nite_core::error::Result<()> {
             });
         })?;
 
-    // 8. Background Cloud Two-Way Sync Worker (syncs every 60s with event notifications)
+    // 8. Background Cloud Two-Way Sync Worker (event-driven sync with Realtime listener)
     let sync_notify = std::sync::Arc::new(tokio::sync::Notify::new());
     let _sync_thread = SyncWorker::spawn_event_driven(
         crate::services::sync_worker::pooled_conn_provider(),
-        std::time::Duration::from_secs(60),
         sync_notify.clone(),
     );
+    let _realtime_thread = crate::services::realtime::spawn_realtime_listener(sync_notify.clone());
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)

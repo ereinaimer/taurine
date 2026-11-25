@@ -46,6 +46,7 @@ reqwest = { workspace = true }
 cpal = "0.18"
 rubato = "5.0"
 arc-swap = "1.7"
+tokio-tungstenite = { version = "0.26", default-features = false, features = ["rustls-tls-webpki-roots", "connect"] }
 
 
 

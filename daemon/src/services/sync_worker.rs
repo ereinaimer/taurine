@@ -247,7 +247,6 @@ impl SyncWorker {
     /// Spawns a background thread running event-driven sync cycles with micro-debouncing and cooldown.
     pub fn spawn_event_driven(
         conn_provider: ConnProvider,
-        fallback_interval: Duration,
         notify: std::sync::Arc<tokio::sync::Notify>,
     ) -> std::thread::JoinHandle<()> {
         std::thread::Builder::new()
@@ -264,15 +263,12 @@ impl SyncWorker {
                     }
                 };
                 rt.block_on(async move {
-                    let mut fallback_ticker = tokio::time::interval(fallback_interval);
-                    fallback_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
                     let client = CloudClient::default_or_from_env();
                     let mut last_sync = std::time::Instant::now() - Duration::from_secs(60);
                     let mut consecutive_network_errors: u32 = 0;
                     const DEBOUNCE_MS: u64 = 300;
 
-                    // Initial tick on boot
-                    fallback_ticker.tick().await;
+                    // Initial sync on boot
                     if let Ok(conn) = conn_provider() {
                         let status = Self::run_sync_cycle(&conn, Some(&client)).await;
                         last_sync = std::time::Instant::now();
@@ -280,24 +276,16 @@ impl SyncWorker {
                     }
 
                     loop {
-                        tokio::select! {
-                            _ = fallback_ticker.tick() => {
-                                tracing::debug!("Fallback periodic sync check triggered");
-                            }
-                            _ = notify.notified() => {
-                                tracing::debug!("Event-driven sync notification received; debouncing...");
-                                tokio::time::sleep(Duration::from_millis(DEBOUNCE_MS)).await;
-                            }
-                        }
+                        notify.notified().await;
+                        tracing::debug!("Event-driven sync notification received; debouncing...");
+                        tokio::time::sleep(Duration::from_millis(DEBOUNCE_MS)).await;
 
                         // Cooldown / progressive backoff guard to avoid spamming cloud API
                         let current_backoff =
                             Self::network_backoff_duration(consecutive_network_errors);
                         if last_sync.elapsed() < current_backoff {
-                            tokio::time::sleep(
-                                current_backoff.saturating_sub(last_sync.elapsed()),
-                            )
-                            .await;
+                            tokio::time::sleep(current_backoff.saturating_sub(last_sync.elapsed()))
+                                .await;
                         }
 
                         match conn_provider() {

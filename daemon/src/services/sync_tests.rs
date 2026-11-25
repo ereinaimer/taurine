@@ -2183,12 +2183,8 @@ async fn test_event_driven_sync_worker_wakes_on_notification() {
             .map_err(nite_core::error::Error::Database)
     });
 
-    // Spawn event-driven worker with a 600s fallback interval (10 minutes)
-    let _worker_handle = SyncWorker::spawn_event_driven(
-        conn_provider,
-        std::time::Duration::from_secs(600),
-        notify.clone(),
-    );
+    // Spawn event-driven worker
+    let _worker_handle = SyncWorker::spawn_event_driven(conn_provider, notify.clone());
 
     // Wait until boot cycle completes (cycle 0)
     let boot_wait_start = std::time::Instant::now();
@@ -2373,11 +2369,7 @@ async fn test_event_driven_sync_pull_when_outbox_clean_within_cooldown() {
             .map_err(nite_core::error::Error::Database)
     });
 
-    let _worker_handle = SyncWorker::spawn_event_driven(
-        conn_provider,
-        std::time::Duration::from_secs(60),
-        notify.clone(),
-    );
+    let _worker_handle = SyncWorker::spawn_event_driven(conn_provider, notify.clone());
 
     // Wait until boot cycle completes (cycle 0)
     let boot_wait_start = std::time::Instant::now();
