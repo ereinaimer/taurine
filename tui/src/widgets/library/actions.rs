@@ -215,8 +215,9 @@ pub(crate) fn write_clipboard(text: &str) {
 
 impl PendingLibraryEdit {
     /// Renaming an invocation changes what the expander matches, so the
-    /// daemon reloads. Descriptions never reach the expander, so no
-    /// daemon reload. Content changes reload so expansion picks them up.
+    /// daemon reloads. Content changes reload so expansion picks them up.
+    /// Description and tag edits also notify daemon reload so sync_notify
+    /// is signaled to auto-sync cloud changes.
     pub(crate) fn apply(&self) -> nite_core::Result<()> {
         let conn = nite_core::db::init::setup()?;
         match &self.field {
@@ -235,6 +236,7 @@ impl PendingLibraryEdit {
                     &self.trigger_id,
                     description.as_deref(),
                 )?;
+                nite_core::rpc::notify_daemon_reload();
             }
             EditedField::Content(body) => {
                 nite_core::db::crud::set_trigger_content(&conn, &self.trigger_id, body)?;
@@ -287,9 +289,10 @@ impl PendingLibraryEdit {
                 nite_core::db::crud::set_trigger_target_os(&conn, &self.trigger_id, target_os)?;
                 nite_core::rpc::notify_daemon_reload();
             }
-            // honey: tags never reach the expander, so no daemon reload.
+            // honey: daemon reload also signals sync_notify to auto-sync cloud changes.
             EditedField::Tags(tags) => {
                 nite_core::db::crud::set_trigger_tags(&conn, &self.trigger_id, tags)?;
+                nite_core::rpc::notify_daemon_reload();
             }
             // honey: app filters gate expansion, so the daemon reloads.
             EditedField::OnlyApps(apps) => {

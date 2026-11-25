@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Sync Responsiveness**: Synchronize trigger description and tag updates immediately and tune auto-sync poll interval to 60 seconds.
 - **Cloud Sync for Trigger Edits**: Local trigger modifications (content, description, tags, status, and shortcuts) now reliably sync to the cloud.
 - **Voice Dictation Post-Processing**: Eliminate speech stutters, false starts, and filler words by polishing transcripts into structured paragraphs and lists.
 - **Zero-Configuration Multilingual Voice Dictation**: Automatically detect spoken languages natively without translation or manual configuration.
