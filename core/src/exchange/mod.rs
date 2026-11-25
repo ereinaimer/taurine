@@ -12,14 +12,13 @@ use serde::{Deserialize, Serialize};
 pub use crypto::{MIN_EXPORT_PASSWORD_LEN, validate_export_password};
 pub use export::{
     default_export_filename, default_export_path, encode_exchange_blob, ensure_nx_extension,
-    ensure_tau_extension, export_triggers, resolve_export_path, write_export_file,
+    export_triggers, resolve_export_path, write_export_file,
 };
 pub use import::{
     ExistingTriggerConflict, ImportConflictAction, import_payload_transactionally, import_triggers,
 };
 
 pub const NITE_MAGIC: [u8; 4] = *b"NITE";
-pub const TAU_MAGIC: [u8; 4] = NITE_MAGIC;
 pub const EXCHANGE_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -283,7 +282,7 @@ mod tests {
     }
 
     #[test]
-    fn tau_blob_round_trips_without_password() {
+    fn nx_blob_round_trips_without_password() {
         let payload = ExchangePayload::new(vec![TriggerExport {
             description: None,
             trigger_type: TriggerType::Word,

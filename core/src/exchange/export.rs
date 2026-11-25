@@ -101,8 +101,6 @@ pub fn ensure_nx_extension(mut path: PathBuf) -> PathBuf {
     path
 }
 
-pub use ensure_nx_extension as ensure_tau_extension;
-
 pub fn encode_exchange_blob(
     payload: &ExchangePayload,
     password: Option<&str>,

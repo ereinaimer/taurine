@@ -132,7 +132,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Multiple triggers per entry**: fire the same text or script from several word triggers, hotkeys, regex patterns, or voice phrases, managed as one grouped entry.
 
 ### Changed
-- **Always-Encrypted Exports**: Remove the `--plain` export option so `.nite` files are always encrypted, with an optional password for a second lock.
+- **Always-Encrypted Exports**: Remove the `--plain` export option so `.nx` files are always encrypted, with an optional password for a second lock.
 - **Machine-Bound Database Encryption**: The local database is now encrypted with a per-computer key and copies of the database file no longer open on other computers; move data between machines with encrypted exports.
 - **Simpler fill-in fields**: Write `[name=default]` and fill values inline with `;` (e.g. `hi;Erein`); missing values use defaults, `;;` skips a field.
 - **Semicolon argument separator**: Separate arguments with `;` instead of `:` so times and URLs no longer need quoting.
@@ -605,4 +605,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Inline Math**: Calculate mathematical expressions directly in any text field (`>5+3`)
 - **Inline AI**: Stream AI responses directly into the active text field using backticks
 - **CLI & TUI**: Manage automations visually via a Terminal UI or directly from the command line
-- **Import & Export**: Backup and share automations using the `.nite` file format
+- **Import & Export**: Backup and share automations using the `.nx` file format

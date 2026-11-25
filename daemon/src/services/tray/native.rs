@@ -46,7 +46,7 @@ fn initialize_windows_ui() {
 }
 
 #[cfg(target_os = "windows")]
-const TRAY_SUBCLASS_ID: usize = 0x544155; // "TAU"
+const TRAY_SUBCLASS_ID: usize = 0x4E49_5445; // "NITE"
 #[cfg(target_os = "windows")]
 const SNOOZE_TIMER_ID: usize = 0x534E5A; // "SNZ"
 

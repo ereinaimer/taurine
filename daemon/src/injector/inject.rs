@@ -232,7 +232,7 @@ fn inject_image_segment_with_gen(
         _ => "png",
     };
 
-    let temp_path = match nite_core::system::paths::write_temp_file("tau_img", ext, bytes) {
+    let temp_path = match nite_core::system::paths::write_temp_file("nite_img", ext, bytes) {
         Ok(path) => path,
         Err(e) => {
             error!("Failed to write temporary image file: {}", e);
