@@ -658,7 +658,7 @@ mod compatibility_interpolation_tests {
         let mut args = ArgMap::default();
         args.positional.push("password_reset".to_string());
         // Test environment variable interpolation with fallback value.
-        let tpl = r#"{"user": "[env TAURINE_TEST_USER admin | case(lower)]", "action": "[$act=\"login\" | case(upper)]"}"#;
+        let tpl = r#"{"user": "[env NITE_TEST_USER admin | case(lower)]", "action": "[$act=\"login\" | case(upper)]"}"#;
         assert_eq!(
             interpolate(tpl, &args),
             r#"{"user": "admin", "action": "PASSWORD_RESET"}"#

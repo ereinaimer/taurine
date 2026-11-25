@@ -668,7 +668,7 @@ mod compatibility_finalize_tests {
         // Test Case 5: testfile
         {
             // Pid-suffixed so parallel test binaries never share this file.
-            let file_name = format!("taurine_test_{}.txt", std::process::id());
+            let file_name = format!("nite_test_{}.txt", std::process::id());
             if let Some(home) = directories::UserDirs::new().map(|d| d.home_dir().to_path_buf()) {
                 let path = home.join(&file_name);
                 std::fs::write(&path, "line one\nline two\nline three").ok();

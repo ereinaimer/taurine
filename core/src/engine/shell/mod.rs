@@ -69,7 +69,7 @@ impl std::str::FromStr for ScriptInterpreter {
                 "Supported languages",
                 &["bash", "powershell", "python", "node", "cmd"],
             )
-            .example("taurine add script ./greet.sh :greet --lang bash");
+            .example("nite add script ./greet.sh :greet --lang bash");
             crate::Error::Config(diag.render())
         })
     }
@@ -341,7 +341,7 @@ mod tests {
             err.contains("Supported languages: bash, powershell, python, node, cmd"),
             "Error was: {err}"
         );
-        assert!(err.contains("taurine add script"), "Error was: {err}");
+        assert!(err.contains("nite add script"), "Error was: {err}");
         assert!(!err.contains('`'), "Must not contain backticks: {err}");
         assert!(!err.contains('\''), "Must not contain single quotes: {err}");
     }

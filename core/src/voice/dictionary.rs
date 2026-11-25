@@ -528,8 +528,8 @@ fn is_basic_stop_word(w: &str) -> bool {
 /// a number, or an authentic English word in Nite's offline lexicon.
 ///
 /// Phonetic sound-alike matching (Pass 3) must never hijack valid English
-/// words or standard numbers (e.g. "this" -> "Tether", "thirty" -> "Taurine",
-/// "train" -> "Taurine", "earn" -> "Erein").
+/// words or standard numbers (e.g. "this" -> "Tether", "thirty" -> "Torine",
+/// "train" -> "Torine", "earn" -> "Erein").
 pub fn is_common_word(word: &str) -> bool {
     let check = |w: &str| {
         is_number_word(w)
@@ -695,7 +695,7 @@ impl VoiceDictionary {
                         }
                     }
 
-                    // 3. Syllable-split phonetic matching (e.g. "draw in" -> "taur" + "ine" -> "Taurine")
+                    // 3. Syllable-split phonetic matching (e.g. "draw in" -> "tor" + "ine" -> "Torine")
                     if matched_2word.is_none() {
                         let (c1_phone, _) = crate::voice::phonetic::double_metaphone(&core1_lower);
                         let (c2_phone, _) = crate::voice::phonetic::double_metaphone(&core2_lower);
@@ -744,7 +744,7 @@ impl VoiceDictionary {
 
             // Pass 3: Strict phonetic sound-alike matching (Double Metaphone).
             // Industry standard: maps acoustic transcription artifacts (e.g. "Theoring", "Toring", "Darin", "Dorin", "towerrent")
-            // to configured dictionary words ("Taurine") while completely protecting standard English words.
+            // to configured dictionary words ("Torine") while completely protecting standard English words.
             if best_match.is_none() && !is_common_word(&core_lower) && core_lower.len() >= 3 {
                 let (spoken_primary, spoken_alt) =
                     crate::voice::phonetic::double_metaphone(&core_lower);
@@ -832,15 +832,15 @@ mod tests {
 
     #[test]
     fn test_dictionary_exact_and_fuzzy_matches() {
-        let dict = VoiceDictionary::from_csv("Taurine, PostgreSQL, Kubernetes, API");
+        let dict = VoiceDictionary::from_csv("Nite, PostgreSQL, Kubernetes, API");
 
         // Exact case correction
-        let res = dict.apply("welcome to taurine today");
-        assert_eq!(res, "welcome to Taurine today");
+        let res = dict.apply("welcome to nite today");
+        assert_eq!(res, "welcome to Nite today");
 
         // Punctuation preservation
-        let res_punct = dict.apply("use taurine, right now.");
-        assert_eq!(res_punct, "use Taurine, right now.");
+        let res_punct = dict.apply("use nite, right now.");
+        assert_eq!(res_punct, "use Nite, right now.");
 
         // Fuzzy typo correction
         let res_fuzzy = dict.apply("deploy to kubernets cluster");
@@ -853,19 +853,19 @@ mod tests {
 
     #[test]
     fn test_dictionary_unicode_punctuation() {
-        let dict = VoiceDictionary::from_csv("Taurine");
+        let dict = VoiceDictionary::from_csv("Nite");
         // Em-dash is 3 UTF-8 bytes: —
-        let res = dict.apply("—taurine—");
-        assert_eq!(res, "—Taurine—");
+        let res = dict.apply("—nite—");
+        assert_eq!(res, "—Nite—");
 
-        // Smart quotes: “taurine”
-        let res_quotes = dict.apply("“taurine”");
-        assert_eq!(res_quotes, "“Taurine”");
+        // Smart quotes: “nite”
+        let res_quotes = dict.apply("“nite”");
+        assert_eq!(res_quotes, "“Nite”");
     }
 
     #[test]
     fn test_dictionary_preserves_english_words_and_numbers() {
-        let dict = VoiceDictionary::from_csv("Tether, Taurine, Kubernetes, API");
+        let dict = VoiceDictionary::from_csv("Tether, Nite, Kubernetes, API");
 
         // Real numbers and common English words must NEVER be mutated
         assert_eq!(dict.apply("thirty two"), "thirty two");
@@ -888,8 +888,8 @@ mod tests {
 
         // Domain terms with proper casing are applied accurately
         assert_eq!(
-            dict.apply("taurine is a text expander"),
-            "Taurine is a text expander"
+            dict.apply("nite is a text expander"),
+            "Nite is a text expander"
         );
         assert_eq!(
             dict.apply("connect to kubernets via api"),
@@ -910,56 +910,56 @@ mod tests {
             "terrain", "ahead", "run", "torrent", "now", "want", "earn", "money", "cast", "iron",
             "skillet",
         ]));
-        let dict = VoiceDictionary::from_csv("Taurine");
+        let dict = VoiceDictionary::from_csv("Torine");
 
         // Real-world user failure cases:
-        // 1. Syllable split: "draw in" -> "Taurine"
+        // 1. Syllable split: "draw in" -> "Torine"
         assert_eq!(
             dict.apply("Switch to the draw in folder."),
-            "Switch to the Taurine folder."
+            "Switch to the Torine folder."
         );
-        // 2. Terminal -ing folding: "Theoring" -> "Taurine"
+        // 2. Terminal -ing folding: "Theoring" -> "Torine"
         assert_eq!(
             dict.apply("Theoring is the best fix matter in the world."),
-            "Taurine is the best fix matter in the world."
+            "Torine is the best fix matter in the world."
         );
-        // 3. Terminal -ing folding: "Toring" -> "Taurine"
+        // 3. Terminal -ing folding: "Toring" -> "Torine"
         assert_eq!(
             dict.apply("Toring is the best text expandnder in the world."),
-            "Taurine is the best text expandnder in the world."
+            "Torine is the best text expandnder in the world."
         );
-        // 4. Proper name vs common lexicon: "Darin" -> "Taurine"
+        // 4. Proper name vs common lexicon: "Darin" -> "Torine"
         assert_eq!(
             dict.apply("Darin is the best extxt spender in the world."),
-            "Taurine is the best extxt spender in the world."
+            "Torine is the best extxt spender in the world."
         );
-        // 5. Syllable split: "Tor in" -> "Taurine"
+        // 5. Syllable split: "Tor in" -> "Torine"
         assert_eq!(
             dict.apply("Switch to the Tor in folder"),
-            "Switch to the Taurine folder"
+            "Switch to the Torine folder"
         );
-        // 6. Excrescent stop on non-word: "towerrent" -> "Taurine"
+        // 6. Excrescent stop on non-word: "towerrent" -> "Torine"
         assert_eq!(
             dict.apply("Switch to the towerrent folder"),
-            "Switch to the Taurine folder"
+            "Switch to the Torine folder"
         );
 
-        // Additional transcription sound-alikes for "Taurine"
+        // Additional transcription sound-alikes for "Torine"
         assert_eq!(
             dict.apply("Dorin is the best text expander in the world"),
-            "Taurine is the best text expander in the world"
+            "Torine is the best text expander in the world"
         );
         assert_eq!(
             dict.apply("Dorren is the best text expander in the world"),
-            "Taurine is the best text expander in the world"
+            "Torine is the best text expander in the world"
         );
         assert_eq!(
             dict.apply("Torin is the best text expander in the world"),
-            "Taurine is the best text expander in the world"
+            "Torine is the best text expander in the world"
         );
         assert_eq!(
             dict.apply("Doreen is the best text expander in the world"),
-            "Taurine is the best text expander in the world"
+            "Torine is the best text expander in the world"
         );
 
         // Standard English words sharing phonetic sounds must NEVER be corrupted
@@ -977,14 +977,14 @@ mod tests {
 
     #[test]
     fn test_build_hotwords_payload_aggregation_and_capping() {
-        let dict = VoiceDictionary::from_csv("Taurine, Kubernetes, API, movies folder");
+        let dict = VoiceDictionary::from_csv("Nite, Kubernetes, API, movies folder");
         let triggers = vec!["movies folder".to_string(), "open terminal".to_string()];
 
         let payload = build_hotwords_payload(&dict, &triggers).expect("payload must be some");
         let parts: Vec<&str> = payload.split('/').collect();
 
-        // Dictionary terms come first: "Taurine", "Kubernetes", "API", "movies folder"
-        assert_eq!(parts[0], "Taurine");
+        // Dictionary terms come first: "Nite", "Kubernetes", "API", "movies folder"
+        assert_eq!(parts[0], "Nite");
         assert_eq!(parts[1], "Kubernetes");
         assert_eq!(parts[2], "API");
         assert_eq!(parts[3], "movies folder");
@@ -1014,11 +1014,11 @@ mod tests {
 
     #[test]
     fn test_hotwords_dict_first_and_higher_cap() {
-        let dict = VoiceDictionary::from_csv("Taurine, PostgreSQL");
+        let dict = VoiceDictionary::from_csv("Nite, PostgreSQL");
         let payload = build_hotwords_payload(&dict, &["open terminal"]).unwrap();
         let first = payload.split('/').next().unwrap();
         assert!(
-            first == "Taurine" || first == "PostgreSQL",
+            first == "Nite" || first == "PostgreSQL",
             "dict term must lead, got: {payload}"
         );
         assert!(payload.contains("open terminal"));

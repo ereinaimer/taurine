@@ -1,6 +1,6 @@
-# Contributing to Taurine
+# Contributing to Nite
 
-First off, thank you for considering contributing to Taurine! We appreciate your time and effort. 
+First off, thank you for considering contributing to Nite! We appreciate your time and effort. 
 
 Whether you're helping us fix bugs, build new features, or improve our documentation, we'd love to have you on board.
 
@@ -33,7 +33,7 @@ You can start by looking through our open issues. If you want to work on somethi
 ### 3. Install System Dependencies
 
 #### Linux
-If you are compiling Taurine on a Linux system, you must install the following system dependencies:
+If you are compiling Nite on a Linux system, you must install the following system dependencies:
 ```bash
 sudo apt update
 sudo apt install build-essential protobuf-compiler libdbus-1-dev pkg-config libssl-dev libasound2-dev libxkbcommon-dev mold sccache -y
@@ -41,7 +41,7 @@ sudo apt install build-essential protobuf-compiler libdbus-1-dev pkg-config libs
 `libssl-dev` lets dev builds link the system OpenSSL instead of compiling a private copy from source (see the fast loop below). `mold` is the linker used for all Linux builds (it's the fastest linker available and dramatically cuts link times). If your distribution's GCC is older than 12.1, install `clang` as well and the build will use it as the linker driver instead.
 
 #### Windows
-If you are compiling Taurine on Windows, you must install Protocol Buffers, `sccache`, and Strawberry Perl. You can easily do this using `winget`:
+If you are compiling Nite on Windows, you must install Protocol Buffers, `sccache`, and Strawberry Perl. You can easily do this using `winget`:
 ```powershell
 winget install protobuf
 winget install Mozilla.sccache
@@ -66,8 +66,8 @@ macOS dev builds usually link the system SecurityFramework with no extra setup. 
 #### Fast dev loop (skip the vendored OpenSSL)
 The default build compiles a private copy of OpenSSL from source (several minutes, needs Perl). Dev builds can link your system copy instead — same encrypted database, fraction of the time:
 ```bash
-cargo check -p taurine_core --no-default-features
-cargo check -p taurine_daemon --no-default-features
+cargo check -p nite_core --no-default-features
+cargo check -p nite_daemon --no-default-features
 ```
 `--no-default-features` is what selects system crypto; without it you get the slow vendored build by design. Full `cargo check --workspace` / `cargo nextest run` (defaults) are for pre-push only.
 
@@ -99,7 +99,7 @@ cargo nextest run --workspace --all-features
 The default suite is hermetic: it never types keys, touches the clipboard, opens windows, spawns processes, plays audio, opens the mic, or writes outside temp dirs, so it is safe to run while gaming. Host-affecting tests (real `SendInput`, process spawns) are `#[ignore]`-gated and need an explicit opt-in on a throwaway machine with nothing focused:
 
 ```bash
-TAURINE_ALLOW_HOST_INPUT=1 cargo test -- --ignored
+NITE_ALLOW_HOST_INPUT=1 cargo test -- --ignored
 ```
 
 See `AGENTS.md` (Test Isolation rule) before adding any test that touches the host.
@@ -114,10 +114,10 @@ See `AGENTS.md` (Test Isolation rule) before adding any test that touches the ho
 
 ## License
 
-Please note that Taurine uses a custom Source-Available license (see [`LICENSE`](./LICENSE)). By contributing to the project, you agree to license your contributions under its terms. We've included special provisions so you can freely showcase your contributions in your portfolios and CVs!
+Please note that Nite uses a custom Source-Available license (see [`LICENSE`](./LICENSE)). By contributing to the project, you agree to license your contributions under its terms. We've included special provisions so you can freely showcase your contributions in your portfolios and CVs!
 
 ## Community & Conduct
 
 To ensure a welcoming environment for everyone, we ask that all contributors review and follow our [Code of Conduct](./CODE_OF_CONDUCT.md).
 
-Thank you for helping make Taurine better!
+Thank you for helping make Nite better!

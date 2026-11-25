@@ -34,7 +34,7 @@ mod test_db {
         SHARED_TEST_PASSWORDS.get_or_init(|| {
             let mut map = HashMap::new();
             map.insert(
-                ("taurine".to_string(), "db-key".to_string()),
+                ("nite".to_string(), "db-key".to_string()),
                 FIXED_TEST_DB_KEY_HEX.to_vec(),
             );
             Mutex::new(map)
@@ -53,7 +53,7 @@ mod test_db {
         }
 
         fn is_fixed_db_key(&self) -> bool {
-            self.service == "taurine" && self.user == "db-key"
+            self.service == "nite" && self.user == "db-key"
         }
     }
 
@@ -148,7 +148,6 @@ mod test_db {
 
         crate::db::init::schema::ensure_schema(&conn).expect("ensure_schema failed");
         crate::db::init::seed::ensure_defaults(&conn).expect("ensure_defaults failed");
-        let _ = std::fs::hard_link(&db_path, dir.path().join("taurine.db"));
         (dir, conn)
     }
 }

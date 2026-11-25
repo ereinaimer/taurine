@@ -160,7 +160,7 @@ pub fn apply_setting_input_with_manager(
                 let diag =
                     Diagnostic::problem(format!("invalid voice_ptt_hotkey '{hotkey}': {error}"))
                         .help("Specify a valid hotkey (e.g. 'ctrl+space') or modifier chord (e.g. 'win+lctrl')")
-                        .example("taurine config set voice_ptt_hotkey win+lctrl")
+                        .example("nite config set voice_ptt_hotkey win+lctrl")
                         .render();
                 Error::Config(diag)
             })?;
@@ -175,7 +175,7 @@ pub fn apply_setting_input_with_manager(
                     "invalid voice_handsfree_hotkey '{hotkey}': {error}"
                 ))
                 .help("Specify a valid hotkey (e.g. 'ctrl+shift+v') or modifier chord (e.g. 'win+lctrl+lalt')")
-                .example("taurine config set voice_handsfree_hotkey win+lctrl+lalt")
+                .example("nite config set voice_handsfree_hotkey win+lctrl+lalt")
                 .render();
                 Error::Config(diag)
             })?;
@@ -225,9 +225,7 @@ pub fn apply_setting_input_with_manager(
             let diag =
                 Diagnostic::problem(format!("{actual_key} is not a valid configuration setting"))
                     .suggest(actual_key, &Settings::ALL_KEYS)
-                    .help(
-                        "To view all available settings and their values, run: taurine config list",
-                    )
+                    .help("To view all available settings and their values, run: nite config list")
                     .render();
             return Err(Error::Config(diag));
         }
@@ -247,7 +245,7 @@ pub fn parse_boolean_setting_value_with_key(key: &str, value: &str) -> Result<bo
         _ => {
             let diag = Diagnostic::problem(format!("{value} is not a valid boolean value"))
                 .help("Expected true or false (or 1 / 0)")
-                .example(format!("taurine config set {key} true"))
+                .example(format!("nite config set {key} true"))
                 .render();
             Err(Error::Config(diag))
         }
@@ -267,7 +265,7 @@ pub fn parse_audio_theme(value: &str) -> Result<super::AudioTheme> {
             let diag = Diagnostic::problem(format!("{other} is not an available audio theme"))
                 .suggest(other, &super::AudioTheme::ALL_NAMES)
                 .options("Available themes", &super::AudioTheme::ALL_NAMES)
-                .example("taurine config set audio_theme minimal")
+                .example("nite config set audio_theme minimal")
                 .render();
             Err(Error::Config(diag))
         }
@@ -283,7 +281,7 @@ pub fn parse_spinner_style(value: &str) -> Result<SpinnerStyle> {
             let diag = Diagnostic::problem(format!("{other} is not an available spinner style"))
                 .suggest(other, &["classic", "braille", "arc"])
                 .options("Available styles", &["classic", "braille", "arc"])
-                .example("taurine config set spinner_style braille")
+                .example("nite config set spinner_style braille")
                 .render();
             Err(Error::Config(diag))
         }

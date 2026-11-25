@@ -340,7 +340,7 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "touches host browser (native_shell_open); opt-in with TAURINE_ALLOW_HOST_INPUT=1"]
+    #[ignore = "touches host browser (native_shell_open); opt-in with NITE_ALLOW_HOST_INPUT=1"]
     fn test_open_browser_live_url_invocation() {
         if !nite_daemon::platform::host_tests_allowed() {
             return;

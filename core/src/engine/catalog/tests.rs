@@ -356,7 +356,7 @@ fn test_app_gating_prefix_rules() {
     // 3. title: prefix (substring match, case-insensitive)
     action.only_apps = Some("title:Github,title:Google".to_string());
     let info_title_match = ActiveWindowInfo {
-        title: Some("Taurine Pull Request - GitHub - Google Chrome".to_string()),
+        title: Some("Nite Pull Request - GitHub - Google Chrome".to_string()),
         ..Default::default()
     };
     let info_title_miss = ActiveWindowInfo {

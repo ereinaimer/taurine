@@ -90,7 +90,7 @@ pub fn lookup_offline(word: &str) -> Option<Vec<DictionaryEntry>> {
     }
 }
 
-/// Checks whether a word exists as an authentic English vocabulary word in Taurine's offline dictionary.
+/// Checks whether a word exists as an authentic English vocabulary word in Nite's offline dictionary.
 ///
 /// English vocabulary (nouns, verbs, adjectives) is stored in lowercase in the dictionary,
 /// whereas isolated proper names (e.g. "Darin", "Doreen") are stored only in Titlecase.

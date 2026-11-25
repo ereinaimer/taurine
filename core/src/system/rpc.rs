@@ -208,10 +208,6 @@ mod tests {
         #[cfg(target_os = "windows")]
         unsafe {
             std::env::set_var("NITE_SERVICE_LIVENESS_NAME", "Local\\NiteTestNonExistent");
-            std::env::set_var(
-                "TAURINE_SERVICE_LIVENESS_NAME",
-                "Local\\NiteTestNonExistent",
-            );
         }
         // Non-Windows liveness ignores NITE_SERVICE_LIVENESS_NAME and
         // probes a lock file instead, so point it at a fresh temp path.
@@ -223,14 +219,6 @@ mod tests {
             unsafe {
                 std::env::set_var(
                     "NITE_SERVICE_LIVENESS_PATH",
-                    temp_dir
-                        .path()
-                        .join("nite_test_nonexistent.lock")
-                        .to_string_lossy()
-                        .to_string(),
-                );
-                std::env::set_var(
-                    "TAURINE_SERVICE_LIVENESS_PATH",
                     temp_dir
                         .path()
                         .join("nite_test_nonexistent.lock")
@@ -255,13 +243,11 @@ mod tests {
         #[cfg(target_os = "windows")]
         unsafe {
             std::env::remove_var("NITE_SERVICE_LIVENESS_NAME");
-            std::env::remove_var("TAURINE_SERVICE_LIVENESS_NAME");
         }
         // SAFETY: Tests hold TEST_LOCK while this variable is set.
         #[cfg(not(target_os = "windows"))]
         unsafe {
             std::env::remove_var("NITE_SERVICE_LIVENESS_PATH");
-            std::env::remove_var("TAURINE_SERVICE_LIVENESS_PATH");
         }
     }
 

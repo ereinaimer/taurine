@@ -162,7 +162,7 @@ mod tests {
 
         // Voiced/unvoiced plosive initial consonant folding
         assert_eq!(double_metaphone("Dorren").0, "TRN");
-        assert_eq!(double_metaphone("Taurine").0, "TRN");
+        assert_eq!(double_metaphone("Nite").0, "NT");
 
         // Vowel duplicate reset (non-consecutive consonants preserved)
         assert_eq!(double_metaphone("Tether").0, "TTR");

@@ -70,9 +70,9 @@ fn test_diagnostic_without_suggest_match() {
 fn test_diagnostic_full_rendering() {
     let diag = Diagnostic::problem("Unknown setting: theme")
         .suggest("theme", &["audio_theme", "wpm"])
-        .help("Run taurine config list to see all available settings.")
+        .help("Run nite config list to see all available settings.")
         .options("Valid settings", &["audio_theme", "wpm", "sound"])
-        .example("taurine config set audio_theme typewriter");
+        .example("nite config set audio_theme typewriter");
 
     let rendered = diag.render();
 
@@ -81,12 +81,12 @@ Unknown setting: theme
 
 Did you mean audio_theme?
 
-Run taurine config list to see all available settings.
+Run nite config list to see all available settings.
 
 Valid settings: audio_theme, wpm, sound
 
 Example:
-  taurine config set audio_theme typewriter";
+  nite config set audio_theme typewriter";
 
     assert_eq!(rendered, expected);
     assert!(!rendered.contains('"'));
@@ -97,8 +97,8 @@ Example:
 fn test_diagnostic_multiple_examples() {
     let diag = Diagnostic::problem("Missing trigger or output")
         .help("Provide both trigger phrase and output text.")
-        .example("taurine add :hello Hello World")
-        .example("taurine add :shrug ¯\\_(ツ)_/¯");
+        .example("nite add :hello Hello World")
+        .example("nite add :shrug ¯\\_(ツ)_/¯");
 
     let rendered = diag.render();
 
@@ -108,8 +108,8 @@ Missing trigger or output
 Provide both trigger phrase and output text.
 
 Examples:
-  taurine add :hello Hello World
-  taurine add :shrug ¯\\_(ツ)_/¯";
+  nite add :hello Hello World
+  nite add :shrug ¯\\_(ツ)_/¯";
 
     assert_eq!(rendered, expected);
 }

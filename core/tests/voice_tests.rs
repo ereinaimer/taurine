@@ -37,7 +37,7 @@ mod mock_keystore {
         PASSWORDS.get_or_init(|| {
             let mut map = HashMap::new();
             map.insert(
-                ("taurine".to_string(), "db-key".to_string()),
+                ("nite".to_string(), "db-key".to_string()),
                 FIXED_TEST_DB_KEY_HEX.to_vec(),
             );
             Mutex::new(map)
@@ -183,12 +183,12 @@ fn voice_entry(
 
 #[test]
 fn test_voice_dictionary_pipeline() {
-    let dict = VoiceDictionary::from_csv("Taurine, PostgreSQL, Kubernetes, API, GraphQL");
+    let dict = VoiceDictionary::from_csv("Nite, PostgreSQL, Kubernetes, API, GraphQL");
 
     // Exact match case transformation
     assert_eq!(
-        dict.apply("welcome to taurine and postgresql"),
-        "welcome to Taurine and PostgreSQL"
+        dict.apply("welcome to nite and postgresql"),
+        "welcome to Nite and PostgreSQL"
     );
 
     // Fuzzy matching for slight phonetic/STT misspellings
@@ -198,7 +198,7 @@ fn test_voice_dictionary_pipeline() {
     );
 
     // Multibyte Unicode punctuation handling
-    assert_eq!(dict.apply("—taurine—"), "—Taurine—");
+    assert_eq!(dict.apply("—nite—"), "—Nite—");
     assert_eq!(dict.apply("“graphql”"), "“GraphQL”");
     assert_eq!(dict.apply("(api)"), "(API)");
 
@@ -364,21 +364,21 @@ fn test_phonetic_dictionary_pipeline() {
         set_cached_inline_dictionary_mode(InlineDictionaryMode::Lite);
         nite_core::engine::dictionary::offline::close_cached_connection();
     }
-    let dict = VoiceDictionary::from_csv("Taurine");
+    let dict = VoiceDictionary::from_csv("Torine");
     // Distinct English words like "torrent" or "thirty" are preserved
     assert_eq!(dict.apply("run torrent now"), "run torrent now");
     assert_eq!(dict.apply("thirty two"), "thirty two");
 
     // Exact casing is applied
-    assert_eq!(dict.apply("run taurine now"), "run Taurine now");
+    assert_eq!(dict.apply("run torine now"), "run Torine now");
 
     // Close typos are corrected
-    assert_eq!(dict.apply("run taurin now"), "run Taurine now");
+    assert_eq!(dict.apply("run torin now"), "run Torine now");
 
     // Exact zero-distance phonetic sound-alike matches are corrected
     assert_eq!(
         dict.apply("Dorin is the best text expander in the world"),
-        "Taurine is the best text expander in the world"
+        "Torine is the best text expander in the world"
     );
     nite_core::engine::dictionary::offline::close_cached_connection();
 }
@@ -446,9 +446,9 @@ fn voice_trigger_outranks_plain_dictation_on_fuzzy_match() {
 }
 
 #[tokio::test]
-#[ignore = "live network test against Supabase edge function; opt-in with TAURINE_ALLOW_HOST_INPUT=1"]
+#[ignore = "live network test against Supabase edge function; opt-in with NITE_ALLOW_HOST_INPUT=1"]
 async fn test_live_cloud_voice_clean_transcript_and_prewarm() {
-    if std::env::var("TAURINE_ALLOW_HOST_INPUT").unwrap_or_default() != "1" {
+    if std::env::var("NITE_ALLOW_HOST_INPUT").unwrap_or_default() != "1" {
         return;
     }
     let client = nite_core::voice::GroqVoiceClient::from_env_or_keyring();

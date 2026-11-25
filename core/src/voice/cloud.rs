@@ -1,4 +1,4 @@
-//! Cloud Speech-to-Text inference client communicating through Taurine's Supabase Edge Function gateway.
+//! Cloud Speech-to-Text inference client communicating through Nite's Supabase Edge Function gateway.
 //!
 //! Authenticates requests via the user's Supabase session access token and delegates Whisper transcription
 //! and Llama post-processing to the server-side edge function.
@@ -96,7 +96,7 @@ pub fn build_whisper_prompt(
     }
 }
 
-/// Cloud speech transcription client communicating with Taurine's Supabase Edge Function gateway.
+/// Cloud speech transcription client communicating with Nite's Supabase Edge Function gateway.
 #[derive(Debug, Clone)]
 pub struct CloudVoiceClient {
     client: reqwest::Client,
@@ -292,10 +292,10 @@ impl CloudVoiceClient {
     ) -> Result<String> {
         let auth_token = self.resolve_auth_token().ok_or_else(|| {
             let diag = crate::diagnostic::Diagnostic::problem(
-                "Taurine account authentication required for cloud voice dictation",
+                "Nite account authentication required for cloud voice dictation",
             )
-            .help("Please log in to your Taurine account to activate voice dictation")
-            .example("taurine login");
+            .help("Please log in to your Nite account to activate voice dictation")
+            .example("nite login");
             Error::Config(diag.render())
         })?;
 
@@ -388,7 +388,7 @@ impl CloudVoiceClient {
         let status = response.status();
         if status.as_u16() == 401 {
             return Err(Error::Config(
-                "Voice gateway authentication failed: please sign in again with 'taurine login'"
+                "Voice gateway authentication failed: please sign in again with 'nite login'"
                     .to_string(),
             ));
         }
@@ -656,7 +656,7 @@ mod tests {
 
     #[test]
     fn test_build_whisper_prompt_formatting_and_deduplication() {
-        let dict = VoiceDictionary::from_csv("Taurine, PostgreSQL, API, taurine, POSTGRESQL");
+        let dict = VoiceDictionary::from_csv("Nite, PostgreSQL, API, nite, POSTGRESQL");
         let triggers = vec!["open browser", "send email"];
 
         let prompt = build_whisper_prompt(&dict, &triggers);
@@ -664,14 +664,14 @@ mod tests {
         let prompt_str = prompt.unwrap();
 
         // Must be comma-separated
-        assert!(prompt_str.contains("Taurine, PostgreSQL, API"));
+        assert!(prompt_str.contains("Nite, PostgreSQL, API"));
 
-        // Deduplication: taurine and postgresql should only appear once
+        // Deduplication: nite and postgresql should only appear once
         let lower = prompt_str.to_lowercase();
         assert_eq!(
-            lower.matches("taurine").count(),
+            lower.matches("nite").count(),
             1,
-            "Taurine must be deduplicated"
+            "Nite must be deduplicated"
         );
         assert_eq!(
             lower.matches("postgresql").count(),
@@ -706,10 +706,10 @@ mod tests {
 
     #[test]
     fn test_build_whisper_prompt_uses_only_dictionary_terms() {
-        let dict = VoiceDictionary::from_csv("Taurine, PostgreSQL");
+        let dict = VoiceDictionary::from_csv("Nite, PostgreSQL");
         // Trigger phrases should not contaminate the Whisper acoustic prompt
         let prompt = build_whisper_prompt(&dict, &["brb", "btw", "curl", "gh"]).unwrap();
-        assert!(prompt.contains("Taurine"));
+        assert!(prompt.contains("Nite"));
         assert!(prompt.contains("PostgreSQL"));
         assert!(!prompt.contains("brb"));
         assert!(!prompt.contains("btw"));
@@ -730,8 +730,7 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(
-            err.contains("authentication required")
-                || err.contains("log in to your Taurine account"),
+            err.contains("authentication required") || err.contains("log in to your Nite account"),
             "Error was: {err}"
         );
     }
@@ -752,7 +751,7 @@ mod tests {
             );
             assert!(req.contains("multipart/form-data"));
 
-            let response_body = r#"{"text": "Hello world, this is Taurine cloud voice."}"#;
+            let response_body = r#"{"text": "Hello world, this is Nite cloud voice."}"#;
             let response = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                 response_body.len(),
@@ -773,7 +772,7 @@ mod tests {
         let wav = crate::voice::encode_pcm16_wav(&[0.0; 160], 16000, 1);
         let transcript = client.transcribe_wav(&wav, None, None, None).await.unwrap();
 
-        assert_eq!(transcript, "Hello world, this is Taurine cloud voice.");
+        assert_eq!(transcript, "Hello world, this is Nite cloud voice.");
         server_thread.join().unwrap();
     }
 
@@ -787,9 +786,9 @@ mod tests {
             let req = read_mock_request(&mut stream);
 
             assert!(req.contains("name=\"prompt\""));
-            assert!(req.contains("Taurine, Whisper, Rust"));
+            assert!(req.contains("Nite, Whisper, Rust"));
 
-            let response_body = r#"{"text": "Taurine Whisper Rust test."}"#;
+            let response_body = r#"{"text": "Nite Whisper Rust test."}"#;
             let response = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                 response_body.len(),
@@ -808,11 +807,11 @@ mod tests {
 
         let wav = crate::voice::encode_pcm16_wav(&[0.0; 160], 16000, 1);
         let transcript = client
-            .transcribe_wav(&wav, Some("Taurine, Whisper, Rust"), None, None)
+            .transcribe_wav(&wav, Some("Nite, Whisper, Rust"), None, None)
             .await
             .unwrap();
 
-        assert_eq!(transcript, "Taurine Whisper Rust test.");
+        assert_eq!(transcript, "Nite Whisper Rust test.");
         server_thread.join().unwrap();
     }
 
@@ -1035,7 +1034,7 @@ mod tests {
             );
             assert!(req.contains("raw_text"));
             assert!(req.contains("um hello like this is a test"));
-            assert!(req.contains("Taurine"));
+            assert!(req.contains("Nite"));
 
             let response_body = r#"{"text": "Hello, this is a test."}"#;
             let response = format!(
@@ -1053,7 +1052,7 @@ mod tests {
             "whisper-large-v3".to_string(),
         );
 
-        let custom_terms = vec!["Taurine".to_string(), "Rust".to_string()];
+        let custom_terms = vec!["Nite".to_string(), "Rust".to_string()];
         let cleaned = client
             .clean_transcript("um hello like this is a test", Some(&custom_terms), None)
             .await

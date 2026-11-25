@@ -181,7 +181,7 @@ fn test_cloud_config_default_or_from_env() {
 #[test]
 fn test_pkce_auth_url_generation() {
     let config = CloudConfig {
-        supabase_url: "https://taurine.supabase.co".to_string(),
+        supabase_url: "https://nite.supabase.co".to_string(),
         anon_key: "anon-key-abc".to_string(),
     };
     let client = CloudClient::new(config);
@@ -191,7 +191,7 @@ fn test_pkce_auth_url_generation() {
 
     let url = client.auth_url(redirect_uri, code_challenge);
 
-    assert!(url.starts_with("https://taurine.supabase.co/auth/v1/authorize"));
+    assert!(url.starts_with("https://nite.supabase.co/auth/v1/authorize"));
     assert!(url.contains("provider=google"));
     assert!(!url.contains("provider=github"));
     assert!(url.contains("code_challenge=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"));

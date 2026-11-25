@@ -14,7 +14,6 @@ use tracing::{debug, error, info};
 use crate::rpc::{ShutdownRequest, StatusRequest};
 
 const NITE_SERVICE_LABEL: &str = "com.ereinaimer.nite";
-const TAURINE_SERVICE_LABEL: &str = NITE_SERVICE_LABEL;
 
 fn get_manager() -> crate::error::Result<Box<dyn ServiceManager>> {
     let mut manager = native_service_manager().map_err(|e| {

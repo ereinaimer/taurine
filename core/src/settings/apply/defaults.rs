@@ -37,7 +37,7 @@ pub fn default_setting_input(key: &str) -> Result<Option<String>> {
                 "{actual_key} is not a valid configuration setting"
             ))
             .suggest(actual_key, &Settings::ALL_KEYS)
-            .help("To view all available settings and their values, run: taurine config list")
+            .help("To view all available settings and their values, run: nite config list")
             .render();
             Err(Error::Config(diag))
         }

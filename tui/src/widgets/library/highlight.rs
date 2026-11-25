@@ -1,6 +1,6 @@
 //! Center-pane syntax highlighting: script grammars via tree-sitter
-//! (real parsers, error-tolerant mid-typing) mapped onto the Taurine
-//! [`Theme`] palette, plus a Taurine template overlay (`[vars]`,
+//! (real parsers, error-tolerant mid-typing) mapped onto the Nite
+//! [`Theme`] palette, plus a Nite template overlay (`[vars]`,
 //! `| transformers`, directives) that wins inside `[...]` regions.
 //! Runs are char-indexed so they survive the word-wrap in `detail.rs`.
 
@@ -73,7 +73,7 @@ fn kind_style(kind: Kind, theme: &Theme) -> Style {
 
 /// Highlight configurations, one per interpreter, query-compiled once.
 /// A language whose query fails to compile resolves to `None` and the
-/// content falls back to plain text plus the Taurine overlay.
+/// content falls back to plain text plus the Nite overlay.
 static CONFIGS: OnceLock<Vec<(ScriptInterpreter, HighlightConfiguration)>> = OnceLock::new();
 
 fn configs() -> &'static [(ScriptInterpreter, HighlightConfiguration)] {
@@ -129,7 +129,7 @@ fn build_config(interpreter: ScriptInterpreter) -> Option<HighlightConfiguration
     Some(config)
 }
 
-/// Highlight configuration per Taurine script interpreter.
+/// Highlight configuration per Nite script interpreter.
 fn config_for(interpreter: ScriptInterpreter) -> Option<&'static HighlightConfiguration> {
     configs()
         .iter()
@@ -137,7 +137,7 @@ fn config_for(interpreter: ScriptInterpreter) -> Option<&'static HighlightConfig
         .map(|(_, config)| config)
 }
 
-/// Highlight source lines: script grammar base plus the Taurine overlay
+/// Highlight source lines: script grammar base plus the Nite overlay
 /// inside `[...]` regions. Text content (`None`) gets the overlay only.
 ///
 /// Results cache on content hash: renders repeat every frame while edits
@@ -183,7 +183,7 @@ pub(crate) fn highlight_lines(
                     end: line.chars().count(),
                     style: Style::default().fg(theme.text),
                 }];
-                overlay_taurine_tags(line, &mut runs, theme);
+                overlay_nite_tags(line, &mut runs, theme);
                 runs
             })
             .collect(),
@@ -270,7 +270,7 @@ fn script_runs(lines: &[String], config: &HighlightConfiguration, theme: &Theme)
                     style: plain,
                 });
             }
-            overlay_taurine_tags(line, &mut runs, theme);
+            overlay_nite_tags(line, &mut runs, theme);
             runs
         })
         .collect()
@@ -302,10 +302,10 @@ impl ByteMap {
     }
 }
 
-/// Taurine template overlay: outermost `[...]` regions re-tokenized with
+/// Nite template overlay: outermost `[...]` regions re-tokenized with
 /// core parsers, replacing script runs underneath. The whole tag reads
 /// on the surface tone so template regions separate from body text.
-fn overlay_taurine_tags(line: &str, runs: &mut Vec<Run>, theme: &Theme) {
+fn overlay_nite_tags(line: &str, runs: &mut Vec<Run>, theme: &Theme) {
     let map = ByteMap::new(line);
     let mut overlay = Vec::new();
     let mut covered = Vec::new();
@@ -835,7 +835,7 @@ mod tests {
 
     #[test]
     fn directive_name_and_value_highlight() {
-        let line = "cd C:\\Projects\\taurine[enter 2]";
+        let line = "cd C:\\Projects\\nite[enter 2]";
         let runs = &plain_runs(line)[0];
         assert!(
             runs.iter()

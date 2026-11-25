@@ -460,7 +460,7 @@ mod tests {
         init_tracing_for_tests();
 
         let tmp = tempfile::TempDir::new().expect("failed to create temp dir");
-        let db_path = tmp.path().join("taurine.db");
+        let db_path = tmp.path().join("nite.db");
 
         let pool = build_keyed_pool(&db_path).expect("keyed pool build must succeed");
         {
@@ -496,7 +496,7 @@ mod tests {
         assert_eq!(seeded.as_deref(), Some("true"));
         drop(conn);
 
-        let bytes = std::fs::read(dir.path().join("taurine.db")).expect("db file must exist");
+        let bytes = std::fs::read(dir.path().join("nite.db")).expect("db file must exist");
         assert!(bytes.len() > 16);
         assert_ne!(
             &bytes[..16],

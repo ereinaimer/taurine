@@ -189,11 +189,11 @@ mod tests {
     }
 
     // Live: check_on_startup spawns a real updater child process, so it never
-    // runs by default. Opt in with TAURINE_ALLOW_HOST_INPUT=1 -- --ignored.
+    // runs by default. Opt in with NITE_ALLOW_HOST_INPUT=1 -- --ignored.
     #[test]
     #[ignore]
     fn test_check_on_startup_enabled_updates_timestamp() {
-        if std::env::var("TAURINE_ALLOW_HOST_INPUT").as_deref() != Ok("1") {
+        if std::env::var("NITE_ALLOW_HOST_INPUT").as_deref() != Ok("1") {
             return;
         }
         let conn = open_test_conn();

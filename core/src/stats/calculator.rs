@@ -89,11 +89,11 @@ mod tests {
         assert_eq!(count_words("user@example.com"), 3); // 16 chars -> 16 / 5 = 3
         // URL: 45 chars -> 45 / 5 = 9 words
         assert_eq!(
-            count_words("https://taurine.dev/docs/getting-started/path"),
+            count_words("https://getnite.dev/docs/getting-started/path"),
             9
         );
         // Mixed text with unspaced link
-        let mixed = "Check out https://github.com/taurine/taurine-repo for more details";
+        let mixed = "Check out https://github.com/nite-app/nite-repo for more details";
         // "Check" (1) + "out" (1) + URL (39 chars -> 7) + "for" (1) + "more" (1) + "details" (1) = 12
         assert_eq!(count_words(mixed), 12);
     }

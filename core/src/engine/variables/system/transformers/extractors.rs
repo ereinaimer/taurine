@@ -503,12 +503,12 @@ mod tests {
     fn test_apply_toml() {
         let toml_str = r#"
         [package]
-        name = "taurine"
+        name = "nite"
         authors = ["erein"]
         "#;
         assert_eq!(
             apply_toml(&["package.name"], toml_str),
-            Some("taurine".to_string())
+            Some("nite".to_string())
         );
         assert_eq!(
             apply_toml(&["package.authors.0"], toml_str),
@@ -549,9 +549,9 @@ services:
             apply(
                 "extract",
                 &["url"],
-                "visit https://taurine.in and http://localhost:8080/!"
+                "visit https://nite.in and http://localhost:8080/!"
             ),
-            Some("https://taurine.in\nhttp://localhost:8080/".to_string())
+            Some("https://nite.in\nhttp://localhost:8080/".to_string())
         );
         // No URLs: input passes through unchanged
         assert_eq!(
@@ -696,8 +696,8 @@ services:
         );
         // Filename extracted from a full path via PATH_REGEX + std::path::Path
         assert_eq!(
-            apply("extract", &["filename"], "/usr/local/bin/taurine.exe"),
-            Some("taurine.exe".to_string())
+            apply("extract", &["filename"], "/usr/local/bin/nite.exe"),
+            Some("nite.exe".to_string())
         );
         // Directory-only path should produce no filename (no extension)
         assert_eq!(
@@ -712,7 +712,7 @@ services:
             apply(
                 "extract",
                 &["directory"],
-                "File /usr/local/bin/taurine.exe and folder /var/log/"
+                "File /usr/local/bin/nite.exe and folder /var/log/"
             ),
             Some("/usr/local/bin\n/var/log".to_string())
         );
@@ -810,8 +810,8 @@ services:
     #[test]
     fn test_apply_canonical_extract_transformers() {
         assert_eq!(
-            apply("extract", &["url"], "visit https://taurine.in"),
-            Some("https://taurine.in".to_string())
+            apply("extract", &["url"], "visit https://nite.in"),
+            Some("https://nite.in".to_string())
         );
         assert_eq!(
             apply("extract", &["email"], "user@example.com"),
@@ -822,11 +822,11 @@ services:
             Some("192.168.1.1".to_string())
         );
         assert_eq!(
-            apply("extract", &["filename"], "/usr/local/bin/taurine.exe"),
-            Some("taurine.exe".to_string())
+            apply("extract", &["filename"], "/usr/local/bin/nite.exe"),
+            Some("nite.exe".to_string())
         );
         assert_eq!(
-            apply("extract", &["directory"], "/usr/local/bin/taurine.exe"),
+            apply("extract", &["directory"], "/usr/local/bin/nite.exe"),
             Some("/usr/local/bin".to_string())
         );
         assert_eq!(

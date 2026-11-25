@@ -1,6 +1,6 @@
 # Credits
 
-Taurine is built on the shoulders of some outstanding open source projects.
+Nite is built on the shoulders of some outstanding open source projects.
 
 ### Rust Crates
 

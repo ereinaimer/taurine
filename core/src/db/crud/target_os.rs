@@ -79,7 +79,7 @@ impl std::str::FromStr for TargetOs {
                         "Supported operating systems",
                         &["windows", "macos", "linux", "all", "android", "ios"],
                     )
-                    .example("taurine add :shrug ¯\\_(ツ)_/¯ --os windows");
+                    .example("nite add :shrug ¯\\_(ツ)_/¯ --os windows");
             crate::Error::Config(diag.render())
         })
     }

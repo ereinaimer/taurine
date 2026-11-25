@@ -10,7 +10,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 /// Maximum lease validity TTL in seconds (72 hours).
 pub const MAX_LEASE_TTL_SECONDS: i64 = 72 * 3600;
 
-/// An offline capability lease signed by Taurine Cloud with up to 72 hours TTL.
+/// An offline capability lease signed by Nite Cloud with up to 72 hours TTL.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CapabilityLease {
     pub user_id: String,

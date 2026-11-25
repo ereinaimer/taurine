@@ -10,9 +10,9 @@ ignore = [
     # pinned by third-party crates that cannot take 0.41 yet (plist 1.8 ^0.38,
     # tauri-winrt-notification 0.7 ^0.37, wayland-scanner 0.31 ^0.39 at build
     # time). All consumers parse trusted local data (plists, toast templates,
-    # Wayland protocol XML); no network-reachable untrusted input in taurine.
-    { id = "RUSTSEC-2026-0194", reason = "upstream-pinned lines; no untrusted XML parsing in taurine" },
-    { id = "RUSTSEC-2026-0195", reason = "upstream-pinned lines; no untrusted XML parsing in taurine" },
+    # Wayland protocol XML); no network-reachable untrusted input in nite.
+    { id = "RUSTSEC-2026-0194", reason = "upstream-pinned lines; no untrusted XML parsing in nite" },
+    { id = "RUSTSEC-2026-0195", reason = "upstream-pinned lines; no untrusted XML parsing in nite" },
 ]
 
 [licenses]
@@ -53,7 +53,7 @@ exceptions = [
     { allow = ["MPL-2.0"], crate = "epoll" },
 ]
 
-# Workspace crates (taurine, taurine_core, taurine_daemon, taurine_tui) are
+# Workspace crates (nite, nite_core, nite_daemon, nite_tui, nite-startup) are
 # never published and carry only a custom license-file (no SPDX expression),
 # so they are excluded from the license allowlist.
 [licenses.private]

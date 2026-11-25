@@ -24,9 +24,7 @@ pub use nite_core::keys::MouseButton;
 /// audio, mic, or spawned processes.
 pub fn host_tests_allowed() -> bool {
     matches!(
-        std::env::var("NITE_ALLOW_HOST_INPUT")
-            .or_else(|_| std::env::var("TAURINE_ALLOW_HOST_INPUT"))
-            .as_deref(),
+        std::env::var("NITE_ALLOW_HOST_INPUT").as_deref(),
         Ok("1") | Ok("true")
     )
 }
@@ -467,11 +465,7 @@ mod tests {
     #[test]
     fn test_host_gate_defaults_to_closed() {
         // Guard against accidental opt-in: host tests run only with explicit env.
-        assert!(
-            !host_tests_allowed()
-                || std::env::var("NITE_ALLOW_HOST_INPUT").is_ok()
-                || std::env::var("TAURINE_ALLOW_HOST_INPUT").is_ok()
-        );
+        assert!(!host_tests_allowed() || std::env::var("NITE_ALLOW_HOST_INPUT").is_ok());
     }
 
     #[test]

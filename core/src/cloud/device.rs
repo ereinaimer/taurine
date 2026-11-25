@@ -1,4 +1,4 @@
-//! Device fingerprinting and platform identification for Taurine Cloud.
+//! Device fingerprinting and platform identification for Nite Cloud.
 
 static HARDWARE_ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 

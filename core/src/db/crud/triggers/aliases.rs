@@ -578,7 +578,7 @@ pub fn validate_voice_phrase(phrase: &str) -> Result<String> {
     if trimmed.is_empty() {
         let diag = Diagnostic::problem("Voice trigger phrase cannot be empty")
             .help("Provide a spoken phrase to trigger the expansion or script")
-            .example("taurine add --voice \"my email\" \"user@example.com\"");
+            .example("nite add --voice \"my email\" \"user@example.com\"");
         return Err(Error::Config(diag.render()));
     }
 
@@ -593,7 +593,7 @@ pub fn validate_voice_phrase(phrase: &str) -> Result<String> {
         let diag = Diagnostic::problem(detail)
             .help("Voice slots reference output variables and must use the same '$' prefix")
             .example(
-                "taurine add --voice \"say hi to [$person]\" \"Hello, [$person=\\\"there\\\"]!\"",
+                "nite add --voice \"say hi to [$person]\" \"Hello, [$person=\\\"there\\\"]!\"",
             );
         Error::Config(diag.render())
     })?;

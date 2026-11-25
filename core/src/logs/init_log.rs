@@ -96,7 +96,7 @@ const fn logging_plan(quiet: bool, no_log_file: bool, suppress_console: bool) ->
 /// - `-q` or `--quiet` disables console output.
 /// - `--no-log-file` disables file logging.
 /// - File logs default to `debug` unless `RUST_LOG` overrides.
-/// - Logs are written into `.../logs/<component>/taurine-YYYY-MM-DD.log` with
+/// - Logs are written into `.../logs/<component>/nite-YYYY-MM-DD.log` with
 ///   7-day retention.
 pub fn init_tracing_for_app(
     verbosity: u8,

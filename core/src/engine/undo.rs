@@ -26,7 +26,7 @@ impl crate::engine::evaluator::Evaluator {
         }
 
         // Clipboard history can legally hold a full 1 MB payload. Treat that ceiling as unsafe
-        // for blind undo so Taurine never floods the OS with a huge backspace replay.
+        // for blind undo so Nite never floods the OS with a huge backspace replay.
         text_bytes < MAX_PAYLOAD_BYTES
     }
 

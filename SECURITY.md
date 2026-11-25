@@ -11,7 +11,7 @@ We take security seriously from day one. If you discover a vulnerability in any 
 
 ## Reporting a Vulnerability
 
-We take the security of Taurine seriously. If you discover a security vulnerability, we'd appreciate it if you could bring it to our attention privately so we can evaluate and address it.
+We take the security of Nite seriously. If you discover a security vulnerability, we'd appreciate it if you could bring it to our attention privately so we can evaluate and address it.
 
 **Please do not report security vulnerabilities through public GitHub issues.**
 

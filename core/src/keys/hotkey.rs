@@ -62,8 +62,6 @@ pub enum NiteReservedHotkey {
     PauseToggle,
 }
 
-pub type TaurineReservedHotkey = NiteReservedHotkey;
-
 impl NiteReservedHotkey {
     pub const fn description(self) -> &'static str {
         match self {
@@ -176,13 +174,9 @@ pub fn conflicts_with_nite_global_hotkey(hotkey: Hotkey) -> Option<NiteReservedH
     hotkeys_overlap(hotkey, nite_pause_hotkey()).then_some(NiteReservedHotkey::PauseToggle)
 }
 
-pub use conflicts_with_nite_global_hotkey as conflicts_with_taurine_global_hotkey;
-
 pub fn nite_pause_hotkey() -> Hotkey {
     hotkey_with(&[Modifier::Alt], LogicalKey::Backquote)
 }
-
-pub use nite_pause_hotkey as taurine_pause_hotkey;
 
 fn insert_modifier(modifiers: &mut Modifiers, modifier: Modifier) -> Result<(), KeyParseError> {
     match modifiers.insert(modifier) {

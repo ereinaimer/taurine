@@ -27,7 +27,7 @@ impl Transcription {
     }
 }
 
-/// Abstract interface implemented by all Taurine speech-to-text inference engines.
+/// Abstract interface implemented by all Nite speech-to-text inference engines.
 pub trait Transcriber: Send + Sync {
     /// Identifier name for the transcriber engine.
     fn name(&self) -> &str;
@@ -86,10 +86,10 @@ mod tests {
         assert_eq!(result.text, "hello world");
         assert_eq!(result.confidence, 0.95);
 
-        mock.set_hotwords(Some("taurine".to_string()));
+        mock.set_hotwords(Some("nite".to_string()));
         let res_hw = mock
             .transcribe(&[0.0; 1600], 16000)
             .expect("transcription with hw");
-        assert_eq!(res_hw.text, "hello taurine");
+        assert_eq!(res_hw.text, "hello nite");
     }
 }

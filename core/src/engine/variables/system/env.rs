@@ -31,14 +31,14 @@ mod tests {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
-        unsafe { env::set_var("TAURINE_TEST_VAR", "hello_world") };
-        assert_eq!(resolve("TAURINE_TEST_VAR"), Some("hello_world".to_string()));
+        unsafe { env::set_var("NITE_TEST_VAR", "hello_world") };
+        assert_eq!(resolve("NITE_TEST_VAR"), Some("hello_world".to_string()));
         assert_eq!(
-            resolve("TAURINE_TEST_VAR, fallback"),
+            resolve("NITE_TEST_VAR, fallback"),
             Some("hello_world".to_string())
         );
         assert_eq!(
-            resolve("name=TAURINE_TEST_VAR, default=fallback"),
+            resolve("name=NITE_TEST_VAR, default=fallback"),
             Some("hello_world".to_string())
         );
         assert_eq!(
@@ -53,6 +53,6 @@ mod tests {
         assert_eq!(resolve(""), None);
         assert_eq!(resolve("X=y"), None);
         // SAFETY: Serialized via TEST_LOCK to prevent concurrent environment modification races.
-        unsafe { env::remove_var("TAURINE_TEST_VAR") };
+        unsafe { env::remove_var("NITE_TEST_VAR") };
     }
 }

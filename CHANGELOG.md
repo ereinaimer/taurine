@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Complete Keystroke Tracking**: Keys that type multiple characters are now tracked, so later triggers keep matching after unusual key output.
 
 ### Added
-- **Remote Desktop Trigger Support**: Enable word and hotkey expansions across remote desktop sessions (RustDesk, VNC) and on-screen keyboards by filtering only Taurine's synthetic events.
+- **Remote Desktop Trigger Support**: Enable word and hotkey expansions across remote desktop sessions (RustDesk, VNC) and on-screen keyboards by filtering only nite's synthetic events.
 - **Voice Speed & Multilingual Restoration**: Pre-warmed HTTPS connections on keypress and automatically restored authentic native scripts for non-Latin languages.
 - **Voice Crash Recovery & Partial Salvage**: Automatically recover interrupted dictations on restart and salvage partial transcripts during network drops.
 - **Unified Snippet Syntax**: Streamlined template syntax with bare key directives, direct filters, direct arithmetic, and order-independent date and time parameters.
@@ -28,22 +28,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Cloud Voice Dictation**: Real-time speech-to-text dictation and formatting cleanup powered by Groq cloud models.
 - **Confirmation Footer Bar**: Create, save, import, export, delete, and reset dialogs now end in a shared footer bar with Cancel on the left and the confirming action on the right; destructive confirms start focused on Cancel so a stray Enter never deletes anything.
 - **In-TUI Account Gates**: Sign in with Google from the TUI and see a dismissible weekly-quota notice without losing access to the library.
-- **Mandatory Authentication Gate**: Require an active Taurine account to launch the background service and connect to cloud sync.
+- **Mandatory Authentication Gate**: Require an active nite account to launch the background service and connect to cloud sync.
 - **Bidirectional Cloud Sync**: Synchronize and restore snippets, settings, activity history, and multi-device statistics across devices with conflict-free aggregation.
 - **Activity Event Logging**: Record individual user actions with timestamps, application context, word counts, and time saved.
 - **Activity Output History & Retention**: Retain full text content for voice dictations and expansions with a rolling 30-day history window and cross-device synchronization.
 - **Streak Tracking**: Track consecutive daily active execution streaks and all-time records.
 - **Home Dashboard**: Flat activity card feed with sticky date headers, active card actions, and weekly quota overview.
 - **Voice Activity**: Voice entries in the activity feed display the recognized speech text instead of the inserted snippet output.
-- **Snippet Enable and Disable**: Toggle individual snippets directly with `taurine enable` and `taurine disable`.
-- **Cloud Quota & Tier Status**: View subscription tier, weekly quota balance, and usage limits in `taurine status`.
-- **Workspace Management**: Organize, filter, and manage snippet workspaces with the `taurine workspace` command and `--workspace` flag.
+- **Snippet Enable and Disable**: Toggle individual snippets directly with `nite enable` and `nite disable`.
+- **Cloud Quota & Tier Status**: View subscription tier, weekly quota balance, and usage limits in `nite status`.
+- **Workspace Management**: Organize, filter, and manage snippet workspaces with the `nite workspace` command and `--workspace` flag.
 - **Trigger Usage History**: Record daily per-trigger expansion stats and active application context in the local database.
 - **Redesigned TUI Workspace**: Full-height responsive layout featuring a vector-icon navigation rail, draggable split views, and smooth mouse scrolling.
 - **Command Palette**: Quick-access command palette (`Ctrl+P`) with real-time search, descriptions, and direct execution shortcuts.
 - **In-TUI Trigger Creator**: Create and configure triggers directly (`Ctrl+N`) with interactive type pickers, tag builder, and running application selectors.
 - **Visual Hotkey Recorder**: Capture shortcuts by pressing physical keys with full keyboard visual layout and distinct modifier detection.
-- **Syntax Highlighting & Rich Editor**: Live Tree-sitter syntax highlighting for shell scripts and Taurine template variables with mouse text selection and undo support.
+- **Syntax Highlighting & Rich Editor**: Live Tree-sitter syntax highlighting for shell scripts and nite template variables with mouse text selection and undo support.
 - **Modern Settings Overlay**: Quick-access settings modal (`Ctrl+,`) with inline field editing, graphical animated toggles, volume sliders, and connected microphone pickers.
 
 ### Changed
@@ -97,19 +97,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Logout Sync Accuracy**: Eliminate phantom sync retries on logout when local changes are already synchronized.
 - **Trigger Sync Backfill**: Automatically enqueue existing and imported triggers into sync outbox to guarantee complete cloud synchronization.
 - **Windows Browser Launch**: Prevent OAuth login URLs with multiple query parameters from being truncated on Windows.
-- **Cloud State Restoration**: Reliably restore and synchronize quota balances, triggers, settings, and telemetry when signing in and out of Taurine.
+- **Cloud State Restoration**: Reliably restore and synchronize quota balances, triggers, settings, and telemetry when signing in and out of nite.
 - **Weekly Quota Indicator**: Correctly display remaining weekly balance tracks on account summaries and status views.
 - **Hotkey Expansion Telemetry**: Shortcuts that inject text now properly record expanded word counts and estimated time saved.
-- **Login Defaults**: Sign in to Taurine directly without configuring manual environment variables.
-- **Background Service Startup**: Prevent `taurine up` from falsely reporting the service as already running when an interactive terminal or TUI session is active.
+- **Login Defaults**: Sign in to nite directly without configuring manual environment variables.
+- **Background Service Startup**: Prevent `nite up` from falsely reporting the service as already running when an interactive terminal or TUI session is active.
 - **Quota Depletion**: Ensure trigger expansions update weekly quota balance and sync accurately with cloud status.
-- **Service Stop Fallback**: `taurine stop` and `taurine restart` now terminate an unresponsive background instance instead of reporting a false failure or starting a duplicate.
+- **Service Stop Fallback**: `nite stop` and `nite restart` now terminate an unresponsive background instance instead of reporting a false failure or starting a duplicate.
 - **Responsive Tray and Voice**: Concurrent settings reloads no longer jam the control channel used by the tray, dictation, and service commands.
 
 ## [1.0.0-alpha.19] - 2026-09-27
 
 ### Added
-- **Voice Model Aliases**: Switch dictation tiers via `taurine config set voice_model` with `best`, `balanced`, `fast`, or `auto` instead of full model identifiers.
+- **Voice Model Aliases**: Switch dictation tiers via `nite config set voice_model` with `best`, `balanced`, `fast`, or `auto` instead of full model identifiers.
 - **Voice Dictation**: Local push-to-talk and hands-free dictation with automatic formatting, lexicon-guarded dictionary corrections, stutter cleanup, instant start with the model staying warm across bursts with no clipped words or missed presses, single-step paste, and reliable start/stop audio cues.
 - **Voice Triggers**: Spoken phrases that expand text, run scripts in the correct language, and expand system variables, working during dictation.
 - **Parameterized Voice Triggers**: Define voice shortcuts with slot placeholders (e.g. `--voice 'send [msg] to [person]'`) that extract spoken words into output variables.
@@ -132,7 +132,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Multiple triggers per entry**: fire the same text or script from several word triggers, hotkeys, regex patterns, or voice phrases, managed as one grouped entry.
 
 ### Changed
-- **Always-Encrypted Exports**: Remove the `--plain` export option so `.tau` files are always encrypted, with an optional password for a second lock.
+- **Always-Encrypted Exports**: Remove the `--plain` export option so `.nite` files are always encrypted, with an optional password for a second lock.
 - **Machine-Bound Database Encryption**: The local database is now encrypted with a per-computer key and copies of the database file no longer open on other computers; move data between machines with encrypted exports.
 - **Simpler fill-in fields**: Write `[name=default]` and fill values inline with `;` (e.g. `hi;Erein`); missing values use defaults, `;;` skips a field.
 - **Semicolon argument separator**: Separate arguments with `;` instead of `:` so times and URLs no longer need quoting.
@@ -154,10 +154,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Line Transformers Follow Documented Syntax**: Enable the documented [| lines(first|last|count|compact|prefix|suffix|join|split|unique|sort)] family and drop the unreachable legacy names.
 - **Start on Boot From Any Location**: Remember the exact binary that ran `up` (e.g. from Downloads) and launch it at login, falling back to the installed copy when it no longer exists.
 - **Fixed Windows Login Launcher**: Launch the installed binary directly at logon instead of resolving it through a sidecar path file.
-- **Uninstall Binary Removal**: Ensure uninstallers always remove the Taurine binary even when configuration and data files are kept.
-- **Windows Startup Hook Removal**: Remove the logon scheduled task, registry Run entry, and startup launcher during uninstallation even when the Taurine binary is missing or broken.
+- **Uninstall Binary Removal**: Ensure uninstallers always remove the nite binary even when configuration and data files are kept.
+- **Windows Startup Hook Removal**: Remove the logon scheduled task, registry Run entry, and startup launcher during uninstallation even when the nite binary is missing or broken.
 - **Windows Purge Path Quoting**: Fix data purge failing for user profiles containing an apostrophe.
-- **Unix Uninstall Guard & Shutdown Fallback**: Skip early with a clean status when Taurine is not installed, and force-kill lingering daemon processes when graceful shutdown fails.
+- **Unix Uninstall Guard & Shutdown Fallback**: Skip early with a clean status when nite is not installed, and force-kill lingering daemon processes when graceful shutdown fails.
 - **INR Currency Conversion Grouping**: Format inline conversion results in rupees/taka with lakh/crore commas (e.g. 9,454.41 INR).
 - **Linux Installer Manifest Fetch**: Fix fresh installs failing when the release manifest URL could not be resolved.
 - **Uninstaller Cleanup**: Prevent partial removal when the binary is missing and ensure the uninstaller is available before installation completes.
@@ -165,7 +165,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **In-Band Error Elimination**: Erase triggers cleanly without inserting error strings into documents when snippet expansions or system variables encounter errors.
 - **Terminal & Shell Launch Resilience**: Allocate dedicated console hosts for terminal applications and isolate URL shell activations to prevent crashes and invisible zombie processes.
 - **Mouse Button 4 and 5 Simulation**: Direct Win32 input simulation for mouse buttons 4 and 5 (browser back/forward) on Windows.
-- **Linux Mouse Input Broken**: Fix left and right click becoming completely unresponsive while Taurine is running on Linux. Mouse devices were incorrectly grabbed exclusively, swallowing all click events before the compositor could receive them.
+- **Linux Mouse Input Broken**: Fix left and right click becoming completely unresponsive while nite is running on Linux. Mouse devices were incorrectly grabbed exclusively, swallowing all click events before the compositor could receive them.
 - **Linux Text Expansion Speed**: Batch all uinput key events into a single kernel call per expansion, eliminating per-character sleep delays and making text injection significantly faster.
 - **Linux Tray Icon**: Export branded pause and resume PNG assets to the local user data directory and register the theme search path with SNI hosts to ensure the tray icon displays and toggles accurately across Linux desktop environments.
 - **Linux Clipboard Listener Resilience**: Treat empty or non-text clipboards as empty rather than errors, and apply exponential backoff on display server connection failures.
@@ -191,10 +191,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Tray Menu Snooze & Quick Settings**: Snooze expansions for set durations (15m, 30m, 1h) with a live-updating countdown timer on the resume item, toggle instant expansion and start on boot, and swap menus dynamically from the system tray.
-- **Instant Windows Startup**: Launch Taurine immediately on user logon via Windows Task Scheduler integration with automatic registry fallback.
-- **Zero-Lag Offline Snippet Operations**: Instant CLI execution when Taurine is stopped via sub-microsecond in-memory service liveness detection.
+- **Instant Windows Startup**: Launch nite immediately on user logon via Windows Task Scheduler integration with automatic registry fallback.
+- **Zero-Lag Offline Snippet Operations**: Instant CLI execution when nite is stopped via sub-microsecond in-memory service liveness detection.
 - **Mouse Hotkey Triggers**: Trigger snippet expansions and actions using mouse button combinations.
-- **Dynamic System Tray Icons**: Display state-aware play and pause tray icons reflecting Taurine's active and paused states.
+- **Dynamic System Tray Icons**: Display state-aware play and pause tray icons reflecting nite's active and paused states.
 - **Zero-Latency Text & Undo Fast-Path**: Inject plain text expansions up to 1,000 characters and backspace undos atomically with zero clipboard touches or artificial delay loops.
 - **Instant Shell Launcher**: Launch application and URL triggers natively with sub-millisecond response times, bypassing shell interpreter startup overhead.
 - **Audio Themes & Volume**: Choose from 12 built-in sound themes for pause and resume cues and configure cue playback volume (0-100%, defaulting to 50%).
@@ -208,8 +208,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Conversational Time Conversions**: Support `when it is <time> in <from_tz> what time is it in <to_tz>?` for long-form timezone conversions.
 
 ### Changed
-- **Interactive AI Configuration Wizard**: Replaced CLI subcommands with an interactive terminal wizard (`tau ai`) and headless fallback flags (`-y`).
-- **Natural Inline AI Copilot**: Replaced delimiter-based capture modes with prefix syntax (`tau, <prompt>`) evaluated on Enter anywhere on a line.
+- **Interactive AI Configuration Wizard**: Replaced CLI subcommands with an interactive terminal wizard (`nite ai`) and headless fallback flags (`-y`).
+- **Natural Inline AI Copilot**: Replaced delimiter-based capture modes with prefix syntax (`nite, <prompt>`) evaluated on Enter anywhere on a line.
 - **Sub-Millisecond Expansion Pipeline**: Pre-compiled snippet execution plans, atomic single-line cursor repositioning, and high-precision clipboard synchronization for instant expansions.
 - **Silent Dictionary Downloads**: Background offline dictionary downloads and updates now complete silently without sending desktop notifications.
 - **Single-Pass Fallbacks & Atomic Undo**: Consolidated natural language fallbacks into a single zero-allocation evaluation pass, added intent pre-filters, and batched backspace undo Win32 injections.
@@ -228,20 +228,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Hook Resilience & Self-Healing**: Prevented false hook restarts during typing pauses, deferred active-window inspection to match time, added auto-reenabling recovery on macOS, and bounded lock contention to ensure zero keyboard dropped frames.
 - **Text Expansion Reliability**: Fixed a regression where word expansions, swallowing, and completions would fail to trigger or misbehave during rapid typing.
 - **Modifier Tracking & Hook Resilience**: Fixed stuck modifier keys after dropped release events and eliminated keyboard unresponsiveness by pairing active hardware state checks with instant Raw Input failover.
-- **Alias Completions**: Tab-completions now work for the `tau` alias in PowerShell, Bash, Zsh, Fish, and Elvish (previously only the full `taurine` command name completed). Re-run `taurine completions install` to pick up the updated scripts.
+- **Alias Completions**: Tab-completions now work for the `nite` alias in PowerShell, Bash, Zsh, Fish, and Elvish (previously only the full `nite` command name completed). Re-run `nite completions install` to pick up the updated scripts.
 - **Multi-Monitor Tray Menu Scaling**: Fixed oversized tray context menu rendering on secondary displays with mismatched DPI scaling on Windows.
 
 ## [1.0.0-alpha.16] - 2026-08-13
 
 ### Added
 - **Background Auto-Updates**: The daemon now silently checks for and applies updates in the background every 6 hours (configurable via `Auto Update`).
-- **Update Notifications**: Added a `Notify on Update` setting to show system notifications when Taurine successfully updates in the background.
+- **Update Notifications**: Added a `Notify on Update` setting to show system notifications when nite successfully updates in the background.
 - **App Expansion Stats**: Display a Top Apps card on the TUI Home page showing per-application expansion counts, keystrokes saved, and time saved.
 - **Country-Level Timezone Support**: Check current time, relative offsets, and conversions using country names and ISO codes (e.g. `time in france`, `10am pst to jp`) resolved locally via static capital-city timezone mappings.
 - **Post-Expansion Case Cycling**: Cycle expanded text capitalization (UPPERCASE, lowercase, Sentence case, Title Case) using Left and Right arrow keys within the active undo window.
 
 ### Changed
-- **Uninstall Check**: Check if Taurine is installed prior to running uninstall scripts and skip remaining steps with a clean status message if missing.
+- **Uninstall Check**: Check if nite is installed prior to running uninstall scripts and skip remaining steps with a clean status message if missing.
 - **Optional Script Timeout**: Setting `script_timeout` to `0` now disables the execution timeout entirely, letting scripts run until they finish (previously this fell back to a 20-second kill).
 - **Internal RPC Authentication**: Store the local RPC token in the OS Credential Manager and remove it from user settings and the TUI.
 - **IP Lookups & AI Provider Hardening**: Upgrade IP lookups to HTTPS, scope custom AI endpoints, and cap parallel AI completions.
@@ -256,14 +256,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Dependency-Free Linux Tray**: The Linux system tray icon no longer requires GTK or the AppIndicator libraries, and it now recovers automatically when the desktop tray service restarts or the session connection drops (previously the icon could disappear for the rest of the session).
 
 ### Fixed
-- **CLI Configuration Alignment**: `taurine config set` and `taurine config reset` now support all configurable settings, and `reset --all` restores every setting to its default.
+- **CLI Configuration Alignment**: `nite config set` and `nite config reset` now support all configurable settings, and `reset --all` restores every setting to its default.
 - **Library Export Protection**: Exports from the Library UI now enforce the same encryption password minimum, private file permissions, and credential zeroing as the command-line exporter.
 - **Whitespace No Longer Implies Multiplication**: In the inline calculator, numbers separated only by whitespace or line breaks (e.g. `2 2`) are no longer multiplied together; such input is left as typed text. Implicit multiplication (e.g. `2(3)`, `2pi`) still works when operands are directly adjacent, and explicit multiplication (`2 * 2`) is unaffected.
 - **Graceful Shutdown**: Handle OS termination signals (SIGINT/SIGTERM) in the daemon and TUI to ensure clean resource teardown and terminal restoration.
 - **Documentation Site Security**: Upgrade the documentation site's build toolchain (PostCSS, Sharp, js-yaml, brace-expansion) to resolve security advisories.
 
 ### Removed
-- **RPC Token Env Override**: Removed `TAURINE_RPC_TOKEN`; the local RPC token is now exclusively managed internally in the OS credential store.
+- **RPC Token Env Override**: Removed `nite_RPC_TOKEN`; the local RPC token is now exclusively managed internally in the OS credential store.
 - **Hash Transformer**: Removed the `md5` hash modifier (SHA-256 and SHA-512 remain).
 - **Port Modifier**: Removed the `net.port(n)` template modifier (IP and lookup modifiers remain).
 - **Hex Generator**: Removed the `random.hex(len)` template modifier.
@@ -299,13 +299,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Inline Date & Time**: Automatically expand relative dates and times (requiring an explicit direction signal) on Enter key press, with customizable formats and dialect overrides.
 - **Configurable System Tray**: Allow toggling system tray icon visibility via a new setting customizable through the CLI and TUI.
 - **System Tray Controls**: System tray support was added with the quit, pause, resume options.
-- **AI Remove All**: `taurine ai remove --all` removes all configured provider API keys at once. Uninstall scripts now purge keyring entries automatically.
+- **AI Remove All**: `nite ai remove --all` removes all configured provider API keys at once. Uninstall scripts now purge keyring entries automatically.
 - **Empty Output Validation**: Prevent creating triggers with empty or whitespace-only content across all creation paths (CLI, TUI, import).
 - **Global `--json` Flag**: All CLI commands support a `--json` flag for machine-readable JSON output. List commands return structured data (triggers, settings, AI providers/models), action commands return status objects.
 - **Mouse Support in Import/Export Modals**: Click to select fields, scroll to navigate, and double-click to execute actions in the import and export overlays.
-- **OS-Native Uninstallation**: Support standard system uninstallation, registering Taurine in the Windows Installed Apps list and providing clean uninstall scripts for all platforms.
+- **OS-Native Uninstallation**: Support standard system uninstallation, registering nite in the Windows Installed Apps list and providing clean uninstall scripts for all platforms.
 - **Triggerless Tab Completion**: Intercept the Tab key in triggerless mode to trigger completion suggestions for the typed word tail, while passing through to the OS when no matches exist.
-- **Interactive Import Options**: When importing from the CLI without any optional flags, Taurine now opens an interactive overlay where you can choose whether to include settings, sensitive settings, and stats, and pick a conflict resolution strategy.
+- **Interactive Import Options**: When importing from the CLI without any optional flags, nite now opens an interactive overlay where you can choose whether to include settings, sensitive settings, and stats, and pick a conflict resolution strategy.
 - **Input Validation Limits**: Enforce maximum lengths for trigger strings (200 chars), output content (100KB), script content (1MB), trigger names (200 chars), and descriptions (1000 chars).
 - **Dead Reference Detection**: Warn when a trigger references a non-existent trigger via [use()], preventing silent runtime failures.
 - **App Filter Cleaning**: Automatically trim whitespace and validate prefix specifiers (exe:, class:, title:) in app filter settings.
@@ -325,11 +325,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Stats Typing Speed Bounds**: Limit typing speed configuration (WPM) to a maximum of 150 WPM to prevent invalid or zeroed stat calculations.
 
 ### Fixed
-- **Hotkey Delete Order Sensitivity**: Fix `tau rm` not matching hotkeys when modifier key order differs from how they were added (e.g. `alt+shift+2` vs `shift+alt+2`).
+- **Hotkey Delete Order Sensitivity**: Fix `nite rm` not matching hotkeys when modifier key order differs from how they were added (e.g. `alt+shift+2` vs `shift+alt+2`).
 - **AI Executions Double-Counting**: Fix an issue where AI-assisted expansions counted twice in the dashboard stats.
 - **Hotkey & Script Keystrokes Counting**: Prevent hotkey triggers and shell scripts from falsely inflating keystrokes and time saved statistics.
 - **Clipboard Paste Race Condition**: Increase clipboard write verification polling from 15 to 20 attempts for more reliable paste under system load. Raise the post-paste clipboard restore delay across all platforms to reduce the chance of restoring the clipboard before the target application finishes reading the expansion payload.
-- **Simulated Event Filtering Reliability**: Increase the self-filtering time-to-live for simulated key events from 100ms to 250ms, preventing Taurine's own injected keystrokes from being processed as user input under heavy load.
+- **Simulated Event Filtering Reliability**: Increase the self-filtering time-to-live for simulated key events from 100ms to 250ms, preventing nite's own injected keystrokes from being processed as user input under heavy load.
 
 ## [1.0.0-alpha.14] - 2026-07-18
 
@@ -372,7 +372,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Linux Clipboard Init**: Prevent daemon crashes on startup in headless environments or when no X11/Wayland display server is running.
 - **Linux Clipboard Connection Conflicts**: Resolve clipboard unresponsiveness and connection conflicts under X11 by sharing the global clipboard connection.
 - **Windows Resume Hook Resilience**: Fix hook unresponsiveness and daemon crashes after sleep/resume by replacing the rdev keyboard hook with a custom thread-local Win32 low-level keyboard hook, coalescing rapid wakeup events to prevent spawn-and-destroy loops, and synchronizing modifier key states with the foreground window.
-- **Linux Service Startup**: Fix an issue where Taurine failed to start on Linux (`Unit not found`) due to a mismatch between the installed service file name and the expected label name.
+- **Linux Service Startup**: Fix an issue where nite failed to start on Linux (`Unit not found`) due to a mismatch between the installed service file name and the expected label name.
 - **Auto-Update Reliability**: Fix auto-update checks failing to retry on network issues, log check errors to the daemon, and prevent daemon panics if the cache folder cannot be created.
 - **Scripts Enabled Wireup**: Fix an issue where the `scripts_enabled` configuration setting failed to load from the database or apply when updated via the CLI or TUI.
 
@@ -384,7 +384,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Configurable RPC & Authentication**: Add secure Bearer token validation and configurable RPC settings.
 - **Unix Clipboard History**: Enable clipboard history support on Linux and macOS with optimized resource utilization.
 - **Configurable Clipboard Exclusions**: Provide options to configure history retention, exclusions, and transient pasteboard safety.
-- **`tau` Shell Alias**: Configure PATH and `tau` alias across POSIX shells, Fish, Csh/Tcsh, and PowerShell with automatic duplicate cleanup.
+- **`nite` Shell Alias**: Configure PATH and `nite` alias across POSIX shells, Fish, Csh/Tcsh, and PowerShell with automatic duplicate cleanup.
 
 ### Changed
 - **Lock-Free Input Evaluation**: Decouple undo state logic and make trigger completion check lock-free to remove typing lag.
@@ -438,12 +438,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Downgrade prevention: skips installation if the local version is newer than the latest release
   - `install.sh`: cleanup trap ensures temp directory is removed on `EXIT`, `INT`, or `TERM` signals
 - **Checksum support in release manifest**: The release workflow now computes `sha256sum` for each artifact and includes it in `manifest.json` under each platform entry
-- **Checksum verification in internal updater**: `taurine update` now verifies the downloaded archive SHA-256 against the manifest checksum before extracting
+- **Checksum verification in internal updater**: `nite update` now verifies the downloaded archive SHA-256 against the manifest checksum before extracting
 - **`--version` flag regression test**: Added a unit test verifying the `--version` flag parses correctly and the version constant is a valid semver string
 
 ### Fixed
-- **Missing `--version` flag**: Added support for `taurine --version` to output the current version (e.g. `taurine 1.0.0-alpha.9`). The install scripts rely on this to detect existing installations and skip redundant re-downloads.
-- **Windows update extraction failure**: Fixed a bug where `taurine update` failed on Windows with "file is being used by another process" during zip extraction. The downloaded archive file handle was not explicitly dropped before PowerShell's `Expand-Archive` tried to read it, causing an exclusive access lock conflict. Added an explicit `drop(archive_file)` before the extraction step.
+- **Missing `--version` flag**: Added support for `nite --version` to output the current version (e.g. `nite 1.0.0-alpha.9`). The install scripts rely on this to detect existing installations and skip redundant re-downloads.
+- **Windows update extraction failure**: Fixed a bug where `nite update` failed on Windows with "file is being used by another process" during zip extraction. The downloaded archive file handle was not explicitly dropped before PowerShell's `Expand-Archive` tried to read it, causing an exclusive access lock conflict. Added an explicit `drop(archive_file)` before the extraction step.
 
 ## [1.0.0-alpha.9] - 2026-07-06
 
@@ -453,7 +453,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Auto-Update TUI Setting**: Added an `Auto Update` toggle to the TUI to allow users to opt-out of background update checks.
 
 ### Changed
-- **Unified Distribution Architecture**: Standardized the binary install location across all operating systems to live inside the canonical OS user data directory (`%LOCALAPPDATA%\Taurine\bin\taurine.exe` on Windows, `~/.local/share/taurine/bin/taurine` on Linux).
+- **Unified Distribution Architecture**: Standardized the binary install location across all operating systems to live inside the canonical OS user data directory (`%LOCALAPPDATA%\nite\bin\nite.exe` on Windows, `~/.local/share/nite/bin/nite` on Linux).
 - **Custom Release Pipeline**: Replaced cargo-dist workflow with a streamlined GitHub Actions matrix that creates clean release artifacts and JSON manifests natively.
 
 ### Removed
@@ -509,7 +509,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `uniqlines` -> `uniqline`
 
 ### Removed
-- **Legacy AI Presets CLI**: Removed the legacy `ai preset` command from the CLI (`taurine ai preset list/add/rm`) and its associated engine logic, as the feature was wholly replaced by the customizable inline delimiter parsing and system prompts.
+- **Legacy AI Presets CLI**: Removed the legacy `ai preset` command from the CLI (`nite ai preset list/add/rm`) and its associated engine logic, as the feature was wholly replaced by the customizable inline delimiter parsing and system prompts.
 - **Redundant Transformers and Aliases**:
   - `remove` transformer (in favor of `replace(target, "")`).
   - `hexencode` and `hexdecode` encoding/decoding transformers.
@@ -555,8 +555,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Standardized Environment Variable Syntax (`env`)**: Converted environment variable resolution from dot notation (`[env.VAR]`) to function-call syntax (`[env(VAR)]` and `[env("VAR")]`).
 
 ### Fixed
-- **System Power Resilience**: Fixed an issue where Taurine stopped working entirely after Windows woke from sleep or session unlock due to OS low-level keyboard hooks (`WH_KEYBOARD_LL`) being silently invalidated. Taurine now properly force-rehooks and introduces a 1000ms delay to allow USB keyboards to re-enumerate smoothly.
-- **Windows Startup Metadata**: Fixed an issue where Windows Task Manager's Startup tab displayed `taurine-startup.exe` instead of the application name by removing startup arguments from the registry key and reading them from an adjacent `.path` file instead.
+- **System Power Resilience**: Fixed an issue where nite stopped working entirely after Windows woke from sleep or session unlock due to OS low-level keyboard hooks (`WH_KEYBOARD_LL`) being silently invalidated. nite now properly force-rehooks and introduces a 1000ms delay to allow USB keyboards to re-enumerate smoothly.
+- **Windows Startup Metadata**: Fixed an issue where Windows Task Manager's Startup tab displayed `nite-startup.exe` instead of the application name by removing startup arguments from the registry key and reading them from an adjacent `.path` file instead.
 - **Clipboard History**: Windows clipboard history is now entirely event-driven using `WM_CLIPBOARDUPDATE` messages rather than polling `OpenClipboard` every 150ms. This uses 0% CPU on idle, guarantees capture of all rapid clipboard updates, and completely eliminates race conditions and lock contention.
 
 ## [1.0.0-alpha.5] - 2026-06-27
@@ -590,7 +590,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Windows Metadata**: Embedded native Windows file version metadata into the CLI binary
 
 ### Fixed
-- **Inline AI Lifecycle**: Resolved injection gating issues where text expansion/taurine stopped working after using inline AI
+- **Inline AI Lifecycle**: Resolved injection gating issues where text expansion/nite stopped working after using inline AI
 - **Audio Output Switching**: Resolved audio playback not switching to speakers after headphones are unplugged
 - **CI/CD Linux Support**: Added `libasound2-dev` and other build dependencies to CI and Linux distribution packages to support audio output
 
@@ -605,4 +605,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Inline Math**: Calculate mathematical expressions directly in any text field (`>5+3`)
 - **Inline AI**: Stream AI responses directly into the active text field using backticks
 - **CLI & TUI**: Manage automations visually via a Terminal UI or directly from the command line
-- **Import & Export**: Backup and share automations using the `.tau` file format
+- **Import & Export**: Backup and share automations using the `.nite` file format

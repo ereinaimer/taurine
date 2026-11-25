@@ -228,7 +228,7 @@ fn sweep_covers_defaults_set_and_reset_for_all_keys() {
         ("ai_custom_endpoint", "https://example.com"),
         ("voice_ptt_hotkey", "ctrl+space"),
         ("voice_handsfree_hotkey", "ctrl+alt+space"),
-        ("voice_dictionary", "Rust, Taurine"),
+        ("voice_dictionary", "Rust, Nite"),
         ("voice_preferred_languages", "en,ml"),
         ("voice_input_device", "External Mic"),
         ("pause_media_while_dictating", "false"),
@@ -257,7 +257,7 @@ fn sweep_covers_defaults_set_and_reset_for_all_keys() {
         ai_custom_endpoint: Some("https://example.com".to_string()),
         voice_ptt_hotkey: "ctrl+space".to_string(),
         voice_handsfree_hotkey: "ctrl+alt+space".to_string(),
-        voice_dictionary: "Rust, Taurine".to_string(),
+        voice_dictionary: "Rust, Nite".to_string(),
         voice_preferred_languages: "en,ml".to_string(),
         voice_input_device: Some("External Mic".to_string()),
         pause_media_while_dictating: false,
@@ -351,8 +351,8 @@ fn test_unknown_setting_key_diagnostic() {
         "expected suggestion for audio_theme, got: {msg}"
     );
     assert!(
-        msg.contains("To view all available settings and their values, run: taurine config list"),
-        "expected guidance to taurine config list, got: {msg}"
+        msg.contains("To view all available settings and their values, run: nite config list"),
+        "expected guidance to nite config list, got: {msg}"
     );
 }
 
@@ -373,7 +373,7 @@ fn test_invalid_audio_theme_diagnostic() {
         "expected options listing all 7 themes, got: {msg}"
     );
     assert!(
-        msg.contains("taurine config set audio_theme"),
+        msg.contains("nite config set audio_theme"),
         "expected example command, got: {msg}"
     );
 }

@@ -158,9 +158,8 @@ fn execute_inner(silent: bool, json: bool) -> Result<()> {
         .build()
         .map_err(|e| Error::Engine(e.to_string()))?;
 
-    let manifest_url = nite_core::paths::dev_env_var("NITE_UPDATE_MANIFEST_URL")
-        .or_else(|| nite_core::paths::dev_env_var("TAURINE_UPDATE_MANIFEST_URL"))
-        .unwrap_or_else(|| {
+    let manifest_url =
+        nite_core::paths::dev_env_var("NITE_UPDATE_MANIFEST_URL").unwrap_or_else(|| {
             "https://github.com/ereinaimer/taurine/releases/latest/download/manifest.json"
                 .to_string()
         });

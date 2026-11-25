@@ -213,13 +213,13 @@ mod tests {
             .update_setting("voice_handsfree_hotkey", "ctrl+alt+space")
             .unwrap();
         manager
-            .update_setting("voice_dictionary", "Rust, Taurine, Whisper")
+            .update_setting("voice_dictionary", "Rust, Nite, Whisper")
             .unwrap();
 
         let settings = manager.load_all();
         assert_eq!(settings.voice_ptt_hotkey, "ctrl+space");
         assert_eq!(settings.voice_handsfree_hotkey, "ctrl+alt+space");
-        assert_eq!(settings.voice_dictionary, "Rust, Taurine, Whisper");
+        assert_eq!(settings.voice_dictionary, "Rust, Nite, Whisper");
     }
 
     #[test]

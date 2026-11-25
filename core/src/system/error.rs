@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-/// The central error type for the Taurine engine.
+/// The central error type for the Nite engine.
 #[derive(Error, Debug)]
 pub enum Error {
     #[error("{0}")]
@@ -52,5 +52,5 @@ impl From<tonic::transport::Error> for Error {
     }
 }
 
-/// A specialized Result type for Taurine core operations.
+/// A specialized Result type for Nite core operations.
 pub type Result<T> = std::result::Result<T, Error>;

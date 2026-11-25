@@ -2735,10 +2735,6 @@ mod tests {
                     ("nite".to_string(), "db-key".to_string()),
                     FIXED_TEST_DB_KEY_HEX.to_vec(),
                 );
-                map.insert(
-                    ("taurine".to_string(), "db-key".to_string()),
-                    FIXED_TEST_DB_KEY_HEX.to_vec(),
-                );
                 Mutex::new(map)
             })
         }

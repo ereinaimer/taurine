@@ -77,7 +77,7 @@ impl AppStatsSortBy {
 ///
 /// # Examples
 /// - `"google-chrome.exe"` $\rightarrow$ `"Google Chrome"`
-/// - `"taurine-startup.exe"` $\rightarrow$ `"Taurine Startup"`
+/// - `"nite-startup.exe"` $\rightarrow$ `"Nite Startup"`
 /// - `"discord.exe"` $\rightarrow$ `"Discord"`
 /// - `"my_custom_app.exe"` $\rightarrow$ `"My Custom App"`
 pub fn format_app_display_name(app_key: &str) -> String {
@@ -209,10 +209,7 @@ mod tests {
             format_app_display_name("google-chrome.exe"),
             "Google Chrome"
         );
-        assert_eq!(
-            format_app_display_name("taurine-startup.exe"),
-            "Taurine Startup"
-        );
+        assert_eq!(format_app_display_name("nite-startup.exe"), "Nite Startup");
         assert_eq!(format_app_display_name("discord.exe"), "Discord");
         assert_eq!(
             format_app_display_name("my_custom_app.exe"),
