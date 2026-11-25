@@ -310,6 +310,7 @@ pub fn upsert_trigger_with_type_and_case(
         if !holders.iter().any(|pid| pid == id) {
             add_alias(conn, id, invocation_type, &text_nfc, false)?;
         }
+        enqueue_trigger_outbox(conn, id, "upsert")?;
 
         Ok(())
     })
@@ -1316,12 +1317,15 @@ pub fn update_trigger_app_filters(
     let only_cleaned = clean_app_filter_value(only_apps.as_deref())?;
     let except_cleaned = clean_app_filter_value(except_apps.as_deref())?;
 
-    conn.execute(
+    let changed = conn.execute(
         "UPDATE triggers
          SET only_apps = ?1, except_apps = ?2
          WHERE id = ?3 AND is_deleted = 0",
         rusqlite::params![only_cleaned, except_cleaned, id],
     )?;
+    if changed > 0 {
+        enqueue_trigger_outbox(conn, id, "upsert")?;
+    }
     Ok(())
 }
 
@@ -1337,6 +1341,9 @@ pub fn set_trigger_only_apps(conn: &Connection, id: &str, only_apps: Option<&str
          WHERE id = ?3 AND is_deleted = 0",
         rusqlite::params![cleaned, crate::db::now_unix_secs(), id],
     )?;
+    if changed > 0 {
+        enqueue_trigger_outbox(conn, id, "upsert")?;
+    }
     Ok(changed > 0)
 }
 
@@ -1354,6 +1361,9 @@ pub fn set_trigger_except_apps(
          WHERE id = ?3 AND is_deleted = 0",
         rusqlite::params![cleaned, crate::db::now_unix_secs(), id],
     )?;
+    if changed > 0 {
+        enqueue_trigger_outbox(conn, id, "upsert")?;
+    }
     Ok(changed > 0)
 }
 
@@ -1372,6 +1382,9 @@ pub fn set_trigger_description(
          WHERE id = ?3 AND is_deleted = 0",
         rusqlite::params![cleaned, crate::db::now_unix_secs(), id],
     )?;
+    if changed > 0 {
+        enqueue_trigger_outbox(conn, id, "upsert")?;
+    }
     Ok(changed > 0)
 }
 
@@ -1403,6 +1416,9 @@ pub fn set_trigger_content(conn: &Connection, id: &str, content: &str) -> Result
              WHERE id = ?2 AND is_deleted = 0",
             rusqlite::params![now, id],
         )?;
+        if changed > 0 {
+            enqueue_trigger_outbox(conn, id, "upsert")?;
+        }
         return Ok(changed > 0);
     }
     let key = row
@@ -1418,6 +1434,9 @@ pub fn set_trigger_content(conn: &Connection, id: &str, content: &str) -> Result
          WHERE id = ?3 AND is_deleted = 0",
         rusqlite::params![content, now, id],
     )?;
+    if changed > 0 {
+        enqueue_trigger_outbox(conn, id, "upsert")?;
+    }
     Ok(changed > 0)
 }
 
@@ -1512,6 +1531,7 @@ pub fn set_trigger_action_type(
                 )?;
             }
         }
+        enqueue_trigger_outbox(conn, id, "upsert")?;
         Ok(true)
     })
 }
@@ -1528,6 +1548,9 @@ pub fn set_trigger_target_os(conn: &Connection, id: &str, target_os: &str) -> Re
          WHERE id = ?3 AND is_deleted = 0",
         rusqlite::params![target_os, crate::db::now_unix_secs(), id],
     )?;
+    if changed > 0 {
+        enqueue_trigger_outbox(conn, id, "upsert")?;
+    }
     Ok(changed > 0)
 }
 
@@ -1544,6 +1567,9 @@ pub fn set_trigger_tags(conn: &Connection, id: &str, tags: &[String]) -> Result<
          WHERE id = ?3 AND is_deleted = 0",
         rusqlite::params![cleaned, crate::db::now_unix_secs(), id],
     )?;
+    if changed > 0 {
+        enqueue_trigger_outbox(conn, id, "upsert")?;
+    }
     Ok(changed > 0)
 }
 
@@ -1561,6 +1587,9 @@ pub fn set_trigger_auto_case(conn: &Connection, id: &str, auto_case: bool) -> Re
             id
         ],
     )?;
+    if changed > 0 {
+        enqueue_trigger_outbox(conn, id, "upsert")?;
+    }
     Ok(changed > 0)
 }
 
@@ -1577,6 +1606,7 @@ pub fn set_trigger_enabled(conn: &Connection, id: &str, enabled: bool) -> Result
     )?;
     if changed > 0 {
         crate::system::rpc::notify_daemon_reload();
+        enqueue_trigger_outbox(conn, id, "upsert")?;
     }
     Ok(changed > 0)
 }
@@ -1622,6 +1652,9 @@ pub fn set_script_interpreter(
          WHERE id = ?2 AND is_deleted = 0",
         rusqlite::params![crate::db::now_unix_secs(), id],
     )?;
+    if changed > 0 {
+        enqueue_trigger_outbox(conn, id, "upsert")?;
+    }
     Ok(changed > 0)
 }
 
@@ -1662,6 +1695,9 @@ pub fn set_script_behavior(conn: &Connection, id: &str, behavior: ScriptBehavior
          WHERE id = ?2 AND is_deleted = 0",
         rusqlite::params![crate::db::now_unix_secs(), id],
     )?;
+    if changed > 0 {
+        enqueue_trigger_outbox(conn, id, "upsert")?;
+    }
     Ok(changed > 0)
 }
 

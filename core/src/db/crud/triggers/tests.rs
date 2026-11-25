@@ -2126,3 +2126,232 @@ fn test_backfill_untracked_triggers_to_outbox() {
     let backfilled_again = backfill_untracked_triggers_to_outbox(&conn).unwrap();
     assert_eq!(backfilled_again, 0);
 }
+
+fn assert_outbox_has_upsert(conn: &rusqlite::Connection, expected_id: &str) {
+    let mut stmt = conn
+        .prepare("SELECT entity_type, entity_id, operation FROM sync_outbox WHERE entity_id = ?1")
+        .unwrap();
+    let rows: Vec<(String, String, String)> = stmt
+        .query_map([expected_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert!(
+        !rows.is_empty(),
+        "Expected outbox entry for '{expected_id}', found none in sync_outbox"
+    );
+    assert!(
+        rows.iter()
+            .any(|(et, id, op)| et == "snippet" && id == expected_id && op == "upsert"),
+        "Expected outbox entry ('snippet', '{expected_id}', 'upsert'), found: {rows:?}"
+    );
+}
+
+#[test]
+fn test_mutation_functions_enqueue_outbox_content() {
+    init_tracing_for_tests();
+    let (_dir, conn) = open_test_db();
+    insert_raw_trigger(&conn, "t-mut-content", "word", "mut-cnt", "all").unwrap();
+    conn.execute("DELETE FROM sync_outbox", []).unwrap();
+
+    let res = set_trigger_content(&conn, "t-mut-content", "new content").unwrap();
+    assert!(res);
+    assert_outbox_has_upsert(&conn, "t-mut-content");
+}
+
+#[test]
+fn test_mutation_functions_enqueue_outbox_description() {
+    init_tracing_for_tests();
+    let (_dir, conn) = open_test_db();
+    insert_raw_trigger(&conn, "t-mut-desc", "word", "mut-dsc", "all").unwrap();
+    conn.execute("DELETE FROM sync_outbox", []).unwrap();
+
+    let res = set_trigger_description(&conn, "t-mut-desc", Some("new description")).unwrap();
+    assert!(res);
+    assert_outbox_has_upsert(&conn, "t-mut-desc");
+}
+
+#[test]
+fn test_mutation_functions_enqueue_outbox_enabled() {
+    init_tracing_for_tests();
+    let (_dir, conn) = open_test_db();
+    insert_raw_trigger(&conn, "t-mut-en", "word", "mut-en", "all").unwrap();
+    conn.execute("DELETE FROM sync_outbox", []).unwrap();
+
+    let res = set_trigger_enabled(&conn, "t-mut-en", false).unwrap();
+    assert!(res);
+    assert_outbox_has_upsert(&conn, "t-mut-en");
+}
+
+#[test]
+fn test_mutation_functions_enqueue_outbox_tags() {
+    init_tracing_for_tests();
+    let (_dir, conn) = open_test_db();
+    insert_raw_trigger(&conn, "t-mut-tags", "word", "mut-tags", "all").unwrap();
+    conn.execute("DELETE FROM sync_outbox", []).unwrap();
+
+    let res = set_trigger_tags(
+        &conn,
+        "t-mut-tags",
+        &["tag1".to_string(), "tag2".to_string()],
+    )
+    .unwrap();
+    assert!(res);
+    assert_outbox_has_upsert(&conn, "t-mut-tags");
+}
+
+#[test]
+fn test_mutation_functions_enqueue_outbox_target_os() {
+    init_tracing_for_tests();
+    let (_dir, conn) = open_test_db();
+    insert_raw_trigger(&conn, "t-mut-os", "word", "mut-os", "all").unwrap();
+    conn.execute("DELETE FROM sync_outbox", []).unwrap();
+
+    let res = set_trigger_target_os(&conn, "t-mut-os", "win").unwrap();
+    assert!(res);
+    assert_outbox_has_upsert(&conn, "t-mut-os");
+}
+
+#[test]
+fn test_mutation_functions_enqueue_outbox_auto_case() {
+    init_tracing_for_tests();
+    let (_dir, conn) = open_test_db();
+    insert_raw_trigger(&conn, "t-mut-ac", "word", "mut-ac", "all").unwrap();
+    conn.execute("DELETE FROM sync_outbox", []).unwrap();
+
+    let res = set_trigger_auto_case(&conn, "t-mut-ac", true).unwrap();
+    assert!(res);
+    assert_outbox_has_upsert(&conn, "t-mut-ac");
+}
+
+#[test]
+fn test_mutation_functions_enqueue_outbox_action_type() {
+    init_tracing_for_tests();
+    let (_dir, conn) = open_test_db();
+    insert_raw_trigger(&conn, "t-mut-act", "word", "mut-act", "all").unwrap();
+    conn.execute("DELETE FROM sync_outbox", []).unwrap();
+
+    let res = set_trigger_action_type(&conn, "t-mut-act", ActionType::Script).unwrap();
+    assert!(res);
+    assert_outbox_has_upsert(&conn, "t-mut-act");
+}
+
+#[test]
+fn test_mutation_functions_enqueue_outbox_rename_alias() {
+    init_tracing_for_tests();
+    let (_dir, conn) = open_test_db();
+    insert_raw_trigger(&conn, "t-mut-ren", "word", "old-alias", "all").unwrap();
+    conn.execute("DELETE FROM sync_outbox", []).unwrap();
+
+    let res = rename_alias_invocation(&conn, "t-mut-ren", "old-alias", "new-alias").unwrap();
+    assert!(res);
+    assert_outbox_has_upsert(&conn, "t-mut-ren");
+}
+
+#[test]
+fn test_mutation_functions_enqueue_outbox_alias_type() {
+    init_tracing_for_tests();
+    let (_dir, conn) = open_test_db();
+    insert_raw_trigger(&conn, "t-mut-typ", "word", "callme", "all").unwrap();
+    conn.execute("DELETE FROM sync_outbox", []).unwrap();
+
+    let res =
+        set_alias_invocation_type(&conn, "t-mut-typ", "callme", InvocationType::Voice).unwrap();
+    assert!(res);
+    assert_outbox_has_upsert(&conn, "t-mut-typ");
+}
+
+#[test]
+fn test_mutation_functions_enqueue_outbox_alias_confirmation() {
+    init_tracing_for_tests();
+    let (_dir, conn) = open_test_db();
+    insert_raw_trigger(&conn, "t-mut-conf", "word", "confirmme", "all").unwrap();
+    conn.execute("DELETE FROM sync_outbox", []).unwrap();
+
+    let res = set_alias_require_confirmation(&conn, "t-mut-conf", "confirmme", true).unwrap();
+    assert!(res);
+    assert_outbox_has_upsert(&conn, "t-mut-conf");
+}
+
+#[test]
+fn test_mutation_functions_enqueue_outbox_delete_alias_with_remaining() {
+    init_tracing_for_tests();
+    let (_dir, conn) = open_test_db();
+    insert_raw_trigger(&conn, "t-mut-del", "word", "alias-drop", "all").unwrap();
+    add_alias(
+        &conn,
+        "t-mut-del",
+        InvocationType::Word,
+        "alias-keep",
+        false,
+    )
+    .unwrap();
+    conn.execute("DELETE FROM sync_outbox", []).unwrap();
+
+    let res = delete_alias(&conn, "t-mut-del", InvocationType::Word, "alias-drop").unwrap();
+    assert!(res);
+    assert_outbox_has_upsert(&conn, "t-mut-del");
+}
+
+#[test]
+fn test_mutation_functions_enqueue_outbox_script_and_app_filters() {
+    init_tracing_for_tests();
+    let (_dir, conn) = open_test_db();
+    insert_raw_trigger(&conn, "t-mut-scr", "word", "mut-scr", "all").unwrap();
+    conn.execute(
+        "UPDATE triggers SET action_type = 'script' WHERE id = 't-mut-scr'",
+        [],
+    )
+    .unwrap();
+    let compressed = compress("echo hello").unwrap();
+    upsert_script(
+        &conn,
+        "t-mut-scr",
+        ScriptInterpreter::Bash,
+        ScriptBehavior::Inline,
+        &compressed,
+    )
+    .unwrap();
+
+    conn.execute("DELETE FROM sync_outbox", []).unwrap();
+    set_script_interpreter(&conn, "t-mut-scr", ScriptInterpreter::PowerShell).unwrap();
+    assert_outbox_has_upsert(&conn, "t-mut-scr");
+
+    conn.execute("DELETE FROM sync_outbox", []).unwrap();
+    set_script_behavior(&conn, "t-mut-scr", ScriptBehavior::Silent).unwrap();
+    assert_outbox_has_upsert(&conn, "t-mut-scr");
+
+    insert_raw_trigger(&conn, "t-mut-apps", "word", "mut-apps", "all").unwrap();
+    conn.execute("DELETE FROM sync_outbox", []).unwrap();
+    set_trigger_only_apps(&conn, "t-mut-apps", Some("exe:code.exe")).unwrap();
+    assert_outbox_has_upsert(&conn, "t-mut-apps");
+
+    conn.execute("DELETE FROM sync_outbox", []).unwrap();
+    set_trigger_except_apps(&conn, "t-mut-apps", Some("exe:notepad.exe")).unwrap();
+    assert_outbox_has_upsert(&conn, "t-mut-apps");
+
+    conn.execute("DELETE FROM sync_outbox", []).unwrap();
+    update_trigger_app_filters(&conn, "t-mut-apps", Some("exe:slack.exe".to_string()), None)
+        .unwrap();
+    assert_outbox_has_upsert(&conn, "t-mut-apps");
+
+    conn.execute("DELETE FROM sync_outbox", []).unwrap();
+    upsert_trigger_with_type_and_case(
+        &conn,
+        "t-mut-upsert",
+        Some("desc"),
+        TriggerType::Word,
+        "mut-upsert",
+        "output text",
+        "text",
+        "all",
+        "[]",
+        0,
+        None,
+        true,
+    )
+    .unwrap();
+    assert_outbox_has_upsert(&conn, "t-mut-upsert");
+}

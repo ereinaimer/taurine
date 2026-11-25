@@ -244,6 +244,7 @@ pub fn set_alias_invocation_type(
               WHERE id = ?2 AND is_deleted = 0",
             rusqlite::params![crate::db::now_unix_secs(), trigger_id],
         )?;
+        super::trigger_set::enqueue_trigger_outbox(conn, trigger_id, "upsert")?;
         Ok(true)
     })
 }
@@ -337,6 +338,7 @@ pub fn rename_alias_invocation(
               WHERE id = ?2 AND is_deleted = 0",
             rusqlite::params![crate::db::now_unix_secs(), trigger_id],
         )?;
+        super::trigger_set::enqueue_trigger_outbox(conn, trigger_id, "upsert")?;
         Ok(true)
     })
 }
@@ -378,6 +380,7 @@ pub fn set_alias_require_confirmation(
               WHERE id = ?2 AND is_deleted = 0",
             rusqlite::params![crate::db::now_unix_secs(), trigger_id],
         )?;
+        super::trigger_set::enqueue_trigger_outbox(conn, trigger_id, "upsert")?;
         Ok(true)
     })
 }
@@ -532,6 +535,7 @@ pub fn delete_alias(
                   WHERE id = ?2 AND is_deleted = 0",
                 rusqlite::params![crate::db::now_unix_secs(), trigger_id],
             )?;
+            super::trigger_set::enqueue_trigger_outbox(conn, trigger_id, "upsert")?;
         }
         Ok(true)
     })
