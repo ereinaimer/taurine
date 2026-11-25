@@ -125,18 +125,6 @@ pub fn record_outbox_failure(conn: &Connection, id: i64, error_msg: &str) -> Res
     Ok(())
 }
 
-pub fn quarantine_outbox_entry(conn: &Connection, id: i64, reason: &str) -> Result<()> {
-    let mut stmt = conn.prepare_cached(
-        "INSERT OR REPLACE INTO sync_outbox_quarantine (id, entity_type, entity_id, operation, payload, retry_count, last_error)
-         SELECT id, entity_type, entity_id, operation, payload, retry_count, ?2
-         FROM sync_outbox
-         WHERE id = ?1",
-    )?;
-    stmt.execute(params![id, reason])?;
-    delete_outbox_entry(conn, id)?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -687,10 +687,6 @@ pub fn backfill_untracked_triggers_to_outbox(conn: &Connection) -> crate::Result
             let payload_val =
                 serde_json::to_value(&payload).map_err(|e| crate::Error::Config(e.to_string()))?;
             crate::db::crud::enqueue_outbox(conn, "snippet", &trigger.id, "upsert", payload_val)?;
-            let _ = conn.execute(
-                "DELETE FROM sync_outbox_quarantine WHERE entity_type = 'snippet' AND entity_id = ?1",
-                [&trigger.id],
-            );
             backfilled += 1;
         }
 

@@ -197,17 +197,6 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
             last_error  TEXT
         );
 
-        CREATE TABLE IF NOT EXISTS sync_outbox_quarantine (
-            id             INTEGER PRIMARY KEY,
-            entity_type    TEXT    NOT NULL,
-            entity_id      TEXT    NOT NULL,
-            operation      TEXT    NOT NULL,
-            payload        JSON    NOT NULL,
-            retry_count    INTEGER NOT NULL,
-            last_error     TEXT,
-            quarantined_at INTEGER NOT NULL DEFAULT (unixepoch())
-        );
-
         CREATE INDEX IF NOT EXISTS idx_sync_outbox_order
             ON sync_outbox(retry_count ASC, id ASC);
 

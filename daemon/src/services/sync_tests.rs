@@ -3846,34 +3846,18 @@ fn test_sync_incremental_checkpoints_and_outbox_resilience() {
         Some("500: Internal Server Error")
     );
 
-    // 3. Test quarantine of poisoned outbox item into sync_outbox_quarantine table
-    nite_core::db::crud::quarantine_outbox_entry(&conn, id1, "Fatal 400 Bad Request").unwrap();
+    // 3. Test dropping unrecoverable outbox item from sync_outbox
+    nite_core::db::crud::delete_outbox_entry(&conn, id1).unwrap();
 
     // Verify item 1 is removed from sync_outbox
     let remaining = nite_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
     assert_eq!(remaining.len(), 1);
     assert_eq!(remaining[0].id, id2);
-
-    // Verify item 1 is stored in sync_outbox_quarantine
-    let quarantined: (i64, String, String, String, i64, Option<String>) = conn
-        .query_row(
-            "SELECT id, entity_type, entity_id, operation, retry_count, last_error FROM sync_outbox_quarantine WHERE id = ?1",
-            [id1],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
-        )
-        .unwrap();
-
-    assert_eq!(quarantined.0, id1);
-    assert_eq!(quarantined.1, "snippet");
-    assert_eq!(quarantined.2, "trig-fail");
-    assert_eq!(quarantined.3, "upsert");
-    assert_eq!(quarantined.4, 1);
-    assert_eq!(quarantined.5.as_deref(), Some("Fatal 400 Bad Request"));
 }
 
 #[tokio::test]
 #[allow(clippy::await_holding_lock)]
-async fn test_sync_incremental_checkpoints_worker_and_quarantine_e2e() {
+async fn test_sync_incremental_checkpoints_worker_and_fatal_drop_e2e() {
     use std::io::{Read, Write};
     use std::net::TcpListener;
 
@@ -4077,43 +4061,35 @@ async fn test_sync_incremental_checkpoints_worker_and_quarantine_e2e() {
         "Sync cycle must succeed: {status:?}"
     );
 
-    // Verify outbox: healthy item was drained, fatal & poison were quarantined
+    // Verify outbox: healthy item was drained, fatal 400 & 422 entries were dropped
     let outbox_remaining = nite_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
     assert!(
         outbox_remaining.is_empty(),
-        "All items must be drained from outbox; found: {outbox_remaining:?}"
+        "All items must be drained or dropped from outbox; found: {outbox_remaining:?}"
     );
 
-    // Verify quarantine table has the 2 quarantined items
-    let q_count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM sync_outbox_quarantine", [], |r| {
-            r.get(0)
-        })
-        .unwrap();
-    assert_eq!(
-        q_count, 2,
-        "Both fatal and poison pills must be quarantined"
-    );
-
-    let fatal_in_q: bool = conn
+    let fatal_in_outbox: bool = conn
         .query_row(
-            "SELECT EXISTS(SELECT 1 FROM sync_outbox_quarantine WHERE id = ?1)",
+            "SELECT EXISTS(SELECT 1 FROM sync_outbox WHERE id = ?1)",
             [id_fatal],
             |r| r.get(0),
         )
         .unwrap();
-    assert!(fatal_in_q, "Fatal 400 entry must be in quarantine table");
+    assert!(
+        !fatal_in_outbox,
+        "Fatal 400 entry must be dropped from outbox"
+    );
 
-    let fatal_422_in_q: bool = conn
+    let fatal_422_in_outbox: bool = conn
         .query_row(
-            "SELECT EXISTS(SELECT 1 FROM sync_outbox_quarantine WHERE id = ?1)",
+            "SELECT EXISTS(SELECT 1 FROM sync_outbox WHERE id = ?1)",
             [id_fatal_422],
             |r| r.get(0),
         )
         .unwrap();
     assert!(
-        fatal_422_in_q,
-        "Fatal 422 entry must be in quarantine table"
+        !fatal_422_in_outbox,
+        "Fatal 422 entry must be dropped from outbox"
     );
 
     // Verify incremental checkpoints were set for all 5 entities
@@ -4160,6 +4136,8 @@ async fn test_sync_incremental_checkpoints_worker_and_quarantine_e2e() {
 #[tokio::test]
 #[allow(clippy::await_holding_lock)]
 async fn test_network_and_server_errors_never_quarantine_even_with_high_retry_count() {
+    use std::io::{Read, Write};
+
     let _lock = crate::hook::tests::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
@@ -4213,17 +4191,6 @@ async fn test_network_and_server_errors_never_quarantine_even_with_high_retry_co
         "Expected network error status, got: {status:?}"
     );
 
-    // Verify item is NOT quarantined
-    let q_count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM sync_outbox_quarantine", [], |r| {
-            r.get(0)
-        })
-        .unwrap();
-    assert_eq!(
-        q_count, 0,
-        "Network error must NEVER quarantine outbox items"
-    );
-
     // Verify item remains in sync_outbox with retry_count incremented
     let (rem_count, rem_retries): (i64, i64) = conn
         .query_row(
@@ -4232,8 +4199,49 @@ async fn test_network_and_server_errors_never_quarantine_even_with_high_retry_co
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .unwrap();
-    assert_eq!(rem_count, 1, "Item must remain in sync_outbox");
+    assert_eq!(
+        rem_count, 1,
+        "Item must remain in sync_outbox on network error"
+    );
     assert_eq!(rem_retries, 11, "Retry count must be incremented to 11");
+
+    // 2. Simulate 500 Internal Server Error: transient server error must not drop entry
+    let listener500 = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port500 = listener500.local_addr().unwrap().port();
+    let server500 = std::thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener500.accept() {
+            let mut buf = [0u8; 1024];
+            let _ = stream.read(&mut buf);
+            let resp = "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+            let _ = stream.write_all(resp.as_bytes());
+        }
+    });
+
+    let config500 = CloudConfig {
+        supabase_url: format!("http://127.0.0.1:{port500}"),
+        anon_key: "test-anon-key".to_string(),
+    };
+    let client500 = CloudClient::new(config500);
+
+    let status500 = SyncWorker::run_sync_cycle(&conn, Some(&client500)).await;
+    let _ = server500.join();
+    assert!(
+        matches!(status500, SyncStatus::Error(ref msg) if msg.contains("500")),
+        "Expected 500 error status, got: {status500:?}"
+    );
+
+    let (rem_count500, rem_retries500): (i64, i64) = conn
+        .query_row(
+            "SELECT COUNT(*), retry_count FROM sync_outbox WHERE id = ?1",
+            [entry_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(
+        rem_count500, 1,
+        "Item must remain in sync_outbox on 500 error"
+    );
+    assert_eq!(rem_retries500, 12, "Retry count must be incremented to 12");
 
     nite_core::cloud::clear_tokens().unwrap();
 }
@@ -4867,7 +4875,7 @@ async fn test_sync_concurrency_mutex_and_backoff_progression() {
 }
 
 #[test]
-fn test_handle_outbox_failure_quarantines_when_retry_count_reaches_limit() {
+fn test_handle_outbox_failure_drops_fatal_client_error_and_records_transient_error() {
     let _lock = crate::hook::tests::TEST_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
@@ -4878,10 +4886,10 @@ fn test_handle_outbox_failure_quarantines_when_retry_count_reaches_limit() {
     let entry_id = nite_core::db::crud::enqueue_outbox(
         &conn,
         "snippet",
-        "persistent-fail-snippet",
+        "transient-fail-snippet",
         "upsert",
         serde_json::json!({
-            "id": "persistent-fail-snippet",
+            "id": "transient-fail-snippet",
             "content": "test payload",
         }),
     )
@@ -4892,80 +4900,75 @@ fn test_handle_outbox_failure_quarantines_when_retry_count_reaches_limit() {
     let mut entry = entries.remove(0);
     assert_eq!(entry.id, entry_id);
 
-    // 1. With retry_count < 5 and a non-fatal server error (e.g. 500 Internal Server Error),
-    // it should record failure and return Some(SyncStatus::Error), NOT quarantine.
-    entry.retry_count = 4;
-    let non_quarantine_res = SyncWorker::handle_outbox_failure(
+    // 1. With a transient server error (e.g. 500 Internal Server Error), even with high retry_count,
+    // it should record failure and return Some(SyncStatus::Error), keeping entry in outbox.
+    conn.execute(
+        "UPDATE sync_outbox SET retry_count = 10 WHERE id = ?1",
+        [entry_id],
+    )
+    .unwrap();
+    entry.retry_count = 10;
+    let transient_res = SyncWorker::handle_outbox_failure(
         &conn,
         &entry,
         reqwest::StatusCode::INTERNAL_SERVER_ERROR,
         "Temporary backend 500 error",
     );
     assert!(
-        matches!(non_quarantine_res, Some(SyncStatus::Error(ref msg)) if msg.contains("500")),
-        "Expected Some(SyncStatus::Error), got {non_quarantine_res:?}"
+        matches!(transient_res, Some(SyncStatus::Error(ref msg)) if msg.contains("500")),
+        "Expected Some(SyncStatus::Error), got {transient_res:?}"
     );
 
-    let q_count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM sync_outbox_quarantine", [], |r| {
-            r.get(0)
-        })
-        .unwrap();
-    assert_eq!(
-        q_count, 0,
-        "Entry must not be quarantined with retry_count < 5"
-    );
-
-    let outbox_count: i64 = conn
+    let (outbox_count, retries, last_error): (i64, i64, Option<String>) = conn
         .query_row(
-            "SELECT COUNT(*) FROM sync_outbox WHERE id = ?1",
-            [entry_id],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(outbox_count, 1, "Entry must remain in outbox");
-
-    // 2. When retry_count >= 5, handle_outbox_failure should quarantine the entry and return None.
-    entry.retry_count = 5;
-    let quarantine_res = SyncWorker::handle_outbox_failure(
-        &conn,
-        &entry,
-        reqwest::StatusCode::INTERNAL_SERVER_ERROR,
-        "Persistent 500 error",
-    );
-    assert!(
-        quarantine_res.is_none(),
-        "Expected None when quarantined, got {quarantine_res:?}"
-    );
-
-    // Verify entry is removed from sync_outbox
-    let outbox_remaining: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM sync_outbox WHERE id = ?1",
-            [entry_id],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(
-        outbox_remaining, 0,
-        "Quarantined entry must be removed from sync_outbox"
-    );
-
-    // Verify entry is stored in sync_outbox_quarantine
-    let (quarantined_id, quarantined_entity_id, last_err): (i64, String, Option<String>) = conn
-        .query_row(
-            "SELECT id, entity_id, last_error FROM sync_outbox_quarantine WHERE id = ?1",
+            "SELECT COUNT(*), retry_count, last_error FROM sync_outbox WHERE id = ?1",
             [entry_id],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .unwrap();
-    assert_eq!(quarantined_id, entry_id);
-    assert_eq!(quarantined_entity_id, "persistent-fail-snippet");
+    assert_eq!(outbox_count, 1, "Entry must remain in outbox");
+    assert_eq!(retries, 11, "Retry count must be incremented");
+    assert!(last_error.unwrap_or_default().contains("500"));
+
+    // 2. With a fatal client error (e.g. 400 Bad Request or 422 Unprocessable Entity),
+    // handle_outbox_failure should drop the entry from outbox and return None.
+    let fatal_entry_id = nite_core::db::crud::enqueue_outbox(
+        &conn,
+        "snippet",
+        "fatal-fail-snippet",
+        "upsert",
+        serde_json::json!({
+            "id": "fatal-fail-snippet",
+            "content": "fatal payload",
+        }),
+    )
+    .unwrap();
+    let fatal_entry = nite_core::db::crud::fetch_outbox_batch(&conn, 10)
+        .unwrap()
+        .into_iter()
+        .find(|e| e.id == fatal_entry_id)
+        .unwrap();
+
+    let fatal_res = SyncWorker::handle_outbox_failure(
+        &conn,
+        &fatal_entry,
+        reqwest::StatusCode::BAD_REQUEST,
+        "Bad Request: Malformed JSON",
+    );
     assert!(
-        last_err
-            .as_deref()
-            .unwrap_or("")
-            .contains("Persistent 500 error"),
-        "Quarantined entry must contain the error message"
+        fatal_res.is_none(),
+        "Expected None when fatal entry is dropped, got {fatal_res:?}"
+    );
+
+    let fatal_remaining: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sync_outbox WHERE id = ?1",
+            [fatal_entry_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        fatal_remaining, 0,
+        "Fatal entry must be dropped from sync_outbox"
     );
 }

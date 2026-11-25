@@ -91,13 +91,13 @@ impl SyncWorker {
         text: &str,
     ) -> Option<SyncStatus> {
         let error_msg = format!("{status}: {text}");
-        if is_fatal_client_error(status) || entry.retry_count >= 5 {
-            tracing::error!(
-                "Quarantining outbox entry {} ({}): {error_msg}",
+        if is_fatal_client_error(status) {
+            tracing::warn!(
+                "Dropping unrecoverable outbox entry {} ({}): {error_msg}",
                 entry.id,
                 entry.entity_type
             );
-            let _ = nite_core::db::crud::quarantine_outbox_entry(conn, entry.id, &error_msg);
+            let _ = nite_core::db::crud::delete_outbox_entry(conn, entry.id);
             None
         } else {
             tracing::warn!(
