@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Complete Keystroke Tracking**: Keys that type multiple characters are now tracked, so later triggers keep matching after unusual key output.
 
 ### Added
+- **Force Trigger Resynchronization**: Re-evaluate and push all untracked triggers to the cloud via the new nite sync --resync flag.
 - **Remote Desktop Trigger Support**: Enable word and hotkey expansions across remote desktop sessions (RustDesk, VNC) and on-screen keyboards by filtering only nite's synthetic events.
 - **Voice Speed & Multilingual Restoration**: Pre-warmed HTTPS connections on keypress and automatically restored authentic native scripts for non-Latin languages.
 - **Voice Crash Recovery & Partial Salvage**: Automatically recover interrupted dictations on restart and salvage partial transcripts during network drops.

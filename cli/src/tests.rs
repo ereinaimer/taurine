@@ -1051,13 +1051,35 @@ fn test_enable_disable_execution_hermetically() {
 #[test]
 fn test_sync_command_parsing() {
     let cli = Cli::try_parse_from(["nite", "sync"]).expect("sync parses");
-    assert!(matches!(cli.command, Some(Commands::Sync)));
+    assert!(matches!(
+        cli.command,
+        Some(Commands::Sync { resync: false })
+    ));
 
     let cli_push = Cli::try_parse_from(["nite", "push"]).expect("push alias parses");
-    assert!(matches!(cli_push.command, Some(Commands::Sync)));
+    assert!(matches!(
+        cli_push.command,
+        Some(Commands::Sync { resync: false })
+    ));
 
     let cli_pull = Cli::try_parse_from(["nite", "pull"]).expect("pull alias parses");
-    assert!(matches!(cli_pull.command, Some(Commands::Sync)));
+    assert!(matches!(
+        cli_pull.command,
+        Some(Commands::Sync { resync: false })
+    ));
+
+    let cli_resync =
+        Cli::try_parse_from(["nite", "sync", "--resync"]).expect("sync --resync parses");
+    assert!(matches!(
+        cli_resync.command,
+        Some(Commands::Sync { resync: true })
+    ));
+
+    let cli_force = Cli::try_parse_from(["nite", "sync", "--force"]).expect("sync --force parses");
+    assert!(matches!(
+        cli_force.command,
+        Some(Commands::Sync { resync: true })
+    ));
 }
 
 #[test]
@@ -1070,14 +1092,110 @@ fn test_sync_command_unauthenticated() {
 
     let _ = nite_core::cloud::clear_tokens();
 
-    let res_plain = crate::commands::sync::execute_sync(false);
+    let res_plain = crate::commands::sync::execute_sync(false, false);
     assert!(res_plain.is_ok());
 
-    let res_json = crate::commands::sync::execute_sync(true);
+    let res_json = crate::commands::sync::execute_sync(false, true);
     assert!(res_json.is_ok());
+
+    let res_resync = crate::commands::sync::execute_sync(true, false);
+    assert!(res_resync.is_ok());
 
     // SAFETY: access to NITE_DATA_DIR is serialized by TEST_LOCK
     unsafe { std::env::remove_var("NITE_DATA_DIR") };
+}
+
+#[test]
+fn test_sync_command_resync_enqueues_and_pushes() {
+    let _lock = crate::commands::TEST_LOCK.lock().unwrap();
+    crate::commands::test_keyring::use_shared_test_keyring();
+    let temp = tempfile::tempdir().expect("tempdir");
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let server_handle = std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        for _ in 0..8 {
+            let (mut stream, _) = match listener.accept() {
+                Ok(s) => s,
+                Err(_) => break,
+            };
+            let mut buf = [0u8; 4096];
+            let n = match stream.read(&mut buf) {
+                Ok(n) => n,
+                Err(_) => break,
+            };
+            let req = String::from_utf8_lossy(&buf[..n]);
+
+            if req.starts_with("POST /rest/v1/snippets") {
+                let resp = "HTTP/1.1 201 Created\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+                stream.write_all(resp.as_bytes()).unwrap();
+            } else if req.starts_with("GET /rest/v1/") {
+                let resp = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n[]";
+                stream.write_all(resp.as_bytes()).unwrap();
+            }
+        }
+    });
+
+    // SAFETY: access to NITE_DATA_DIR and NITE_SUPABASE_URL is serialized by TEST_LOCK
+    unsafe {
+        std::env::set_var("NITE_DATA_DIR", temp.path());
+        std::env::set_var("NITE_SUPABASE_URL", format!("http://127.0.0.1:{port}"));
+    }
+
+    let tokens = nite_core::cloud::AuthTokens {
+        access_token: "mock-token-cli".to_string(),
+        refresh_token: "mock-refresh-cli".to_string(),
+        user_id: "user-cli-resync".to_string(),
+        expires_at: Some(2000000000),
+    };
+    nite_core::cloud::store_tokens(&tokens).unwrap();
+
+    let conn = nite_core::db::init::setup().expect("setup db");
+    conn.execute(
+        "INSERT INTO triggers (id, output, action_type, target_os, is_deleted, is_enabled, version, created_at, updated_at)
+         VALUES ('trig-cli-resync', 'cli resync output', 'text', 'all', 0, 1, 1, 1000, 1000)",
+        [],
+    ).unwrap();
+    conn.execute(
+        "INSERT INTO trigger_aliases (id, trigger_id, invocation, invocation_type, require_confirmation, created_at)
+         VALUES ('alias-cli-resync', 'trig-cli-resync', 'cliresync', 'word', 0, 1000)",
+        [],
+    ).unwrap();
+
+    // Verify outbox is currently empty
+    assert!(
+        nite_core::db::crud::fetch_outbox_batch(&conn, 10)
+            .unwrap()
+            .is_empty()
+    );
+
+    // Run execute_sync with resync=true
+    let res = crate::commands::sync::execute_sync(true, true);
+    assert!(res.is_ok());
+
+    // Verify outbox was populated and drained by the sync cycle
+    assert!(
+        nite_core::db::crud::fetch_outbox_batch(&conn, 10)
+            .unwrap()
+            .is_empty()
+    );
+
+    // Verify checkpoint is set
+    assert_eq!(
+        nite_core::db::crud::get_sync_checkpoint(&conn, "snippets_backfilled_v2").unwrap_or(0),
+        1
+    );
+
+    let _ = server_handle.join();
+    let _ = nite_core::cloud::clear_tokens();
+
+    // SAFETY: access to NITE_DATA_DIR and NITE_SUPABASE_URL is serialized by TEST_LOCK
+    unsafe {
+        std::env::remove_var("NITE_DATA_DIR");
+        std::env::remove_var("NITE_SUPABASE_URL");
+    }
 }
 
 #[test]

@@ -403,9 +403,11 @@ impl SyncWorker {
             let _ = crate::engine::quota_guard::QuotaGuard::global().flush_to_db(conn, &key);
         }
 
-        if nite_core::db::crud::get_sync_checkpoint(conn, "snippets_backfilled").unwrap_or(0) == 0 {
+        if nite_core::db::crud::get_sync_checkpoint(conn, "snippets_backfilled_v2").unwrap_or(0)
+            == 0
+        {
             let _ = nite_core::db::crud::triggers::backfill_untracked_triggers_to_outbox(conn);
-            let _ = nite_core::db::crud::set_sync_checkpoint(conn, "snippets_backfilled", 1);
+            let _ = nite_core::db::crud::set_sync_checkpoint(conn, "snippets_backfilled_v2", 1);
         }
 
         let client = match client {
