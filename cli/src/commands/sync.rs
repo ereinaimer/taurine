@@ -3,7 +3,7 @@
 
 use nite_core::error::Result;
 
-pub fn execute_sync(resync: bool, json: bool) -> Result<()> {
+pub fn execute_sync(json: bool) -> Result<()> {
     // Check authentication
     let tokens_opt = nite_core::cloud::get_tokens().ok().flatten();
     if tokens_opt.is_none() {
@@ -21,13 +21,8 @@ pub fn execute_sync(resync: bool, json: bool) -> Result<()> {
         return Ok(());
     }
 
-    if resync && let Ok(conn) = nite_core::db::init::setup() {
-        let count = nite_core::db::crud::triggers::backfill_untracked_triggers_to_outbox(&conn)
-            .unwrap_or(0);
-        let _ = nite_core::db::crud::set_sync_checkpoint(&conn, "snippets_backfilled_v2", 1);
-        if !json && count > 0 {
-            println!("Queued {count} untracked triggers for synchronization.");
-        }
+    if let Ok(conn) = nite_core::db::init::setup() {
+        let _ = nite_core::db::crud::triggers::backfill_untracked_triggers_to_outbox(&conn);
     }
 
     // If daemon is running, call RPC for centralized coordinator

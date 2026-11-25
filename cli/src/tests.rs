@@ -1051,35 +1051,13 @@ fn test_enable_disable_execution_hermetically() {
 #[test]
 fn test_sync_command_parsing() {
     let cli = Cli::try_parse_from(["nite", "sync"]).expect("sync parses");
-    assert!(matches!(
-        cli.command,
-        Some(Commands::Sync { resync: false })
-    ));
+    assert!(matches!(cli.command, Some(Commands::Sync)));
 
     let cli_push = Cli::try_parse_from(["nite", "push"]).expect("push alias parses");
-    assert!(matches!(
-        cli_push.command,
-        Some(Commands::Sync { resync: false })
-    ));
+    assert!(matches!(cli_push.command, Some(Commands::Sync)));
 
     let cli_pull = Cli::try_parse_from(["nite", "pull"]).expect("pull alias parses");
-    assert!(matches!(
-        cli_pull.command,
-        Some(Commands::Sync { resync: false })
-    ));
-
-    let cli_resync =
-        Cli::try_parse_from(["nite", "sync", "--resync"]).expect("sync --resync parses");
-    assert!(matches!(
-        cli_resync.command,
-        Some(Commands::Sync { resync: true })
-    ));
-
-    let cli_force = Cli::try_parse_from(["nite", "sync", "--force"]).expect("sync --force parses");
-    assert!(matches!(
-        cli_force.command,
-        Some(Commands::Sync { resync: true })
-    ));
+    assert!(matches!(cli_pull.command, Some(Commands::Sync)));
 }
 
 #[test]
@@ -1092,21 +1070,18 @@ fn test_sync_command_unauthenticated() {
 
     let _ = nite_core::cloud::clear_tokens();
 
-    let res_plain = crate::commands::sync::execute_sync(false, false);
+    let res_plain = crate::commands::sync::execute_sync(false);
     assert!(res_plain.is_ok());
 
-    let res_json = crate::commands::sync::execute_sync(false, true);
+    let res_json = crate::commands::sync::execute_sync(true);
     assert!(res_json.is_ok());
-
-    let res_resync = crate::commands::sync::execute_sync(true, false);
-    assert!(res_resync.is_ok());
 
     // SAFETY: access to NITE_DATA_DIR is serialized by TEST_LOCK
     unsafe { std::env::remove_var("NITE_DATA_DIR") };
 }
 
 #[test]
-fn test_sync_command_resync_enqueues_and_pushes() {
+fn test_sync_command_automatically_enqueues_and_pushes_untracked_triggers() {
     let _lock = crate::commands::TEST_LOCK.lock().unwrap();
     crate::commands::test_keyring::use_shared_test_keyring();
     let temp = tempfile::tempdir().expect("tempdir");
@@ -1171,8 +1146,8 @@ fn test_sync_command_resync_enqueues_and_pushes() {
             .is_empty()
     );
 
-    // Run execute_sync with resync=true
-    let res = crate::commands::sync::execute_sync(true, true);
+    // Run execute_sync with default sync (json=true)
+    let res = crate::commands::sync::execute_sync(true);
     assert!(res.is_ok());
 
     // Verify outbox was populated and drained by the sync cycle

@@ -89,11 +89,7 @@ pub(crate) enum Commands {
     },
     /// Synchronize triggers, settings, and telemetry
     #[command(aliases = ["push", "pull"])]
-    Sync {
-        /// Force re-evaluation and backfill of untracked triggers into the sync outbox
-        #[arg(long, short = 'r', visible_alias = "force")]
-        resync: bool,
-    },
+    Sync,
     #[cfg(target_os = "linux")]
     /// Configure system permissions for hardware access
     #[command(hide = true)]
