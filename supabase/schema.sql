@@ -481,3 +481,28 @@ CREATE TRIGGER trg_profiles_updated_at
     BEFORE UPDATE ON public.profiles
     FOR EACH ROW
     EXECUTE FUNCTION public.set_current_timestamp_updated_at();
+
+DROP TRIGGER IF EXISTS trg_user_settings_updated_at ON public.user_settings;
+CREATE TRIGGER trg_user_settings_updated_at
+    BEFORE UPDATE ON public.user_settings
+    FOR EACH ROW
+    EXECUTE FUNCTION public.set_current_timestamp_updated_at();
+
+DROP TRIGGER IF EXISTS trg_user_stats_updated_at ON public.user_stats;
+CREATE TRIGGER trg_user_stats_updated_at
+    BEFORE UPDATE ON public.user_stats
+    FOR EACH ROW
+    EXECUTE FUNCTION public.set_current_timestamp_updated_at();
+
+DROP TRIGGER IF EXISTS trg_user_app_stats_updated_at ON public.user_app_stats;
+CREATE TRIGGER trg_user_app_stats_updated_at
+    BEFORE UPDATE ON public.user_app_stats
+    FOR EACH ROW
+    EXECUTE FUNCTION public.set_current_timestamp_updated_at();
+
+DROP TRIGGER IF EXISTS trg_trigger_daily_stats_updated_at ON public.trigger_daily_stats;
+CREATE TRIGGER trg_trigger_daily_stats_updated_at
+    BEFORE UPDATE ON public.trigger_daily_stats
+    FOR EACH ROW
+    EXECUTE FUNCTION public.set_current_timestamp_updated_at();
+

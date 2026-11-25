@@ -84,14 +84,14 @@ impl SyncWorker {
         self.interval
     }
 
-    fn handle_outbox_failure(
+    pub(crate) fn handle_outbox_failure(
         conn: &rusqlite::Connection,
         entry: &nite_core::db::crud::OutboxEntry,
         status: reqwest::StatusCode,
         text: &str,
     ) -> Option<SyncStatus> {
         let error_msg = format!("{status}: {text}");
-        if is_fatal_client_error(status) {
+        if is_fatal_client_error(status) || entry.retry_count >= 5 {
             tracing::error!(
                 "Quarantining outbox entry {} ({}): {error_msg}",
                 entry.id,

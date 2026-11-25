@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Stats Synchronization Resilience**: Prevent sync failures on cross-device statistics updates by safely parsing remote counters and quarantining unrecoverable items.
 - **Sync Responsiveness**: Synchronize trigger description and tag updates immediately and tune auto-sync poll interval to 60 seconds.
 - **Cloud Sync for Trigger Edits**: Local trigger modifications (content, description, tags, status, and shortcuts) now reliably sync to the cloud.
 - **Voice Dictation Post-Processing**: Eliminate speech stutters, false starts, and filler words by polishing transcripts into structured paragraphs and lists.

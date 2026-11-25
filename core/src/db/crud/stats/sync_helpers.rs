@@ -4,6 +4,60 @@ use serde::{Deserialize, Serialize};
 use super::activity_events::ActivityEventRow;
 use super::{AppStatRow, StatRow, TriggerDailyStatRow};
 
+/// Deserializes a non-negative count as `u64`, saturating negative numbers to 0.
+/// Supports integers, floating-point numbers, and stringified numbers.
+pub fn deserialize_saturating_u64<'de, D>(deserializer: D) -> std::result::Result<u64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct SaturatingU64Visitor;
+    impl<'de> serde::de::Visitor<'de> for SaturatingU64Visitor {
+        type Value = u64;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("an integer, float, or string representing a non-negative count")
+        }
+
+        fn visit_i64<E>(self, v: i64) -> std::result::Result<u64, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(v.max(0) as u64)
+        }
+
+        fn visit_u64<E>(self, v: u64) -> std::result::Result<u64, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(v)
+        }
+
+        fn visit_f64<E>(self, v: f64) -> std::result::Result<u64, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(if v.is_nan() || v <= 0.0 { 0 } else { v as u64 })
+        }
+
+        fn visit_str<E>(self, v: &str) -> std::result::Result<u64, E>
+        where
+            E: serde::de::Error,
+        {
+            if let Ok(i) = v.parse::<i64>() {
+                Ok(i.max(0) as u64)
+            } else if let Ok(u) = v.parse::<u64>() {
+                Ok(u)
+            } else if let Ok(f) = v.parse::<f64>() {
+                Ok(if f.is_nan() || f <= 0.0 { 0 } else { f as u64 })
+            } else {
+                Err(E::custom(format!("invalid count string: {v}")))
+            }
+        }
+    }
+
+    deserializer.deserialize_any(SaturatingU64Visitor)
+}
+
 /// Daily aggregated statistics for a specific trigger, formatted for cloud synchronization.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloudTriggerDailyStatPayload {
@@ -14,10 +68,15 @@ pub struct CloudTriggerDailyStatPayload {
     pub trigger_id: String,
     pub date: String,
     pub app_key: String,
+    #[serde(default, deserialize_with = "deserialize_saturating_u64")]
     pub executions: u64,
+    #[serde(default, deserialize_with = "deserialize_saturating_u64")]
     pub words_spoken: u64,
+    #[serde(default, deserialize_with = "deserialize_saturating_u64")]
     pub words_expanded: u64,
+    #[serde(default, deserialize_with = "deserialize_saturating_u64")]
     pub time_saved_ms: u64,
+    #[serde(default, deserialize_with = "deserialize_saturating_u64")]
     pub version: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<String>,
@@ -123,10 +182,15 @@ pub struct CloudUserAppStatPayload {
     pub device_id: String,
     pub app_key: String,
     pub date: String,
+    #[serde(default, deserialize_with = "deserialize_saturating_u64")]
     pub executions: u64,
+    #[serde(default, deserialize_with = "deserialize_saturating_u64")]
     pub words_spoken: u64,
+    #[serde(default, deserialize_with = "deserialize_saturating_u64")]
     pub words_expanded: u64,
+    #[serde(default, deserialize_with = "deserialize_saturating_u64")]
     pub time_saved_ms: u64,
+    #[serde(default, deserialize_with = "deserialize_saturating_u64")]
     pub version: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<String>,
@@ -932,5 +996,93 @@ mod tests {
         assert_eq!(row.words_expanded, 1100);
         assert_eq!(row.time_saved_ms, 18000);
         assert_eq!(row.version, 2);
+    }
+
+    #[test]
+    fn test_deserialize_saturating_u64_direct() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct TestCount {
+            #[serde(default, deserialize_with = "deserialize_saturating_u64")]
+            val: u64,
+        }
+
+        // Positive integer
+        let parsed: TestCount = serde_json::from_str(r#"{"val": 42}"#).unwrap();
+        assert_eq!(parsed.val, 42);
+
+        // Zero
+        let parsed: TestCount = serde_json::from_str(r#"{"val": 0}"#).unwrap();
+        assert_eq!(parsed.val, 0);
+
+        // Negative integer saturates to 0
+        let parsed: TestCount = serde_json::from_str(r#"{"val": -10}"#).unwrap();
+        assert_eq!(parsed.val, 0);
+
+        // String integer
+        let parsed: TestCount = serde_json::from_str(r#"{"val": "15"}"#).unwrap();
+        assert_eq!(parsed.val, 15);
+
+        // Negative string integer saturates to 0
+        let parsed: TestCount = serde_json::from_str(r#"{"val": "-99"}"#).unwrap();
+        assert_eq!(parsed.val, 0);
+
+        // Float
+        let parsed: TestCount = serde_json::from_str(r#"{"val": 12.5}"#).unwrap();
+        assert_eq!(parsed.val, 12);
+
+        // Negative float saturates to 0
+        let parsed: TestCount = serde_json::from_str(r#"{"val": -5.5}"#).unwrap();
+        assert_eq!(parsed.val, 0);
+
+        // String float
+        let parsed: TestCount = serde_json::from_str(r#"{"val": "77.9"}"#).unwrap();
+        assert_eq!(parsed.val, 77);
+
+        // Missing field defaults to 0
+        let parsed: TestCount = serde_json::from_str(r#"{}"#).unwrap();
+        assert_eq!(parsed.val, 0);
+    }
+
+    #[test]
+    fn test_cloud_trigger_daily_stat_payload_deserialization_resilience() {
+        let json = serde_json::json!({
+            "trigger_id": "trig_1",
+            "date": "2026-11-25",
+            "app_key": "app.exe",
+            "executions": -10,
+            "words_spoken": "15",
+            "words_expanded": 100,
+            "time_saved_ms": -500,
+            "version": "3"
+        });
+
+        let payload: CloudTriggerDailyStatPayload = serde_json::from_value(json).unwrap();
+        assert_eq!(payload.trigger_id, "trig_1");
+        assert_eq!(payload.executions, 0);
+        assert_eq!(payload.words_spoken, 15);
+        assert_eq!(payload.words_expanded, 100);
+        assert_eq!(payload.time_saved_ms, 0);
+        assert_eq!(payload.version, 3);
+    }
+
+    #[test]
+    fn test_cloud_user_app_stat_payload_deserialization_resilience() {
+        let json = serde_json::json!({
+            "app_key": "code.exe",
+            "date": "2026-11-25",
+            "executions": "25",
+            "words_spoken": -1,
+            "words_expanded": "50.0",
+            "time_saved_ms": 1234,
+            "version": -2
+        });
+
+        let payload: CloudUserAppStatPayload = serde_json::from_value(json).unwrap();
+        assert_eq!(payload.app_key, "code.exe");
+        assert_eq!(payload.executions, 25);
+        assert_eq!(payload.words_spoken, 0);
+        assert_eq!(payload.words_expanded, 50);
+        assert_eq!(payload.time_saved_ms, 1234);
+        assert_eq!(payload.version, 0);
     }
 }

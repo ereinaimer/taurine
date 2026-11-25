@@ -4865,3 +4865,107 @@ async fn test_sync_concurrency_mutex_and_backoff_progression() {
     assert_eq!(res1, SyncStatus::NotAuthenticated);
     assert_eq!(res2, SyncStatus::NotAuthenticated);
 }
+
+#[test]
+fn test_handle_outbox_failure_quarantines_when_retry_count_reaches_limit() {
+    let _lock = crate::hook::tests::TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+
+    let conn = Connection::open_in_memory().unwrap();
+    ensure_schema(&conn).unwrap();
+
+    let entry_id = nite_core::db::crud::enqueue_outbox(
+        &conn,
+        "snippet",
+        "persistent-fail-snippet",
+        "upsert",
+        serde_json::json!({
+            "id": "persistent-fail-snippet",
+            "content": "test payload",
+        }),
+    )
+    .unwrap();
+
+    let mut entries = nite_core::db::crud::fetch_outbox_batch(&conn, 10).unwrap();
+    assert_eq!(entries.len(), 1);
+    let mut entry = entries.remove(0);
+    assert_eq!(entry.id, entry_id);
+
+    // 1. With retry_count < 5 and a non-fatal server error (e.g. 500 Internal Server Error),
+    // it should record failure and return Some(SyncStatus::Error), NOT quarantine.
+    entry.retry_count = 4;
+    let non_quarantine_res = SyncWorker::handle_outbox_failure(
+        &conn,
+        &entry,
+        reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+        "Temporary backend 500 error",
+    );
+    assert!(
+        matches!(non_quarantine_res, Some(SyncStatus::Error(ref msg)) if msg.contains("500")),
+        "Expected Some(SyncStatus::Error), got {non_quarantine_res:?}"
+    );
+
+    let q_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM sync_outbox_quarantine", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(
+        q_count, 0,
+        "Entry must not be quarantined with retry_count < 5"
+    );
+
+    let outbox_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sync_outbox WHERE id = ?1",
+            [entry_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(outbox_count, 1, "Entry must remain in outbox");
+
+    // 2. When retry_count >= 5, handle_outbox_failure should quarantine the entry and return None.
+    entry.retry_count = 5;
+    let quarantine_res = SyncWorker::handle_outbox_failure(
+        &conn,
+        &entry,
+        reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+        "Persistent 500 error",
+    );
+    assert!(
+        quarantine_res.is_none(),
+        "Expected None when quarantined, got {quarantine_res:?}"
+    );
+
+    // Verify entry is removed from sync_outbox
+    let outbox_remaining: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sync_outbox WHERE id = ?1",
+            [entry_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        outbox_remaining, 0,
+        "Quarantined entry must be removed from sync_outbox"
+    );
+
+    // Verify entry is stored in sync_outbox_quarantine
+    let (quarantined_id, quarantined_entity_id, last_err): (i64, String, Option<String>) = conn
+        .query_row(
+            "SELECT id, entity_id, last_error FROM sync_outbox_quarantine WHERE id = ?1",
+            [entry_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(quarantined_id, entry_id);
+    assert_eq!(quarantined_entity_id, "persistent-fail-snippet");
+    assert!(
+        last_err
+            .as_deref()
+            .unwrap_or("")
+            .contains("Persistent 500 error"),
+        "Quarantined entry must contain the error message"
+    );
+}
