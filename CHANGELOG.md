@@ -8,9 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
-- **Stats Synchronization Resilience**: Prevent sync failures on cross-device statistics updates by safely parsing remote counters and quarantining unrecoverable items.
-- **Sync Responsiveness**: Synchronize trigger description and tag updates immediately and tune auto-sync poll interval to 60 seconds.
-- **Cloud Sync for Trigger Edits**: Local trigger modifications (content, description, tags, status, and shortcuts) now reliably sync to the cloud.
+- **Cloud Sync Reliability**: Synchronize trigger modifications immediately and recover from outbox failures safely without queue stalls.
 - **Voice Dictation Post-Processing**: Eliminate speech stutters, false starts, and filler words by polishing transcripts into structured paragraphs and lists.
 - **Zero-Configuration Multilingual Voice Dictation**: Automatically detect spoken languages natively without translation or manual configuration.
 - **Voice Gateway Resilience**: Prevent dictation timeouts and failures by automatically retrying dropped serverless connections and falling back safely when text cleanup is empty.
@@ -23,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Complete Keystroke Tracking**: Keys that type multiple characters are now tracked, so later triggers keep matching after unusual key output.
 
 ### Added
-- **Force Trigger Resynchronization**: Re-evaluate and push all untracked triggers to the cloud via the new nite sync --resync flag.
+- **Realtime Cross-Device Synchronization**: Instantly synchronize trigger and setting updates across devices using event-driven push notifications with zero background polling.
 - **Remote Desktop Trigger Support**: Enable word and hotkey expansions across remote desktop sessions (RustDesk, VNC) and on-screen keyboards by filtering only nite's synthetic events.
 - **Voice Speed & Multilingual Restoration**: Pre-warmed HTTPS connections on keypress and automatically restored authentic native scripts for non-Latin languages.
 - **Voice Crash Recovery & Partial Salvage**: Automatically recover interrupted dictations on restart and salvage partial transcripts during network drops.
